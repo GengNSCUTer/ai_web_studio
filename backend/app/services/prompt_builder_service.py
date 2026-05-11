@@ -28,6 +28,7 @@ class ContextPromptBuilder:
         memory_context: str | None,
         context_summary: str | None,
         summary_boundary_message_id: str | None,
+        attachment_context: str | None,
         provider_type: str,
         model_name: str | None = None,
     ) -> PromptBuildResult:
@@ -73,13 +74,18 @@ class ContextPromptBuilder:
             summary_boundary_message_id=summary_boundary_message_id,
         )
 
-        file_context_messages = 0
+        attachment_context_injected = 0
         image_messages = 0
         history_messages = 0
-        for message in messages[start_index:]:
+        recent_messages = [
+            message
+            for message in messages[start_index:]
+            if getattr(message, "role", "") in {"user", "assistant", "system"}
+        ]
+        last_user_message_id = self._find_last_user_message_id(recent_messages)
+
+        for message in recent_messages:
             role = getattr(message, "role", "")
-            if role not in {"user", "assistant", "system"}:
-                continue
             if role == "assistant" and getattr(message, "status", None) == "streaming" and not getattr(
                 message, "content", None
             ):
@@ -87,14 +93,17 @@ class ContextPromptBuilder:
 
             provider_message = self._build_provider_message(message=message, provider_type=provider_type)
             provider_message["_context_layer"] = "recent_history"
-            file_context = self._build_file_context(message)
-            if file_context and provider_message.get("role") == "user":
+            if (
+                attachment_context
+                and provider_message.get("role") == "user"
+                and getattr(message, "id", None) == last_user_message_id
+            ):
                 provider_message = self._append_text_to_provider_message(
                     provider_message,
-                    self._wrap_layer("当前轮附件内容", f"以下是本轮附加文件内容，请结合它回答：\n{file_context}"),
+                    self._wrap_layer("当前轮附件片段", f"以下是按当前问题筛选出的附件片段，请结合它回答：\n{attachment_context}"),
                 )
                 provider_message["_context_layer"] = "recent_history_with_attachment"
-                file_context_messages += 1
+                attachment_context_injected = 1
 
             if self._has_images(provider_message):
                 image_messages += 1
@@ -110,7 +119,7 @@ class ContextPromptBuilder:
                 "prompt_layers": ",".join(layers + (["recent_history"] if history_messages else [])),
                 "prompt_system_layers": len(layers),
                 "prompt_history_messages": history_messages,
-                "prompt_file_context_messages": file_context_messages,
+                "prompt_attachment_context_injected": attachment_context_injected,
                 "prompt_image_messages": image_messages,
             },
         )
@@ -145,22 +154,11 @@ class ContextPromptBuilder:
         return 0
 
     @staticmethod
-    def _build_file_context(message: object) -> str | None:
-        attachments = getattr(message, "attachments", []) or []
-        chunks: list[str] = []
-        for attachment in attachments:
-            if getattr(attachment, "kind", None) != "file":
-                continue
-            parsed_text = (getattr(attachment, "parsed_text", None) or "").strip()
-            if not parsed_text:
-                continue
-            file_name = getattr(attachment, "file_name", "attachment")
-            chunks.append(f"[附件文件: {file_name}]\n{parsed_text}")
-
-        if not chunks:
-            return None
-
-        return "\n\n".join(chunks).strip()
+    def _find_last_user_message_id(messages: list[object]) -> str | None:
+        for message in reversed(messages):
+            if getattr(message, "role", None) == "user":
+                return getattr(message, "id", None)
+        return None
 
     def _build_provider_message(self, *, message: object, provider_type: str) -> dict[str, Any]:
         role = getattr(message, "role", "user")

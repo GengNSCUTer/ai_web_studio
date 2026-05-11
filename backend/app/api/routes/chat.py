@@ -19,6 +19,7 @@ from app.repositories.message_repo import MessageRepository
 from app.repositories.setting_repo import UserSettingRepository
 from app.schemas.conversation import ConversationCreate
 from app.schemas.message import ChatStreamRequest
+from app.services.attachment_context_service import AttachmentContextService
 from app.services.chat_provider_service import ChatProviderService, resolve_provider_base_url
 from app.services.context_governance_service import ContextBudgetPlanner, ContextGovernanceService
 from app.services.conversation_service import ConversationService
@@ -241,6 +242,11 @@ async def _prepare_chat_execution(
             current_user.id,
             max_chars=int(getattr(default_settings, "memory_max_chars", 4000) or 4000),
         )
+    attachment_context_result = AttachmentContextService().build_context(
+        attachments=list(getattr(user_message, "attachments", []) or []),
+        query=payload.content,
+        max_chars=budget.max_attachment_chars,
+    )
 
     async def summarize_with_model(
         *,
@@ -288,6 +294,7 @@ async def _prepare_chat_execution(
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
         summary_boundary_message_id=next_summary_boundary_message_id
         or _clean_optional_str(getattr(conversation, "context_summary_boundary_message_id", None)),
+        attachment_context=attachment_context_result.context_text,
         provider_type=provider_type,
         model_name=resolved_model,
     )
@@ -328,6 +335,7 @@ async def _prepare_chat_execution(
             "memory_injected": int(bool(memory_context)),
             "memory_count": memory_count,
             "memory_chars": memory_chars,
+            **attachment_context_result.diagnostics,
             **prompt_result.diagnostics,
         },
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),

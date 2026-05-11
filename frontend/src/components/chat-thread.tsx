@@ -94,10 +94,18 @@ const THREAD_TEXT = {
     promptLayers: "Prompt 上下文层级",
     promptSystemLayers: "系统前缀层数",
     promptHistoryMessages: "Prompt 历史消息数",
-    promptFileContextMessages: "注入文件消息数",
+    promptAttachmentContextInjected: "附件片段已注入",
     promptImageMessages: "注入图片消息数",
+    attachmentFilesSeen: "本轮附件文件数",
+    attachmentChunksTotal: "附件总片段数",
+    attachmentChunksSelected: "选中附件片段数",
+    attachmentContextChars: "附件片段字符数",
+    attachmentTruncatedChunks: "未注入附件片段数",
+    attachmentTruncatedChars: "未注入附件字符数",
     contextButton: "上下文",
     closeContextPanel: "关闭诊断",
+    contextOverviewTitle: "概览",
+    contextAdvancedTitle: "高级诊断",
     yes: "是",
     no: "否",
   },
@@ -159,10 +167,18 @@ const THREAD_TEXT = {
     promptLayers: "Prompt context layers",
     promptSystemLayers: "System prefix layers",
     promptHistoryMessages: "Prompt history messages",
-    promptFileContextMessages: "File-context messages",
+    promptAttachmentContextInjected: "Attachment context injected",
     promptImageMessages: "Image messages",
+    attachmentFilesSeen: "Attachment files this turn",
+    attachmentChunksTotal: "Attachment chunks total",
+    attachmentChunksSelected: "Attachment chunks selected",
+    attachmentContextChars: "Attachment context chars",
+    attachmentTruncatedChunks: "Attachment chunks skipped",
+    attachmentTruncatedChars: "Attachment chars skipped",
     contextButton: "Context",
     closeContextPanel: "Close diagnostics",
+    contextOverviewTitle: "Overview",
+    contextAdvancedTitle: "Advanced diagnostics",
     yes: "Yes",
     no: "No",
   },
@@ -351,7 +367,7 @@ export function ChatThread({
   const statMap = Object.fromEntries(statEntries);
   const formatBooleanStat = (value: string | undefined) =>
     value === "true" || value === "1" ? text.yes : value === "false" || value === "0" ? text.no : value;
-  const contextStatsCards = [
+  const overviewStatCards = [
     { key: "context_mode", label: text.contextMode, value: statMap.context_mode },
     { key: "model_context_window", label: text.modelContextWindow, value: statMap.model_context_window },
     { key: "total_chars_estimate", label: text.totalCharsEstimate, value: statMap.total_chars_estimate },
@@ -418,6 +434,18 @@ export function ChatThread({
       value: statMap.budget_max_attachment_chars,
     },
     {
+      key: "attachment_chunks_selected",
+      label: text.attachmentChunksSelected,
+      value: statMap.attachment_chunks_selected,
+    },
+    {
+      key: "attachment_context_chars",
+      label: text.attachmentContextChars,
+      value: statMap.attachment_context_chars,
+    },
+  ].filter((item) => typeof item.value === "string" && item.value.trim().length > 0);
+  const advancedStatCards = [
+    {
       key: "prompt_template_version",
       label: text.promptTemplateVersion,
       value: statMap.prompt_template_version,
@@ -448,16 +476,38 @@ export function ChatThread({
       value: statMap.prompt_history_messages,
     },
     {
-      key: "prompt_file_context_messages",
-      label: text.promptFileContextMessages,
-      value: statMap.prompt_file_context_messages,
+      key: "prompt_attachment_context_injected",
+      label: text.promptAttachmentContextInjected,
+      value: formatBooleanStat(statMap.prompt_attachment_context_injected),
     },
     {
       key: "prompt_image_messages",
       label: text.promptImageMessages,
       value: statMap.prompt_image_messages,
     },
+    {
+      key: "attachment_files_seen",
+      label: text.attachmentFilesSeen,
+      value: statMap.attachment_files_seen,
+    },
+    {
+      key: "attachment_chunks_total",
+      label: text.attachmentChunksTotal,
+      value: statMap.attachment_chunks_total,
+    },
+    {
+      key: "attachment_truncated_chunks",
+      label: text.attachmentTruncatedChunks,
+      value: statMap.attachment_truncated_chunks,
+    },
+    {
+      key: "attachment_truncated_chars",
+      label: text.attachmentTruncatedChars,
+      value: statMap.attachment_truncated_chars,
+    },
   ].filter((item) => typeof item.value === "string" && item.value.trim().length > 0);
+  const hasContextDiagnostics =
+    overviewStatCards.length > 0 || advancedStatCards.length > 0 || contextInfo?.notices.length;
 
   const activeConversationId = localConversationId ?? initialConversationId;
   const activeStreamingAssistantMessage = [...threadMessages]
@@ -1173,7 +1223,7 @@ export function ChatThread({
                 >
                   {text.uploadAttachment}
                 </button>
-                {contextInfo && (contextStatsCards.length > 0 || contextInfo.notices.length > 0) ? (
+                {contextInfo && hasContextDiagnostics ? (
                   <div className="relative">
                     <button
                       type="button"
@@ -1184,8 +1234,8 @@ export function ChatThread({
                     </button>
 
                     {isContextPanelOpen ? (
-                      <div className="absolute bottom-[calc(100%+0.75rem)] left-0 z-20 w-[min(92vw,44rem)] rounded-[24px] border border-[rgba(22,34,27,0.12)] bg-[rgba(255,250,242,0.98)] p-4 shadow-[0_24px_80px_rgba(32,45,35,0.16)] backdrop-blur">
-                        <div className="flex items-center justify-between gap-3">
+                      <div className="absolute bottom-[calc(100%+0.75rem)] left-0 z-20 flex max-h-[min(72vh,34rem)] w-[min(92vw,44rem)] flex-col overflow-hidden rounded-[24px] border border-[rgba(22,34,27,0.12)] bg-[rgba(255,250,242,0.98)] shadow-[0_24px_80px_rgba(32,45,35,0.16)] backdrop-blur">
+                        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[rgba(22,34,27,0.08)] px-4 py-3">
                           <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
                             {text.contextPanelTitle}
                           </p>
@@ -1198,36 +1248,66 @@ export function ChatThread({
                           </button>
                         </div>
 
-                        {contextStatsCards.length > 0 ? (
-                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                            {contextStatsCards.map((item) => (
-                              <div
-                                key={item.key}
-                                className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/78 px-3 py-2"
-                              >
-                                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">
-                                  {item.label}
-                                </p>
-                                <p className="mt-1 break-all text-sm font-medium text-[var(--ink-strong)]">
-                                  {item.value}
-                                </p>
+                        <div className="min-h-0 overflow-y-auto p-4">
+                          {overviewStatCards.length > 0 ? (
+                            <div>
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">
+                                {text.contextOverviewTitle}
+                              </p>
+                              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                {overviewStatCards.map((item) => (
+                                  <div
+                                    key={item.key}
+                                    className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/78 px-3 py-2"
+                                  >
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">
+                                      {item.label}
+                                    </p>
+                                    <p className="mt-1 break-all text-sm font-medium text-[var(--ink-strong)]">
+                                      {item.value}
+                                    </p>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {contextInfo.notices.length > 0 ? (
-                          <div className="mt-3 rounded-2xl border border-dashed border-[rgba(22,34,27,0.12)] bg-white/60 px-3 py-2">
-                            <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
-                              {text.contextNoticesTitle}
-                            </p>
-                            <div className="mt-2 flex flex-col gap-1 text-xs leading-5 text-[var(--ink-soft)]">
-                              {contextInfo.notices.map((notice) => (
-                                <span key={notice}>{notice}</span>
-                              ))}
                             </div>
-                          </div>
-                        ) : null}
+                          ) : null}
+
+                          {contextInfo.notices.length > 0 ? (
+                            <div className="mt-3 rounded-2xl border border-dashed border-[rgba(22,34,27,0.12)] bg-white/60 px-3 py-2">
+                              <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
+                                {text.contextNoticesTitle}
+                              </p>
+                              <div className="mt-2 flex flex-col gap-1 text-xs leading-5 text-[var(--ink-soft)]">
+                                {contextInfo.notices.map((notice) => (
+                                  <span key={notice}>{notice}</span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {advancedStatCards.length > 0 ? (
+                            <details className="mt-3 rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/58 px-3 py-2">
+                              <summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
+                                {text.contextAdvancedTitle}
+                              </summary>
+                              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                {advancedStatCards.map((item) => (
+                                  <div
+                                    key={item.key}
+                                    className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/78 px-3 py-2"
+                                  >
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">
+                                      {item.label}
+                                    </p>
+                                    <p className="mt-1 break-all text-sm font-medium text-[var(--ink-strong)]">
+                                      {item.value}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          ) : null}
+                        </div>
                       </div>
                     ) : null}
                   </div>
