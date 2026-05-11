@@ -24,6 +24,7 @@ from app.services.context_governance_service import ContextBudgetPlanner, Contex
 from app.services.conversation_service import ConversationService
 from app.services.memory_service import MemoryService
 from app.services.message_service import MessageService
+from app.services.prompt_builder_service import ContextPromptBuilder
 from app.services.setting_service import SettingService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -49,72 +50,6 @@ class ChatExecutionContext:
     context_summary: str | None
 
 
-def _build_file_context(message: object) -> str | None:
-    attachments = getattr(message, "attachments", []) or []
-    chunks: list[str] = []
-    for attachment in attachments:
-        if getattr(attachment, "kind", None) != "file":
-            continue
-        parsed_text = (getattr(attachment, "parsed_text", None) or "").strip()
-        if not parsed_text:
-            continue
-        file_name = getattr(attachment, "file_name", "attachment")
-        chunks.append(f"[附件文件: {file_name}]\n{parsed_text}")
-
-    if not chunks:
-        return None
-
-    return "\n\n".join(chunks).strip()
-
-
-def _build_history_messages(
-    *,
-    messages: list,
-    system_prompt: str | None,
-    memory_context: str | None,
-    context_summary: str | None,
-    summary_boundary_message_id: str | None,
-    provider_type: str,
-) -> list[dict[str, Any]]:
-    history: list[dict[str, Any]] = []
-    if system_prompt:
-        history.append({"role": "system", "content": system_prompt})
-    if memory_context:
-        history.append({"role": "system", "content": memory_context})
-    if context_summary:
-        history.append(
-            {
-                "role": "system",
-                "content": f"以下是本会话较早历史的压缩摘要，请作为长期上下文参考：\n{context_summary}",
-            }
-        )
-
-    start_index = 0
-    if context_summary and summary_boundary_message_id:
-        for index, message in enumerate(messages):
-            if getattr(message, "id", None) == summary_boundary_message_id:
-                start_index = index + 1
-                break
-
-    for message in messages[start_index:]:
-        if message.role not in {"user", "assistant", "system"}:
-            continue
-        if message.role == "assistant" and message.status == "streaming" and not message.content:
-            continue
-        provider_message = _build_provider_message(message=message, provider_type=provider_type)
-        file_context = _build_file_context(message)
-        if file_context and provider_message.get("role") == "user":
-            provider_message = {
-                **provider_message,
-                "content": (
-                    f"{provider_message.get('content', '')}\n\n"
-                    f"以下是本轮附加文件内容，请结合它回答：\n{file_context}"
-                ).strip(),
-            }
-        history.append(provider_message)
-    return history
-
-
 def _stringify_stats(stats: dict[str, Any]) -> str:
     return ";".join(f"{key}={value}" for key, value in stats.items())
 
@@ -124,65 +59,6 @@ def _encode_context_notices(notices: list[str]) -> str:
         return ""
     payload = json.dumps(notices, ensure_ascii=False).encode("utf-8")
     return base64.b64encode(payload).decode("ascii")
-
-
-def _load_image_base64(storage_path: str) -> str | None:
-    try:
-        binary = Path(storage_path).read_bytes()
-    except OSError:
-        return None
-
-    if not binary:
-        return None
-
-    return base64.b64encode(binary).decode("utf-8")
-
-
-def _build_provider_message(*, message: object, provider_type: str) -> dict[str, Any]:
-    role = getattr(message, "role", "user")
-    content = getattr(message, "content", "")
-    attachments = getattr(message, "attachments", []) or []
-
-    image_payloads: list[tuple[str, str]] = []
-    for attachment in attachments:
-        if getattr(attachment, "kind", None) != "image":
-            continue
-
-        encoded = _load_image_base64(getattr(attachment, "storage_path", ""))
-        if not encoded:
-            continue
-        image_payloads.append((encoded, getattr(attachment, "mime_type", None) or "image/jpeg"))
-
-    if role != "user" or not image_payloads:
-        return {"role": role, "content": content}
-
-    if provider_type == "ollama":
-        return {
-            "role": role,
-            "content": content,
-            "images": [encoded for encoded, _ in image_payloads],
-        }
-
-    if provider_type == "openai-compatible":
-        content_parts: list[dict[str, Any]] = []
-        for encoded, mime_type in image_payloads:
-            content_parts.append(
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{mime_type};base64,{encoded}",
-                        "detail": "high",
-                    },
-                }
-            )
-        if content.strip():
-            content_parts.append({"type": "text", "text": content})
-        return {
-            "role": role,
-            "content": content_parts or [{"type": "text", "text": content}],
-        }
-
-    return {"role": role, "content": content}
 
 
 def _is_supported_text_file(attachment: object) -> bool:
@@ -405,7 +281,7 @@ async def _prepare_chat_execution(
         conversation.context_summary_updated_at = datetime.now(timezone.utc)
         conversation_repo.save(conversation)
 
-    history_messages = _build_history_messages(
+    prompt_result = ContextPromptBuilder().build_chat_messages(
         messages=history_rows,
         system_prompt=_clean_optional_str(conversation.system_prompt) or _clean_optional_str(default_settings.system_prompt),
         memory_context=memory_context,
@@ -413,8 +289,9 @@ async def _prepare_chat_execution(
         summary_boundary_message_id=next_summary_boundary_message_id
         or _clean_optional_str(getattr(conversation, "context_summary_boundary_message_id", None)),
         provider_type=provider_type,
+        model_name=resolved_model,
     )
-    governed_context = governance_service.govern_messages(history_messages)
+    governed_context = governance_service.govern_messages(prompt_result.messages)
 
     return ChatExecutionContext(
         conversation_repo=conversation_repo,
@@ -451,6 +328,7 @@ async def _prepare_chat_execution(
             "memory_injected": int(bool(memory_context)),
             "memory_count": memory_count,
             "memory_chars": memory_chars,
+            **prompt_result.diagnostics,
         },
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
     )

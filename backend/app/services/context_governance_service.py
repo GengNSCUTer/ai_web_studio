@@ -115,10 +115,12 @@ class ContextGovernanceService:
         stats = ContextLayerStats()
         notices: list[str] = []
 
-        history_slice = messages[-self.budget.max_history_messages :]
-        stats.truncated_history_messages = max(0, len(messages) - len(history_slice))
+        system_prefix, history_messages = self._split_system_prefix(messages)
+        history_slice = history_messages[-self.budget.max_history_messages :]
+        stats.truncated_history_messages = max(0, len(history_messages) - len(history_slice))
+        selected_messages = [*system_prefix, *history_slice]
 
-        for message in history_slice:
+        for message in selected_messages:
             estimated = self._estimate_message_chars(message)
             stats.total_chars_estimate += estimated
             if message.get("role") == "system":
@@ -126,9 +128,10 @@ class ContextGovernanceService:
             else:
                 stats.history_chars += estimated
 
-        governed_messages, clipped_chars = self._fit_to_budget(history_slice)
+        governed_messages, clipped_chars = self._fit_to_budget(selected_messages)
         stats.total_chars_estimate = self._estimate_messages_chars(governed_messages)
-        stats.truncated_history_messages += max(0, len(history_slice) - len(governed_messages))
+        governed_history_count = sum(1 for message in governed_messages if message.get("role") != "system")
+        stats.truncated_history_messages += max(0, len(history_slice) - governed_history_count)
 
         summary = None
         summary_triggered = False
@@ -150,6 +153,17 @@ class ContextGovernanceService:
             summary=summary,
             summary_triggered=summary_triggered,
         )
+
+    @staticmethod
+    def _split_system_prefix(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        prefix: list[dict[str, Any]] = []
+        index = 0
+        for message in messages:
+            if message.get("role") != "system":
+                break
+            prefix.append(message)
+            index += 1
+        return prefix, messages[index:]
 
     async def build_incremental_summary(
         self,
