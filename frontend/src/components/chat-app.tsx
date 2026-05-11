@@ -6,6 +6,7 @@ import { ChatThread } from "@/components/chat-thread";
 import type {
   Conversation,
   ContextGovernanceInfo,
+  MemorySuggestion,
   Message,
   ProviderConnectionTestResult,
   ProviderInfo,
@@ -100,6 +101,13 @@ const APP_TEXT = {
     memoryTitle: "记忆标题",
     memoryContent: "记忆内容",
     addMemory: "新增记忆",
+    suggestMemory: "从当前会话提取建议记忆",
+    suggestingMemory: "提取中...",
+    suggestedMemories: "建议记忆",
+    saveSuggestion: "保存",
+    ignoreSuggestion: "忽略",
+    noMemorySuggestions: "当前会话暂未提取到适合长期保存的记忆。",
+    memorySuggestFailed: "建议记忆生成失败：",
     enableMemory: "启用",
     disableMemory: "停用",
     deleteMemory: "删除",
@@ -177,6 +185,13 @@ const APP_TEXT = {
     memoryTitle: "Memory title",
     memoryContent: "Memory content",
     addMemory: "Add memory",
+    suggestMemory: "Suggest from current chat",
+    suggestingMemory: "Suggesting...",
+    suggestedMemories: "Suggested memories",
+    saveSuggestion: "Save",
+    ignoreSuggestion: "Ignore",
+    noMemorySuggestions: "No long-term memory candidates were found in this chat.",
+    memorySuggestFailed: "Suggest memory failed: ",
     enableMemory: "Enable",
     disableMemory: "Disable",
     deleteMemory: "Delete",
@@ -270,6 +285,7 @@ export function ChatApp({
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isTestingProvider, setIsTestingProvider] = useState(false);
+  const [isSuggestingMemory, setIsSuggestingMemory] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("provider");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -281,6 +297,7 @@ export function ChatApp({
     title: "",
     content: "",
   });
+  const [memorySuggestions, setMemorySuggestions] = useState<MemorySuggestion[]>([]);
   const [isPending, startTransition] = useTransition();
   const [openConversationMenuId, setOpenConversationMenuId] = useState<string | null>(null);
   const conversationMenuRef = useRef<HTMLDivElement | null>(null);
@@ -673,6 +690,66 @@ export function ChatApp({
       const message = error instanceof Error ? error.message : text.unknownError;
       setErrorMessage(`${text.memorySaveFailed}${message}`);
     }
+  }
+
+  async function handleSuggestMemories() {
+    if (!selectedConversationId) {
+      return;
+    }
+
+    setIsSuggestingMemory(true);
+    setSettingsMessage(null);
+    setErrorMessage(null);
+    try {
+      const result = await requestJson<{ suggestions: MemorySuggestion[] }>(
+        "/api/backend/memories/suggest",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            conversation_id: selectedConversationId,
+            max_candidates: 5,
+          }),
+        }
+      );
+      setMemorySuggestions(result.suggestions);
+      if (result.suggestions.length === 0) {
+        setSettingsMessage(text.noMemorySuggestions);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.memorySuggestFailed}${message}`);
+    } finally {
+      setIsSuggestingMemory(false);
+    }
+  }
+
+  async function handleSaveMemorySuggestion(suggestion: MemorySuggestion, index: number) {
+    try {
+      await requestJson<UserMemory>("/api/backend/memories", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          memory_type: suggestion.memory_type,
+          title: suggestion.title,
+          content: suggestion.content,
+          is_enabled: true,
+        }),
+      });
+      setMemorySuggestions((current) => current.filter((_, itemIndex) => itemIndex !== index));
+      await loadMemories();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.memorySaveFailed}${message}`);
+    }
+  }
+
+  function handleIgnoreMemorySuggestion(index: number) {
+    setMemorySuggestions((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }
 
   async function handleToggleMemory(memory: UserMemory) {
@@ -1284,7 +1361,15 @@ export function ChatApp({
                             />
                           </label>
 
-                          <div className="mt-3 flex justify-end">
+                          <div className="mt-3 flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleSuggestMemories()}
+                              disabled={!selectedConversationId || isSuggestingMemory}
+                              className="rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+                            >
+                              {isSuggestingMemory ? text.suggestingMemory : text.suggestMemory}
+                            </button>
                             <button
                               type="button"
                               onClick={() => void handleAddMemory()}
@@ -1293,6 +1378,57 @@ export function ChatApp({
                               {text.addMemory}
                             </button>
                           </div>
+
+                          {memorySuggestions.length > 0 ? (
+                            <div className="mt-4 rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/70 p-3">
+                              <p className="text-sm font-semibold text-[var(--ink-strong)]">
+                                {text.suggestedMemories}
+                              </p>
+                              <div className="mt-3 space-y-2">
+                                {memorySuggestions.map((suggestion, index) => (
+                                  <div
+                                    key={`${suggestion.memory_type}-${suggestion.title}-${index}`}
+                                    className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] px-3 py-3"
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <p className="text-sm font-medium text-[var(--ink-strong)]">
+                                          {suggestion.title}
+                                        </p>
+                                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                          {suggestion.memory_type}
+                                        </p>
+                                      </div>
+                                      <div className="flex shrink-0 gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleSaveMemorySuggestion(suggestion, index)}
+                                          className="rounded-full bg-[var(--ink-strong)] px-3 py-1 text-xs text-white"
+                                        >
+                                          {text.saveSuggestion}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleIgnoreMemorySuggestion(index)}
+                                          className="rounded-full border border-[rgba(22,34,27,0.12)] px-3 py-1 text-xs text-[var(--ink-soft)]"
+                                        >
+                                          {text.ignoreSuggestion}
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <p className="mt-2 text-xs leading-5 text-[var(--ink-soft)]">
+                                      {suggestion.content}
+                                    </p>
+                                    {suggestion.reason ? (
+                                      <p className="mt-2 text-[11px] leading-5 text-[var(--ink-muted)]">
+                                        {suggestion.reason}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
 
                           <div className="mt-4 space-y-2">
                             {memories.length > 0 ? (

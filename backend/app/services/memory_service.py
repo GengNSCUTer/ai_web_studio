@@ -1,6 +1,10 @@
+import json
+import re
+from typing import Any
+
 from app.models.user_memory import UserMemory
 from app.repositories.memory_repo import UserMemoryRepository
-from app.schemas.memory import UserMemoryCreate, UserMemoryResponse, UserMemoryUpdate
+from app.schemas.memory import MemorySuggestion, UserMemoryCreate, UserMemoryResponse, UserMemoryUpdate
 
 
 class MemoryService:
@@ -87,3 +91,71 @@ class MemoryService:
 
         context = "以下是用户显式保存的长期记忆，请在不违背当前对话的前提下参考：\n" + "\n".join(chunks)
         return context, len(memories), len(context)
+
+    def build_existing_memory_text(self, user_id: str, *, max_chars: int = 4000) -> str:
+        memories = self.repo.list_by_user(user_id)
+        lines: list[str] = []
+        total = 0
+        for memory in memories:
+            line = f"- [{memory.memory_type}] {memory.title}: {memory.content}"
+            if total + len(line) > max_chars:
+                break
+            lines.append(line)
+            total += len(line)
+        return "\n".join(lines) or "无"
+
+    @classmethod
+    def normalize_suggestions(cls, payload: Any, *, max_candidates: int) -> list[MemorySuggestion]:
+        if not isinstance(payload, list):
+            return []
+
+        suggestions: list[MemorySuggestion] = []
+        seen: set[tuple[str, str]] = set()
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            memory_type = cls.normalize_memory_type(item.get("memory_type"))
+            title = cls.normalize_text(item.get("title"))[:120]
+            content = cls.normalize_text(item.get("content"))
+            reason = cls.normalize_text(item.get("reason"))
+            if not title or not content:
+                continue
+            dedupe_key = (memory_type, content)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            suggestions.append(
+                MemorySuggestion(
+                    memory_type=memory_type,
+                    title=title,
+                    content=content,
+                    reason=reason or None,
+                )
+            )
+            if len(suggestions) >= max_candidates:
+                break
+        return suggestions
+
+    @classmethod
+    def parse_suggestion_json(cls, text: str, *, max_candidates: int) -> list[MemorySuggestion]:
+        normalized = text.strip()
+        if not normalized:
+            return []
+
+        candidates = [normalized]
+        fenced_match = re.search(r"```(?:json)?\s*(.*?)```", normalized, flags=re.DOTALL)
+        if fenced_match:
+            candidates.insert(0, fenced_match.group(1).strip())
+        array_match = re.search(r"\[.*\]", normalized, flags=re.DOTALL)
+        if array_match:
+            candidates.insert(0, array_match.group(0).strip())
+
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            suggestions = cls.normalize_suggestions(parsed, max_candidates=max_candidates)
+            if suggestions:
+                return suggestions
+        return []

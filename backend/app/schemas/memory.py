@@ -29,3 +29,19 @@ class UserMemoryResponse(BaseModel):
     is_enabled: bool
     created_at: datetime
     updated_at: datetime | None = None
+
+
+class MemorySuggestRequest(BaseModel):
+    conversation_id: str = Field(max_length=36)
+    max_candidates: int = Field(default=5, ge=1, le=8)
+
+
+class MemorySuggestion(BaseModel):
+    memory_type: str = Field(max_length=32)
+    title: str = Field(max_length=120)
+    content: str
+    reason: str | None = None
+
+
+class MemorySuggestResponse(BaseModel):
+    suggestions: list[MemorySuggestion]

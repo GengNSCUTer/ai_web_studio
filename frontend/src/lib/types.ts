@@ -80,6 +80,13 @@ export type UserMemory = {
   updated_at: string | null;
 };
 
+export type MemorySuggestion = {
+  memory_type: string;
+  title: string;
+  content: string;
+  reason: string | null;
+};
+
 export type ProviderConnectionTestResult = {
   ok: boolean;
   provider: string;
