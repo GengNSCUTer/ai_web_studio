@@ -78,6 +78,53 @@ class ChatProviderService:
         except httpx.TimeoutException as exc:
             raise RuntimeError("在线模型响应超时，请稍后重试") from exc
 
+    async def complete_chat(
+        self,
+        *,
+        provider_type: str,
+        base_url: str,
+        api_key: str | None,
+        model_name: str,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        top_p: float = 0.9,
+        max_tokens: int | None = None,
+    ) -> str:
+        if provider_type == "ollama":
+            from app.services.ollama_service import OllamaService
+
+            return await OllamaService(base_url=base_url).complete_chat(
+                model_name=model_name,
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+            )
+
+        if provider_type != "openai-compatible":
+            raise ValueError(f"Unsupported provider_type: {provider_type}")
+
+        client = AsyncOpenAI(
+            api_key=api_key or "sk-placeholder",
+            base_url=base_url,
+        )
+        try:
+            response = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                stream=False,
+                extra_body={"enable_thinking": False},
+            )
+        except httpx.TimeoutException as exc:
+            raise RuntimeError("在线模型响应超时，请稍后重试") from exc
+
+        if not response.choices:
+            return ""
+        return (response.choices[0].message.content or "").strip()
+
 
 def resolve_provider_base_url(
     *,

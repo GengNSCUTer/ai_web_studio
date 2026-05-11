@@ -200,7 +200,53 @@ def _clean_optional_str(value: str | None) -> str | None:
     return normalized or None
 
 
-def _prepare_chat_execution(
+def _build_summary_source_text(source_messages: list[object]) -> str:
+    lines: list[str] = []
+    for index, message in enumerate(source_messages, start=1):
+        role = getattr(message, "role", "unknown")
+        content = " ".join((getattr(message, "content", None) or "").split()).strip()
+        if not content:
+            continue
+        lines.append(f"{index}. {role}: {content[:1800]}")
+    return "\n".join(lines).strip()
+
+
+def _build_summary_prompt(
+    *,
+    existing_summary: str | None,
+    source_messages: list[object],
+    max_summary_chars: int,
+) -> list[dict[str, str]]:
+    source_text = _build_summary_source_text(source_messages)
+    existing = (existing_summary or "").strip()
+    target_chars = max(800, min(max_summary_chars, 6000))
+
+    system_prompt = (
+        "你是一个对话上下文压缩器。你的任务是把较早历史压缩成后续问答可用的滚动摘要，"
+        "不要回答用户问题，不要新增不存在的信息。"
+    )
+    user_prompt = f"""请基于已有摘要和新增历史，生成一份可继续用于后续对话的中文滚动摘要。
+
+要求：
+- 保留用户目标、偏好、明确约束、重要事实、已经做过的决定、待办事项。
+- 删除寒暄、重复表达、无关过程和低价值细节。
+- 如果已有摘要与新增历史冲突，以新增历史为准，并在摘要中体现最新状态。
+- 输出使用简洁 Markdown，最多约 {target_chars} 个中文字符。
+- 只输出摘要正文，不要输出解释。
+
+【已有滚动摘要】
+{existing or "无"}
+
+【新增历史】
+{source_text or "无"}
+"""
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+async def _prepare_chat_execution(
     *,
     payload: ChatStreamRequest,
     db: Session,
@@ -305,12 +351,39 @@ def _prepare_chat_execution(
         context_mode=_clean_optional_str(getattr(default_settings, "context_mode", "balanced")) or "balanced",
     )
     governance_service = ContextGovernanceService(budget=budget)
-    next_summary, next_summary_boundary_message_id, summary_refresh_stats = governance_service.build_incremental_summary(
+
+    async def summarize_with_model(
+        *,
+        existing_summary: str | None,
+        source_messages: list[object],
+        max_summary_chars: int,
+    ) -> str | None:
+        summary_model = resolved_model or _clean_optional_str(default_settings.default_model)
+        if not summary_model:
+            return None
+        summary = await ChatProviderService().complete_chat(
+            provider_type=provider_type,
+            base_url=base_url,
+            api_key=_clean_optional_str(getattr(default_settings, "api_key", None)),
+            model_name=summary_model,
+            messages=_build_summary_prompt(
+                existing_summary=existing_summary,
+                source_messages=source_messages,
+                max_summary_chars=max_summary_chars,
+            ),
+            temperature=0.2,
+            top_p=0.9,
+            max_tokens=min(2048, max(512, max_summary_chars // 2)),
+        )
+        return summary[:max_summary_chars].strip() if summary else None
+
+    next_summary, next_summary_boundary_message_id, summary_refresh_stats = await governance_service.build_incremental_summary(
         existing_summary=_clean_optional_str(getattr(conversation, "context_summary", None)),
         summary_boundary_message_id=_clean_optional_str(
             getattr(conversation, "context_summary_boundary_message_id", None)
         ),
         conversation_messages=history_rows,
+        summarizer=summarize_with_model,
     )
     if summary_refresh_stats["summary_refresh_triggered"] and next_summary:
         conversation.context_summary = next_summary
@@ -357,6 +430,8 @@ def _prepare_chat_execution(
             "summary_refresh_triggered": summary_refresh_stats["summary_refresh_triggered"],
             "summary_refresh_source_messages": summary_refresh_stats["summary_refresh_source_messages"],
             "summary_refresh_source_chars": summary_refresh_stats["summary_refresh_source_chars"],
+            "summary_refresh_model_used": summary_refresh_stats["summary_refresh_model_used"],
+            "summary_refresh_fallback_used": summary_refresh_stats["summary_refresh_fallback_used"],
         },
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
     )
@@ -369,7 +444,7 @@ async def chat_text_stream(
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     provider_service = ChatProviderService()
-    context = _prepare_chat_execution(payload=payload, db=db, current_user=current_user)
+    context = await _prepare_chat_execution(payload=payload, db=db, current_user=current_user)
 
     async def text_generator():
         content_parts: list[str] = []

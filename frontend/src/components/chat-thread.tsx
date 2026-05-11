@@ -78,6 +78,8 @@ const THREAD_TEXT = {
     summaryChars: "摘要字符数",
     summaryTriggered: "本轮是否触发摘要刷新",
     summaryRefreshTriggered: "摘要刷新已触发",
+    summaryRefreshModelUsed: "模型摘要已使用",
+    summaryRefreshFallbackUsed: "规则摘要回退",
     summaryRefreshSourceMessages: "摘要刷新源消息数",
     summaryRefreshSourceChars: "摘要刷新源字符数",
     budgetMaxTotalChars: "预算总字符上限",
@@ -129,6 +131,8 @@ const THREAD_TEXT = {
     summaryChars: "Summary chars",
     summaryTriggered: "Summary refresh triggered",
     summaryRefreshTriggered: "Summary refresh happened",
+    summaryRefreshModelUsed: "Model summary used",
+    summaryRefreshFallbackUsed: "Rule fallback used",
     summaryRefreshSourceMessages: "Summary refresh source messages",
     summaryRefreshSourceChars: "Summary refresh source chars",
     budgetMaxTotalChars: "Total char budget",
@@ -321,6 +325,8 @@ export function ChatThread({
   const text = THREAD_TEXT[uiLanguage];
   const statEntries = Object.entries(contextInfo?.stats ?? {});
   const statMap = Object.fromEntries(statEntries);
+  const formatBooleanStat = (value: string | undefined) =>
+    value === "true" || value === "1" ? text.yes : value === "false" || value === "0" ? text.no : value;
   const contextStatsCards = [
     { key: "context_mode", label: text.contextMode, value: statMap.context_mode },
     { key: "model_context_window", label: text.modelContextWindow, value: statMap.model_context_window },
@@ -330,22 +336,22 @@ export function ChatThread({
     {
       key: "summary_triggered",
       label: text.summaryTriggered,
-      value:
-        statMap.summary_triggered === "true"
-          ? text.yes
-          : statMap.summary_triggered === "false"
-            ? text.no
-            : statMap.summary_triggered,
+      value: formatBooleanStat(statMap.summary_triggered),
     },
     {
       key: "summary_refresh_triggered",
       label: text.summaryRefreshTriggered,
-      value:
-        statMap.summary_refresh_triggered === "true"
-          ? text.yes
-          : statMap.summary_refresh_triggered === "false"
-            ? text.no
-            : statMap.summary_refresh_triggered,
+      value: formatBooleanStat(statMap.summary_refresh_triggered),
+    },
+    {
+      key: "summary_refresh_model_used",
+      label: text.summaryRefreshModelUsed,
+      value: formatBooleanStat(statMap.summary_refresh_model_used),
+    },
+    {
+      key: "summary_refresh_fallback_used",
+      label: text.summaryRefreshFallbackUsed,
+      value: formatBooleanStat(statMap.summary_refresh_fallback_used),
     },
     {
       key: "summary_refresh_source_messages",

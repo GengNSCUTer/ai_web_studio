@@ -61,3 +61,50 @@ class OllamaService:
                 raise RuntimeError("无法连接到 Ollama 服务，请检查地址和服务状态") from exc
             except httpx.TimeoutException as exc:
                 raise RuntimeError("Ollama 响应超时，请稍后重试") from exc
+
+    async def complete_chat(
+        self,
+        *,
+        model_name: str,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        top_p: float | None = None,
+        max_tokens: int | None = None,
+    ) -> str:
+        options: dict[str, float | int] = {}
+        if temperature is not None:
+            options["temperature"] = temperature
+        if top_p is not None:
+            options["top_p"] = top_p
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
+
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "stream": False,
+            "think": False,
+            "keep_alive": settings.ollama_keep_alive,
+        }
+        if options:
+            payload["options"] = options
+
+        async with httpx.AsyncClient(timeout=settings.ollama_request_timeout_seconds) as client:
+            try:
+                response = await client.post(
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                )
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code == 404:
+                        raise RuntimeError(f"模型不存在：{model_name}") from exc
+                    raise RuntimeError("Ollama 推理失败，请检查模型服务状态") from exc
+            except httpx.ConnectError as exc:
+                raise RuntimeError("无法连接到 Ollama 服务，请检查地址和服务状态") from exc
+            except httpx.TimeoutException as exc:
+                raise RuntimeError("Ollama 响应超时，请稍后重试") from exc
+
+        data = response.json()
+        return (data.get("message", {}).get("content") or "").strip()

@@ -151,12 +151,13 @@ class ContextGovernanceService:
             summary_triggered=summary_triggered,
         )
 
-    def build_incremental_summary(
+    async def build_incremental_summary(
         self,
         *,
         existing_summary: str | None,
         summary_boundary_message_id: str | None,
         conversation_messages: list[object],
+        summarizer: Any | None = None,
     ) -> tuple[str | None, str | None, dict[str, int]]:
         source_messages = [
             message
@@ -168,6 +169,8 @@ class ContextGovernanceService:
                 "summary_refresh_triggered": 0,
                 "summary_refresh_source_messages": 0,
                 "summary_refresh_source_chars": 0,
+                "summary_refresh_model_used": 0,
+                "summary_refresh_fallback_used": 0,
             }
 
         start_index = 0
@@ -184,6 +187,8 @@ class ContextGovernanceService:
                 "summary_refresh_triggered": 0,
                 "summary_refresh_source_messages": 0,
                 "summary_refresh_source_chars": 0,
+                "summary_refresh_model_used": 0,
+                "summary_refresh_fallback_used": 0,
             }
 
         pending_chars = sum(len((getattr(item, "content", None) or "").strip()) for item in pending_source)
@@ -197,17 +202,38 @@ class ContextGovernanceService:
                 "summary_refresh_triggered": 0,
                 "summary_refresh_source_messages": len(pending_source),
                 "summary_refresh_source_chars": pending_chars,
+                "summary_refresh_model_used": 0,
+                "summary_refresh_fallback_used": 0,
             }
 
-        summary = self._build_structured_summary(
-            existing_summary=existing_summary,
-            source_messages=pending_source,
-        )
+        summary = None
+        model_used = 0
+        fallback_used = 0
+        if summarizer is not None:
+            try:
+                summary = await summarizer(
+                    existing_summary=existing_summary,
+                    source_messages=pending_source,
+                    max_summary_chars=self.budget.max_summary_chars,
+                )
+                model_used = 1 if summary else 0
+            except Exception:
+                summary = None
+
+        if not summary:
+            summary = self._build_structured_summary(
+                existing_summary=existing_summary,
+                source_messages=pending_source,
+            )
+            fallback_used = 1 if summary else 0
+
         boundary_message_id = getattr(pending_source[-1], "id", None)
         return summary, boundary_message_id, {
             "summary_refresh_triggered": 1,
             "summary_refresh_source_messages": len(pending_source),
             "summary_refresh_source_chars": pending_chars,
+            "summary_refresh_model_used": model_used,
+            "summary_refresh_fallback_used": fallback_used,
         }
 
     def _fit_to_budget(self, messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
