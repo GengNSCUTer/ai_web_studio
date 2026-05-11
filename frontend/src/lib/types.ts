@@ -75,6 +75,9 @@ export type UserMemory = {
   title: string;
   content: string;
   source: string;
+  source_conversation_id: string | null;
+  source_message_ids: string | null;
+  confidence: string | null;
   is_enabled: boolean;
   created_at: string;
   updated_at: string | null;
@@ -85,6 +88,13 @@ export type MemorySuggestion = {
   title: string;
   content: string;
   reason: string | null;
+  duplicate_memory_id: string | null;
+  conflict_memory_id: string | null;
+  risk_level: string;
+  risk_reason: string | null;
+  source_conversation_id: string | null;
+  source_message_ids: string | null;
+  confidence: string | null;
 };
 
 export type ProviderConnectionTestResult = {

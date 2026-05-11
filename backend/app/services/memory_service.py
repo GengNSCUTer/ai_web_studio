@@ -1,3 +1,4 @@
+import difflib
 import json
 import re
 from typing import Any
@@ -40,6 +41,9 @@ class MemoryService:
             title=self.normalize_text(payload.title)[:120] or "未命名记忆",
             content=self.normalize_text(payload.content),
             source="manual",
+            source_conversation_id=self.normalize_text(payload.source_conversation_id) or None,
+            source_message_ids=self.normalize_text(payload.source_message_ids) or None,
+            confidence=self.normalize_text(payload.confidence) or None,
             is_enabled=payload.is_enabled,
         )
         saved = self.repo.save(memory)
@@ -60,6 +64,12 @@ class MemoryService:
             memory.content = self.normalize_text(data["content"])
         if "is_enabled" in data and data["is_enabled"] is not None:
             memory.is_enabled = data["is_enabled"]
+        if "source_conversation_id" in data:
+            memory.source_conversation_id = self.normalize_text(data["source_conversation_id"]) or None
+        if "source_message_ids" in data:
+            memory.source_message_ids = self.normalize_text(data["source_message_ids"]) or None
+        if "confidence" in data:
+            memory.confidence = self.normalize_text(data["confidence"]) or None
 
         saved = self.repo.save(memory)
         return UserMemoryResponse.model_validate(saved)
@@ -104,8 +114,66 @@ class MemoryService:
             total += len(line)
         return "\n".join(lines) or "无"
 
+    @staticmethod
+    def _similarity(left: str, right: str) -> float:
+        return difflib.SequenceMatcher(None, left, right).ratio()
+
     @classmethod
-    def normalize_suggestions(cls, payload: Any, *, max_candidates: int) -> list[MemorySuggestion]:
+    def enrich_suggestion_risks(
+        cls,
+        *,
+        suggestions: list[MemorySuggestion],
+        existing_memories: list[UserMemory],
+    ) -> list[MemorySuggestion]:
+        enriched: list[MemorySuggestion] = []
+        for suggestion in suggestions:
+            duplicate_memory_id = None
+            conflict_memory_id = None
+            risk_level = "safe"
+            risk_reason = None
+
+            suggestion_title = cls.normalize_text(suggestion.title).lower()
+            suggestion_content = cls.normalize_text(suggestion.content).lower()
+            for memory in existing_memories:
+                if memory.memory_type != suggestion.memory_type:
+                    continue
+                memory_title = cls.normalize_text(memory.title).lower()
+                memory_content = cls.normalize_text(memory.content).lower()
+                content_similarity = cls._similarity(suggestion_content, memory_content)
+                title_similarity = cls._similarity(suggestion_title, memory_title)
+
+                if content_similarity >= 0.82:
+                    duplicate_memory_id = memory.id
+                    risk_level = "duplicate"
+                    risk_reason = f"与已有记忆“{memory.title}”内容高度相似"
+                    break
+                if title_similarity >= 0.72 and content_similarity <= 0.55:
+                    conflict_memory_id = memory.id
+                    risk_level = "conflict"
+                    risk_reason = f"与已有记忆“{memory.title}”标题相近但内容差异较大"
+                    break
+
+            enriched.append(
+                suggestion.model_copy(
+                    update={
+                        "duplicate_memory_id": duplicate_memory_id,
+                        "conflict_memory_id": conflict_memory_id,
+                        "risk_level": risk_level,
+                        "risk_reason": risk_reason,
+                    }
+                )
+            )
+        return enriched
+
+    @classmethod
+    def normalize_suggestions(
+        cls,
+        payload: Any,
+        *,
+        max_candidates: int,
+        source_conversation_id: str | None = None,
+        source_message_ids: str | None = None,
+    ) -> list[MemorySuggestion]:
         if not isinstance(payload, list):
             return []
 
@@ -130,6 +198,9 @@ class MemoryService:
                     title=title,
                     content=content,
                     reason=reason or None,
+                    source_conversation_id=source_conversation_id,
+                    source_message_ids=source_message_ids,
+                    confidence=cls.normalize_text(item.get("confidence")) or "medium",
                 )
             )
             if len(suggestions) >= max_candidates:
@@ -137,7 +208,14 @@ class MemoryService:
         return suggestions
 
     @classmethod
-    def parse_suggestion_json(cls, text: str, *, max_candidates: int) -> list[MemorySuggestion]:
+    def parse_suggestion_json(
+        cls,
+        text: str,
+        *,
+        max_candidates: int,
+        source_conversation_id: str | None = None,
+        source_message_ids: str | None = None,
+    ) -> list[MemorySuggestion]:
         normalized = text.strip()
         if not normalized:
             return []
@@ -155,7 +233,12 @@ class MemoryService:
                 parsed = json.loads(candidate)
             except json.JSONDecodeError:
                 continue
-            suggestions = cls.normalize_suggestions(parsed, max_candidates=max_candidates)
+            suggestions = cls.normalize_suggestions(
+                parsed,
+                max_candidates=max_candidates,
+                source_conversation_id=source_conversation_id,
+                source_message_ids=source_message_ids,
+            )
             if suggestions:
                 return suggestions
         return []

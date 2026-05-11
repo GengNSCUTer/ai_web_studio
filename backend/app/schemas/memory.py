@@ -8,6 +8,9 @@ class UserMemoryCreate(BaseModel):
     title: str = Field(max_length=120)
     content: str = Field(min_length=1)
     is_enabled: bool = True
+    source_conversation_id: str | None = Field(default=None, max_length=36)
+    source_message_ids: str | None = None
+    confidence: str | None = Field(default=None, max_length=16)
 
 
 class UserMemoryUpdate(BaseModel):
@@ -15,6 +18,9 @@ class UserMemoryUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=120)
     content: str | None = None
     is_enabled: bool | None = None
+    source_conversation_id: str | None = Field(default=None, max_length=36)
+    source_message_ids: str | None = None
+    confidence: str | None = Field(default=None, max_length=16)
 
 
 class UserMemoryResponse(BaseModel):
@@ -26,6 +32,9 @@ class UserMemoryResponse(BaseModel):
     title: str
     content: str
     source: str
+    source_conversation_id: str | None = None
+    source_message_ids: str | None = None
+    confidence: str | None = None
     is_enabled: bool
     created_at: datetime
     updated_at: datetime | None = None
@@ -41,6 +50,13 @@ class MemorySuggestion(BaseModel):
     title: str = Field(max_length=120)
     content: str
     reason: str | None = None
+    duplicate_memory_id: str | None = None
+    conflict_memory_id: str | None = None
+    risk_level: str = "safe"
+    risk_reason: str | None = None
+    source_conversation_id: str | None = None
+    source_message_ids: str | None = None
+    confidence: str | None = None
 
 
 class MemorySuggestResponse(BaseModel):

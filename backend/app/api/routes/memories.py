@@ -34,6 +34,18 @@ def _build_recent_messages_text(messages: list[object], *, max_chars: int = 1200
     return "\n".join(lines).strip()
 
 
+def _build_source_message_ids(messages: list[object]) -> str:
+    ids: list[str] = []
+    for message in messages[-24:]:
+        role = getattr(message, "role", "")
+        if role not in {"user", "assistant"}:
+            continue
+        message_id = getattr(message, "id", None)
+        if message_id:
+            ids.append(str(message_id))
+    return ",".join(ids)
+
+
 def _build_suggestion_prompt(
     *,
     recent_messages_text: str,
@@ -57,7 +69,8 @@ def _build_suggestion_prompt(
 - 不要自动保存，只生成候选。
 - 内容必须是确定、稳定、可复用的信息。
 - 输出必须是 JSON 数组，不要 Markdown，不要解释。
-- 每项字段：memory_type、title、content、reason。
+- 每项字段：memory_type、title、content、reason、confidence。
+- confidence 只能是 high、medium、low。
 
 【已有长期记忆】
 {existing_memory_text}
@@ -102,6 +115,7 @@ async def suggest_memories(
 
     messages = MessageRepository(db).list_by_conversation(conversation.id)
     recent_messages_text = _build_recent_messages_text(messages)
+    source_message_ids = _build_source_message_ids(messages)
     if not recent_messages_text:
         return MemorySuggestResponse(suggestions=[])
 
@@ -131,7 +145,16 @@ async def suggest_memories(
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"生成建议记忆失败：{exc}") from exc
 
-    suggestions = MemoryService.parse_suggestion_json(raw, max_candidates=payload.max_candidates)
+    suggestions = MemoryService.parse_suggestion_json(
+        raw,
+        max_candidates=payload.max_candidates,
+        source_conversation_id=conversation.id,
+        source_message_ids=source_message_ids,
+    )
+    suggestions = memory_service.enrich_suggestion_risks(
+        suggestions=suggestions,
+        existing_memories=UserMemoryRepository(db).list_by_user(current_user.id),
+    )
     return MemorySuggestResponse(suggestions=suggestions)
 
 

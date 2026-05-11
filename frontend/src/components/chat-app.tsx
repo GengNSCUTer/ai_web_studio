@@ -106,6 +106,10 @@ const APP_TEXT = {
     suggestedMemories: "建议记忆",
     saveSuggestion: "保存",
     ignoreSuggestion: "忽略",
+    riskDuplicate: "可能重复",
+    riskConflict: "可能冲突",
+    riskSafe: "建议保存",
+    memoryConfidence: "置信度",
     noMemorySuggestions: "当前会话暂未提取到适合长期保存的记忆。",
     memorySuggestFailed: "建议记忆生成失败：",
     enableMemory: "启用",
@@ -190,6 +194,10 @@ const APP_TEXT = {
     suggestedMemories: "Suggested memories",
     saveSuggestion: "Save",
     ignoreSuggestion: "Ignore",
+    riskDuplicate: "Possible duplicate",
+    riskConflict: "Possible conflict",
+    riskSafe: "Recommended",
+    memoryConfidence: "Confidence",
     noMemorySuggestions: "No long-term memory candidates were found in this chat.",
     memorySuggestFailed: "Suggest memory failed: ",
     enableMemory: "Enable",
@@ -693,11 +701,14 @@ export function ChatApp({
   }
 
   async function handleSuggestMemories() {
-    if (!selectedConversationId) {
+    if (!selectedConversationId || isSuggestingMemory) {
       return;
     }
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 90_000);
     setIsSuggestingMemory(true);
+    setMemorySuggestions([]);
     setSettingsMessage(null);
     setErrorMessage(null);
     try {
@@ -712,6 +723,7 @@ export function ChatApp({
             conversation_id: selectedConversationId,
             max_candidates: 5,
           }),
+          signal: controller.signal,
         }
       );
       setMemorySuggestions(result.suggestions);
@@ -719,9 +731,15 @@ export function ChatApp({
         setSettingsMessage(text.noMemorySuggestions);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : text.unknownError;
+      const message =
+        error instanceof DOMException && error.name === "AbortError"
+          ? "请求超时，请稍后重试或切换更快的模型"
+          : error instanceof Error
+            ? error.message
+            : text.unknownError;
       setErrorMessage(`${text.memorySuggestFailed}${message}`);
     } finally {
+      window.clearTimeout(timeoutId);
       setIsSuggestingMemory(false);
     }
   }
@@ -738,6 +756,9 @@ export function ChatApp({
           title: suggestion.title,
           content: suggestion.content,
           is_enabled: true,
+          source_conversation_id: suggestion.source_conversation_id,
+          source_message_ids: suggestion.source_message_ids,
+          confidence: suggestion.confidence,
         }),
       });
       setMemorySuggestions((current) => current.filter((_, itemIndex) => itemIndex !== index));
@@ -1392,6 +1413,28 @@ export function ChatApp({
                                   >
                                     <div className="flex items-start justify-between gap-3">
                                       <div>
+                                        <div className="mb-2 flex flex-wrap gap-2">
+                                          <span
+                                            className={`rounded-full px-2.5 py-1 text-[11px] ${
+                                              suggestion.risk_level === "duplicate"
+                                                ? "bg-[#fff0cc] text-[#8a5a00]"
+                                                : suggestion.risk_level === "conflict"
+                                                  ? "bg-[#ffe3dd] text-[#9f3a2b]"
+                                                  : "bg-[#e7f3e7] text-[#2f6b3e]"
+                                            }`}
+                                          >
+                                            {suggestion.risk_level === "duplicate"
+                                              ? text.riskDuplicate
+                                              : suggestion.risk_level === "conflict"
+                                                ? text.riskConflict
+                                                : text.riskSafe}
+                                          </span>
+                                          {suggestion.confidence ? (
+                                            <span className="rounded-full bg-white/80 px-2.5 py-1 text-[11px] text-[var(--ink-muted)]">
+                                              {text.memoryConfidence}: {suggestion.confidence}
+                                            </span>
+                                          ) : null}
+                                        </div>
                                         <p className="text-sm font-medium text-[var(--ink-strong)]">
                                           {suggestion.title}
                                         </p>
@@ -1422,6 +1465,11 @@ export function ChatApp({
                                     {suggestion.reason ? (
                                       <p className="mt-2 text-[11px] leading-5 text-[var(--ink-muted)]">
                                         {suggestion.reason}
+                                      </p>
+                                    ) : null}
+                                    {suggestion.risk_reason ? (
+                                      <p className="mt-2 rounded-xl border border-[rgba(22,34,27,0.08)] bg-white/70 px-3 py-2 text-[11px] leading-5 text-[var(--ink-soft)]">
+                                        {suggestion.risk_reason}
                                       </p>
                                     ) : null}
                                   </div>
