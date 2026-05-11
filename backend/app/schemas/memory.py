@@ -33,6 +33,7 @@ class UserMemoryResponse(BaseModel):
     content: str
     source: str
     source_conversation_id: str | None = None
+    source_conversation_title: str | None = None
     source_message_ids: str | None = None
     confidence: str | None = None
     is_enabled: bool

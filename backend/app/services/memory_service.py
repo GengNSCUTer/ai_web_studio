@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from app.models.user_memory import UserMemory
+from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.memory_repo import UserMemoryRepository
 from app.schemas.memory import MemorySuggestion, UserMemoryCreate, UserMemoryResponse, UserMemoryUpdate
 
@@ -17,8 +18,9 @@ class MemoryService:
         "instruction": "长期指令",
     }
 
-    def __init__(self, repo: UserMemoryRepository):
+    def __init__(self, repo: UserMemoryRepository, conversation_repo: ConversationRepository | None = None):
         self.repo = repo
+        self.conversation_repo = conversation_repo
 
     @classmethod
     def normalize_memory_type(cls, value: str | None) -> str:
@@ -31,8 +33,16 @@ class MemoryService:
     def normalize_text(value: str | None) -> str:
         return " ".join((value or "").split()).strip()
 
+    def _memory_response(self, memory: UserMemory, user_id: str) -> UserMemoryResponse:
+        response = UserMemoryResponse.model_validate(memory)
+        if memory.source_conversation_id and self.conversation_repo:
+            conversation = self.conversation_repo.get_by_user(memory.source_conversation_id, user_id)
+            if conversation:
+                response.source_conversation_title = conversation.title
+        return response
+
     def list_memories(self, user_id: str) -> list[UserMemoryResponse]:
-        return [UserMemoryResponse.model_validate(item) for item in self.repo.list_by_user(user_id)]
+        return [self._memory_response(item, user_id) for item in self.repo.list_by_user(user_id)]
 
     def create_memory(self, user_id: str, payload: UserMemoryCreate) -> UserMemoryResponse:
         memory = UserMemory(
@@ -47,7 +57,7 @@ class MemoryService:
             is_enabled=payload.is_enabled,
         )
         saved = self.repo.save(memory)
-        return UserMemoryResponse.model_validate(saved)
+        return self._memory_response(saved, user_id)
 
     def update_memory(
         self,
@@ -72,7 +82,7 @@ class MemoryService:
             memory.confidence = self.normalize_text(data["confidence"]) or None
 
         saved = self.repo.save(memory)
-        return UserMemoryResponse.model_validate(saved)
+        return self._memory_response(saved, memory.user_id)
 
     def build_memory_context(self, user_id: str, *, max_chars: int) -> tuple[str | None, int, int]:
         memories = self.repo.list_by_user(user_id, enabled_only=True)

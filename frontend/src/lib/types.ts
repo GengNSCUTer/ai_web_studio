@@ -76,6 +76,7 @@ export type UserMemory = {
   content: string;
   source: string;
   source_conversation_id: string | null;
+  source_conversation_title: string | null;
   source_message_ids: string | null;
   confidence: string | null;
   is_enabled: boolean;

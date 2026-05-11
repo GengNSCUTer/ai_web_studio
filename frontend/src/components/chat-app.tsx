@@ -110,6 +110,8 @@ const APP_TEXT = {
     riskConflict: "可能冲突",
     riskSafe: "建议保存",
     memoryConfidence: "置信度",
+    memorySource: "来源会话",
+    openMemorySource: "打开来源",
     noMemorySuggestions: "当前会话暂未提取到适合长期保存的记忆。",
     memorySuggestFailed: "建议记忆生成失败：",
     enableMemory: "启用",
@@ -198,6 +200,8 @@ const APP_TEXT = {
     riskConflict: "Possible conflict",
     riskSafe: "Recommended",
     memoryConfidence: "Confidence",
+    memorySource: "Source chat",
+    openMemorySource: "Open source",
     noMemorySuggestions: "No long-term memory candidates were found in this chat.",
     memorySuggestFailed: "Suggest memory failed: ",
     enableMemory: "Enable",
@@ -474,6 +478,11 @@ export function ChatApp({
       const message = error instanceof Error ? error.message : text.unknownError;
       setErrorMessage(`${text.loadMessagesFailed}${message}`);
     }
+  }
+
+  async function handleOpenMemorySource(conversationId: string) {
+    setIsSettingsOpen(false);
+    await handleSelectConversation(conversationId);
   }
 
   function refreshAfterChat(conversationId: string, shouldSelectConversation: boolean) {
@@ -1510,6 +1519,23 @@ export function ChatApp({
                                     </div>
                                   </div>
                                   <p className="mt-2 text-xs leading-5 text-[var(--ink-soft)]">{memory.content}</p>
+                                  {memory.source_conversation_id ? (
+                                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[rgba(22,34,27,0.08)] bg-white/72 px-3 py-2">
+                                      <p className="min-w-0 truncate text-[11px] text-[var(--ink-muted)]">
+                                        {text.memorySource}:{" "}
+                                        <span className="text-[var(--ink-soft)]">
+                                          {memory.source_conversation_title || memory.source_conversation_id}
+                                        </span>
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleOpenMemorySource(memory.source_conversation_id!)}
+                                        className="shrink-0 rounded-full border border-[rgba(22,34,27,0.12)] px-3 py-1 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)]"
+                                      >
+                                        {text.openMemorySource}
+                                      </button>
+                                    </div>
+                                  ) : null}
                                 </div>
                               ))
                             ) : (

@@ -89,7 +89,7 @@ def list_memories(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[UserMemoryResponse]:
-    service = MemoryService(UserMemoryRepository(db))
+    service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
     return service.list_memories(current_user.id)
 
 
@@ -99,7 +99,7 @@ def create_memory(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserMemoryResponse:
-    service = MemoryService(UserMemoryRepository(db))
+    service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
     return service.create_memory(current_user.id, payload)
 
 
@@ -119,7 +119,7 @@ async def suggest_memories(
     if not recent_messages_text:
         return MemorySuggestResponse(suggestions=[])
 
-    memory_service = MemoryService(UserMemoryRepository(db))
+    memory_service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
     settings = SettingService(UserSettingRepository(db)).get_or_create_user_settings(current_user.id)
     provider_type = settings.provider_type or "ollama"
     base_url = resolve_provider_base_url(
@@ -170,7 +170,7 @@ def update_memory(
     if not memory:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
 
-    service = MemoryService(repo)
+    service = MemoryService(repo, ConversationRepository(db))
     return service.update_memory(memory=memory, payload=payload)
 
 
