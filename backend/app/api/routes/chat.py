@@ -14,6 +14,7 @@ from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
+from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.message_repo import MessageRepository
 from app.repositories.setting_repo import UserSettingRepository
 from app.schemas.conversation import ConversationCreate
@@ -21,6 +22,7 @@ from app.schemas.message import ChatStreamRequest
 from app.services.chat_provider_service import ChatProviderService, resolve_provider_base_url
 from app.services.context_governance_service import ContextBudgetPlanner, ContextGovernanceService
 from app.services.conversation_service import ConversationService
+from app.services.memory_service import MemoryService
 from app.services.message_service import MessageService
 from app.services.setting_service import SettingService
 
@@ -69,6 +71,7 @@ def _build_history_messages(
     *,
     messages: list,
     system_prompt: str | None,
+    memory_context: str | None,
     context_summary: str | None,
     summary_boundary_message_id: str | None,
     provider_type: str,
@@ -76,6 +79,8 @@ def _build_history_messages(
     history: list[dict[str, Any]] = []
     if system_prompt:
         history.append({"role": "system", "content": system_prompt})
+    if memory_context:
+        history.append({"role": "system", "content": memory_context})
     if context_summary:
         history.append(
             {
@@ -255,6 +260,7 @@ async def _prepare_chat_execution(
     conversation_repo = ConversationRepository(db)
     message_service = MessageService(MessageRepository(db), AttachmentRepository(db))
     setting_service = SettingService(UserSettingRepository(db))
+    memory_service = MemoryService(UserMemoryRepository(db))
 
     default_settings = setting_service.get_or_create_user_settings(current_user.id)
 
@@ -351,6 +357,14 @@ async def _prepare_chat_execution(
         context_mode=_clean_optional_str(getattr(default_settings, "context_mode", "balanced")) or "balanced",
     )
     governance_service = ContextGovernanceService(budget=budget)
+    memory_context = None
+    memory_count = 0
+    memory_chars = 0
+    if getattr(default_settings, "memory_enabled", True):
+        memory_context, memory_count, memory_chars = memory_service.build_memory_context(
+            current_user.id,
+            max_chars=int(getattr(default_settings, "memory_max_chars", 4000) or 4000),
+        )
 
     async def summarize_with_model(
         *,
@@ -394,6 +408,7 @@ async def _prepare_chat_execution(
     history_messages = _build_history_messages(
         messages=history_rows,
         system_prompt=_clean_optional_str(conversation.system_prompt) or _clean_optional_str(default_settings.system_prompt),
+        memory_context=memory_context,
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
         summary_boundary_message_id=next_summary_boundary_message_id
         or _clean_optional_str(getattr(conversation, "context_summary_boundary_message_id", None)),
@@ -432,6 +447,10 @@ async def _prepare_chat_execution(
             "summary_refresh_source_chars": summary_refresh_stats["summary_refresh_source_chars"],
             "summary_refresh_model_used": summary_refresh_stats["summary_refresh_model_used"],
             "summary_refresh_fallback_used": summary_refresh_stats["summary_refresh_fallback_used"],
+            "memory_enabled": int(bool(getattr(default_settings, "memory_enabled", True))),
+            "memory_injected": int(bool(memory_context)),
+            "memory_count": memory_count,
+            "memory_chars": memory_chars,
         },
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
     )

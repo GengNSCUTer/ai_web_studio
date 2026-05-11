@@ -62,7 +62,21 @@ export type UserSettings = {
   system_prompt: string | null;
   model_context_window: number;
   context_mode: string;
+  memory_enabled: boolean;
+  memory_max_chars: number;
   ui_language: string;
+  updated_at: string | null;
+};
+
+export type UserMemory = {
+  id: string;
+  user_id: string;
+  memory_type: string;
+  title: string;
+  content: string;
+  source: string;
+  is_enabled: boolean;
+  created_at: string;
   updated_at: string | null;
 };
 

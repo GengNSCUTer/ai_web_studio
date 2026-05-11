@@ -13,6 +13,8 @@ class SettingService:
     DEFAULT_OPENAI_CONTEXT_WINDOW = 128000
     DEFAULT_OLLAMA_CONTEXT_WINDOW = 100000
     DEFAULT_UI_LANGUAGE = "zh-CN"
+    DEFAULT_MEMORY_ENABLED = True
+    DEFAULT_MEMORY_MAX_CHARS = 4000
 
     def __init__(self, repo: UserSettingRepository):
         self.repo = repo
@@ -64,6 +66,8 @@ class SettingService:
                 system_prompt=None,
                 model_context_window=self.DEFAULT_OPENAI_CONTEXT_WINDOW,
                 context_mode=self.DEFAULT_CONTEXT_MODE,
+                memory_enabled=self.DEFAULT_MEMORY_ENABLED,
+                memory_max_chars=self.DEFAULT_MEMORY_MAX_CHARS,
                 ui_language=self.DEFAULT_UI_LANGUAGE,
             )
             setting = self.repo.save(setting)
@@ -90,6 +94,12 @@ class SettingService:
                 should_save = True
             if not getattr(setting, "ui_language", None):
                 setting.ui_language = self.DEFAULT_UI_LANGUAGE
+                should_save = True
+            if getattr(setting, "memory_enabled", None) is None:
+                setting.memory_enabled = self.DEFAULT_MEMORY_ENABLED
+                should_save = True
+            if not getattr(setting, "memory_max_chars", None):
+                setting.memory_max_chars = self.DEFAULT_MEMORY_MAX_CHARS
                 should_save = True
             if getattr(setting, "context_mode", None):
                 normalized_mode = self.normalize_context_mode(setting.context_mode)
@@ -123,6 +133,8 @@ class SettingService:
                 system_prompt=None,
                 model_context_window=self.DEFAULT_OPENAI_CONTEXT_WINDOW,
                 context_mode=self.DEFAULT_CONTEXT_MODE,
+                memory_enabled=self.DEFAULT_MEMORY_ENABLED,
+                memory_max_chars=self.DEFAULT_MEMORY_MAX_CHARS,
                 ui_language=self.DEFAULT_UI_LANGUAGE,
             )
 
@@ -142,6 +154,11 @@ class SettingService:
         )
         if not getattr(setting, "ui_language", None):
             setting.ui_language = self.DEFAULT_UI_LANGUAGE
+        if getattr(setting, "memory_enabled", None) is None:
+            setting.memory_enabled = self.DEFAULT_MEMORY_ENABLED
+        if not getattr(setting, "memory_max_chars", None):
+            setting.memory_max_chars = self.DEFAULT_MEMORY_MAX_CHARS
+        setting.memory_max_chars = max(500, min(int(setting.memory_max_chars), 20000))
 
         saved = self.repo.save(setting)
         return UserSettingResponse.model_validate(saved)

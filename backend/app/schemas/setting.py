@@ -18,6 +18,8 @@ class UserSettingResponse(BaseModel):
     system_prompt: str | None = None
     model_context_window: int
     context_mode: str
+    memory_enabled: bool
+    memory_max_chars: int
     ui_language: str
     updated_at: datetime | None = None
 
@@ -33,6 +35,8 @@ class UserSettingUpdate(BaseModel):
     system_prompt: str | None = None
     model_context_window: int | None = None
     context_mode: str | None = Field(default=None, max_length=32)
+    memory_enabled: bool | None = None
+    memory_max_chars: int | None = None
     ui_language: str | None = Field(default=None, max_length=16)
 
 

@@ -23,6 +23,8 @@ class UserSetting(Base):
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_context_window: Mapped[int] = mapped_column(Integer, default=128000)
     context_mode: Mapped[str] = mapped_column(String(32), default="balanced")
+    memory_enabled: Mapped[bool] = mapped_column(default=True)
+    memory_max_chars: Mapped[int] = mapped_column(Integer, default=4000)
     ui_language: Mapped[str] = mapped_column(String(16), default="zh-CN")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

@@ -10,6 +10,7 @@ import type {
   ProviderConnectionTestResult,
   ProviderInfo,
   User,
+  UserMemory,
   UserSettings,
 } from "@/lib/types";
 
@@ -22,6 +23,7 @@ type ChatAppProps = {
 };
 
 type UILanguage = "zh-CN" | "en-US";
+type SettingsTab = "provider" | "generation" | "context" | "memory" | "system";
 
 const PROVIDER_PRESETS = {
   ollama: {
@@ -62,6 +64,11 @@ const APP_TEXT = {
     testProviderFailed: "测试失败：",
     settingsTag: "用户设置",
     settingsTitle: "模型与会话设置",
+    settingsTabProvider: "模型服务",
+    settingsTabGeneration: "生成参数",
+    settingsTabContext: "上下文",
+    settingsTabMemory: "长期记忆",
+    settingsTabSystem: "系统提示",
     close: "关闭",
     provider: "Provider",
     defaultModel: "默认模型",
@@ -81,6 +88,24 @@ const APP_TEXT = {
     contextModeConservative: "保守",
     contextModeBalanced: "平衡",
     contextModeLong: "长上下文",
+    longTermMemory: "长期记忆",
+    memoryEnabled: "启用长期记忆",
+    memoryMaxChars: "长期记忆字符预算",
+    memoryHint: "长期记忆会跨会话注入上下文，请只保存稳定偏好、项目背景、重要事实和长期指令。",
+    memoryType: "记忆类型",
+    memoryTypeProfile: "用户偏好",
+    memoryTypeProject: "项目背景",
+    memoryTypeFact: "重要事实",
+    memoryTypeInstruction: "长期指令",
+    memoryTitle: "记忆标题",
+    memoryContent: "记忆内容",
+    addMemory: "新增记忆",
+    enableMemory: "启用",
+    disableMemory: "停用",
+    deleteMemory: "删除",
+    memoryEmpty: "还没有长期记忆。",
+    memorySaveFailed: "记忆保存失败：",
+    memoryDeleteFailed: "记忆删除失败：",
     systemPrompt: "System Prompt",
     resetDefaults: "恢复默认值",
     cancel: "取消",
@@ -115,6 +140,11 @@ const APP_TEXT = {
     testProviderFailed: "Connection test failed: ",
     settingsTag: "User Settings",
     settingsTitle: "Model and Session Settings",
+    settingsTabProvider: "Provider",
+    settingsTabGeneration: "Generation",
+    settingsTabContext: "Context",
+    settingsTabMemory: "Memory",
+    settingsTabSystem: "System Prompt",
     close: "Close",
     provider: "Provider",
     defaultModel: "Default model",
@@ -135,6 +165,24 @@ const APP_TEXT = {
     contextModeConservative: "Conservative",
     contextModeBalanced: "Balanced",
     contextModeLong: "Long context",
+    longTermMemory: "Long-term memory",
+    memoryEnabled: "Enable long-term memory",
+    memoryMaxChars: "Memory char budget",
+    memoryHint: "Long-term memory is injected across chats. Save only stable preferences, project background, important facts, and long-lived instructions.",
+    memoryType: "Memory type",
+    memoryTypeProfile: "Profile",
+    memoryTypeProject: "Project",
+    memoryTypeFact: "Fact",
+    memoryTypeInstruction: "Instruction",
+    memoryTitle: "Memory title",
+    memoryContent: "Memory content",
+    addMemory: "Add memory",
+    enableMemory: "Enable",
+    disableMemory: "Disable",
+    deleteMemory: "Delete",
+    memoryEmpty: "No long-term memory yet.",
+    memorySaveFailed: "Save memory failed: ",
+    memoryDeleteFailed: "Delete memory failed: ",
     systemPrompt: "System Prompt",
     resetDefaults: "Reset defaults",
     cancel: "Cancel",
@@ -148,6 +196,14 @@ function buildProviderPreset(providerType: string) {
   return (
     PROVIDER_PRESETS[providerType as keyof typeof PROVIDER_PRESETS] ?? PROVIDER_PRESETS.ollama
   );
+}
+
+function normalizeUserSettings(settings: UserSettings): UserSettings {
+  return {
+    ...settings,
+    memory_enabled: settings.memory_enabled ?? true,
+    memory_max_chars: settings.memory_max_chars || 4000,
+  };
 }
 
 function formatTime(value: string | null, uiLanguage: UILanguage) {
@@ -204,7 +260,9 @@ export function ChatApp({
   );
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(initialProviderInfo);
-  const [userSettings, setUserSettings] = useState<UserSettings | null>(initialSettings);
+  const [userSettings, setUserSettings] = useState<UserSettings | null>(
+    initialSettings ? normalizeUserSettings(initialSettings) : null
+  );
   const [contextInfo, setContextInfo] = useState<ContextGovernanceInfo | null>(null);
   const [selectedModel, setSelectedModel] = useState(
     initialSettings?.default_model ?? initialProviderInfo?.default_model ?? ""
@@ -213,14 +271,28 @@ export function ChatApp({
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isTestingProvider, setIsTestingProvider] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("provider");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsModels, setSettingsModels] = useState<string[]>(initialProviderInfo?.models ?? []);
+  const [memories, setMemories] = useState<UserMemory[]>([]);
+  const [memoryDraft, setMemoryDraft] = useState({
+    memory_type: "fact",
+    title: "",
+    content: "",
+  });
   const [isPending, startTransition] = useTransition();
   const [openConversationMenuId, setOpenConversationMenuId] = useState<string | null>(null);
   const conversationMenuRef = useRef<HTMLDivElement | null>(null);
   const uiLanguage: UILanguage = userSettings?.ui_language === "en-US" ? "en-US" : "zh-CN";
   const text = APP_TEXT[uiLanguage];
+  const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
+    { id: "provider", label: text.settingsTabProvider },
+    { id: "generation", label: text.settingsTabGeneration },
+    { id: "context", label: text.settingsTabContext },
+    { id: "memory", label: text.settingsTabMemory },
+    { id: "system", label: text.settingsTabSystem },
+  ];
 
   const availableModels = providerInfo?.models ?? [];
   const modelOptions = availableModels.includes(selectedModel)
@@ -267,6 +339,13 @@ export function ChatApp({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+    void loadMemories().catch(() => undefined);
+  }, [currentUser]);
+
   function resetSettingsToDefaults() {
     if (!userSettings) {
       return;
@@ -287,6 +366,8 @@ export function ChatApp({
             system_prompt: null,
             model_context_window: current.provider_type === "ollama" ? 100000 : 128000,
             context_mode: "balanced",
+            memory_enabled: current.memory_enabled ?? true,
+            memory_max_chars: current.memory_max_chars || 4000,
             ui_language: current.ui_language || "zh-CN",
           }
         : current
@@ -336,7 +417,14 @@ export function ChatApp({
 
   async function loadSettings() {
     const data = await requestJson<UserSettings>("/api/backend/settings");
-    setUserSettings(data);
+    const normalized = normalizeUserSettings(data);
+    setUserSettings(normalized);
+    return normalized;
+  }
+
+  async function loadMemories() {
+    const data = await requestJson<UserMemory[]>("/api/backend/memories");
+    setMemories(data);
     return data;
   }
 
@@ -454,7 +542,7 @@ export function ChatApp({
     setSettingsMessage(null);
 
     try {
-      const saved = await requestJson<UserSettings>("/api/backend/settings", {
+      const savedRaw = await requestJson<UserSettings>("/api/backend/settings", {
         method: "PATCH",
         headers: {
           "content-type": "application/json",
@@ -470,9 +558,12 @@ export function ChatApp({
           system_prompt: userSettings.system_prompt,
           model_context_window: userSettings.model_context_window,
           context_mode: userSettings.context_mode,
+          memory_enabled: userSettings.memory_enabled,
+          memory_max_chars: userSettings.memory_max_chars,
           ui_language: userSettings.ui_language,
         }),
       });
+      const saved = normalizeUserSettings(savedRaw);
       setUserSettings(saved);
       setSelectedModel(saved.default_model);
       setProviderInfo((current) => ({
@@ -553,6 +644,64 @@ export function ChatApp({
       setSettingsMessage(`${text.testProviderFailed}${message}`);
     } finally {
       setIsTestingProvider(false);
+    }
+  }
+
+  async function handleAddMemory() {
+    const title = memoryDraft.title.trim();
+    const content = memoryDraft.content.trim();
+    if (!title || !content) {
+      return;
+    }
+
+    try {
+      await requestJson<UserMemory>("/api/backend/memories", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          memory_type: memoryDraft.memory_type,
+          title,
+          content,
+          is_enabled: true,
+        }),
+      });
+      setMemoryDraft({ memory_type: "fact", title: "", content: "" });
+      await loadMemories();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.memorySaveFailed}${message}`);
+    }
+  }
+
+  async function handleToggleMemory(memory: UserMemory) {
+    try {
+      await requestJson<UserMemory>(`/api/backend/memories/${memory.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          is_enabled: !memory.is_enabled,
+        }),
+      });
+      await loadMemories();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.memorySaveFailed}${message}`);
+    }
+  }
+
+  async function handleDeleteMemory(memoryId: string) {
+    try {
+      await requestVoid(`/api/backend/memories/${memoryId}`, {
+        method: "DELETE",
+      });
+      await loadMemories();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.memoryDeleteFailed}${message}`);
     }
   }
 
@@ -749,7 +898,7 @@ export function ChatApp({
             <div className="absolute inset-0 z-20 flex items-start justify-end rounded-[32px] bg-[rgba(24,35,29,0.18)] p-4 backdrop-blur-sm">
               <form
                 onSubmit={handleSaveSettings}
-                className="flex max-h-[calc(100vh-4rem)] w-full max-w-lg flex-col overflow-hidden rounded-[28px] border border-white/75 bg-[rgba(255,250,242,0.98)] shadow-[0_28px_90px_rgba(16,31,24,0.16)]"
+                className="flex max-h-[calc(100vh-4rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-white/75 bg-[rgba(255,250,242,0.98)] shadow-[0_28px_90px_rgba(16,31,24,0.16)]"
               >
                 <div className="flex shrink-0 items-center justify-between border-b border-[rgba(22,34,27,0.08)] px-5 py-4">
                   <div className="pr-4">
@@ -767,268 +916,448 @@ export function ChatApp({
                   </button>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-                  <div className="space-y-4">
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.provider}</span>
-                    <select
-                      value={userSettings.provider_type}
-                      onChange={(event) => applyProviderPreset(event.target.value)}
-                      className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                    >
-                      <option value="ollama">ollama</option>
-                      <option value="openai-compatible">openai-compatible</option>
-                    </select>
-                  </label>
-
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.defaultModel}</span>
-                    {settingsModelOptions.length > 0 ? (
-                      <select
-                        value={userSettings.default_model}
-                        onChange={(event) =>
-                          setUserSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  default_model: event.target.value,
-                                }
-                              : current
-                          )
-                        }
-                        className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                      >
-                        {Array.from(new Set(settingsModelOptions)).map((model) => (
-                          <option key={model} value={model}>
-                            {model}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        value={userSettings.default_model}
-                        onChange={(event) =>
-                          setUserSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  default_model: event.target.value,
-                                }
-                              : current
-                          )
-                        }
-                        className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                      />
-                    )}
-                  </label>
-
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.baseUrl}</span>
-                    <input
-                      value={userSettings.ollama_base_url}
-                      onChange={(event) =>
-                        setUserSettings((current) =>
-                          current
-                            ? {
-                                ...current,
-                                ollama_base_url: event.target.value,
-                              }
-                            : current
-                        )
-                      }
-                      className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                    />
-                  </label>
-
-                  {userSettings.provider_type === "openai-compatible" ? (
-                    <label className="block text-sm">
-                      <span className="mb-2 block text-[var(--ink-soft)]">{text.apiKey}</span>
-                      <input
-                        type="password"
-                        value={userSettings.api_key ?? ""}
-                        onChange={(event) =>
-                          setUserSettings((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  api_key: event.target.value,
-                                }
-                              : current
-                          )
-                        }
-                        className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                      />
-                    </label>
-                  ) : null}
-
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.uiLanguage}</span>
-                    <select
-                      value={userSettings.ui_language}
-                      onChange={(event) =>
-                        setUserSettings((current) =>
-                          current
-                            ? {
-                                ...current,
-                                ui_language: event.target.value,
-                              }
-                            : current
-                        )
-                      }
-                      className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                    >
-                      <option value="zh-CN">{text.chinese}</option>
-                      <option value="en-US">{text.english}</option>
-                    </select>
-                  </label>
-
-                  <div className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm text-[var(--ink-soft)]">
-                        {text.providerHint}
-                      </p>
+                <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden sm:grid-cols-[12rem_1fr]">
+                  <nav className="flex gap-2 overflow-x-auto border-b border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] p-3 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r">
+                    {settingsTabs.map((tab) => (
                       <button
+                        key={tab.id}
                         type="button"
-                        onClick={() => void handleTestProviderConnection()}
-                        disabled={isTestingProvider}
-                        className="shrink-0 rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+                        onClick={() => setActiveSettingsTab(tab.id)}
+                        className={`whitespace-nowrap rounded-2xl px-4 py-2 text-left text-sm transition ${
+                          activeSettingsTab === tab.id
+                            ? "bg-[var(--ink-strong)] text-white shadow-[0_12px_30px_rgba(16,31,24,0.16)]"
+                            : "bg-white/64 text-[var(--ink-soft)] hover:bg-white"
+                        }`}
                       >
-                        {isTestingProvider ? text.testing : text.testConnection}
+                        {tab.label}
                       </button>
+                    ))}
+                  </nav>
+
+                  <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+                    <div className="space-y-4">
+                      {activeSettingsTab === "provider" ? (
+                        <>
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.provider}</span>
+                            <select
+                              value={userSettings.provider_type}
+                              onChange={(event) => applyProviderPreset(event.target.value)}
+                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            >
+                              <option value="ollama">ollama</option>
+                              <option value="openai-compatible">openai-compatible</option>
+                            </select>
+                          </label>
+
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.defaultModel}</span>
+                            {settingsModelOptions.length > 0 ? (
+                              <select
+                                value={userSettings.default_model}
+                                onChange={(event) =>
+                                  setUserSettings((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          default_model: event.target.value,
+                                        }
+                                      : current
+                                  )
+                                }
+                                className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                              >
+                                {Array.from(new Set(settingsModelOptions)).map((model) => (
+                                  <option key={model} value={model}>
+                                    {model}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                value={userSettings.default_model}
+                                onChange={(event) =>
+                                  setUserSettings((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          default_model: event.target.value,
+                                        }
+                                      : current
+                                  )
+                                }
+                                className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                              />
+                            )}
+                          </label>
+
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.baseUrl}</span>
+                            <input
+                              value={userSettings.ollama_base_url}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        ollama_base_url: event.target.value,
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            />
+                          </label>
+
+                          {userSettings.provider_type === "openai-compatible" ? (
+                            <label className="block text-sm">
+                              <span className="mb-2 block text-[var(--ink-soft)]">{text.apiKey}</span>
+                              <input
+                                type="password"
+                                value={userSettings.api_key ?? ""}
+                                onChange={(event) =>
+                                  setUserSettings((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          api_key: event.target.value,
+                                        }
+                                      : current
+                                  )
+                                }
+                                className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                              />
+                            </label>
+                          ) : null}
+
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.uiLanguage}</span>
+                            <select
+                              value={userSettings.ui_language}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        ui_language: event.target.value,
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            >
+                              <option value="zh-CN">{text.chinese}</option>
+                              <option value="en-US">{text.english}</option>
+                            </select>
+                          </label>
+
+                          <div className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] px-4 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm text-[var(--ink-soft)]">{text.providerHint}</p>
+                              <button
+                                type="button"
+                                onClick={() => void handleTestProviderConnection()}
+                                disabled={isTestingProvider}
+                                className="shrink-0 rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+                              >
+                                {isTestingProvider ? text.testing : text.testConnection}
+                              </button>
+                            </div>
+                            {settingsMessage ? (
+                              <p className="mt-3 text-sm text-[var(--ink-soft)]">{settingsMessage}</p>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : null}
+
+                      {activeSettingsTab === "generation" ? (
+                        <>
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.temperature}</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="2"
+                              step="0.1"
+                              value={userSettings.temperature}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        temperature: Number(event.target.value),
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            />
+                          </label>
+
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.topP}</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              value={userSettings.top_p}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        top_p: Number(event.target.value),
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            />
+                          </label>
+
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.maxTokens}</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={userSettings.max_tokens ?? ""}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        max_tokens: event.target.value
+                                          ? Number(event.target.value)
+                                          : null,
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            />
+                          </label>
+                        </>
+                      ) : null}
+
+                      {activeSettingsTab === "context" ? (
+                        <>
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.modelContextWindow}</span>
+                            <input
+                              type="number"
+                              min="8192"
+                              step="1024"
+                              value={userSettings.model_context_window}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        model_context_window: Number(event.target.value),
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            />
+                          </label>
+
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.contextMode}</span>
+                            <select
+                              value={userSettings.context_mode}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        context_mode: event.target.value,
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            >
+                              <option value="conservative">{text.contextModeConservative}</option>
+                              <option value="balanced">{text.contextModeBalanced}</option>
+                              <option value="long-context">{text.contextModeLong}</option>
+                            </select>
+                          </label>
+                        </>
+                      ) : null}
+
+                      {activeSettingsTab === "memory" ? (
+                        <div className="rounded-[24px] border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-[var(--ink-strong)]">{text.longTermMemory}</p>
+                              <p className="mt-1 text-xs leading-5 text-[var(--ink-soft)]">{text.memoryHint}</p>
+                            </div>
+                            <label className="flex shrink-0 items-center gap-2 text-xs text-[var(--ink-soft)]">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(userSettings.memory_enabled)}
+                                onChange={(event) =>
+                                  setUserSettings((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          memory_enabled: event.target.checked,
+                                        }
+                                      : current
+                                  )
+                                }
+                              />
+                              {text.memoryEnabled}
+                            </label>
+                          </div>
+
+                          <label className="mt-4 block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.memoryMaxChars}</span>
+                            <input
+                              type="number"
+                              min="500"
+                              max="20000"
+                              step="500"
+                              value={userSettings.memory_max_chars ?? 4000}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        memory_max_chars: Number(event.target.value),
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            />
+                          </label>
+
+                          <div className="mt-4 grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
+                            <label className="block text-sm">
+                              <span className="mb-2 block text-[var(--ink-soft)]">{text.memoryType}</span>
+                              <select
+                                value={memoryDraft.memory_type}
+                                onChange={(event) =>
+                                  setMemoryDraft((current) => ({
+                                    ...current,
+                                    memory_type: event.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                              >
+                                <option value="profile">{text.memoryTypeProfile}</option>
+                                <option value="project">{text.memoryTypeProject}</option>
+                                <option value="fact">{text.memoryTypeFact}</option>
+                                <option value="instruction">{text.memoryTypeInstruction}</option>
+                              </select>
+                            </label>
+                            <label className="block text-sm">
+                              <span className="mb-2 block text-[var(--ink-soft)]">{text.memoryTitle}</span>
+                              <input
+                                value={memoryDraft.title}
+                                onChange={(event) =>
+                                  setMemoryDraft((current) => ({
+                                    ...current,
+                                    title: event.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                              />
+                            </label>
+                          </div>
+
+                          <label className="mt-3 block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.memoryContent}</span>
+                            <textarea
+                              value={memoryDraft.content}
+                              onChange={(event) =>
+                                setMemoryDraft((current) => ({
+                                  ...current,
+                                  content: event.target.value,
+                                }))
+                              }
+                              className="min-h-[92px] w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            />
+                          </label>
+
+                          <div className="mt-3 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => void handleAddMemory()}
+                              className="rounded-full bg-[var(--ink-strong)] px-4 py-2 text-sm text-white transition hover:opacity-90"
+                            >
+                              {text.addMemory}
+                            </button>
+                          </div>
+
+                          <div className="mt-4 space-y-2">
+                            {memories.length > 0 ? (
+                              memories.map((memory) => (
+                                <div
+                                  key={memory.id}
+                                  className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/76 px-3 py-3"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-medium text-[var(--ink-strong)]">{memory.title}</p>
+                                      <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                        {memory.memory_type} · {memory.is_enabled ? text.enableMemory : text.disableMemory}
+                                      </p>
+                                    </div>
+                                    <div className="flex shrink-0 gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleToggleMemory(memory)}
+                                        className="rounded-full border border-[rgba(22,34,27,0.12)] px-3 py-1 text-xs text-[var(--ink-soft)]"
+                                      >
+                                        {memory.is_enabled ? text.disableMemory : text.enableMemory}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDeleteMemory(memory.id)}
+                                        className="rounded-full border border-[rgba(174,65,45,0.22)] px-3 py-1 text-xs text-[#9f3a2b]"
+                                      >
+                                        {text.deleteMemory}
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <p className="mt-2 text-xs leading-5 text-[var(--ink-soft)]">{memory.content}</p>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="rounded-2xl border border-dashed border-[rgba(22,34,27,0.12)] bg-white/60 px-3 py-3 text-xs text-[var(--ink-soft)]">
+                                {text.memoryEmpty}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {activeSettingsTab === "system" ? (
+                        <label className="block text-sm">
+                          <span className="mb-2 block text-[var(--ink-soft)]">{text.systemPrompt}</span>
+                          <textarea
+                            value={userSettings.system_prompt ?? ""}
+                            onChange={(event) =>
+                              setUserSettings((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      system_prompt: event.target.value,
+                                    }
+                                  : current
+                              )
+                            }
+                            className="min-h-[260px] w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                          />
+                        </label>
+                      ) : null}
                     </div>
-                    {settingsMessage ? (
-                      <p className="mt-3 text-sm text-[var(--ink-soft)]">{settingsMessage}</p>
-                    ) : null}
                   </div>
-
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.temperature}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      value={userSettings.temperature}
-                      onChange={(event) =>
-                        setUserSettings((current) =>
-                          current
-                            ? {
-                                ...current,
-                                temperature: Number(event.target.value),
-                              }
-                            : current
-                        )
-                      }
-                      className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                    />
-                  </label>
-
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.topP}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={userSettings.top_p}
-                      onChange={(event) =>
-                        setUserSettings((current) =>
-                          current
-                            ? {
-                                ...current,
-                                top_p: Number(event.target.value),
-                              }
-                            : current
-                        )
-                      }
-                      className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                    />
-                  </label>
-
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.maxTokens}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={userSettings.max_tokens ?? ""}
-                      onChange={(event) =>
-                        setUserSettings((current) =>
-                          current
-                            ? {
-                                ...current,
-                                max_tokens: event.target.value
-                                  ? Number(event.target.value)
-                                  : null,
-                              }
-                            : current
-                        )
-                      }
-                      className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                    />
-                  </label>
-
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.modelContextWindow}</span>
-                    <input
-                      type="number"
-                      min="8192"
-                      step="1024"
-                      value={userSettings.model_context_window}
-                      onChange={(event) =>
-                        setUserSettings((current) =>
-                          current
-                            ? {
-                                ...current,
-                                model_context_window: Number(event.target.value),
-                              }
-                            : current
-                        )
-                      }
-                      className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                    />
-                  </label>
-
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.contextMode}</span>
-                    <select
-                      value={userSettings.context_mode}
-                      onChange={(event) =>
-                        setUserSettings((current) =>
-                          current
-                            ? {
-                                ...current,
-                                context_mode: event.target.value,
-                              }
-                            : current
-                        )
-                      }
-                      className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                    >
-                      <option value="conservative">{text.contextModeConservative}</option>
-                      <option value="balanced">{text.contextModeBalanced}</option>
-                      <option value="long-context">{text.contextModeLong}</option>
-                    </select>
-                  </label>
-
-                  <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.systemPrompt}</span>
-                    <textarea
-                      value={userSettings.system_prompt ?? ""}
-                      onChange={(event) =>
-                        setUserSettings((current) =>
-                          current
-                            ? {
-                                ...current,
-                                system_prompt: event.target.value,
-                              }
-                            : current
-                        )
-                      }
-                      className="min-h-[160px] w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                    />
-                  </label>
-                </div>
                 </div>
 
                 <div className="flex shrink-0 items-center justify-end gap-3 border-t border-[rgba(22,34,27,0.08)] px-5 py-4">
