@@ -12,9 +12,24 @@ export type Conversation = {
   user_id?: string | null;
 };
 
+export type ContextAttachmentChunk = {
+  attachment_id: string | null;
+  file_name: string;
+  index: number;
+  score: number;
+  char_count: number;
+  preview: string;
+  expanded_preview: string;
+};
+
+export type ContextDiagnosticDetails = {
+  attachment_chunks?: ContextAttachmentChunk[];
+};
+
 export type ContextGovernanceInfo = {
   notices: string[];
   stats: Record<string, string>;
+  details?: ContextDiagnosticDetails | null;
 };
 
 export type Message = {

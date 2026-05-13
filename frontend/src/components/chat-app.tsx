@@ -290,7 +290,9 @@ export function ChatApp({
   const [userSettings, setUserSettings] = useState<UserSettings | null>(
     initialSettings ? normalizeUserSettings(initialSettings) : null
   );
-  const [contextInfo, setContextInfo] = useState<ContextGovernanceInfo | null>(null);
+  const [contextInfoByConversationId, setContextInfoByConversationId] = useState<
+    Record<string, ContextGovernanceInfo>
+  >({});
   const [selectedModel, setSelectedModel] = useState(
     initialSettings?.default_model ?? initialProviderInfo?.default_model ?? ""
   );
@@ -436,7 +438,6 @@ export function ChatApp({
   async function handleConversationMessagesChanged(conversationId: string | null) {
     if (!conversationId) {
       setMessages([]);
-      setContextInfo(null);
       return;
     }
 
@@ -460,7 +461,6 @@ export function ChatApp({
   function handleNewConversation() {
     setSelectedConversationId(null);
     setMessages([]);
-    setContextInfo(null);
     setErrorMessage(null);
     setOpenConversationMenuId(null);
   }
@@ -468,7 +468,6 @@ export function ChatApp({
   async function handleSelectConversation(conversationId: string) {
     setSelectedConversationId(conversationId);
     setMessages([]);
-    setContextInfo(null);
     setErrorMessage(null);
     setOpenConversationMenuId(null);
 
@@ -559,6 +558,14 @@ export function ChatApp({
         setSelectedConversationId(null);
         setMessages([]);
       }
+      setContextInfoByConversationId((current) => {
+        if (!(conversationId in current)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[conversationId];
+        return next;
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : text.unknownError;
       setErrorMessage(`${text.deleteConversationFailed}${message}`);
@@ -815,9 +822,37 @@ export function ChatApp({
   const activeConversationTitle = selectedConversationId
     ? conversations.find((item) => item.id === selectedConversationId)?.title ?? text.currentConversation
     : text.newConversation;
+  const contextInfo = selectedConversationId
+    ? contextInfoByConversationId[selectedConversationId] ?? null
+    : null;
   const threadKey = `${selectedConversationId ?? "draft"}:${
     messages[messages.length - 1]?.id ?? "empty"
   }:${messages.length}`;
+
+  function handleContextInfoChange(
+    info: ContextGovernanceInfo | null,
+    conversationId = selectedConversationId
+  ) {
+    if (!conversationId) {
+      return;
+    }
+
+    setContextInfoByConversationId((current) => {
+      if (!info) {
+        if (!(conversationId in current)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[conversationId];
+        return next;
+      }
+
+      return {
+        ...current,
+        [conversationId]: info,
+      };
+    });
+  }
 
   return (
     <main className="h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(64,145,108,0.22),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(240,196,25,0.18),_transparent_28%),linear-gradient(180deg,_#f8f4ea_0%,_#f1ecde_100%)] px-3 py-3 text-[var(--ink-strong)] sm:px-4 lg:px-5">
@@ -996,7 +1031,7 @@ export function ChatApp({
             systemPrompt={userSettings?.system_prompt ?? null}
             contextInfo={contextInfo}
             uiLanguage={uiLanguage}
-            onContextInfoChange={setContextInfo}
+            onContextInfoChange={handleContextInfoChange}
             onChatSettled={refreshAfterChat}
             onConversationMessagesChanged={handleConversationMessagesChanged}
           />

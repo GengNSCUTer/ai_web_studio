@@ -10,6 +10,7 @@ from typing import Any
 class PromptBuildResult:
     messages: list[dict[str, Any]]
     diagnostics: dict[str, Any] = field(default_factory=dict)
+    stable_prefix_messages: list[dict[str, Any]] = field(default_factory=list)
 
 
 class ContextPromptBuilder:
@@ -74,6 +75,8 @@ class ContextPromptBuilder:
             summary_boundary_message_id=summary_boundary_message_id,
         )
 
+        stable_prefix_messages = [self._strip_internal_fields(message) for message in prompt_messages]
+
         attachment_context_injected = 0
         image_messages = 0
         history_messages = 0
@@ -122,6 +125,7 @@ class ContextPromptBuilder:
                 "prompt_attachment_context_injected": attachment_context_injected,
                 "prompt_image_messages": image_messages,
             },
+            stable_prefix_messages=stable_prefix_messages,
         )
 
     def _build_system_instruction(self, system_prompt: str | None) -> str:

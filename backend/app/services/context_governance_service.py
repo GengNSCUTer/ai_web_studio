@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.tokenizer_service import TokenizerEstimator
+
 
 @dataclass
 class ContextLayerStats:
@@ -14,6 +16,7 @@ class ContextLayerStats:
     truncated_history_messages: int = 0
     truncated_attachment_chars: int = 0
     total_chars_estimate: int = 0
+    total_tokens_estimate: int = 0
 
 
 @dataclass
@@ -31,6 +34,10 @@ class ContextBudgetConfig:
     model_context_window: int
     context_mode: str
     max_history_messages: int
+    max_total_tokens: int
+    max_attachment_tokens: int
+    max_image_equiv_tokens: int
+    max_summary_tokens: int
     max_total_chars: int
     max_attachment_chars: int
     max_image_equiv_chars: int
@@ -84,9 +91,13 @@ class ContextBudgetPlanner:
 
         # 当前仍然是字符级治理，这里用保守估算把 token 预算映射到字符预算。
         estimated_chars = input_token_budget * 2
+        max_total_tokens = max(4096, int(input_token_budget * cls.MODE_CHAR_RATIOS[normalized_mode]))
         max_total_chars = max(16000, int(estimated_chars * cls.MODE_CHAR_RATIOS[normalized_mode]))
+        max_attachment_tokens = max(1000, int(max_total_tokens * cls.MODE_ATTACHMENT_RATIOS[normalized_mode]))
         max_attachment_chars = max(4000, int(max_total_chars * cls.MODE_ATTACHMENT_RATIOS[normalized_mode]))
+        max_summary_tokens = max(600, int(max_total_tokens * cls.MODE_SUMMARY_RATIOS[normalized_mode]))
         max_summary_chars = max(2000, int(max_total_chars * cls.MODE_SUMMARY_RATIOS[normalized_mode]))
+        max_image_equiv_tokens = max(300, min(1800, int(max_total_tokens * 0.08)))
         max_image_equiv_chars = max(1200, min(6000, int(max_total_chars * 0.08)))
         max_history_messages = cls.MODE_HISTORY_LIMITS[normalized_mode]
 
@@ -94,6 +105,10 @@ class ContextBudgetPlanner:
             model_context_window=bounded_window,
             context_mode=normalized_mode,
             max_history_messages=max_history_messages,
+            max_total_tokens=max_total_tokens,
+            max_attachment_tokens=max_attachment_tokens,
+            max_image_equiv_tokens=max_image_equiv_tokens,
+            max_summary_tokens=max_summary_tokens,
             max_total_chars=max_total_chars,
             max_attachment_chars=max_attachment_chars,
             max_image_equiv_chars=max_image_equiv_chars,
@@ -102,11 +117,12 @@ class ContextBudgetPlanner:
 
 
 class ContextGovernanceService:
-    def __init__(self, budget: ContextBudgetConfig | None = None):
+    def __init__(self, budget: ContextBudgetConfig | None = None, tokenizer: TokenizerEstimator | None = None):
         self.budget = budget or ContextBudgetPlanner.build(
             model_context_window=128000,
             context_mode="balanced",
         )
+        self.tokenizer = tokenizer
 
     def govern_messages(
         self,
@@ -127,9 +143,11 @@ class ContextGovernanceService:
                 stats.system_chars += estimated
             else:
                 stats.history_chars += estimated
+        stats.total_tokens_estimate = self._estimate_messages_tokens(selected_messages)
 
         governed_messages, clipped_chars = self._fit_to_budget(selected_messages)
         stats.total_chars_estimate = self._estimate_messages_chars(governed_messages)
+        stats.total_tokens_estimate = self._estimate_messages_tokens(governed_messages)
         governed_history_count = sum(1 for message in governed_messages if message.get("role") != "system")
         stats.truncated_history_messages += max(0, len(history_slice) - governed_history_count)
 
@@ -183,6 +201,7 @@ class ContextGovernanceService:
                 "summary_refresh_triggered": 0,
                 "summary_refresh_source_messages": 0,
                 "summary_refresh_source_chars": 0,
+                "summary_refresh_source_tokens": 0,
                 "summary_refresh_model_used": 0,
                 "summary_refresh_fallback_used": 0,
             }
@@ -201,11 +220,13 @@ class ContextGovernanceService:
                 "summary_refresh_triggered": 0,
                 "summary_refresh_source_messages": 0,
                 "summary_refresh_source_chars": 0,
+                "summary_refresh_source_tokens": 0,
                 "summary_refresh_model_used": 0,
                 "summary_refresh_fallback_used": 0,
             }
 
         pending_chars = sum(len((getattr(item, "content", None) or "").strip()) for item in pending_source)
+        pending_tokens = self._estimate_object_messages_tokens(pending_source)
         should_refresh = (
             existing_summary is None
             or len(pending_source) >= ContextBudgetPlanner.SUMMARY_REFRESH_MIN_MESSAGES
@@ -216,6 +237,7 @@ class ContextGovernanceService:
                 "summary_refresh_triggered": 0,
                 "summary_refresh_source_messages": len(pending_source),
                 "summary_refresh_source_chars": pending_chars,
+                "summary_refresh_source_tokens": pending_tokens,
                 "summary_refresh_model_used": 0,
                 "summary_refresh_fallback_used": 0,
             }
@@ -246,6 +268,7 @@ class ContextGovernanceService:
             "summary_refresh_triggered": 1,
             "summary_refresh_source_messages": len(pending_source),
             "summary_refresh_source_chars": pending_chars,
+            "summary_refresh_source_tokens": pending_tokens,
             "summary_refresh_model_used": model_used,
             "summary_refresh_fallback_used": fallback_used,
         }
@@ -254,7 +277,7 @@ class ContextGovernanceService:
         current = list(messages)
         clipped_chars = 0
 
-        while self._estimate_messages_chars(current) > self.budget.max_total_chars and len(current) > 2:
+        while self._exceeds_budget(current) and len(current) > 2:
             removable_index = self._find_removable_history_index(current)
             if removable_index is None:
                 break
@@ -262,17 +285,21 @@ class ContextGovernanceService:
             removed = current.pop(removable_index)
             clipped_chars += self._estimate_message_chars(removed)
 
-        if self._estimate_messages_chars(current) > self.budget.max_total_chars and current:
+        if self._exceeds_budget(current) and current:
             # 最后兜底：截断最后一条用户消息
             last_message = current[-1]
             if last_message.get("role") == "user":
-                content = self._message_text(last_message)
-                allowed = max(0, self.budget.max_total_chars - self._estimate_messages_chars(current[:-1]))
-                truncated = content[:allowed]
-                clipped_chars += max(0, len(content) - len(truncated))
-                current[-1] = {**last_message, "content": truncated}
+                current[-1], clipped_delta = self._truncate_user_message_to_fit(last_message, current[:-1])
+                clipped_chars += clipped_delta
 
         return current, clipped_chars
+
+    def _exceeds_budget(self, messages: list[dict[str, Any]]) -> bool:
+        if self._estimate_messages_chars(messages) > self.budget.max_total_chars:
+            return True
+        if self._estimate_messages_tokens(messages) > self.budget.max_total_tokens:
+            return True
+        return False
 
     @staticmethod
     def _find_removable_history_index(messages: list[dict[str, Any]]) -> int | None:
@@ -331,6 +358,85 @@ class ContextGovernanceService:
 
     def _estimate_messages_chars(self, messages: list[dict[str, Any]]) -> int:
         return sum(self._estimate_message_chars(message) for message in messages)
+
+    def _estimate_message_tokens(self, message: dict[str, Any]) -> int:
+        if not self.tokenizer:
+            content_chars = self._estimate_message_chars(message)
+            return max(1, content_chars // 2)
+        return self.tokenizer.estimate_message_tokens(
+            message,
+            image_equiv_tokens=self.budget.max_image_equiv_tokens,
+        )
+
+    def _estimate_messages_tokens(self, messages: list[dict[str, Any]]) -> int:
+        if not self.tokenizer:
+            return max(1, self._estimate_messages_chars(messages) // 2)
+        return self.tokenizer.estimate_messages_tokens(
+            messages,
+            image_equiv_tokens=self.budget.max_image_equiv_tokens,
+        )
+
+    def _estimate_object_messages_tokens(self, messages: list[object]) -> int:
+        if not messages:
+            return 0
+        normalized_messages = [
+            {
+                "role": getattr(message, "role", "user"),
+                "content": getattr(message, "content", "") or "",
+            }
+            for message in messages
+        ]
+        return self._estimate_messages_tokens(normalized_messages)
+
+    def _truncate_user_message_to_fit(
+        self,
+        message: dict[str, Any],
+        prefix_messages: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], int]:
+        content = message.get("content")
+        flat_text = self._message_text(message)
+        if not flat_text:
+            return message, 0
+
+        low = 0
+        high = len(flat_text)
+        best = ""
+        while low <= high:
+            mid = (low + high) // 2
+            candidate_message = self._replace_user_text_content(message, content, flat_text[:mid])
+            if self._exceeds_budget([*prefix_messages, candidate_message]):
+                high = mid - 1
+            else:
+                best = flat_text[:mid]
+                low = mid + 1
+
+        clipped_chars = max(0, len(flat_text) - len(best))
+        return self._replace_user_text_content(message, content, best), clipped_chars
+
+    @staticmethod
+    def _replace_user_text_content(
+        message: dict[str, Any],
+        original_content: Any,
+        replacement_text: str,
+    ) -> dict[str, Any]:
+        if isinstance(original_content, str):
+            return {**message, "content": replacement_text}
+        if isinstance(original_content, list):
+            rebuilt_content: list[dict[str, Any]] = []
+            text_replaced = False
+            for part in original_content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "image_url":
+                    rebuilt_content.append(part)
+                    continue
+                if part.get("type") == "text" and not text_replaced:
+                    rebuilt_content.append({"type": "text", "text": replacement_text})
+                    text_replaced = True
+            if not text_replaced:
+                rebuilt_content.append({"type": "text", "text": replacement_text})
+            return {**message, "content": rebuilt_content}
+        return {**message, "content": replacement_text}
 
     def _build_summary(self, *, source_messages: list[dict[str, Any]], clipped_chars: int) -> str | None:
         lines: list[str] = []

@@ -4,7 +4,7 @@
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { MessageMarkdown } from "@/components/message-markdown";
-import type { ContextGovernanceInfo, Message, UploadItem } from "@/lib/types";
+import type { ContextAttachmentChunk, ContextGovernanceInfo, Message, UploadItem } from "@/lib/types";
 
 type UILanguage = "zh-CN" | "en-US";
 
@@ -16,7 +16,10 @@ type ChatThreadProps = {
   systemPrompt: string | null;
   contextInfo: ContextGovernanceInfo | null;
   uiLanguage: UILanguage;
-  onContextInfoChange: (info: ContextGovernanceInfo | null) => void;
+  onContextInfoChange: (
+    info: ContextGovernanceInfo | null,
+    conversationId?: string | null
+  ) => void;
   onChatSettled: (conversationId: string, shouldSelectConversation: boolean) => void;
   onConversationMessagesChanged: (conversationId: string | null) => Promise<void>;
 };
@@ -100,8 +103,25 @@ const THREAD_TEXT = {
     attachmentChunksTotal: "附件总片段数",
     attachmentChunksSelected: "选中附件片段数",
     attachmentContextChars: "附件片段字符数",
+    attachmentContextTokens: "附件片段 Token 数",
     attachmentTruncatedChunks: "未注入附件片段数",
     attachmentTruncatedChars: "未注入附件字符数",
+    totalTokensEstimate: "本轮估算 Token 数",
+    budgetMaxTotalTokens: "预算总 Token 上限",
+    budgetMaxAttachmentTokens: "附件 Token 上限",
+    tokenizerEncoding: "Tokenizer 编码",
+    summaryTokens: "摘要 Token 数",
+    summaryRefreshSourceTokens: "摘要源 Token 数",
+    summaryCompressionRatio: "摘要压缩比",
+    promptPrefixHash: "稳定前缀 Hash",
+    promptPrefixTokens: "稳定前缀 Token 数",
+    promptTotalTokens: "Prompt 总 Token 数",
+    promptRecentHistoryTokens: "最近历史 Token 数",
+    promptPrefixReusedLastTurn: "稳定前缀复用",
+    attachmentPreviewTitle: "已选附件片段",
+    attachmentPreviewExpand: "展开",
+    attachmentPreviewCollapse: "收起",
+    attachmentPreviewMeta: "片段",
     contextButton: "上下文",
     closeContextPanel: "关闭诊断",
     contextOverviewTitle: "概览",
@@ -173,8 +193,25 @@ const THREAD_TEXT = {
     attachmentChunksTotal: "Attachment chunks total",
     attachmentChunksSelected: "Attachment chunks selected",
     attachmentContextChars: "Attachment context chars",
+    attachmentContextTokens: "Attachment context tokens",
     attachmentTruncatedChunks: "Attachment chunks skipped",
     attachmentTruncatedChars: "Attachment chars skipped",
+    totalTokensEstimate: "Estimated tokens this turn",
+    budgetMaxTotalTokens: "Total token budget",
+    budgetMaxAttachmentTokens: "Attachment token budget",
+    tokenizerEncoding: "Tokenizer encoding",
+    summaryTokens: "Summary tokens",
+    summaryRefreshSourceTokens: "Summary source tokens",
+    summaryCompressionRatio: "Summary compression ratio",
+    promptPrefixHash: "Stable prefix hash",
+    promptPrefixTokens: "Stable prefix tokens",
+    promptTotalTokens: "Prompt total tokens",
+    promptRecentHistoryTokens: "Recent history tokens",
+    promptPrefixReusedLastTurn: "Stable prefix reused",
+    attachmentPreviewTitle: "Selected attachment chunks",
+    attachmentPreviewExpand: "Expand",
+    attachmentPreviewCollapse: "Collapse",
+    attachmentPreviewMeta: "Chunk",
     contextButton: "Context",
     closeContextPanel: "Close diagnostics",
     contextOverviewTitle: "Overview",
@@ -224,6 +261,24 @@ function parseContextNoticesHeader(value: string | null): string[] {
     .split("|")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseContextDetailsHeader(
+  value: string | null
+): { attachment_chunks?: ContextAttachmentChunk[] } | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const decoded = atob(value);
+    const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+    const text = new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(text) as { attachment_chunks?: ContextAttachmentChunk[] };
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function formatFileSize(size: number) {
@@ -348,6 +403,7 @@ export function ChatThread({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [isDeletingMessages, setIsDeletingMessages] = useState(false);
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
+  const [expandedChunkKeys, setExpandedChunkKeys] = useState<string[]>([]);
   const [localConversationId, setLocalConversationId] = useState<string | null>(initialConversationId);
   const [streamingStartedAt, setStreamingStartedAt] = useState<number | null>(null);
   const [streamingElapsedSeconds, setStreamingElapsedSeconds] = useState(0);
@@ -365,14 +421,17 @@ export function ChatThread({
   const text = THREAD_TEXT[uiLanguage];
   const statEntries = Object.entries(contextInfo?.stats ?? {});
   const statMap = Object.fromEntries(statEntries);
+  const attachmentChunkDetails = contextInfo?.details?.attachment_chunks ?? [];
   const formatBooleanStat = (value: string | undefined) =>
     value === "true" || value === "1" ? text.yes : value === "false" || value === "0" ? text.no : value;
   const overviewStatCards = [
     { key: "context_mode", label: text.contextMode, value: statMap.context_mode },
     { key: "model_context_window", label: text.modelContextWindow, value: statMap.model_context_window },
     { key: "total_chars_estimate", label: text.totalCharsEstimate, value: statMap.total_chars_estimate },
+    { key: "total_tokens_estimate", label: text.totalTokensEstimate, value: statMap.total_tokens_estimate },
     { key: "truncated_history_messages", label: text.truncatedHistoryMessages, value: statMap.truncated_history_messages },
     { key: "summary_chars", label: text.summaryChars, value: statMap.summary_chars },
+    { key: "summary_tokens", label: text.summaryTokens, value: statMap.summary_tokens },
     {
       key: "summary_triggered",
       label: text.summaryTriggered,
@@ -429,9 +488,19 @@ export function ChatThread({
       value: statMap.budget_max_total_chars,
     },
     {
+      key: "budget_max_total_tokens",
+      label: text.budgetMaxTotalTokens,
+      value: statMap.budget_max_total_tokens,
+    },
+    {
       key: "budget_max_attachment_chars",
       label: text.budgetMaxAttachmentChars,
       value: statMap.budget_max_attachment_chars,
+    },
+    {
+      key: "budget_max_attachment_tokens",
+      label: text.budgetMaxAttachmentTokens,
+      value: statMap.budget_max_attachment_tokens,
     },
     {
       key: "attachment_chunks_selected",
@@ -442,6 +511,11 @@ export function ChatThread({
       key: "attachment_context_chars",
       label: text.attachmentContextChars,
       value: statMap.attachment_context_chars,
+    },
+    {
+      key: "attachment_context_tokens",
+      label: text.attachmentContextTokens,
+      value: statMap.attachment_context_tokens,
     },
   ].filter((item) => typeof item.value === "string" && item.value.trim().length > 0);
   const advancedStatCards = [
@@ -481,9 +555,39 @@ export function ChatThread({
       value: formatBooleanStat(statMap.prompt_attachment_context_injected),
     },
     {
+      key: "prompt_prefix_hash",
+      label: text.promptPrefixHash,
+      value: statMap.prompt_prefix_hash,
+    },
+    {
+      key: "prompt_prefix_tokens",
+      label: text.promptPrefixTokens,
+      value: statMap.prompt_prefix_tokens,
+    },
+    {
+      key: "prompt_total_tokens",
+      label: text.promptTotalTokens,
+      value: statMap.prompt_total_tokens,
+    },
+    {
+      key: "prompt_recent_history_tokens",
+      label: text.promptRecentHistoryTokens,
+      value: statMap.prompt_recent_history_tokens,
+    },
+    {
+      key: "prompt_prefix_reused_last_turn",
+      label: text.promptPrefixReusedLastTurn,
+      value: formatBooleanStat(statMap.prompt_prefix_reused_last_turn),
+    },
+    {
       key: "prompt_image_messages",
       label: text.promptImageMessages,
       value: statMap.prompt_image_messages,
+    },
+    {
+      key: "tokenizer_encoding",
+      label: text.tokenizerEncoding,
+      value: statMap.tokenizer_encoding,
     },
     {
       key: "attachment_files_seen",
@@ -505,9 +609,22 @@ export function ChatThread({
       label: text.attachmentTruncatedChars,
       value: statMap.attachment_truncated_chars,
     },
+    {
+      key: "summary_refresh_source_tokens",
+      label: text.summaryRefreshSourceTokens,
+      value: statMap.summary_refresh_source_tokens,
+    },
+    {
+      key: "summary_compression_ratio",
+      label: text.summaryCompressionRatio,
+      value: statMap.summary_compression_ratio,
+    },
   ].filter((item) => typeof item.value === "string" && item.value.trim().length > 0);
   const hasContextDiagnostics =
-    overviewStatCards.length > 0 || advancedStatCards.length > 0 || contextInfo?.notices.length;
+    overviewStatCards.length > 0 ||
+    advancedStatCards.length > 0 ||
+    attachmentChunkDetails.length > 0 ||
+    contextInfo?.notices.length;
 
   const activeConversationId = localConversationId ?? initialConversationId;
   const activeStreamingAssistantMessage = [...threadMessages]
@@ -705,6 +822,12 @@ export function ChatThread({
     setSelectedMessageIds([]);
   }
 
+  function toggleAttachmentChunk(chunkKey: string) {
+    setExpandedChunkKeys((current) =>
+      current.includes(chunkKey) ? current.filter((key) => key !== chunkKey) : [...current, chunkKey]
+    );
+  }
+
   function toggleSelectAllMessages() {
     if (selectedMessageIds.length === threadMessages.length) {
       setSelectedMessageIds([]);
@@ -758,8 +881,9 @@ export function ChatThread({
     setStreamingElapsedSeconds(0);
     setComposer("");
     setUploadedItems([]);
+    setExpandedChunkKeys([]);
     setIsGenerating(true);
-    onContextInfoChange(null);
+    onContextInfoChange(null, requestConversationId);
 
     setThreadMessages((current) => [
       ...current,
@@ -809,11 +933,21 @@ export function ChatThread({
         signal: controller.signal,
       });
 
-      onContextInfoChange({
-        notices: parseContextNoticesHeader(response.headers.get("x-context-notices")),
-        stats: parseContextStatsHeader(response.headers.get("x-context-stats")),
-      });
-      if (!response.headers.get("x-context-stats") && !response.headers.get("x-context-notices")) {
+      const responseConversationId =
+        response.headers.get("x-conversation-id") ?? requestConversationId;
+      onContextInfoChange(
+        {
+          notices: parseContextNoticesHeader(response.headers.get("x-context-notices")),
+          stats: parseContextStatsHeader(response.headers.get("x-context-stats")),
+          details: parseContextDetailsHeader(response.headers.get("x-context-details")),
+        },
+        responseConversationId
+      );
+      if (
+        !response.headers.get("x-context-stats") &&
+        !response.headers.get("x-context-notices") &&
+        !response.headers.get("x-context-details")
+      ) {
         setIsContextPanelOpen(false);
       }
 
@@ -1281,6 +1415,47 @@ export function ChatThread({
                                 {contextInfo.notices.map((notice) => (
                                   <span key={notice}>{notice}</span>
                                 ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {attachmentChunkDetails.length > 0 ? (
+                            <div className="mt-3 rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/70 px-3 py-3">
+                              <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
+                                {text.attachmentPreviewTitle}
+                              </p>
+                              <div className="mt-2 space-y-2">
+                                {attachmentChunkDetails.map((chunk) => {
+                                  const chunkKey = `${chunk.file_name}-${chunk.index}-${chunk.score}`;
+                                  const isExpanded = expandedChunkKeys.includes(chunkKey);
+                                  return (
+                                    <div
+                                      key={chunkKey}
+                                      className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/82 px-3 py-2"
+                                    >
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <p className="truncate text-sm font-medium text-[var(--ink-strong)]">
+                                            {chunk.file_name}
+                                          </p>
+                                          <p className="mt-1 text-[11px] text-[var(--ink-muted)]">
+                                            {text.attachmentPreviewMeta} #{chunk.index} · score={chunk.score} · {chunk.char_count} chars
+                                          </p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleAttachmentChunk(chunkKey)}
+                                          className="shrink-0 rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-3 py-1 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                                        >
+                                          {isExpanded ? text.attachmentPreviewCollapse : text.attachmentPreviewExpand}
+                                        </button>
+                                      </div>
+                                      <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-[var(--ink-soft)]">
+                                        {isExpanded ? chunk.expanded_preview : chunk.preview}
+                                      </p>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           ) : null}

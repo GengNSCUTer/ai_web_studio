@@ -7,3 +7,4 @@ python-multipart==0.0.27
 httpx==0.28.1
 alembic==1.18.4
 PyJWT==2.12.1
+tiktoken==0.12.0

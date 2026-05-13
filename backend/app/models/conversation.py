@@ -18,6 +18,8 @@ class Conversation(Base):
     context_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     context_summary_boundary_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     context_summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_prompt_prefix_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_prompt_prefix_token_count: Mapped[int | None] = mapped_column(nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

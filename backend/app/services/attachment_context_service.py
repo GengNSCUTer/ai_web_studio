@@ -18,6 +18,7 @@ class AttachmentContextResult:
     context_text: str | None
     chunks: list[AttachmentChunk] = field(default_factory=list)
     diagnostics: dict[str, int] = field(default_factory=dict)
+    details: dict[str, object] = field(default_factory=dict)
 
 
 class AttachmentContextService:
@@ -38,6 +39,9 @@ class AttachmentContextService:
 
         truncated_chunks = max(0, len(chunks) - len(selected))
         truncated_chars = max(0, sum(len(chunk.text) for chunk in chunks) - used_chars)
+        details = {
+            "attachment_chunks": self._build_chunk_details(selected),
+        }
         if not selected:
             return AttachmentContextResult(
                 context_text=None,
@@ -50,6 +54,7 @@ class AttachmentContextService:
                     "attachment_truncated_chunks": truncated_chunks,
                     "attachment_truncated_chars": truncated_chars,
                 },
+                details=details,
             )
 
         context_parts = [
@@ -68,6 +73,7 @@ class AttachmentContextService:
                 "attachment_truncated_chunks": truncated_chunks,
                 "attachment_truncated_chars": truncated_chars,
             },
+            details=details,
         )
 
     def _build_chunks(self, *, file_attachments: list[object], query: str) -> list[AttachmentChunk]:
@@ -179,3 +185,22 @@ class AttachmentContextService:
             used_chars += next_cost
         selected.sort(key=lambda item: (item.file_name, item.index))
         return selected, used_chars
+
+    @staticmethod
+    def _build_chunk_details(chunks: list[AttachmentChunk]) -> list[dict[str, object]]:
+        details: list[dict[str, object]] = []
+        for chunk in chunks[:4]:
+            preview = chunk.text[:180].strip()
+            expanded_preview = chunk.text[:520].strip()
+            details.append(
+                {
+                    "attachment_id": chunk.attachment_id,
+                    "file_name": chunk.file_name,
+                    "index": chunk.index + 1,
+                    "score": chunk.score,
+                    "char_count": len(chunk.text),
+                    "preview": preview,
+                    "expanded_preview": expanded_preview,
+                }
+            )
+        return details

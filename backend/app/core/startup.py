@@ -47,6 +47,10 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table conversations add column context_summary_boundary_message_id varchar(36)")
     if "context_summary_updated_at" not in conversation_columns:
         statements.append("alter table conversations add column context_summary_updated_at timestamptz")
+    if "last_prompt_prefix_hash" not in conversation_columns:
+        statements.append("alter table conversations add column last_prompt_prefix_hash varchar(64)")
+    if "last_prompt_prefix_token_count" not in conversation_columns:
+        statements.append("alter table conversations add column last_prompt_prefix_token_count integer")
 
     memory_columns = _get_column_names("user_memories")
     if "source_conversation_id" not in memory_columns:

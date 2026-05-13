@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ from app.services.memory_service import MemoryService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import ContextPromptBuilder
 from app.services.setting_service import SettingService
+from app.services.tokenizer_service import TokenizerEstimator
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -48,6 +50,7 @@ class ChatExecutionContext:
     max_tokens: int | None
     context_notices: list[str]
     context_stats: dict[str, Any]
+    context_details: dict[str, Any]
     context_summary: str | None
 
 
@@ -60,6 +63,13 @@ def _encode_context_notices(notices: list[str]) -> str:
         return ""
     payload = json.dumps(notices, ensure_ascii=False).encode("utf-8")
     return base64.b64encode(payload).decode("ascii")
+
+
+def _encode_json_payload(payload: dict[str, Any] | list[Any] | None) -> str:
+    if not payload:
+        return ""
+    encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    return base64.b64encode(encoded).decode("ascii")
 
 
 def _is_supported_text_file(attachment: object) -> bool:
@@ -233,7 +243,8 @@ async def _prepare_chat_execution(
         model_context_window=max(8192, int(getattr(default_settings, "model_context_window", 128000) or 128000)),
         context_mode=_clean_optional_str(getattr(default_settings, "context_mode", "balanced")) or "balanced",
     )
-    governance_service = ContextGovernanceService(budget=budget)
+    tokenizer = TokenizerEstimator(model_name=resolved_model)
+    governance_service = ContextGovernanceService(budget=budget, tokenizer=tokenizer)
     memory_context = None
     memory_count = 0
     memory_chars = 0
@@ -299,6 +310,41 @@ async def _prepare_chat_execution(
         model_name=resolved_model,
     )
     governed_context = governance_service.govern_messages(prompt_result.messages)
+    stable_prefix_text = json.dumps(
+        prompt_result.stable_prefix_messages,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    prompt_prefix_hash = hashlib.sha256(stable_prefix_text.encode("utf-8")).hexdigest()[:16] if stable_prefix_text else ""
+    prompt_prefix_tokens = tokenizer.estimate_messages_tokens(
+        prompt_result.stable_prefix_messages,
+        image_equiv_tokens=budget.max_image_equiv_tokens,
+    )
+    prompt_total_tokens = tokenizer.estimate_messages_tokens(
+        governed_context.messages,
+        image_equiv_tokens=budget.max_image_equiv_tokens,
+    )
+    prompt_recent_history_tokens = max(0, prompt_total_tokens - prompt_prefix_tokens)
+    previous_prompt_prefix_hash = _clean_optional_str(getattr(conversation, "last_prompt_prefix_hash", None))
+    prompt_prefix_reused_last_turn = int(bool(prompt_prefix_hash and prompt_prefix_hash == previous_prompt_prefix_hash))
+
+    conversation.last_prompt_prefix_hash = prompt_prefix_hash or None
+    conversation.last_prompt_prefix_token_count = prompt_prefix_tokens or None
+    conversation_repo.save(conversation)
+
+    summary_text = next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)) or ""
+    summary_tokens = tokenizer.estimate_text_tokens(summary_text)
+    summary_source_tokens = int(summary_refresh_stats.get("summary_refresh_source_tokens", 0) or 0)
+    summary_compression_ratio = (
+        round(summary_tokens / summary_source_tokens, 4)
+        if summary_source_tokens > 0
+        else 0
+    )
+    attachment_context_tokens = tokenizer.estimate_text_tokens(attachment_context_result.context_text or "")
+    context_details = {
+        "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
+    }
 
     return ChatExecutionContext(
         conversation_repo=conversation_repo,
@@ -319,25 +365,39 @@ async def _prepare_chat_execution(
             "context_mode": budget.context_mode,
             "model_context_window": budget.model_context_window,
             "budget_max_total_chars": budget.max_total_chars,
+            "budget_max_total_tokens": budget.max_total_tokens,
             "budget_max_attachment_chars": budget.max_attachment_chars,
+            "budget_max_attachment_tokens": budget.max_attachment_tokens,
             "total_chars_estimate": governed_context.stats.total_chars_estimate,
+            "total_tokens_estimate": governed_context.stats.total_tokens_estimate,
             "truncated_history_messages": governed_context.stats.truncated_history_messages,
             "summary_chars": len(
                 next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)) or ""
             ),
+            "summary_tokens": summary_tokens,
             "summary_triggered": int(governed_context.summary_triggered),
             "summary_refresh_triggered": summary_refresh_stats["summary_refresh_triggered"],
             "summary_refresh_source_messages": summary_refresh_stats["summary_refresh_source_messages"],
             "summary_refresh_source_chars": summary_refresh_stats["summary_refresh_source_chars"],
             "summary_refresh_model_used": summary_refresh_stats["summary_refresh_model_used"],
             "summary_refresh_fallback_used": summary_refresh_stats["summary_refresh_fallback_used"],
+            "summary_refresh_source_tokens": summary_source_tokens,
+            "summary_compression_ratio": summary_compression_ratio,
+            "attachment_context_tokens": attachment_context_tokens,
             "memory_enabled": int(bool(getattr(default_settings, "memory_enabled", True))),
             "memory_injected": int(bool(memory_context)),
             "memory_count": memory_count,
             "memory_chars": memory_chars,
+            "tokenizer_encoding": tokenizer.estimate.encoding_name,
+            "prompt_prefix_hash": prompt_prefix_hash,
+            "prompt_prefix_tokens": prompt_prefix_tokens,
+            "prompt_total_tokens": prompt_total_tokens,
+            "prompt_recent_history_tokens": prompt_recent_history_tokens,
+            "prompt_prefix_reused_last_turn": prompt_prefix_reused_last_turn,
             **attachment_context_result.diagnostics,
             **prompt_result.diagnostics,
         },
+        context_details=context_details,
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
     )
 
@@ -393,5 +453,6 @@ async def chat_text_stream(
             "x-assistant-message-id": context.assistant_message.id,
             "x-context-notices": _encode_context_notices(context.context_notices),
             "x-context-stats": _stringify_stats(context.context_stats),
+            "x-context-details": _encode_json_payload(context.context_details),
         },
     )
