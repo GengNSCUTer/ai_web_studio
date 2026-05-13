@@ -34,3 +34,20 @@ class ChatStreamRequest(BaseModel):
     model_name: str | None = Field(default=None, max_length=128)
     system_prompt: str | None = None
     attachments: list[UploadItemReference] = Field(default_factory=list)
+
+
+class ChatRegenerateRequest(BaseModel):
+    conversation_id: str
+    assistant_message_id: str
+    model_name: str | None = Field(default=None, max_length=128)
+    system_prompt: str | None = None
+
+
+class ChatEditLastUserRequest(BaseModel):
+    conversation_id: str
+    user_message_id: str
+    assistant_message_id: str
+    content: str
+    attachments: list[UploadItemReference] | None = None
+    model_name: str | None = Field(default=None, max_length=128)
+    system_prompt: str | None = None

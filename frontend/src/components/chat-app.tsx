@@ -49,10 +49,20 @@ const APP_TEXT = {
     providerLoading: "读取中...",
     providerBaseUrlLoading: "正在读取模型服务地址",
     historyChats: "历史会话",
+    activeChats: "进行中",
+    archivedChats: "已归档",
     historyCountSuffix: "条",
+    conversationSearchPlaceholder: "搜索会话标题或模型",
+    noConversationMatches: "没有匹配的会话。",
+    showArchived: "显示归档",
+    hideArchived: "收起归档",
     noConversations: "还没有历史会话，发送第一条消息后会自动创建。",
     menuLabel: "展开会话菜单",
     rename: "重命名",
+    pin: "置顶",
+    unpin: "取消置顶",
+    archive: "归档",
+    unarchive: "取消归档",
     delete: "删除",
     currentConversation: "当前会话",
     newConversation: "新的对话",
@@ -138,10 +148,20 @@ const APP_TEXT = {
     providerLoading: "Loading...",
     providerBaseUrlLoading: "Loading model service URL",
     historyChats: "Conversations",
+    activeChats: "Active",
+    archivedChats: "Archived",
     historyCountSuffix: "",
+    conversationSearchPlaceholder: "Search by title or model",
+    noConversationMatches: "No matching conversations.",
+    showArchived: "Show archived",
+    hideArchived: "Hide archived",
     noConversations: "No conversation yet. Your first message will create one automatically.",
     menuLabel: "Open conversation menu",
     rename: "Rename",
+    pin: "Pin",
+    unpin: "Unpin",
+    archive: "Archive",
+    unarchive: "Unarchive",
     delete: "Delete",
     currentConversation: "Current conversation",
     newConversation: "New chat",
@@ -296,6 +316,8 @@ export function ChatApp({
   const [selectedModel, setSelectedModel] = useState(
     initialSettings?.default_model ?? initialProviderInfo?.default_model ?? ""
   );
+  const [conversationQuery, setConversationQuery] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isTestingProvider, setIsTestingProvider] = useState(false);
@@ -572,6 +594,45 @@ export function ChatApp({
     }
   }
 
+  async function handleTogglePinned(conversation: Conversation) {
+    try {
+      await requestJson<Conversation>(`/api/backend/conversations/${conversation.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          is_pinned: !conversation.is_pinned,
+        }),
+      });
+      await loadConversations();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.saveSettingsFailed}${message}`);
+    }
+  }
+
+  async function handleToggleArchived(conversation: Conversation) {
+    try {
+      await requestJson<Conversation>(`/api/backend/conversations/${conversation.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          is_archived: !conversation.is_archived,
+        }),
+      });
+      if (conversation.id === selectedConversationId && !conversation.is_archived) {
+        setShowArchived(true);
+      }
+      await loadConversations();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.saveSettingsFailed}${message}`);
+    }
+  }
+
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!userSettings) {
@@ -822,6 +883,21 @@ export function ChatApp({
   const activeConversationTitle = selectedConversationId
     ? conversations.find((item) => item.id === selectedConversationId)?.title ?? text.currentConversation
     : text.newConversation;
+  const selectedConversation = selectedConversationId
+    ? conversations.find((item) => item.id === selectedConversationId) ?? null
+    : null;
+  const normalizedConversationQuery = conversationQuery.trim().toLowerCase();
+  const filteredConversations = conversations.filter((conversation) => {
+    if (!normalizedConversationQuery) {
+      return true;
+    }
+    const haystack = `${conversation.title} ${conversation.model_name}`.toLowerCase();
+    return haystack.includes(normalizedConversationQuery);
+  });
+  const activeConversations = filteredConversations.filter((conversation) => !conversation.is_archived);
+  const archivedConversations = filteredConversations.filter((conversation) => conversation.is_archived);
+  const shouldShowArchivedSection =
+    showArchived || Boolean(normalizedConversationQuery) || Boolean(selectedConversation?.is_archived);
   const contextInfo = selectedConversationId
     ? contextInfoByConversationId[selectedConversationId] ?? null
     : null;
@@ -852,6 +928,103 @@ export function ChatApp({
         [conversationId]: info,
       };
     });
+  }
+
+  function renderConversationItem(conversation: Conversation) {
+    const isActive = conversation.id === selectedConversationId;
+    const isMenuOpen = openConversationMenuId === conversation.id;
+
+    return (
+      <div key={conversation.id} className="relative">
+        <button
+          type="button"
+          onClick={() => void handleSelectConversation(conversation.id)}
+          className={`w-full rounded-2xl border px-4 py-3 pr-12 text-left transition ${
+            isActive
+              ? "border-[#f0c419]/60 bg-[#f0c419]/16 text-white"
+              : "border-white/8 bg-white/4 text-white/80 hover:bg-white/10"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="line-clamp-2 text-sm font-medium">{conversation.title}</div>
+            {conversation.is_pinned ? (
+              <span className="shrink-0 rounded-full border border-[#f0c419]/45 bg-[#f0c419]/14 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#f5d36b]">
+                PIN
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-2 flex items-center justify-between text-[11px] text-white/45">
+            <span>{conversation.model_name}</span>
+            <span>{formatTime(conversation.updated_at, uiLanguage)}</span>
+          </div>
+        </button>
+
+        <div className="absolute right-2 top-2">
+          <button
+            type="button"
+            onClick={() =>
+              setOpenConversationMenuId((current) =>
+                current === conversation.id ? null : conversation.id
+              )
+            }
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/12 bg-black/18 text-white/75 backdrop-blur transition hover:bg-black/28"
+            aria-label={text.menuLabel}
+            title={text.menuLabel}
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current stroke-2">
+              <circle cx="12" cy="5" r="1.5" />
+              <circle cx="12" cy="12" r="1.5" />
+              <circle cx="12" cy="19" r="1.5" />
+            </svg>
+          </button>
+
+          {isMenuOpen ? (
+            <div className="absolute right-0 z-20 mt-2 w-32 overflow-hidden rounded-2xl border border-white/12 bg-[rgba(16,31,24,0.98)] py-1 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenConversationMenuId(null);
+                  void handleRenameConversation(conversation.id);
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+              >
+                {text.rename}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenConversationMenuId(null);
+                  void handleTogglePinned(conversation);
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+              >
+                {conversation.is_pinned ? text.unpin : text.pin}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenConversationMenuId(null);
+                  void handleToggleArchived(conversation);
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+              >
+                {conversation.is_archived ? text.unarchive : text.archive}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenConversationMenuId(null);
+                  void handleDeleteConversation(conversation.id);
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-[#ffcabd] transition hover:bg-white/8"
+              >
+                {text.delete}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -913,6 +1086,13 @@ export function ChatApp({
               </p>
             </div>
 
+            <input
+              value={conversationQuery}
+              onChange={(event) => setConversationQuery(event.target.value)}
+              placeholder={text.conversationSearchPlaceholder}
+              className="mb-3 w-full rounded-2xl border border-white/10 bg-white/8 px-4 py-2.5 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-[#f0c419]/45"
+            />
+
             <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh-16rem)]">
               {conversations.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-white/15 px-4 py-6 text-sm text-white/45">
@@ -920,77 +1100,36 @@ export function ChatApp({
                 </div>
               ) : null}
 
-              {conversations.map((conversation) => {
-                const isActive = conversation.id === selectedConversationId;
-                const isMenuOpen = openConversationMenuId === conversation.id;
+              {conversations.length > 0 && filteredConversations.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/15 px-4 py-6 text-sm text-white/45">
+                  {text.noConversationMatches}
+                </div>
+              ) : null}
 
-                return (
-                  <div key={conversation.id} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => void handleSelectConversation(conversation.id)}
-                      className={`w-full rounded-2xl border px-4 py-3 pr-12 text-left transition ${
-                        isActive
-                          ? "border-[#f0c419]/60 bg-[#f0c419]/16 text-white"
-                          : "border-white/8 bg-white/4 text-white/80 hover:bg-white/10"
-                      }`}
-                    >
-                      <div className="line-clamp-2 text-sm font-medium">
-                        {conversation.title}
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-[11px] text-white/45">
-                        <span>{conversation.model_name}</span>
-                        <span>{formatTime(conversation.updated_at, uiLanguage)}</span>
-                      </div>
-                    </button>
-
-                    <div className="absolute right-2 top-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOpenConversationMenuId((current) =>
-                            current === conversation.id ? null : conversation.id
-                          )
-                        }
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/12 bg-black/18 text-white/75 backdrop-blur transition hover:bg-black/28"
-                        aria-label={text.menuLabel}
-                        title={text.menuLabel}
-                      >
-                        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current stroke-2">
-                          <circle cx="12" cy="5" r="1.5" />
-                          <circle cx="12" cy="12" r="1.5" />
-                          <circle cx="12" cy="19" r="1.5" />
-                        </svg>
-                      </button>
-
-                      {isMenuOpen ? (
-                        <div className="absolute right-0 z-20 mt-2 w-28 overflow-hidden rounded-2xl border border-white/12 bg-[rgba(16,31,24,0.98)] py-1 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOpenConversationMenuId(null);
-                              void handleRenameConversation(conversation.id);
-                            }}
-                            className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
-                          >
-                            {text.rename}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOpenConversationMenuId(null);
-                              void handleDeleteConversation(conversation.id);
-                            }}
-                            className="block w-full px-3 py-2 text-left text-sm text-[#ffcabd] transition hover:bg-white/8"
-                          >
-                            {text.delete}
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
+              {activeConversations.length > 0 ? (
+                <>
+                  <div className="px-1 pt-1 text-[11px] uppercase tracking-[0.2em] text-white/38">
+                    {text.activeChats}
                   </div>
-                );
-              })}
+                  {activeConversations.map(renderConversationItem)}
+                </>
+              ) : null}
+
+              {archivedConversations.length > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowArchived((current) => !current)}
+                    className="mt-1 flex items-center justify-between rounded-2xl border border-white/10 bg-white/6 px-3 py-2 text-left text-xs uppercase tracking-[0.18em] text-white/55 transition hover:bg-white/10"
+                  >
+                    <span>{text.archivedChats}</span>
+                    <span>{showArchived ? text.hideArchived : text.showArchived}</span>
+                  </button>
+                  {shouldShowArchivedSection
+                    ? archivedConversations.map(renderConversationItem)
+                    : null}
+                </>
+              ) : null}
             </div>
           </div>
         </aside>

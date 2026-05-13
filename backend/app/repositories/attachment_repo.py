@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.models.attachment import Attachment
 
@@ -35,3 +35,9 @@ class AttachmentRepository:
         for attachment in attachments:
             self.db.refresh(attachment)
         return attachments
+
+    def delete_by_message_id(self, message_id: str) -> int:
+        stmt = delete(Attachment).where(Attachment.message_id == message_id)
+        result = self.db.execute(stmt)
+        self.db.commit()
+        return int(result.rowcount or 0)

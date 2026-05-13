@@ -2,6 +2,7 @@ export type Conversation = {
   id: string;
   title: string;
   model_name: string;
+  is_pinned: boolean;
   is_archived: boolean;
   created_at: string;
   updated_at: string | null;

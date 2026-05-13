@@ -82,6 +82,19 @@ class MessageService:
 
         return self.attachment_repo.create_many(attachments)
 
+    def replace_uploaded_items(
+        self,
+        *,
+        message_id: str,
+        uploads: list[UploadItemReference],
+        user_id: str,
+    ) -> list[Attachment]:
+        if not self.attachment_repo:
+            raise RuntimeError("Attachment repository is required for replacing uploads")
+
+        self.attachment_repo.delete_by_message_id(message_id)
+        return self.attach_uploaded_items(message_id=message_id, uploads=uploads, user_id=user_id)
+
     def delete_message(self, message_id: str, conversation_id: str) -> bool:
         message = self.repo.get_by_id_and_conversation(message_id, conversation_id)
         if not message:

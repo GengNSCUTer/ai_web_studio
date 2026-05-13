@@ -12,7 +12,11 @@ class ConversationRepository:
         stmt = (
             select(Conversation)
             .where(Conversation.user_id == user_id)
-            .order_by(Conversation.updated_at.desc(), Conversation.created_at.desc())
+            .order_by(
+                Conversation.is_pinned.desc(),
+                Conversation.updated_at.desc(),
+                Conversation.created_at.desc(),
+            )
         )
         return list(self.db.scalars(stmt).all())
 

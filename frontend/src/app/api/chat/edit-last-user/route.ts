@@ -5,22 +5,11 @@ import { fetchBackend } from "@/lib/backend";
 
 export const runtime = "nodejs";
 
-type UIMessagePart = {
-  type: string;
-  text?: string;
-};
-
-type UIMessage = {
-  role: string;
-  parts: UIMessagePart[];
-};
-
-type ChatRequestPayload = {
-  messages?: UIMessage[];
+type EditLastUserRequestPayload = {
   conversationId?: string;
-  modelName?: string;
-  systemPrompt?: string | null;
-  title?: string;
+  userMessageId?: string;
+  assistantMessageId?: string;
+  content?: string;
   attachments?: Array<{
     id: string;
     file_name: string;
@@ -28,20 +17,11 @@ type ChatRequestPayload = {
     file_size?: number | null;
     kind: string;
     storage_key: string;
+    parsed_text?: string | null;
   }>;
+  modelName?: string;
+  systemPrompt?: string | null;
 };
-
-function extractMessageText(message: UIMessage | undefined) {
-  if (!message) {
-    return "";
-  }
-
-  return message.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("")
-    .trim();
-}
 
 export async function POST(request: NextRequest) {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
@@ -54,13 +34,21 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const payload = (await request.json()) as ChatRequestPayload;
-  const messages = payload.messages ?? [];
-  const lastUserMessage = [...messages].reverse().find((message) => message.role === "user");
-  const content = extractMessageText(lastUserMessage);
+  const payload = (await request.json()) as EditLastUserRequestPayload;
+  if (!payload.conversationId || !payload.userMessageId || !payload.assistantMessageId) {
+    return new Response(
+      JSON.stringify({ detail: "conversationId, userMessageId and assistantMessageId are required" }),
+      {
+        status: 400,
+        headers: {
+          "content-type": "application/json",
+        },
+      }
+    );
+  }
 
-  if (!content) {
-    return new Response(JSON.stringify({ detail: "Message content is required" }), {
+  if (!payload.content?.trim()) {
+    return new Response(JSON.stringify({ detail: "content is required" }), {
       status: 400,
       headers: {
         "content-type": "application/json",
@@ -68,7 +56,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const upstream = await fetchBackend("/api/chat/text-stream", {
+  const upstream = await fetchBackend("/api/chat/edit-last-user-stream", {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
@@ -77,11 +65,12 @@ export async function POST(request: NextRequest) {
     },
     body: JSON.stringify({
       conversation_id: payload.conversationId,
-      content,
+      user_message_id: payload.userMessageId,
+      assistant_message_id: payload.assistantMessageId,
+      content: payload.content,
+      attachments: payload.attachments ?? [],
       model_name: payload.modelName,
       system_prompt: payload.systemPrompt,
-      title: payload.title,
-      attachments: payload.attachments ?? [],
     }),
   });
 

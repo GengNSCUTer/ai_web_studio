@@ -51,6 +51,8 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table conversations add column last_prompt_prefix_hash varchar(64)")
     if "last_prompt_prefix_token_count" not in conversation_columns:
         statements.append("alter table conversations add column last_prompt_prefix_token_count integer")
+    if "is_pinned" not in conversation_columns:
+        statements.append("alter table conversations add column is_pinned boolean default false")
 
     memory_columns = _get_column_names("user_memories")
     if "source_conversation_id" not in memory_columns:

@@ -5,43 +5,12 @@ import { fetchBackend } from "@/lib/backend";
 
 export const runtime = "nodejs";
 
-type UIMessagePart = {
-  type: string;
-  text?: string;
-};
-
-type UIMessage = {
-  role: string;
-  parts: UIMessagePart[];
-};
-
-type ChatRequestPayload = {
-  messages?: UIMessage[];
+type RegenerateRequestPayload = {
   conversationId?: string;
+  assistantMessageId?: string;
   modelName?: string;
   systemPrompt?: string | null;
-  title?: string;
-  attachments?: Array<{
-    id: string;
-    file_name: string;
-    mime_type?: string | null;
-    file_size?: number | null;
-    kind: string;
-    storage_key: string;
-  }>;
 };
-
-function extractMessageText(message: UIMessage | undefined) {
-  if (!message) {
-    return "";
-  }
-
-  return message.parts
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("")
-    .trim();
-}
 
 export async function POST(request: NextRequest) {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
@@ -54,13 +23,9 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const payload = (await request.json()) as ChatRequestPayload;
-  const messages = payload.messages ?? [];
-  const lastUserMessage = [...messages].reverse().find((message) => message.role === "user");
-  const content = extractMessageText(lastUserMessage);
-
-  if (!content) {
-    return new Response(JSON.stringify({ detail: "Message content is required" }), {
+  const payload = (await request.json()) as RegenerateRequestPayload;
+  if (!payload.conversationId || !payload.assistantMessageId) {
+    return new Response(JSON.stringify({ detail: "conversationId and assistantMessageId are required" }), {
       status: 400,
       headers: {
         "content-type": "application/json",
@@ -68,7 +33,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const upstream = await fetchBackend("/api/chat/text-stream", {
+  const upstream = await fetchBackend("/api/chat/regenerate-last-stream", {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
@@ -77,11 +42,9 @@ export async function POST(request: NextRequest) {
     },
     body: JSON.stringify({
       conversation_id: payload.conversationId,
-      content,
+      assistant_message_id: payload.assistantMessageId,
       model_name: payload.modelName,
       system_prompt: payload.systemPrompt,
-      title: payload.title,
-      attachments: payload.attachments ?? [],
     }),
   });
 

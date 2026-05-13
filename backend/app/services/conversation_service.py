@@ -47,6 +47,8 @@ class ConversationService:
             conversation.system_prompt = payload.system_prompt
         if payload.is_archived is not None:
             conversation.is_archived = payload.is_archived
+        if payload.is_pinned is not None:
+            conversation.is_pinned = payload.is_pinned
 
         updated = self.repo.save(conversation)
         return ConversationResponse.model_validate(updated)

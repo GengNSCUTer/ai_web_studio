@@ -15,6 +15,7 @@ class ConversationUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=255)
     system_prompt: str | None = None
     is_archived: bool | None = None
+    is_pinned: bool | None = None
     context_summary: str | None = None
 
 
@@ -24,6 +25,7 @@ class ConversationListItem(BaseModel):
     id: str
     title: str
     model_name: str
+    is_pinned: bool
     is_archived: bool
     context_summary: str | None = None
     context_summary_boundary_message_id: str | None = None
