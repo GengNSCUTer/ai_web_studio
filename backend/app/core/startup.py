@@ -1,7 +1,18 @@
 from sqlalchemy import text
 
 from app.core.database import Base, engine
-from app.models import Attachment, Conversation, Message, Project, PromptTemplate, User, UserMemory, UserSetting  # noqa: F401
+from app.models import (  # noqa: F401
+    Attachment,
+    Conversation,
+    ConversationShare,
+    Message,
+    Project,
+    ProjectFile,
+    PromptTemplate,
+    User,
+    UserMemory,
+    UserSetting,
+)
 
 
 def _get_column_names(table_name: str) -> set[str]:
@@ -69,6 +80,10 @@ def ensure_runtime_schema() -> None:
     prompt_template_columns = _get_column_names("prompt_templates")
     if prompt_template_columns and "project_id" not in prompt_template_columns:
         statements.append("alter table prompt_templates add column project_id varchar(36)")
+    if prompt_template_columns and "category" not in prompt_template_columns:
+        statements.append("alter table prompt_templates add column category varchar(64)")
+    if prompt_template_columns and "variables" not in prompt_template_columns:
+        statements.append("alter table prompt_templates add column variables text")
 
     if not statements:
         return

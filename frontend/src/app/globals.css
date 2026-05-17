@@ -236,7 +236,7 @@ h4 {
   color-scheme: dark;
 }
 
-[data-theme="dark"] :is(button, input, textarea, select):not([class*="text-white"]):not([class*="text-[#ffcabd]"]) {
+[data-theme="dark"] :is(input, textarea, select):not([class*="text-white"]):not([class*="text-[#ffcabd]"]) {
   color: var(--ink-soft);
 }
 

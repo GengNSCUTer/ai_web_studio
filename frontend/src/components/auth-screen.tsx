@@ -141,7 +141,7 @@ export function AuthScreen({ initialError = null }: AuthScreenProps) {
               onClick={() => setMode("login")}
               className={`rounded-full px-4 py-2 text-sm transition ${
                 mode === "login"
-                  ? "bg-[var(--ink-strong)] text-white"
+                  ? "bg-[var(--ink-strong)] text-[var(--inverse-ink)]"
                   : "text-[var(--ink-muted)]"
               }`}
             >
@@ -152,7 +152,7 @@ export function AuthScreen({ initialError = null }: AuthScreenProps) {
               onClick={() => setMode("register")}
               className={`rounded-full px-4 py-2 text-sm transition ${
                 mode === "register"
-                  ? "bg-[var(--ink-strong)] text-white"
+                  ? "bg-[var(--ink-strong)] text-[var(--inverse-ink)]"
                   : "text-[var(--ink-muted)]"
               }`}
             >

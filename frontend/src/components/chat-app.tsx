@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useRef, useState, useTransition } from "react";
 import { ChatThread } from "@/components/chat-thread";
 import type {
   Conversation,
+  ConversationShare,
   ContextGovernanceInfo,
   MemorySuggestion,
   Message,
@@ -12,6 +13,8 @@ import type {
   ProviderConnectionTestResult,
   ProviderInfo,
   Project,
+  ProjectFile,
+  ProjectStats,
   User,
   UserMemory,
   UserSettings,
@@ -27,7 +30,15 @@ type ChatAppProps = {
 };
 
 type UILanguage = "zh-CN" | "en-US";
-type SettingsTab = "provider" | "generation" | "context" | "memory" | "system" | "appearance" | "templates";
+type SettingsTab =
+  | "provider"
+  | "generation"
+  | "context"
+  | "memory"
+  | "system"
+  | "appearance"
+  | "templates"
+  | "privacy";
 type ThemeMode = "system" | "light" | "dark";
 type WorkspaceModalMode = "create" | "edit" | "move" | null;
 type AppDialogState =
@@ -82,6 +93,17 @@ const APP_TEXT = {
     workspaceDeleteConfirm: "确认删除当前工作区吗？会话不会被删除，只会变为未分配。",
     workspaceSaveFailed: "工作区保存失败：",
     workspaceDeleteFailed: "工作区删除失败：",
+    workspaceFiles: "项目文件库",
+    workspaceStats: "项目统计",
+    workspaceAddFiles: "添加文件到工作区",
+    workspaceFileEmpty: "当前工作区还没有文件。",
+    workspaceFileAddFailed: "工作区文件添加失败：",
+    workspaceFileDeleteFailed: "工作区文件删除失败：",
+    workspaceConversationCount: "会话数",
+    workspaceMessageCount: "消息数",
+    workspaceFileCount: "文件数",
+    workspaceTemplateCount: "模板数",
+    workspaceTotalFileSize: "文件总量",
     activeChats: "进行中",
     archivedChats: "已归档",
     historyCountSuffix: "条",
@@ -98,6 +120,19 @@ const APP_TEXT = {
     unarchive: "取消归档",
     moveToWorkspace: "移动到工作区",
     removeFromWorkspace: "移出工作区",
+    shareConversation: "分享会话",
+    shareTitle: "私有分享链接",
+    shareDescription: "生成只读链接后，知道链接的人可以查看该会话内容。可随时关闭或撤销。",
+    shareCreate: "生成分享链接",
+    shareRevoke: "撤销分享",
+    shareEnable: "启用分享",
+    shareDisable: "关闭分享",
+    shareCopy: "复制链接",
+    shareCopied: "已复制",
+    shareExpiresDays: "有效期（天，留空永久）",
+    shareNoLink: "当前会话还没有分享链接。",
+    shareFailed: "分享操作失败：",
+    openShare: "打开分享页",
     delete: "删除",
     currentConversation: "当前会话",
     newConversation: "新的对话",
@@ -117,6 +152,12 @@ const APP_TEXT = {
     settingsTabSystem: "系统提示",
     settingsTabAppearance: "外观",
     settingsTabTemplates: "Prompt 模板",
+    settingsTabPrivacy: "隐私与导出",
+    settingsSectionModels: "模型服务",
+    settingsSectionCapabilities: "模型能力",
+    settingsSectionContext: "上下文策略",
+    settingsSectionPrivacy: "隐私与导出",
+    settingsSectionWorkspace: "工作区默认设置",
     close: "关闭",
     confirm: "确认",
     dialogCancel: "取消",
@@ -144,6 +185,11 @@ const APP_TEXT = {
     promptTemplateDescription: "模板说明",
     promptTemplateContent: "模板内容",
     promptTemplateModel: "默认模型（可选）",
+    promptTemplateCategory: "分类",
+    promptTemplateVariables: "变量（逗号分隔）",
+    promptTemplateSearch: "搜索模板名称、说明、分类",
+    promptTemplateInsert: "快捷插入",
+    promptTemplateVariableValues: "变量值",
     promptTemplateProject: "模板可见范围",
     promptTemplateScopeHint: "只决定模板在哪个范围下分类展示，不会自动写入工作区提示词。真正生效请在模板卡片里选择应用目标。",
     promptTemplateApplyTarget: "应用目标",
@@ -164,8 +210,15 @@ const APP_TEXT = {
     promptTemplateSaveFailed: "Prompt 模板保存失败：",
     promptTemplateDeleteFailed: "Prompt 模板删除失败：",
     promptTemplateLoadFailed: "Prompt 模板加载失败：",
-    exportMarkdown: "导出 Markdown",
-    exportJson: "导出 JSON",
+    exportOptions: "导出选项",
+    exportRange: "导出范围",
+    exportRangeAll: "全部消息",
+    exportRangeSelected: "当前加载消息",
+    exportIncludeAttachmentMetadata: "包含附件元数据",
+    exportIncludeAttachmentFiles: "ZIP 中包含附件文件",
+    exportIncludeContext: "包含上下文摘要",
+    exportAsZip: "导出为 ZIP",
+    exportRun: "开始导出",
     exportFailed: "导出失败：",
     providerHint: "先测试连接，再保存设置。测试会用当前表单里的 provider 配置实时请求。",
     testing: "测试中...",
@@ -249,6 +302,17 @@ const APP_TEXT = {
     workspaceDeleteConfirm: "Delete this workspace? Conversations will remain and become unassigned.",
     workspaceSaveFailed: "Save workspace failed: ",
     workspaceDeleteFailed: "Delete workspace failed: ",
+    workspaceFiles: "Project files",
+    workspaceStats: "Project stats",
+    workspaceAddFiles: "Add files to workspace",
+    workspaceFileEmpty: "No files in this workspace yet.",
+    workspaceFileAddFailed: "Add workspace file failed: ",
+    workspaceFileDeleteFailed: "Delete workspace file failed: ",
+    workspaceConversationCount: "Conversations",
+    workspaceMessageCount: "Messages",
+    workspaceFileCount: "Files",
+    workspaceTemplateCount: "Templates",
+    workspaceTotalFileSize: "Total file size",
     activeChats: "Active",
     archivedChats: "Archived",
     historyCountSuffix: "",
@@ -265,6 +329,19 @@ const APP_TEXT = {
     unarchive: "Unarchive",
     moveToWorkspace: "Move to workspace",
     removeFromWorkspace: "Remove from workspace",
+    shareConversation: "Share conversation",
+    shareTitle: "Private share link",
+    shareDescription: "Anyone with the link can view this conversation read-only. You can disable or revoke it anytime.",
+    shareCreate: "Create share link",
+    shareRevoke: "Revoke share",
+    shareEnable: "Enable share",
+    shareDisable: "Disable share",
+    shareCopy: "Copy link",
+    shareCopied: "Copied",
+    shareExpiresDays: "Expires in days (empty for never)",
+    shareNoLink: "No share link for this conversation.",
+    shareFailed: "Share action failed: ",
+    openShare: "Open share page",
     delete: "Delete",
     currentConversation: "Current conversation",
     newConversation: "New chat",
@@ -284,6 +361,12 @@ const APP_TEXT = {
     settingsTabSystem: "System Prompt",
     settingsTabAppearance: "Appearance",
     settingsTabTemplates: "Prompt Templates",
+    settingsTabPrivacy: "Privacy & Export",
+    settingsSectionModels: "Model service",
+    settingsSectionCapabilities: "Model capabilities",
+    settingsSectionContext: "Context strategy",
+    settingsSectionPrivacy: "Privacy & export",
+    settingsSectionWorkspace: "Workspace defaults",
     close: "Close",
     confirm: "Confirm",
     dialogCancel: "Cancel",
@@ -311,6 +394,11 @@ const APP_TEXT = {
     promptTemplateDescription: "Description",
     promptTemplateContent: "Template content",
     promptTemplateModel: "Default model (optional)",
+    promptTemplateCategory: "Category",
+    promptTemplateVariables: "Variables (comma-separated)",
+    promptTemplateSearch: "Search templates by name, description, category",
+    promptTemplateInsert: "Quick insert",
+    promptTemplateVariableValues: "Variable values",
     promptTemplateProject: "Template visibility",
     promptTemplateScopeHint:
       "This only controls where the template is categorized. It does not update any active system prompt until you choose an apply target on the template card.",
@@ -332,8 +420,15 @@ const APP_TEXT = {
     promptTemplateSaveFailed: "Save prompt template failed: ",
     promptTemplateDeleteFailed: "Delete prompt template failed: ",
     promptTemplateLoadFailed: "Load prompt templates failed: ",
-    exportMarkdown: "Export Markdown",
-    exportJson: "Export JSON",
+    exportOptions: "Export options",
+    exportRange: "Export range",
+    exportRangeAll: "All messages",
+    exportRangeSelected: "Currently loaded messages",
+    exportIncludeAttachmentMetadata: "Include attachment metadata",
+    exportIncludeAttachmentFiles: "Include attachment files in ZIP",
+    exportIncludeContext: "Include context summary",
+    exportAsZip: "Export as ZIP",
+    exportRun: "Export",
     exportFailed: "Export failed: ",
     providerHint:
       "Test the connection before saving. The test will use the current provider form values.",
@@ -420,6 +515,20 @@ function formatTime(value: string | null, uiLanguage: UILanguage) {
   }).format(new Date(value));
 }
 
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
 async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     ...init,
@@ -504,9 +613,31 @@ export function ChatApp({
     description: "",
     content: "",
     default_model: "",
+    category: "",
+    variables: "",
     is_default: false,
   });
   const [promptTemplateApplyTargets, setPromptTemplateApplyTargets] = useState<Record<string, string>>({});
+  const [promptTemplateQuery, setPromptTemplateQuery] = useState("");
+  const [promptTemplateVariableValues, setPromptTemplateVariableValues] = useState<Record<string, Record<string, string>>>({});
+  const [shareModalConversation, setShareModalConversation] = useState<Conversation | null>(null);
+  const [conversationShare, setConversationShare] = useState<ConversationShare | null>(null);
+  const [shareExpiresDays, setShareExpiresDays] = useState("");
+  const [isShareBusy, setIsShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [exportModalConversation, setExportModalConversation] = useState<Conversation | null>(null);
+  const [exportOptions, setExportOptions] = useState({
+    format: "markdown" as "markdown" | "json",
+    range: "all" as "all" | "loaded",
+    include_attachments: true,
+    include_attachment_files: true,
+    include_context: false,
+    as_zip: false,
+  });
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
+  const [isAddingProjectFile, setIsAddingProjectFile] = useState(false);
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState({
     memory_type: "fact",
@@ -528,6 +659,7 @@ export function ChatApp({
     { id: "memory", label: text.settingsTabMemory },
     { id: "system", label: text.settingsTabSystem },
     { id: "templates", label: text.settingsTabTemplates },
+    { id: "privacy", label: text.settingsTabPrivacy },
     { id: "appearance", label: text.settingsTabAppearance },
   ];
 
@@ -564,9 +696,40 @@ export function ChatApp({
       label: `${text.promptTemplateApplyWorkspace} · ${project.name}`,
     })),
   ];
+  const filteredPromptTemplates = promptTemplates.filter((template) => {
+    const query = promptTemplateQuery.trim().toLowerCase();
+    if (!query) {
+      return true;
+    }
+    return [template.name, template.description ?? "", template.category ?? "", template.content]
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
+  });
+  const shareUrl =
+    conversationShare && typeof window !== "undefined"
+      ? `${window.location.origin}/share/${conversationShare.token}`
+      : "";
 
   function getPromptTemplateApplyTarget(template: PromptTemplate) {
     return promptTemplateApplyTargets[template.id] ?? activeProject?.id ?? "global";
+  }
+
+  function promptTemplateVariables(template: PromptTemplate) {
+    return (template.variables ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function renderPromptTemplateContent(template: PromptTemplate) {
+    const values = promptTemplateVariableValues[template.id] ?? {};
+    return promptTemplateVariables(template).reduce((content, variable) => {
+      const value = values[variable] ?? "";
+      return content
+        .replaceAll(`{{${variable}}}`, value)
+        .replaceAll(`{${variable}}`, value);
+    }, template.content);
   }
 
   function buildSettingsPayload(settings: UserSettings) {
@@ -686,6 +849,16 @@ export function ChatApp({
     return data;
   }
 
+  async function loadProjectDetails(projectId: string) {
+    const [files, stats] = await Promise.all([
+      requestJson<ProjectFile[]>(`/api/backend/projects/${projectId}/files`),
+      requestJson<ProjectStats>(`/api/backend/projects/${projectId}/stats`),
+    ]);
+    setProjectFiles(files);
+    setProjectStats(stats);
+    return { files, stats };
+  }
+
   async function refreshProviderInfo() {
     const data = await requestJson<ProviderInfo>("/api/backend/models");
     setProviderInfo(data);
@@ -741,6 +914,8 @@ export function ChatApp({
       description: "",
       content: "",
       default_model: "",
+      category: "",
+      variables: "",
       is_default: false,
     });
   }
@@ -757,6 +932,12 @@ export function ChatApp({
     const project = projects.find((item) => item.id === projectScope);
     if (project?.default_model) {
       setSelectedModel(project.default_model);
+    }
+    if (project) {
+      void loadProjectDetails(project.id).catch(() => undefined);
+    } else {
+      setProjectFiles([]);
+      setProjectStats(null);
     }
   }
 
@@ -776,6 +957,7 @@ export function ChatApp({
     if (!activeProject) {
       return;
     }
+    void loadProjectDetails(activeProject.id).catch(() => undefined);
     setWorkspaceMoveConversation(null);
     setWorkspaceDraft({
       id: activeProject.id,
@@ -923,6 +1105,57 @@ export function ChatApp({
     }
   }
 
+  async function handleAddProjectFiles(files: FileList | null) {
+    if (!activeProject || !files || files.length === 0) {
+      return;
+    }
+    setIsAddingProjectFile(true);
+    try {
+      const formData = new FormData();
+      Array.from(files).forEach((file) => formData.append("files", file));
+      const uploads = await requestJson<Array<{
+        id: string;
+        file_name: string;
+        mime_type: string | null;
+        file_size: number;
+        kind: string;
+        storage_key: string;
+        parsed_text: string | null;
+      }>>("/api/backend/uploads", {
+        method: "POST",
+        body: formData,
+      });
+      for (const upload of uploads) {
+        await requestJson<ProjectFile>(`/api/backend/projects/${activeProject.id}/files`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(upload),
+        });
+      }
+      await loadProjectDetails(activeProject.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.workspaceFileAddFailed}${message}`);
+    } finally {
+      setIsAddingProjectFile(false);
+    }
+  }
+
+  async function handleDeleteProjectFile(fileId: string) {
+    if (!activeProject) {
+      return;
+    }
+    try {
+      await requestVoid(`/api/backend/projects/${activeProject.id}/files/${fileId}`, {
+        method: "DELETE",
+      });
+      await loadProjectDetails(activeProject.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.workspaceFileDeleteFailed}${message}`);
+    }
+  }
+
   async function handleMoveConversationToProject(conversation: Conversation, projectId: string | null) {
     try {
       await requestJson<Conversation>(`/api/backend/conversations/${conversation.id}`, {
@@ -953,9 +1186,14 @@ export function ChatApp({
     }
   }
 
-  async function handleOpenMemorySource(conversationId: string) {
+  async function handleOpenMemorySource(conversationId: string, sourceMessageIds?: string | null) {
     setIsSettingsOpen(false);
     await handleSelectConversation(conversationId);
+    const firstMessageId = sourceMessageIds?.split(",").map((item) => item.trim()).filter(Boolean)[0];
+    if (firstMessageId) {
+      setHighlightedMessageId(firstMessageId);
+      window.setTimeout(() => setHighlightedMessageId(null), 5000);
+    }
   }
 
   function refreshAfterChat(conversationId: string, shouldSelectConversation: boolean) {
@@ -1090,10 +1328,23 @@ export function ChatApp({
     }
   }
 
-  async function handleExportConversation(conversation: Conversation, exportFormat: "markdown" | "json") {
+  async function handleExportConversationWithOptions() {
+    if (!exportModalConversation) {
+      return;
+    }
     try {
+      const params = new URLSearchParams({
+        format: exportOptions.format,
+        include_attachments: String(exportOptions.include_attachments),
+        include_attachment_files: String(exportOptions.include_attachment_files),
+        include_context: String(exportOptions.include_context),
+        as_zip: String(exportOptions.as_zip),
+      });
+      if (exportOptions.range === "loaded" && messages.length > 0) {
+        params.set("message_ids", messages.map((message) => message.id).join(","));
+      }
       const response = await fetch(
-        `/api/backend/conversations/${conversation.id}/export?format=${exportFormat}`,
+        `/api/backend/conversations/${exportModalConversation.id}/export?${params.toString()}`,
         { cache: "no-store" }
       );
       if (!response.ok) {
@@ -1102,8 +1353,9 @@ export function ChatApp({
       }
 
       const blob = await response.blob();
-      const extension = exportFormat === "json" ? "json" : "md";
-      const safeTitle = conversation.title.replace(/[^\w\u4e00-\u9fff.-]+/g, "_").slice(0, 80) || "conversation";
+      const extension = exportOptions.as_zip ? "zip" : exportOptions.format === "json" ? "json" : "md";
+      const safeTitle =
+        exportModalConversation.title.replace(/[^\w\u4e00-\u9fff.-]+/g, "_").slice(0, 80) || "conversation";
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -1112,10 +1364,103 @@ export function ChatApp({
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
+      setExportModalConversation(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : text.unknownError;
       setErrorMessage(`${text.exportFailed}${message}`);
     }
+  }
+
+  async function openShareModal(conversation: Conversation) {
+    setShareModalConversation(conversation);
+    setConversationShare(null);
+    setShareExpiresDays("");
+    setShareCopied(false);
+    try {
+      const data = await requestJson<ConversationShare | null>(
+        `/api/backend/conversations/${conversation.id}/share`
+      );
+      setConversationShare(data);
+    } catch {
+      setConversationShare(null);
+    }
+  }
+
+  async function handleCreateOrEnableShare() {
+    if (!shareModalConversation) {
+      return;
+    }
+    setIsShareBusy(true);
+    setErrorMessage(null);
+    try {
+      const payload = {
+        expires_in_days: shareExpiresDays.trim() ? Number(shareExpiresDays) : null,
+      };
+      const data = await requestJson<ConversationShare>(
+        `/api/backend/conversations/${shareModalConversation.id}/share`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      setConversationShare(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.shareFailed}${message}`);
+    } finally {
+      setIsShareBusy(false);
+    }
+  }
+
+  async function handleToggleShare(enabled: boolean) {
+    if (!shareModalConversation || !conversationShare) {
+      return;
+    }
+    setIsShareBusy(true);
+    try {
+      const data = await requestJson<ConversationShare>(
+        `/api/backend/conversations/${shareModalConversation.id}/share`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ is_enabled: enabled }),
+        }
+      );
+      setConversationShare(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.shareFailed}${message}`);
+    } finally {
+      setIsShareBusy(false);
+    }
+  }
+
+  async function handleRevokeShare() {
+    if (!shareModalConversation) {
+      return;
+    }
+    setIsShareBusy(true);
+    try {
+      await requestVoid(`/api/backend/conversations/${shareModalConversation.id}/share`, {
+        method: "DELETE",
+      });
+      setConversationShare(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.shareFailed}${message}`);
+    } finally {
+      setIsShareBusy(false);
+    }
+  }
+
+  async function handleCopyShareUrl() {
+    if (!shareUrl) {
+      return;
+    }
+    await navigator.clipboard.writeText(shareUrl);
+    setShareCopied(true);
+    window.setTimeout(() => setShareCopied(false), 1600);
   }
 
   async function handleSavePromptTemplate() {
@@ -1131,6 +1476,8 @@ export function ChatApp({
       description: promptTemplateDraft.description.trim() || null,
       content,
       default_model: promptTemplateDraft.default_model.trim() || null,
+      category: promptTemplateDraft.category.trim() || null,
+      variables: promptTemplateDraft.variables.trim() || null,
       is_default: promptTemplateDraft.is_default,
     };
 
@@ -1164,6 +1511,8 @@ export function ChatApp({
       description: template.description ?? "",
       content: template.content,
       default_model: template.default_model ?? "",
+      category: template.category ?? "",
+      variables: template.variables ?? "",
       is_default: template.is_default,
     });
   }
@@ -1175,9 +1524,10 @@ export function ChatApp({
           return;
         }
 
+        const renderedContent = renderPromptTemplateContent(template);
         const nextSettings = {
           ...userSettings,
-          system_prompt: template.content,
+          system_prompt: renderedContent,
           default_model: template.default_model || userSettings.default_model,
         };
         const savedRaw = await requestJson<UserSettings>("/api/backend/settings", {
@@ -1203,7 +1553,7 @@ export function ChatApp({
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          system_prompt: template.content,
+          system_prompt: renderPromptTemplateContent(template),
           default_model: template.default_model || targetProject.default_model,
         }),
       });
@@ -1226,6 +1576,19 @@ export function ChatApp({
       const message = error instanceof Error ? error.message : text.unknownError;
       setErrorMessage(`${text.workspaceSaveFailed}${message}`);
     }
+  }
+
+  function handleQuickInsertPromptTemplate(template: PromptTemplate) {
+    const renderedContent = renderPromptTemplateContent(template);
+    setUserSettings((current) =>
+      current
+        ? {
+            ...current,
+            system_prompt: [current.system_prompt, renderedContent].filter(Boolean).join("\n\n"),
+          }
+        : current
+    );
+    setActiveSettingsTab("system");
   }
 
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
@@ -1661,21 +2024,21 @@ export function ChatApp({
                 type="button"
                 onClick={() => {
                   setOpenConversationMenuId(null);
-                  void handleExportConversation(conversation, "markdown");
+                  void openShareModal(conversation);
                 }}
                 className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
               >
-                {text.exportMarkdown}
+                {text.shareConversation}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setOpenConversationMenuId(null);
-                  void handleExportConversation(conversation, "json");
+                  setExportModalConversation(conversation);
                 }}
                 className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
               >
-                {text.exportJson}
+                {text.exportOptions}
               </button>
               <button
                 type="button"
@@ -1878,6 +2241,7 @@ export function ChatApp({
             systemPrompt={activeProject?.system_prompt ?? userSettings?.system_prompt ?? null}
             projectId={activeProject?.id ?? null}
             contextInfo={contextInfo}
+            highlightedMessageId={highlightedMessageId}
             uiLanguage={uiLanguage}
             onContextInfoChange={handleContextInfoChange}
             onChatSettled={refreshAfterChat}
@@ -1990,6 +2354,75 @@ export function ChatApp({
                           className="min-h-[180px] w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
                         />
                       </label>
+
+                      {workspaceModalMode === "edit" && activeProject ? (
+                        <div className="space-y-4 rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-[var(--ink-strong)]">{text.workspaceStats}</p>
+                              <p className="mt-1 text-xs text-[var(--ink-muted)]">{text.workspaceFiles}</p>
+                            </div>
+                            <label className="cursor-pointer rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]">
+                              {isAddingProjectFile ? text.saving : text.workspaceAddFiles}
+                              <input
+                                type="file"
+                                multiple
+                                accept="image/*,.txt,.md,.markdown,.pdf,.docx"
+                                className="hidden"
+                                disabled={isAddingProjectFile}
+                                onChange={(event) => {
+                                  void handleAddProjectFiles(event.target.files);
+                                  event.target.value = "";
+                                }}
+                              />
+                            </label>
+                          </div>
+                          {projectStats ? (
+                            <div className="grid gap-2 sm:grid-cols-5">
+                              {[
+                                [text.workspaceConversationCount, projectStats.conversation_count],
+                                [text.workspaceMessageCount, projectStats.message_count],
+                                [text.workspaceFileCount, projectStats.file_count],
+                                [text.workspaceTemplateCount, projectStats.prompt_template_count],
+                                [text.workspaceTotalFileSize, formatBytes(projectStats.total_file_size)],
+                              ].map(([label, value]) => (
+                                <div key={label} className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2">
+                                  <p className="text-[10px] text-[var(--ink-muted)]">{label}</p>
+                                  <p className="mt-1 break-all text-sm font-semibold text-[var(--ink-strong)]">{value}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="space-y-2">
+                            {projectFiles.length > 0 ? (
+                              projectFiles.map((file) => (
+                                <div
+                                  key={file.id}
+                                  className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-[var(--ink-strong)]">{file.file_name}</p>
+                                    <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                      {file.kind} · {formatBytes(file.file_size ?? 0)}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDeleteProjectFile(file.id)}
+                                    className="shrink-0 rounded-full border border-[rgba(174,65,45,0.22)] px-3 py-1 text-xs text-[#9f3a2b]"
+                                  >
+                                    {text.delete}
+                                  </button>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="rounded-2xl border border-dashed border-[var(--control-border)] px-3 py-3 text-xs text-[var(--ink-soft)]">
+                                {text.workspaceFileEmpty}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -2031,6 +2464,212 @@ export function ChatApp({
                       {workspaceModalMode === "move" ? text.moveWorkspace : text.saveWorkspace}
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {shareModalConversation ? (
+            <div className="absolute inset-0 z-40 flex items-center justify-center rounded-[32px] bg-[var(--overlay-bg)] p-4 backdrop-blur-sm">
+              <div className="w-full max-w-2xl overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[var(--modal-bg)] shadow-[var(--panel-shadow)]">
+                <div className="flex items-start justify-between gap-4 border-b border-[var(--hairline)] px-5 py-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-[var(--ink-muted)]">
+                      {text.shareConversation}
+                    </p>
+                    <h3 className="mt-1 text-2xl font-semibold text-[var(--ink-strong)]">{text.shareTitle}</h3>
+                    <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">{text.shareDescription}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShareModalConversation(null)}
+                    className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                  >
+                    {text.close}
+                  </button>
+                </div>
+                <div className="space-y-4 px-5 py-5">
+                  <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3">
+                    <p className="text-sm font-medium text-[var(--ink-strong)]">{shareModalConversation.title}</p>
+                    <p className="mt-1 text-xs text-[var(--ink-muted)]">{shareModalConversation.model_name}</p>
+                  </div>
+                  <label className="block text-sm">
+                    <span className="mb-2 block text-[var(--ink-soft)]">{text.shareExpiresDays}</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={shareExpiresDays}
+                      onChange={(event) => setShareExpiresDays(event.target.value)}
+                      className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                    />
+                  </label>
+                  {conversationShare ? (
+                    <div className="space-y-3 rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-4 py-3">
+                      <p className="break-all text-sm text-[var(--ink-soft)]">{shareUrl}</p>
+                      <p className="text-xs text-[var(--ink-muted)]">
+                        {conversationShare.is_enabled ? text.shareEnable : text.shareDisable}
+                        {conversationShare.expires_at ? ` · ${conversationShare.expires_at}` : ""}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyShareUrl()}
+                          className="rounded-full border border-[var(--control-border)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                        >
+                          {shareCopied ? text.shareCopied : text.shareCopy}
+                        </button>
+                        <a
+                          href={shareUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full border border-[var(--control-border)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                        >
+                          {text.openShare}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleShare(!conversationShare.is_enabled)}
+                          disabled={isShareBusy}
+                          className="rounded-full border border-[var(--control-border)] px-3 py-1.5 text-xs text-[var(--ink-soft)] disabled:opacity-55"
+                        >
+                          {conversationShare.is_enabled ? text.shareDisable : text.shareEnable}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRevokeShare()}
+                          disabled={isShareBusy}
+                          className="rounded-full border border-[rgba(174,65,45,0.22)] px-3 py-1.5 text-xs text-[#9f3a2b] disabled:opacity-55"
+                        >
+                          {text.shareRevoke}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="rounded-2xl border border-dashed border-[var(--control-border)] bg-[var(--soft-bg)] px-4 py-3 text-sm text-[var(--ink-soft)]">
+                      {text.shareNoLink}
+                    </p>
+                  )}
+                </div>
+                <div className="flex justify-end gap-2 border-t border-[var(--hairline)] px-5 py-4">
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateOrEnableShare()}
+                    disabled={isShareBusy}
+                    className="rounded-full bg-[var(--ink-strong)] px-5 py-2 text-sm font-medium text-[var(--inverse-ink)] disabled:opacity-55"
+                  >
+                    {text.shareCreate}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {exportModalConversation ? (
+            <div className="absolute inset-0 z-40 flex items-center justify-center rounded-[32px] bg-[var(--overlay-bg)] p-4 backdrop-blur-sm">
+              <div className="w-full max-w-xl overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[var(--modal-bg)] shadow-[var(--panel-shadow)]">
+                <div className="flex items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-[var(--ink-muted)]">{text.exportOptions}</p>
+                    <h3 className="mt-1 text-2xl font-semibold text-[var(--ink-strong)]">
+                      {exportModalConversation.title}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExportModalConversation(null)}
+                    className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                  >
+                    {text.close}
+                  </button>
+                </div>
+                <div className="space-y-4 px-5 py-5">
+                  <label className="block text-sm">
+                    <span className="mb-2 block text-[var(--ink-soft)]">{text.exportRange}</span>
+                    <select
+                      value={exportOptions.range}
+                      onChange={(event) =>
+                        setExportOptions((current) => ({
+                          ...current,
+                          range: event.target.value as "all" | "loaded",
+                        }))
+                      }
+                      className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                    >
+                      <option value="all">{text.exportRangeAll}</option>
+                      <option value="loaded">{text.exportRangeSelected}</option>
+                    </select>
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setExportOptions((current) => ({ ...current, format: "markdown" }))}
+                      className={`rounded-2xl border px-4 py-3 text-sm ${
+                        exportOptions.format === "markdown"
+                          ? "border-[var(--accent-strong)] bg-[var(--soft-bg)]"
+                          : "border-[var(--control-border)] bg-[var(--control-bg)]"
+                      }`}
+                    >
+                      Markdown
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExportOptions((current) => ({ ...current, format: "json" }))}
+                      className={`rounded-2xl border px-4 py-3 text-sm ${
+                        exportOptions.format === "json"
+                          ? "border-[var(--accent-strong)] bg-[var(--soft-bg)]"
+                          : "border-[var(--control-border)] bg-[var(--control-bg)]"
+                      }`}
+                    >
+                      JSON
+                    </button>
+                  </div>
+                  {[
+                    ["include_attachments", text.exportIncludeAttachmentMetadata],
+                    ["include_context", text.exportIncludeContext],
+                    ["as_zip", text.exportAsZip],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 text-sm text-[var(--ink-soft)]">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(exportOptions[key as keyof typeof exportOptions])}
+                        onChange={(event) =>
+                          setExportOptions((current) => ({
+                            ...current,
+                            [key]: event.target.checked,
+                          }))
+                        }
+                      />
+                      {label}
+                    </label>
+                  ))}
+                  <label
+                    className={`flex items-center gap-2 text-sm ${
+                      exportOptions.as_zip ? "text-[var(--ink-soft)]" : "text-[var(--ink-muted)] opacity-60"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={exportOptions.include_attachment_files}
+                      disabled={!exportOptions.as_zip}
+                      onChange={(event) =>
+                        setExportOptions((current) => ({
+                          ...current,
+                          include_attachment_files: event.target.checked,
+                        }))
+                      }
+                    />
+                    {text.exportIncludeAttachmentFiles}
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2 border-t border-[var(--hairline)] px-5 py-4">
+                  <button
+                    type="button"
+                    onClick={() => void handleExportConversationWithOptions()}
+                    className="rounded-full bg-[linear-gradient(135deg,_#d38d2d_0%,_#be6f24_100%)] px-5 py-2 text-sm font-medium text-white"
+                  >
+                    {text.exportRun}
+                  </button>
                 </div>
               </div>
             </div>
@@ -2533,7 +3172,7 @@ export function ChatApp({
                             <button
                               type="button"
                               onClick={() => void handleAddMemory()}
-                              className="rounded-full bg-[var(--ink-strong)] px-4 py-2 text-sm text-white transition hover:opacity-90"
+                              className="rounded-full bg-[var(--ink-strong)] px-4 py-2 text-sm text-[var(--inverse-ink)] transition hover:opacity-90"
                             >
                               {text.addMemory}
                             </button>
@@ -2585,7 +3224,7 @@ export function ChatApp({
                                         <button
                                           type="button"
                                           onClick={() => void handleSaveMemorySuggestion(suggestion, index)}
-                                          className="rounded-full bg-[var(--ink-strong)] px-3 py-1 text-xs text-white"
+                                          className="rounded-full bg-[var(--ink-strong)] px-3 py-1 text-xs text-[var(--inverse-ink)]"
                                         >
                                           {text.saveSuggestion}
                                         </button>
@@ -2659,7 +3298,12 @@ export function ChatApp({
                                       </p>
                                       <button
                                         type="button"
-                                        onClick={() => void handleOpenMemorySource(memory.source_conversation_id!)}
+                                        onClick={() =>
+                                          void handleOpenMemorySource(
+                                            memory.source_conversation_id!,
+                                            memory.source_message_ids
+                                          )
+                                        }
                                         className="shrink-0 rounded-full border border-[rgba(22,34,27,0.12)] px-3 py-1 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)]"
                                       >
                                         {text.openMemorySource}
@@ -2695,6 +3339,42 @@ export function ChatApp({
                             className="min-h-[260px] w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
                           />
                         </label>
+                      ) : null}
+
+                      {activeSettingsTab === "privacy" ? (
+                        <div className="space-y-4">
+                          <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                            <p className="text-sm font-semibold text-[var(--ink-strong)]">
+                              {text.settingsSectionPrivacy}
+                            </p>
+                            <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
+                              {text.shareDescription}
+                            </p>
+                            {selectedConversationId ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const conversation = conversations.find((item) => item.id === selectedConversationId);
+                                  if (conversation) {
+                                    void openShareModal(conversation);
+                                  }
+                                }}
+                                className="mt-3 rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                              >
+                                {text.shareConversation}
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                            <p className="text-sm font-semibold text-[var(--ink-strong)]">
+                              {text.exportOptions}
+                            </p>
+                            <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
+                              {text.exportIncludeAttachmentMetadata}；{text.exportIncludeAttachmentFiles}；
+                              {text.exportIncludeContext}；{text.exportAsZip}
+                            </p>
+                          </div>
+                        </div>
                       ) : null}
 
                       {activeSettingsTab === "templates" ? (
@@ -2772,6 +3452,36 @@ export function ChatApp({
                               </label>
                             </div>
 
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                              <label className="block text-sm">
+                                <span className="mb-2 block text-[var(--ink-soft)]">{text.promptTemplateCategory}</span>
+                                <input
+                                  value={promptTemplateDraft.category}
+                                  onChange={(event) =>
+                                    setPromptTemplateDraft((current) => ({
+                                      ...current,
+                                      category: event.target.value,
+                                    }))
+                                  }
+                                  className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                                />
+                              </label>
+                              <label className="block text-sm">
+                                <span className="mb-2 block text-[var(--ink-soft)]">{text.promptTemplateVariables}</span>
+                                <input
+                                  value={promptTemplateDraft.variables}
+                                  onChange={(event) =>
+                                    setPromptTemplateDraft((current) => ({
+                                      ...current,
+                                      variables: event.target.value,
+                                    }))
+                                  }
+                                  className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                                  placeholder="topic, role, format"
+                                />
+                              </label>
+                            </div>
+
                             <label className="mt-3 block text-sm">
                               <span className="mb-2 block text-[var(--ink-soft)]">
                                 {text.promptTemplateDescription}
@@ -2827,10 +3537,18 @@ export function ChatApp({
                             </div>
                           </div>
 
+                          <input
+                            value={promptTemplateQuery}
+                            onChange={(event) => setPromptTemplateQuery(event.target.value)}
+                            placeholder={text.promptTemplateSearch}
+                            className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-strong)]"
+                          />
+
                           <div className="space-y-2">
-                            {promptTemplates.length > 0 ? (
-                              promptTemplates.map((template) => {
+                            {filteredPromptTemplates.length > 0 ? (
+                              filteredPromptTemplates.map((template) => {
                                 const applyTarget = getPromptTemplateApplyTarget(template);
+                                const variables = promptTemplateVariables(template);
                                 const scopeLabel = template.project_id
                                   ? projects.find((project) => project.id === template.project_id)?.name ??
                                     template.project_id
@@ -2861,6 +3579,11 @@ export function ChatApp({
                                         {template.default_model ? (
                                           <p className="mt-1 text-xs text-[var(--ink-muted)]">
                                             {template.default_model}
+                                          </p>
+                                        ) : null}
+                                        {template.category ? (
+                                          <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                            {text.promptTemplateCategory}：{template.category}
                                           </p>
                                         ) : null}
                                         <p className="mt-1 text-xs text-[var(--ink-muted)]">
@@ -2896,6 +3619,13 @@ export function ChatApp({
                                         </button>
                                         <button
                                           type="button"
+                                          onClick={() => handleQuickInsertPromptTemplate(template)}
+                                          className="rounded-full border border-[var(--control-border)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                                        >
+                                          {text.promptTemplateInsert}
+                                        </button>
+                                        <button
+                                          type="button"
                                           onClick={() => handleEditPromptTemplate(template)}
                                           className="rounded-full border border-[var(--control-border)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
                                         >
@@ -2913,6 +3643,28 @@ export function ChatApp({
                                     <p className="mt-3 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-[var(--ink-soft)]">
                                       {template.content}
                                     </p>
+                                    {variables.length > 0 ? (
+                                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                        {variables.map((variable) => (
+                                          <label key={variable} className="block text-xs">
+                                            <span className="mb-1 block text-[var(--ink-muted)]">{variable}</span>
+                                            <input
+                                              value={promptTemplateVariableValues[template.id]?.[variable] ?? ""}
+                                              onChange={(event) =>
+                                                setPromptTemplateVariableValues((current) => ({
+                                                  ...current,
+                                                  [template.id]: {
+                                                    ...(current[template.id] ?? {}),
+                                                    [variable]: event.target.value,
+                                                  },
+                                                }))
+                                              }
+                                              className="w-full rounded-xl border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-2 outline-none focus:border-[var(--accent-strong)]"
+                                            />
+                                          </label>
+                                        ))}
+                                      </div>
+                                    ) : null}
                                   </div>
                                 );
                               })

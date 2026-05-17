@@ -16,6 +16,7 @@ type ChatThreadProps = {
   systemPrompt: string | null;
   projectId: string | null;
   contextInfo: ContextGovernanceInfo | null;
+  highlightedMessageId: string | null;
   uiLanguage: UILanguage;
   onContextInfoChange: (
     info: ContextGovernanceInfo | null,
@@ -443,6 +444,7 @@ export function ChatThread({
   systemPrompt,
   projectId,
   contextInfo,
+  highlightedMessageId,
   uiLanguage,
   onContextInfoChange,
   onChatSettled,
@@ -725,6 +727,14 @@ export function ChatThread({
       behavior: streamingStartedAt ? "auto" : "smooth",
     });
   }, [threadMessages.length, activeStreamingAssistantMessage?.content, streamingStartedAt]);
+
+  useEffect(() => {
+    if (!highlightedMessageId) {
+      return;
+    }
+    const element = document.getElementById(`message-${highlightedMessageId}`);
+    element?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightedMessageId, threadMessages.length]);
 
   useEffect(() => {
     if (!streamingStartedAt) {
@@ -1446,15 +1456,21 @@ export function ChatThread({
             const messageTime = formatMessageTime(message.created_at, uiLanguage);
             const shouldShowWaitingPlaceholder = isWaitingAssistant;
             const shouldShowStreamingIndicator = isStreamingAssistant && message.content.trim();
+            const isHighlighted = highlightedMessageId === message.id;
 
             return (
               <article
                 key={message.id}
+                id={`message-${message.id}`}
                 className={`group max-w-[96%] rounded-[24px] px-4 py-3.5 shadow-[0_18px_40px_rgba(64,58,42,0.08)] lg:max-w-[92%] ${
                   isUser
                     ? "ml-auto bg-[linear-gradient(135deg,_#16221b_0%,_#254636_100%)] text-white"
                     : "border border-[rgba(22,34,27,0.08)] bg-white text-[var(--ink-strong)]"
-                } ${isSelected ? "ring-2 ring-[var(--accent-strong)] ring-offset-2 ring-offset-transparent" : ""}`}
+                } ${
+                  isSelected || isHighlighted
+                    ? "ring-2 ring-[var(--accent-strong)] ring-offset-2 ring-offset-transparent"
+                    : ""
+                }`}
               >
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 text-xs uppercase tracking-[0.2em]">

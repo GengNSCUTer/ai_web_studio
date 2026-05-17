@@ -17,6 +17,8 @@ class PromptTemplate(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     content: Mapped[str] = mapped_column(Text)
     default_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    variables: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

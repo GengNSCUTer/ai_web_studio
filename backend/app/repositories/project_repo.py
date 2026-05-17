@@ -1,7 +1,9 @@
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models.conversation import Conversation
+from app.models.message import Message
+from app.models.project_file import ProjectFile
 from app.models.prompt_template import PromptTemplate
 from app.models.project import Project
 
@@ -41,3 +43,54 @@ class ProjectRepository:
         )
         self.db.delete(project)
         self.db.commit()
+
+    def stats(self, project_id: str, user_id: str) -> dict[str, int]:
+        conversation_count = int(
+            self.db.scalar(
+                select(func.count())
+                .select_from(Conversation)
+                .where(Conversation.project_id == project_id, Conversation.user_id == user_id)
+            )
+            or 0
+        )
+        message_count = int(
+            self.db.scalar(
+                select(func.count())
+                .select_from(Message)
+                .join(Conversation, Message.conversation_id == Conversation.id)
+                .where(Conversation.project_id == project_id, Conversation.user_id == user_id)
+            )
+            or 0
+        )
+        file_count = int(
+            self.db.scalar(
+                select(func.count())
+                .select_from(ProjectFile)
+                .where(ProjectFile.project_id == project_id, ProjectFile.user_id == user_id)
+            )
+            or 0
+        )
+        prompt_template_count = int(
+            self.db.scalar(
+                select(func.count())
+                .select_from(PromptTemplate)
+                .where(PromptTemplate.project_id == project_id, PromptTemplate.user_id == user_id)
+            )
+            or 0
+        )
+        total_file_size = int(
+            self.db.scalar(
+                select(func.coalesce(func.sum(ProjectFile.file_size), 0)).where(
+                    ProjectFile.project_id == project_id,
+                    ProjectFile.user_id == user_id,
+                )
+            )
+            or 0
+        )
+        return {
+            "conversation_count": conversation_count,
+            "message_count": message_count,
+            "file_count": file_count,
+            "prompt_template_count": prompt_template_count,
+            "total_file_size": total_file_size,
+        }

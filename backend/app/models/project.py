@@ -23,3 +23,4 @@ class Project(Base):
 
     user = relationship("User", back_populates="projects")
     conversations = relationship("Conversation", back_populates="project")
+    files = relationship("ProjectFile", back_populates="project", cascade="all, delete-orphan")

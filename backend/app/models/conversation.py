@@ -31,3 +31,4 @@ class Conversation(Base):
     user = relationship("User", back_populates="conversations")
     project = relationship("Project", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
+    shares = relationship("ConversationShare", back_populates="conversation", cascade="all, delete-orphan")

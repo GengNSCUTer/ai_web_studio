@@ -1,6 +1,15 @@
 from app.models.project import Project
+from app.models.project_file import ProjectFile
+from app.repositories.project_file_repo import ProjectFileRepository
 from app.repositories.project_repo import ProjectRepository
-from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
+from app.schemas.project import (
+    ProjectCreate,
+    ProjectFileCreate,
+    ProjectFileResponse,
+    ProjectResponse,
+    ProjectStatsResponse,
+    ProjectUpdate,
+)
 
 
 class ProjectService:
@@ -48,4 +57,46 @@ class ProjectService:
         if not project:
             return False
         self.repo.delete(project)
+        return True
+
+    def get_stats(self, project_id: str, user_id: str) -> ProjectStatsResponse | None:
+        project = self.repo.get_by_user(project_id, user_id)
+        if not project:
+            return None
+        stats = self.repo.stats(project_id, user_id)
+        return ProjectStatsResponse(project_id=project_id, **stats)
+
+
+class ProjectFileService:
+    def __init__(self, repo: ProjectFileRepository, project_repo: ProjectRepository):
+        self.repo = repo
+        self.project_repo = project_repo
+
+    def list_files(self, project_id: str, user_id: str) -> list[ProjectFileResponse] | None:
+        if not self.project_repo.get_by_user(project_id, user_id):
+            return None
+        return [ProjectFileResponse.model_validate(item) for item in self.repo.list_by_project(project_id, user_id)]
+
+    def add_file(self, project_id: str, user_id: str, payload: ProjectFileCreate) -> ProjectFileResponse | None:
+        if not self.project_repo.get_by_user(project_id, user_id):
+            return None
+        project_file = ProjectFile(
+            project_id=project_id,
+            user_id=user_id,
+            kind=payload.kind,
+            file_name=payload.file_name,
+            mime_type=payload.mime_type,
+            file_size=payload.file_size,
+            storage_key=payload.storage_key,
+            parsed_text=payload.parsed_text,
+        )
+        return ProjectFileResponse.model_validate(self.repo.save(project_file))
+
+    def delete_file(self, project_id: str, file_id: str, user_id: str) -> bool:
+        if not self.project_repo.get_by_user(project_id, user_id):
+            return False
+        project_file = self.repo.get_by_user(file_id, user_id)
+        if not project_file or project_file.project_id != project_id:
+            return False
+        self.repo.delete(project_file)
         return True

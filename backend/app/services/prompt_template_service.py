@@ -29,6 +29,8 @@ class PromptTemplateService:
             description=self._normalize_optional_text(payload.description),
             content=payload.content.strip(),
             default_model=self._normalize_optional_text(payload.default_model),
+            category=self._normalize_optional_text(payload.category),
+            variables=self._normalize_optional_text(payload.variables),
             is_default=payload.is_default,
         )
         if template.is_default:
@@ -57,6 +59,10 @@ class PromptTemplateService:
             template.content = data["content"].strip()
         if "default_model" in data:
             template.default_model = self._normalize_optional_text(data["default_model"])
+        if "category" in data:
+            template.category = self._normalize_optional_text(data["category"])
+        if "variables" in data:
+            template.variables = self._normalize_optional_text(data["variables"])
         if "is_default" in data and data["is_default"] is not None:
             template.is_default = data["is_default"]
 

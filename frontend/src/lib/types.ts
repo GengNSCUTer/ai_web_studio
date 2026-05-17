@@ -25,6 +25,27 @@ export type Project = {
   updated_at: string | null;
 };
 
+export type ProjectFile = {
+  id: string;
+  project_id: string;
+  file_name: string;
+  mime_type: string | null;
+  file_size: number | null;
+  kind: string;
+  storage_key: string;
+  parsed_text: string | null;
+  created_at: string;
+};
+
+export type ProjectStats = {
+  project_id: string;
+  conversation_count: number;
+  message_count: number;
+  file_count: number;
+  prompt_template_count: number;
+  total_file_size: number;
+};
+
 export type ContextAttachmentChunk = {
   attachment_id: string | null;
   file_name: string;
@@ -105,9 +126,31 @@ export type PromptTemplate = {
   description: string | null;
   content: string;
   default_model: string | null;
+  category: string | null;
+  variables: string | null;
   is_default: boolean;
   created_at: string;
   updated_at: string | null;
+};
+
+export type ConversationShare = {
+  id: string;
+  token: string;
+  conversation_id: string;
+  is_enabled: boolean;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type PublicConversationShare = {
+  token: string;
+  title: string;
+  model_name: string;
+  created_at: string | null;
+  updated_at: string | null;
+  messages: Message[];
 };
 
 export type UserMemory = {
