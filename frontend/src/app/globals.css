@@ -1,12 +1,59 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
   --background: #f1ecde;
   --foreground: #18231d;
   --ink-strong: #18231d;
   --ink-soft: #56655f;
   --ink-muted: #78867f;
+  --inverse-ink: #ffffff;
   --accent-strong: #c77a25;
+  --app-bg: radial-gradient(circle at top left, rgba(64, 145, 108, 0.22), transparent 32%),
+    radial-gradient(circle at top right, rgba(240, 196, 25, 0.18), transparent 28%),
+    linear-gradient(180deg, #f8f4ea 0%, #f1ecde 100%);
+  --panel-bg: rgba(255, 250, 242, 0.9);
+  --panel-header-bg: rgba(255, 250, 242, 0.94);
+  --modal-bg: rgba(255, 250, 242, 0.98);
+  --soft-bg: rgba(248, 244, 234, 0.72);
+  --control-bg: #ffffff;
+  --control-hover-bg: rgba(255, 255, 255, 0.92);
+  --control-border: rgba(22, 34, 27, 0.12);
+  --panel-border: rgba(255, 255, 255, 0.8);
+  --hairline: rgba(22, 34, 27, 0.08);
+  --overlay-bg: rgba(24, 35, 29, 0.18);
+  --panel-shadow: 0 28px 100px rgba(112, 96, 56, 0.18);
+  --danger-bg: rgba(255, 238, 231, 0.95);
+  --danger-border: rgba(185, 66, 42, 0.18);
+  --danger-text: #8f3524;
+}
+
+[data-theme="dark"] {
+  --background: #101711;
+  --foreground: #e9efe5;
+  --ink-strong: #edf4eb;
+  --ink-soft: #c0ccbf;
+  --ink-muted: #8e9d91;
+  --inverse-ink: #101711;
+  --accent-strong: #e3a244;
+  --app-bg: radial-gradient(circle at top left, rgba(63, 131, 93, 0.24), transparent 34%),
+    radial-gradient(circle at top right, rgba(205, 131, 45, 0.2), transparent 30%),
+    linear-gradient(180deg, #0d1510 0%, #131d16 100%);
+  --panel-bg: rgba(20, 30, 23, 0.92);
+  --panel-header-bg: rgba(18, 28, 22, 0.94);
+  --modal-bg: rgba(19, 29, 22, 0.98);
+  --soft-bg: rgba(255, 255, 255, 0.06);
+  --control-bg: rgba(255, 255, 255, 0.08);
+  --control-hover-bg: rgba(255, 255, 255, 0.12);
+  --control-border: rgba(255, 255, 255, 0.14);
+  --panel-border: rgba(255, 255, 255, 0.12);
+  --hairline: rgba(255, 255, 255, 0.1);
+  --overlay-bg: rgba(0, 0, 0, 0.32);
+  --panel-shadow: 0 28px 100px rgba(0, 0, 0, 0.32);
+  --danger-bg: rgba(91, 36, 31, 0.74);
+  --danger-border: rgba(255, 153, 130, 0.2);
+  --danger-text: #ffd0c4;
 }
 
 @theme inline {
@@ -63,4 +110,130 @@ h4 {
 .chat-markdown pre,
 .chat-markdown code {
   font-family: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background-color: var(--control-bg);
+  color: var(--ink-strong);
+  color-scheme: dark;
+}
+
+[data-theme="dark"] select option {
+  background-color: #17231b;
+  color: var(--ink-strong);
+}
+
+[data-theme="dark"] select option:checked {
+  background-color: #263a2c;
+  color: var(--ink-strong);
+}
+
+[data-theme="dark"] select option:hover {
+  background-color: #213227;
+  color: var(--ink-strong);
+}
+
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: rgba(233, 239, 229, 0.42);
+}
+
+[data-theme="dark"] .bg-white,
+[data-theme="dark"] .bg-white\/60,
+[data-theme="dark"] .bg-white\/64,
+[data-theme="dark"] .bg-white\/70,
+[data-theme="dark"] .bg-white\/72,
+[data-theme="dark"] .bg-white\/76,
+[data-theme="dark"] .bg-white\/78,
+[data-theme="dark"] .bg-white\/80,
+[data-theme="dark"] .bg-white\/82 {
+  background-color: var(--control-bg) !important;
+}
+
+[data-theme="dark"] .bg-white\/4,
+[data-theme="dark"] .bg-white\/6,
+[data-theme="dark"] .bg-white\/8,
+[data-theme="dark"] .bg-white\/10 {
+  background-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+[data-theme="dark"] .border-white\/75,
+[data-theme="dark"] .border-white\/80 {
+  border-color: var(--panel-border) !important;
+}
+
+[data-theme="dark"] .bg-\[rgba\(255\,250\,242\,0\.9\)\],
+[data-theme="dark"] .bg-\[rgba\(255\,250\,242\,0\.94\)\],
+[data-theme="dark"] .bg-\[rgba\(255\,250\,242\,0\.98\)\] {
+  background-color: var(--modal-bg) !important;
+}
+
+[data-theme="dark"] .bg-\[rgba\(248\,244\,234\,0\.72\)\] {
+  background-color: var(--soft-bg) !important;
+}
+
+[data-theme="dark"] .bg-\[rgba\(248\,244\,234\,0\.8\)\],
+[data-theme="dark"] .bg-\[rgba\(248\,244\,234\,0\.9\)\],
+[data-theme="dark"] .bg-\[rgba\(248\,244\,234\,0\.92\)\] {
+  background-color: var(--soft-bg) !important;
+}
+
+[data-theme="dark"] .bg-\[rgba\(255\,238\,231\,0\.92\)\],
+[data-theme="dark"] .bg-\[rgba\(255\,238\,231\,0\.95\)\] {
+  background-color: var(--danger-bg) !important;
+  color: var(--danger-text) !important;
+}
+
+[data-theme="dark"] .text-\[\#8f3524\],
+[data-theme="dark"] .text-\[\#9f3a2b\] {
+  color: var(--danger-text) !important;
+}
+
+[data-theme="dark"] .text-\[\#16221b\] {
+  color: var(--inverse-ink) !important;
+}
+
+[data-theme="dark"] .hover\:bg-white:hover,
+[data-theme="dark"] .hover\:bg-white\/8:hover,
+[data-theme="dark"] .hover\:bg-white\/10:hover,
+[data-theme="dark"] .hover\:bg-white\/14:hover {
+  background-color: var(--control-hover-bg) !important;
+  color: var(--ink-strong) !important;
+}
+
+[data-theme="dark"] aside .hover\:bg-white\/8:hover,
+[data-theme="dark"] aside .hover\:bg-white\/10:hover,
+[data-theme="dark"] aside .hover\:bg-white\/14:hover {
+  color: #ffffff !important;
+}
+
+[data-theme="dark"] .border-\[rgba\(22\,34\,27\,0\.08\)\],
+[data-theme="dark"] .border-\[rgba\(22\,34\,27\,0\.12\)\] {
+  border-color: var(--control-border) !important;
+}
+
+[data-theme="dark"] .border-\[rgba\(22\,34\,27\,0\.1\)\],
+[data-theme="dark"] .border-\[rgba\(22\,34\,27\,0\.14\)\],
+[data-theme="dark"] .border-\[rgba\(185\,66\,42\,0\.14\)\],
+[data-theme="dark"] .border-\[rgba\(185\,66\,42\,0\.16\)\],
+[data-theme="dark"] .border-\[rgba\(185\,66\,42\,0\.18\)\],
+[data-theme="dark"] .border-\[rgba\(174\,65\,45\,0\.22\)\] {
+  border-color: var(--control-border) !important;
+}
+
+/* Legacy light-surface compatibility layer.
+   New components should prefer semantic variables directly; this keeps older
+   Tailwind arbitrary color utilities readable when the app theme is dark. */
+[data-theme="dark"] :is(button, input, textarea, select, details, article) {
+  color-scheme: dark;
+}
+
+[data-theme="dark"] :is(button, input, textarea, select):not([class*="text-white"]):not([class*="text-[#ffcabd]"]) {
+  color: var(--ink-soft);
+}
+
+[data-theme="dark"] :is(input, textarea, select) {
+  border-color: var(--control-border);
 }

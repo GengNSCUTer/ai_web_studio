@@ -8,6 +8,7 @@ import type {
   ContextGovernanceInfo,
   MemorySuggestion,
   Message,
+  PromptTemplate,
   ProviderConnectionTestResult,
   ProviderInfo,
   User,
@@ -24,7 +25,8 @@ type ChatAppProps = {
 };
 
 type UILanguage = "zh-CN" | "en-US";
-type SettingsTab = "provider" | "generation" | "context" | "memory" | "system";
+type SettingsTab = "provider" | "generation" | "context" | "memory" | "system" | "appearance" | "templates";
+type ThemeMode = "system" | "light" | "dark";
 
 const PROVIDER_PRESETS = {
   ollama: {
@@ -80,6 +82,8 @@ const APP_TEXT = {
     settingsTabContext: "上下文",
     settingsTabMemory: "长期记忆",
     settingsTabSystem: "系统提示",
+    settingsTabAppearance: "外观",
+    settingsTabTemplates: "Prompt 模板",
     close: "关闭",
     provider: "Provider",
     defaultModel: "默认模型",
@@ -88,6 +92,30 @@ const APP_TEXT = {
     uiLanguage: "界面语言",
     chinese: "中文",
     english: "English",
+    themeMode: "主题模式",
+    themeSystem: "跟随系统",
+    themeLight: "浅色",
+    themeDark: "深色",
+    promptTemplates: "Prompt 模板",
+    promptTemplateName: "模板名称",
+    promptTemplateDescription: "模板说明",
+    promptTemplateContent: "模板内容",
+    promptTemplateModel: "默认模型（可选）",
+    promptTemplateDefault: "设为默认模板",
+    promptTemplateEmpty: "还没有 Prompt 模板。",
+    promptTemplateCreate: "新增模板",
+    promptTemplateUpdate: "保存修改",
+    promptTemplateNew: "新建模板",
+    promptTemplateEdit: "编辑",
+    promptTemplateApply: "应用到系统提示",
+    promptTemplateCancelEdit: "取消编辑",
+    promptTemplateDeleteConfirm: "确认删除这个 Prompt 模板吗？",
+    promptTemplateSaveFailed: "Prompt 模板保存失败：",
+    promptTemplateDeleteFailed: "Prompt 模板删除失败：",
+    promptTemplateLoadFailed: "Prompt 模板加载失败：",
+    exportMarkdown: "导出 Markdown",
+    exportJson: "导出 JSON",
+    exportFailed: "导出失败：",
     providerHint: "先测试连接，再保存设置。测试会用当前表单里的 provider 配置实时请求。",
     testing: "测试中...",
     testConnection: "测试连接",
@@ -179,6 +207,8 @@ const APP_TEXT = {
     settingsTabContext: "Context",
     settingsTabMemory: "Memory",
     settingsTabSystem: "System Prompt",
+    settingsTabAppearance: "Appearance",
+    settingsTabTemplates: "Prompt Templates",
     close: "Close",
     provider: "Provider",
     defaultModel: "Default model",
@@ -187,6 +217,30 @@ const APP_TEXT = {
     uiLanguage: "Interface language",
     chinese: "Chinese",
     english: "English",
+    themeMode: "Theme",
+    themeSystem: "System",
+    themeLight: "Light",
+    themeDark: "Dark",
+    promptTemplates: "Prompt templates",
+    promptTemplateName: "Template name",
+    promptTemplateDescription: "Description",
+    promptTemplateContent: "Template content",
+    promptTemplateModel: "Default model (optional)",
+    promptTemplateDefault: "Set as default",
+    promptTemplateEmpty: "No prompt templates yet.",
+    promptTemplateCreate: "Create template",
+    promptTemplateUpdate: "Save changes",
+    promptTemplateNew: "New template",
+    promptTemplateEdit: "Edit",
+    promptTemplateApply: "Apply to system prompt",
+    promptTemplateCancelEdit: "Cancel edit",
+    promptTemplateDeleteConfirm: "Delete this prompt template?",
+    promptTemplateSaveFailed: "Save prompt template failed: ",
+    promptTemplateDeleteFailed: "Delete prompt template failed: ",
+    promptTemplateLoadFailed: "Load prompt templates failed: ",
+    exportMarkdown: "Export Markdown",
+    exportJson: "Export JSON",
+    exportFailed: "Export failed: ",
     providerHint:
       "Test the connection before saving. The test will use the current provider form values.",
     testing: "Testing...",
@@ -250,7 +304,12 @@ function normalizeUserSettings(settings: UserSettings): UserSettings {
     ...settings,
     memory_enabled: settings.memory_enabled ?? true,
     memory_max_chars: settings.memory_max_chars || 4000,
+    theme_mode: settings.theme_mode || "system",
   };
+}
+
+function normalizeThemeMode(value: string | null | undefined): ThemeMode {
+  return value === "light" || value === "dark" || value === "system" ? value : "system";
 }
 
 function formatTime(value: string | null, uiLanguage: UILanguage) {
@@ -328,6 +387,16 @@ export function ChatApp({
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsModels, setSettingsModels] = useState<string[]>(initialProviderInfo?.models ?? []);
   const [memories, setMemories] = useState<UserMemory[]>([]);
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
+  const [editingPromptTemplateId, setEditingPromptTemplateId] = useState<string | null>(null);
+  const [promptTemplateDraft, setPromptTemplateDraft] = useState({
+    name: "",
+    description: "",
+    content: "",
+    default_model: "",
+    is_default: false,
+  });
+  const [systemPrefersDark, setSystemPrefersDark] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState({
     memory_type: "fact",
     title: "",
@@ -338,6 +407,8 @@ export function ChatApp({
   const [openConversationMenuId, setOpenConversationMenuId] = useState<string | null>(null);
   const conversationMenuRef = useRef<HTMLDivElement | null>(null);
   const uiLanguage: UILanguage = userSettings?.ui_language === "en-US" ? "en-US" : "zh-CN";
+  const selectedThemeMode = normalizeThemeMode(userSettings?.theme_mode);
+  const resolvedTheme = selectedThemeMode === "system" ? (systemPrefersDark ? "dark" : "light") : selectedThemeMode;
   const text = APP_TEXT[uiLanguage];
   const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
     { id: "provider", label: text.settingsTabProvider },
@@ -345,6 +416,8 @@ export function ChatApp({
     { id: "context", label: text.settingsTabContext },
     { id: "memory", label: text.settingsTabMemory },
     { id: "system", label: text.settingsTabSystem },
+    { id: "templates", label: text.settingsTabTemplates },
+    { id: "appearance", label: text.settingsTabAppearance },
   ];
 
   const availableModels = providerInfo?.models ?? [];
@@ -393,10 +466,20 @@ export function ChatApp({
   }, []);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const updatePreference = () => setSystemPrefersDark(mediaQuery.matches);
+
+    updatePreference();
+    mediaQuery.addEventListener("change", updatePreference);
+    return () => mediaQuery.removeEventListener("change", updatePreference);
+  }, []);
+
+  useEffect(() => {
     if (!currentUser) {
       return;
     }
     void loadMemories().catch(() => undefined);
+    void loadPromptTemplates().catch(() => undefined);
   }, [currentUser]);
 
   function resetSettingsToDefaults() {
@@ -422,6 +505,7 @@ export function ChatApp({
             memory_enabled: current.memory_enabled ?? true,
             memory_max_chars: current.memory_max_chars || 4000,
             ui_language: current.ui_language || "zh-CN",
+            theme_mode: current.theme_mode || "system",
           }
         : current
     );
@@ -478,6 +562,23 @@ export function ChatApp({
     const data = await requestJson<UserMemory[]>("/api/backend/memories");
     setMemories(data);
     return data;
+  }
+
+  async function loadPromptTemplates() {
+    const data = await requestJson<PromptTemplate[]>("/api/backend/prompt-templates");
+    setPromptTemplates(data);
+    return data;
+  }
+
+  function resetPromptTemplateDraft() {
+    setEditingPromptTemplateId(null);
+    setPromptTemplateDraft({
+      name: "",
+      description: "",
+      content: "",
+      default_model: "",
+      is_default: false,
+    });
   }
 
   function handleNewConversation() {
@@ -633,6 +734,117 @@ export function ChatApp({
     }
   }
 
+  async function handleExportConversation(conversation: Conversation, exportFormat: "markdown" | "json") {
+    try {
+      const response = await fetch(
+        `/api/backend/conversations/${conversation.id}/export?format=${exportFormat}`,
+        { cache: "no-store" }
+      );
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(body || `Request failed: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const extension = exportFormat === "json" ? "json" : "md";
+      const safeTitle = conversation.title.replace(/[^\w\u4e00-\u9fff.-]+/g, "_").slice(0, 80) || "conversation";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${safeTitle}.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.exportFailed}${message}`);
+    }
+  }
+
+  async function handleSavePromptTemplate() {
+    const name = promptTemplateDraft.name.trim();
+    const content = promptTemplateDraft.content.trim();
+    if (!name || !content) {
+      return;
+    }
+
+    const payload = {
+      name,
+      description: promptTemplateDraft.description.trim() || null,
+      content,
+      default_model: promptTemplateDraft.default_model.trim() || null,
+      is_default: promptTemplateDraft.is_default,
+    };
+
+    try {
+      if (editingPromptTemplateId) {
+        await requestJson<PromptTemplate>(`/api/backend/prompt-templates/${editingPromptTemplateId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await requestJson<PromptTemplate>("/api/backend/prompt-templates", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      resetPromptTemplateDraft();
+      await loadPromptTemplates();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.promptTemplateSaveFailed}${message}`);
+    }
+  }
+
+  function handleEditPromptTemplate(template: PromptTemplate) {
+    setEditingPromptTemplateId(template.id);
+    setPromptTemplateDraft({
+      name: template.name,
+      description: template.description ?? "",
+      content: template.content,
+      default_model: template.default_model ?? "",
+      is_default: template.is_default,
+    });
+  }
+
+  function handleApplyPromptTemplate(template: PromptTemplate) {
+    setUserSettings((current) =>
+      current
+        ? {
+            ...current,
+            system_prompt: template.content,
+            default_model: template.default_model || current.default_model,
+          }
+        : current
+    );
+    if (template.default_model) {
+      setSelectedModel(template.default_model);
+    }
+    setActiveSettingsTab("system");
+  }
+
+  async function handleDeletePromptTemplate(templateId: string) {
+    if (!window.confirm(text.promptTemplateDeleteConfirm)) {
+      return;
+    }
+
+    try {
+      await requestVoid(`/api/backend/prompt-templates/${templateId}`, {
+        method: "DELETE",
+      });
+      if (editingPromptTemplateId === templateId) {
+        resetPromptTemplateDraft();
+      }
+      await loadPromptTemplates();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.promptTemplateDeleteFailed}${message}`);
+    }
+  }
+
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!userSettings) {
@@ -663,6 +875,7 @@ export function ChatApp({
           memory_enabled: userSettings.memory_enabled,
           memory_max_chars: userSettings.memory_max_chars,
           ui_language: userSettings.ui_language,
+          theme_mode: userSettings.theme_mode,
         }),
       });
       const saved = normalizeUserSettings(savedRaw);
@@ -979,7 +1192,7 @@ export function ChatApp({
           </button>
 
           {isMenuOpen ? (
-            <div className="absolute right-0 z-20 mt-2 w-32 overflow-hidden rounded-2xl border border-white/12 bg-[rgba(16,31,24,0.98)] py-1 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
+            <div className="absolute right-0 z-20 mt-2 w-40 overflow-hidden rounded-2xl border border-white/12 bg-[rgba(16,31,24,0.98)] py-1 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
               <button
                 type="button"
                 onClick={() => {
@@ -1014,6 +1227,26 @@ export function ChatApp({
                 type="button"
                 onClick={() => {
                   setOpenConversationMenuId(null);
+                  void handleExportConversation(conversation, "markdown");
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+              >
+                {text.exportMarkdown}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenConversationMenuId(null);
+                  void handleExportConversation(conversation, "json");
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+              >
+                {text.exportJson}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenConversationMenuId(null);
                   void handleDeleteConversation(conversation.id);
                 }}
                 className="block w-full px-3 py-2 text-left text-sm text-[#ffcabd] transition hover:bg-white/8"
@@ -1028,7 +1261,10 @@ export function ChatApp({
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(64,145,108,0.22),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(240,196,25,0.18),_transparent_28%),linear-gradient(180deg,_#f8f4ea_0%,_#f1ecde_100%)] px-3 py-3 text-[var(--ink-strong)] sm:px-4 lg:px-5">
+    <main
+      data-theme={resolvedTheme}
+      className="h-screen overflow-hidden bg-[var(--app-bg)] px-3 py-3 text-[var(--ink-strong)] sm:px-4 lg:px-5"
+    >
       <div className="mx-auto flex h-[calc(100vh-1.5rem)] max-w-[1840px] flex-col gap-2.5 lg:flex-row">
         <aside className="flex w-full min-h-0 flex-col overflow-hidden rounded-[24px] border border-white/70 bg-[rgba(16,31,24,0.92)] p-3 text-white shadow-[0_24px_80px_rgba(16,31,24,0.28)] lg:h-full lg:w-[260px] lg:shrink-0">
           <div className="mb-3 flex items-center justify-between">
@@ -1077,8 +1313,8 @@ export function ChatApp({
             </p>
           </div>
 
-          <div ref={conversationMenuRef} className="mt-3 flex-1 overflow-hidden">
-            <div className="mb-3 flex items-center justify-between">
+          <div ref={conversationMenuRef} className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="mb-3 flex shrink-0 items-center justify-between">
               <p className="text-sm font-medium text-white/75">{text.historyChats}</p>
               <p className="text-xs text-white/45">
                 {conversations.length}
@@ -1090,10 +1326,10 @@ export function ChatApp({
               value={conversationQuery}
               onChange={(event) => setConversationQuery(event.target.value)}
               placeholder={text.conversationSearchPlaceholder}
-              className="mb-3 w-full rounded-2xl border border-white/10 bg-white/8 px-4 py-2.5 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-[#f0c419]/45"
+              className="mb-3 w-full shrink-0 rounded-2xl border border-white/10 bg-white/8 px-4 py-2.5 text-sm text-white placeholder:text-white/35 outline-none transition focus:border-[#f0c419]/45"
             />
 
-            <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh-16rem)]">
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
               {conversations.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-white/15 px-4 py-6 text-sm text-white/45">
                   {text.noConversations}
@@ -1134,8 +1370,8 @@ export function ChatApp({
           </div>
         </aside>
 
-        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-white/80 bg-[rgba(255,250,242,0.9)] shadow-[0_28px_100px_rgba(112,96,56,0.18)] backdrop-blur">
-          <header className="z-10 flex shrink-0 flex-col gap-1.5 border-b border-[rgba(22,34,27,0.08)] bg-[rgba(255,250,242,0.94)] px-3 py-2.5 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-bg)] shadow-[var(--panel-shadow)] backdrop-blur">
+          <header className="z-10 flex shrink-0 flex-col gap-1.5 border-b border-[var(--hairline)] bg-[var(--panel-header-bg)] px-3 py-2.5 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-[1.45rem] font-semibold leading-tight">{activeConversationTitle}</h2>
             </div>
@@ -1144,7 +1380,7 @@ export function ChatApp({
               <select
                 value={selectedModel}
                 onChange={(event) => setSelectedModel(event.target.value)}
-                className="min-w-[220px] rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-4 py-1.5 text-sm outline-none transition focus:border-[var(--accent-strong)]"
+                className="min-w-[220px] rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-1.5 text-sm outline-none transition focus:border-[var(--accent-strong)]"
               >
                 {modelOptions.map((model) => (
                   <option key={model} value={model}>
@@ -1156,7 +1392,7 @@ export function ChatApp({
           </header>
 
           {errorMessage ? (
-            <div className="mx-4 mt-3 rounded-2xl border border-[rgba(185,66,42,0.18)] bg-[rgba(255,238,231,0.95)] px-4 py-3 text-sm text-[#8f3524]">
+            <div className="mx-4 mt-3 rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-text)]">
               {errorMessage}
             </div>
           ) : null}
@@ -1176,12 +1412,12 @@ export function ChatApp({
           />
 
           {isSettingsOpen && userSettings ? (
-            <div className="absolute inset-0 z-20 flex items-start justify-end rounded-[32px] bg-[rgba(24,35,29,0.18)] p-4 backdrop-blur-sm">
+            <div className="absolute inset-0 z-20 flex items-start justify-end rounded-[32px] bg-[var(--overlay-bg)] p-4 backdrop-blur-sm">
               <form
                 onSubmit={handleSaveSettings}
-                className="flex max-h-[calc(100vh-4rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-white/75 bg-[rgba(255,250,242,0.98)] shadow-[0_28px_90px_rgba(16,31,24,0.16)]"
+                className="flex max-h-[calc(100vh-4rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[var(--modal-bg)] shadow-[var(--panel-shadow)]"
               >
-                <div className="flex shrink-0 items-center justify-between border-b border-[rgba(22,34,27,0.08)] px-5 py-4">
+                <div className="flex shrink-0 items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
                   <div className="pr-4">
                     <p className="text-xs uppercase tracking-[0.28em] text-[var(--ink-muted)]">
                       {text.settingsTag}
@@ -1191,14 +1427,14 @@ export function ChatApp({
                   <button
                     type="button"
                     onClick={() => setIsSettingsOpen(false)}
-                    className="rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                    className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
                   >
                     {text.close}
                   </button>
                 </div>
 
                 <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden sm:grid-cols-[12rem_1fr]">
-                  <nav className="flex gap-2 overflow-x-auto border-b border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] p-3 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r">
+                  <nav className="flex gap-2 overflow-x-auto border-b border-[var(--hairline)] bg-[var(--soft-bg)] p-3 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r">
                     {settingsTabs.map((tab) => (
                       <button
                         key={tab.id}
@@ -1206,8 +1442,8 @@ export function ChatApp({
                         onClick={() => setActiveSettingsTab(tab.id)}
                         className={`whitespace-nowrap rounded-2xl px-4 py-2 text-left text-sm transition ${
                           activeSettingsTab === tab.id
-                            ? "bg-[var(--ink-strong)] text-white shadow-[0_12px_30px_rgba(16,31,24,0.16)]"
-                            : "bg-white/64 text-[var(--ink-soft)] hover:bg-white"
+                            ? "bg-[var(--ink-strong)] text-[var(--inverse-ink)] shadow-[0_12px_30px_rgba(16,31,24,0.16)]"
+                            : "bg-[var(--control-bg)] text-[var(--ink-soft)] hover:bg-[var(--control-hover-bg)]"
                         }`}
                       >
                         {tab.label}
@@ -1217,6 +1453,53 @@ export function ChatApp({
 
                   <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
                     <div className="space-y-4">
+                      {activeSettingsTab === "appearance" ? (
+                        <>
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.themeMode}</span>
+                            <select
+                              value={selectedThemeMode}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        theme_mode: event.target.value,
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            >
+                              <option value="system">{text.themeSystem}</option>
+                              <option value="light">{text.themeLight}</option>
+                              <option value="dark">{text.themeDark}</option>
+                            </select>
+                          </label>
+
+                          <label className="block text-sm">
+                            <span className="mb-2 block text-[var(--ink-soft)]">{text.uiLanguage}</span>
+                            <select
+                              value={userSettings.ui_language}
+                              onChange={(event) =>
+                                setUserSettings((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        ui_language: event.target.value,
+                                      }
+                                    : current
+                                )
+                              }
+                              className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                            >
+                              <option value="zh-CN">{text.chinese}</option>
+                              <option value="en-US">{text.english}</option>
+                            </select>
+                          </label>
+                        </>
+                      ) : null}
+
                       {activeSettingsTab === "provider" ? (
                         <>
                           <label className="block text-sm">
@@ -1310,27 +1593,6 @@ export function ChatApp({
                               />
                             </label>
                           ) : null}
-
-                          <label className="block text-sm">
-                            <span className="mb-2 block text-[var(--ink-soft)]">{text.uiLanguage}</span>
-                            <select
-                              value={userSettings.ui_language}
-                              onChange={(event) =>
-                                setUserSettings((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        ui_language: event.target.value,
-                                      }
-                                    : current
-                                )
-                              }
-                              className="w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
-                            >
-                              <option value="zh-CN">{text.chinese}</option>
-                              <option value="en-US">{text.english}</option>
-                            </select>
-                          </label>
 
                           <div className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] px-4 py-3">
                             <div className="flex items-center justify-between gap-3">
@@ -1739,6 +2001,181 @@ export function ChatApp({
                             className="min-h-[260px] w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
                           />
                         </label>
+                      ) : null}
+
+                      {activeSettingsTab === "templates" ? (
+                        <div className="space-y-4">
+                          <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-[var(--ink-strong)]">
+                                  {editingPromptTemplateId ? text.promptTemplateEdit : text.promptTemplateNew}
+                                </p>
+                                <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                  {text.promptTemplates}
+                                </p>
+                              </div>
+                              {editingPromptTemplateId ? (
+                                <button
+                                  type="button"
+                                  onClick={resetPromptTemplateDraft}
+                                  className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                                >
+                                  {text.promptTemplateCancelEdit}
+                                </button>
+                              ) : null}
+                            </div>
+
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <label className="block text-sm">
+                                <span className="mb-2 block text-[var(--ink-soft)]">{text.promptTemplateName}</span>
+                                <input
+                                  value={promptTemplateDraft.name}
+                                  onChange={(event) =>
+                                    setPromptTemplateDraft((current) => ({
+                                      ...current,
+                                      name: event.target.value,
+                                    }))
+                                  }
+                                  className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                                />
+                              </label>
+                              <label className="block text-sm">
+                                <span className="mb-2 block text-[var(--ink-soft)]">{text.promptTemplateModel}</span>
+                                <input
+                                  value={promptTemplateDraft.default_model}
+                                  onChange={(event) =>
+                                    setPromptTemplateDraft((current) => ({
+                                      ...current,
+                                      default_model: event.target.value,
+                                    }))
+                                  }
+                                  className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                                />
+                              </label>
+                            </div>
+
+                            <label className="mt-3 block text-sm">
+                              <span className="mb-2 block text-[var(--ink-soft)]">
+                                {text.promptTemplateDescription}
+                              </span>
+                              <input
+                                value={promptTemplateDraft.description}
+                                onChange={(event) =>
+                                  setPromptTemplateDraft((current) => ({
+                                    ...current,
+                                    description: event.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                              />
+                            </label>
+
+                            <label className="mt-3 block text-sm">
+                              <span className="mb-2 block text-[var(--ink-soft)]">{text.promptTemplateContent}</span>
+                              <textarea
+                                value={promptTemplateDraft.content}
+                                onChange={(event) =>
+                                  setPromptTemplateDraft((current) => ({
+                                    ...current,
+                                    content: event.target.value,
+                                  }))
+                                }
+                                className="min-h-[180px] w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                              />
+                            </label>
+
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                              <label className="flex items-center gap-2 text-xs text-[var(--ink-soft)]">
+                                <input
+                                  type="checkbox"
+                                  checked={promptTemplateDraft.is_default}
+                                  onChange={(event) =>
+                                    setPromptTemplateDraft((current) => ({
+                                      ...current,
+                                      is_default: event.target.checked,
+                                    }))
+                                  }
+                                />
+                                {text.promptTemplateDefault}
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => void handleSavePromptTemplate()}
+                                disabled={!promptTemplateDraft.name.trim() || !promptTemplateDraft.content.trim()}
+                                className="rounded-full bg-[var(--ink-strong)] px-4 py-2 text-sm text-[var(--inverse-ink)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
+                              >
+                                {editingPromptTemplateId ? text.promptTemplateUpdate : text.promptTemplateCreate}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            {promptTemplates.length > 0 ? (
+                              promptTemplates.map((template) => (
+                                <div
+                                  key={template.id}
+                                  className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-4 py-3"
+                                >
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="text-sm font-semibold text-[var(--ink-strong)]">
+                                          {template.name}
+                                        </p>
+                                        {template.is_default ? (
+                                          <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-muted)]">
+                                            DEFAULT
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      {template.description ? (
+                                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                          {template.description}
+                                        </p>
+                                      ) : null}
+                                      {template.default_model ? (
+                                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                          {template.default_model}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                    <div className="flex shrink-0 flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleApplyPromptTemplate(template)}
+                                        className="rounded-full bg-[var(--ink-strong)] px-3 py-1.5 text-xs text-[var(--inverse-ink)]"
+                                      >
+                                        {text.promptTemplateApply}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleEditPromptTemplate(template)}
+                                        className="rounded-full border border-[var(--control-border)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                                      >
+                                        {text.promptTemplateEdit}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDeletePromptTemplate(template.id)}
+                                        className="rounded-full border border-[rgba(174,65,45,0.22)] px-3 py-1.5 text-xs text-[#9f3a2b]"
+                                      >
+                                        {text.delete}
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <p className="mt-3 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-[var(--ink-soft)]">
+                                    {template.content}
+                                  </p>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="rounded-2xl border border-dashed border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-4 text-sm text-[var(--ink-soft)]">
+                                {text.promptTemplateEmpty}
+                              </p>
+                            )}
+                          </div>
+                        </div>
                       ) : null}
                     </div>
                   </div>

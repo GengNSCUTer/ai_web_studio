@@ -1886,15 +1886,15 @@ export function ChatThread({
                     </button>
 
                     {isContextPanelOpen ? (
-                      <div className="absolute bottom-[calc(100%+0.75rem)] left-0 z-20 flex max-h-[min(72vh,34rem)] w-[min(92vw,44rem)] flex-col overflow-hidden rounded-[24px] border border-[rgba(22,34,27,0.12)] bg-[rgba(255,250,242,0.98)] shadow-[0_24px_80px_rgba(32,45,35,0.16)] backdrop-blur">
-                        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[rgba(22,34,27,0.08)] px-4 py-3">
+                      <div className="absolute bottom-[calc(100%+0.75rem)] left-0 z-20 flex max-h-[min(72vh,34rem)] w-[min(92vw,44rem)] flex-col overflow-hidden rounded-[24px] border border-[var(--control-border)] bg-[var(--modal-bg)] shadow-[var(--panel-shadow)] backdrop-blur">
+                        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--hairline)] px-4 py-3">
                           <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
                             {text.contextPanelTitle}
                           </p>
                           <button
                             type="button"
                             onClick={() => setIsContextPanelOpen(false)}
-                            className="rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-3 py-1 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                            className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
                           >
                             {text.closeContextPanel}
                           </button>
@@ -1910,7 +1910,7 @@ export function ChatThread({
                                 {overviewStatCards.map((item) => (
                                   <div
                                     key={item.key}
-                                    className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/78 px-3 py-2"
+                                    className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2"
                                   >
                                     <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">
                                       {item.label}
@@ -1925,7 +1925,7 @@ export function ChatThread({
                           ) : null}
 
                           {contextInfo.notices.length > 0 ? (
-                            <div className="mt-3 rounded-2xl border border-dashed border-[rgba(22,34,27,0.12)] bg-white/60 px-3 py-2">
+                            <div className="mt-3 rounded-2xl border border-dashed border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-2">
                               <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
                                 {text.contextNoticesTitle}
                               </p>
@@ -1938,7 +1938,7 @@ export function ChatThread({
                           ) : null}
 
                           {attachmentChunkDetails.length > 0 ? (
-                            <div className="mt-3 rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/70 px-3 py-3">
+                            <div className="mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-3">
                               <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
                                 {text.attachmentPreviewTitle}
                               </p>
@@ -1949,7 +1949,7 @@ export function ChatThread({
                                   return (
                                     <div
                                       key={chunkKey}
-                                      className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/82 px-3 py-2"
+                                      className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2"
                                     >
                                       <div className="flex flex-wrap items-center justify-between gap-2">
                                         <div className="min-w-0">
@@ -1963,7 +1963,7 @@ export function ChatThread({
                                         <button
                                           type="button"
                                           onClick={() => toggleAttachmentChunk(chunkKey)}
-                                          className="shrink-0 rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-3 py-1 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                                          className="shrink-0 rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
                                         >
                                           {isExpanded ? text.attachmentPreviewCollapse : text.attachmentPreviewExpand}
                                         </button>
@@ -1979,7 +1979,7 @@ export function ChatThread({
                           ) : null}
 
                           {advancedStatCards.length > 0 ? (
-                            <details className="mt-3 rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/58 px-3 py-2">
+                            <details className="mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2">
                               <summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
                                 {text.contextAdvancedTitle}
                               </summary>
@@ -1987,7 +1987,7 @@ export function ChatThread({
                                 {advancedStatCards.map((item) => (
                                   <div
                                     key={item.key}
-                                    className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white/78 px-3 py-2"
+                                    className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2"
                                   >
                                     <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">
                                       {item.label}

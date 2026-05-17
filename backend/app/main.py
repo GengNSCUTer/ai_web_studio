@@ -1,7 +1,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, chat, conversations, health, memories, messages, providers, settings, uploads
+from app.api.routes import (
+    auth,
+    chat,
+    conversations,
+    health,
+    memories,
+    messages,
+    prompt_templates,
+    providers,
+    settings,
+    uploads,
+)
 from app.core.config import settings as app_settings
 from app.core.startup import ensure_runtime_schema
 
@@ -29,6 +40,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(conversations.router, prefix="/api")
 app.include_router(memories.router, prefix="/api")
 app.include_router(messages.router, prefix="/api")
+app.include_router(prompt_templates.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(providers.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")

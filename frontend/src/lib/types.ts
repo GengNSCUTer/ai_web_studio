@@ -81,6 +81,19 @@ export type UserSettings = {
   memory_enabled: boolean;
   memory_max_chars: number;
   ui_language: string;
+  theme_mode: string;
+  updated_at: string | null;
+};
+
+export type PromptTemplate = {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  content: string;
+  default_model: string | null;
+  is_default: boolean;
+  created_at: string;
   updated_at: string | null;
 };
 

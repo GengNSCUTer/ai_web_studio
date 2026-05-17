@@ -21,6 +21,7 @@ class UserSettingResponse(BaseModel):
     memory_enabled: bool
     memory_max_chars: int
     ui_language: str
+    theme_mode: str
     updated_at: datetime | None = None
 
 
@@ -38,6 +39,7 @@ class UserSettingUpdate(BaseModel):
     memory_enabled: bool | None = None
     memory_max_chars: int | None = None
     ui_language: str | None = Field(default=None, max_length=16)
+    theme_mode: str | None = Field(default=None, max_length=16)
 
 
 class ProviderConnectionTestRequest(BaseModel):

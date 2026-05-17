@@ -13,6 +13,7 @@ class SettingService:
     DEFAULT_OPENAI_CONTEXT_WINDOW = 128000
     DEFAULT_OLLAMA_CONTEXT_WINDOW = 100000
     DEFAULT_UI_LANGUAGE = "zh-CN"
+    DEFAULT_THEME_MODE = "system"
     DEFAULT_MEMORY_ENABLED = True
     DEFAULT_MEMORY_MAX_CHARS = 4000
 
@@ -31,6 +32,13 @@ class SettingService:
         normalized = (value or "").strip() or "balanced"
         if normalized not in ContextBudgetPlanner.MODE_CHAR_RATIOS:
             return "balanced"
+        return normalized
+
+    @staticmethod
+    def normalize_theme_mode(value: str | None) -> str:
+        normalized = (value or "").strip() or "system"
+        if normalized not in {"system", "light", "dark"}:
+            return "system"
         return normalized
 
     @classmethod
@@ -69,6 +77,7 @@ class SettingService:
                 memory_enabled=self.DEFAULT_MEMORY_ENABLED,
                 memory_max_chars=self.DEFAULT_MEMORY_MAX_CHARS,
                 ui_language=self.DEFAULT_UI_LANGUAGE,
+                theme_mode=self.DEFAULT_THEME_MODE,
             )
             setting = self.repo.save(setting)
         else:
@@ -95,6 +104,9 @@ class SettingService:
             if not getattr(setting, "ui_language", None):
                 setting.ui_language = self.DEFAULT_UI_LANGUAGE
                 should_save = True
+            if not getattr(setting, "theme_mode", None):
+                setting.theme_mode = self.DEFAULT_THEME_MODE
+                should_save = True
             if getattr(setting, "memory_enabled", None) is None:
                 setting.memory_enabled = self.DEFAULT_MEMORY_ENABLED
                 should_save = True
@@ -114,6 +126,10 @@ class SettingService:
                 if normalized_window != setting.model_context_window:
                     setting.model_context_window = normalized_window
                     should_save = True
+            normalized_theme = self.normalize_theme_mode(getattr(setting, "theme_mode", None))
+            if normalized_theme != getattr(setting, "theme_mode", None):
+                setting.theme_mode = normalized_theme
+                should_save = True
             if should_save:
                 setting = self.repo.save(setting)
         return UserSettingResponse.model_validate(setting)
@@ -136,6 +152,7 @@ class SettingService:
                 memory_enabled=self.DEFAULT_MEMORY_ENABLED,
                 memory_max_chars=self.DEFAULT_MEMORY_MAX_CHARS,
                 ui_language=self.DEFAULT_UI_LANGUAGE,
+                theme_mode=self.DEFAULT_THEME_MODE,
             )
 
         data = payload.model_dump(exclude_unset=True)
@@ -154,6 +171,7 @@ class SettingService:
         )
         if not getattr(setting, "ui_language", None):
             setting.ui_language = self.DEFAULT_UI_LANGUAGE
+        setting.theme_mode = self.normalize_theme_mode(getattr(setting, "theme_mode", None))
         if getattr(setting, "memory_enabled", None) is None:
             setting.memory_enabled = self.DEFAULT_MEMORY_ENABLED
         if not getattr(setting, "memory_max_chars", None):

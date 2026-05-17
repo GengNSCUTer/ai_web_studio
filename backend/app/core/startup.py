@@ -1,7 +1,7 @@
 from sqlalchemy import text
 
 from app.core.database import Base, engine
-from app.models import Attachment, Conversation, Message, User, UserMemory, UserSetting  # noqa: F401
+from app.models import Attachment, Conversation, Message, PromptTemplate, User, UserMemory, UserSetting  # noqa: F401
 
 
 def _get_column_names(table_name: str) -> set[str]:
@@ -39,6 +39,8 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table user_settings add column memory_max_chars integer default 4000")
     if "ui_language" not in columns:
         statements.append("alter table user_settings add column ui_language varchar(16) default 'zh-CN'")
+    if "theme_mode" not in columns:
+        statements.append("alter table user_settings add column theme_mode varchar(16) default 'system'")
 
     conversation_columns = _get_column_names("conversations")
     if "context_summary" not in conversation_columns:

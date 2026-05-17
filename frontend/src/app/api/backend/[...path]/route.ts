@@ -45,12 +45,16 @@ async function proxy(request: NextRequest, path: string[]) {
   const responseHeaders = new Headers();
   const upstreamContentType = upstream.headers.get("content-type");
   const upstreamCacheControl = upstream.headers.get("cache-control");
+  const upstreamContentDisposition = upstream.headers.get("content-disposition");
 
   if (upstreamContentType) {
     responseHeaders.set("content-type", upstreamContentType);
   }
   if (upstreamCacheControl) {
     responseHeaders.set("cache-control", upstreamCacheControl);
+  }
+  if (upstreamContentDisposition) {
+    responseHeaders.set("content-disposition", upstreamContentDisposition);
   }
 
   return new Response(upstream.body, {
