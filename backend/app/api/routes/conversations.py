@@ -11,6 +11,7 @@ from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.message_repo import MessageRepository
+from app.repositories.project_repo import ProjectRepository
 from app.schemas.conversation import (
     ConversationCreate,
     ConversationListItem,
@@ -125,6 +126,8 @@ def create_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ConversationResponse:
+    if payload.project_id and not ProjectRepository(db).get_by_user(payload.project_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     service = ConversationService(ConversationRepository(db))
     return service.create_conversation(payload, current_user.id)
 
@@ -135,6 +138,12 @@ def get_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ConversationResponse:
+    if (
+        "project_id" in payload.model_fields_set
+        and payload.project_id
+        and not ProjectRepository(db).get_by_user(payload.project_id, current_user.id)
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     service = ConversationService(ConversationRepository(db))
     conversation = service.get_conversation(conversation_id, current_user.id)
     if not conversation:

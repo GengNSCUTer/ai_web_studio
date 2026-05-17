@@ -9,6 +9,7 @@ from app.api.routes import (
     memories,
     messages,
     prompt_templates,
+    projects,
     providers,
     settings,
     uploads,
@@ -41,6 +42,7 @@ app.include_router(conversations.router, prefix="/api")
 app.include_router(memories.router, prefix="/api")
 app.include_router(messages.router, prefix="/api")
 app.include_router(prompt_templates.router, prefix="/api")
+app.include_router(projects.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(providers.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")

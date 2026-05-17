@@ -14,6 +14,7 @@ type ChatThreadProps = {
   isLoadingMessages: boolean;
   selectedModel: string;
   systemPrompt: string | null;
+  projectId: string | null;
   contextInfo: ContextGovernanceInfo | null;
   uiLanguage: UILanguage;
   onContextInfoChange: (
@@ -37,6 +38,11 @@ type ThreadMessage = {
 type ConversationCreateResponse = {
   id: string;
 };
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const SUPPORTED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+const SUPPORTED_FILE_EXTENSIONS = new Set([".txt", ".md", ".markdown", ".pdf", ".docx"]);
 
 const THREAD_TEXT = {
   "zh-CN": {
@@ -69,18 +75,20 @@ const THREAD_TEXT = {
     selectAll: "全选",
     deselectAll: "取消全选",
     cancel: "取消",
+    confirm: "确认",
     deleteSelected: "删除选中",
+    deleteMessagesTitle: "删除选中消息",
+    deleteMessagesDescription: "删除后无法恢复，确认删除这些消息吗？",
     inputPlaceholder: "输入你的问题",
     uploadAttachment: "上传附件",
+    uploadUnsupportedType:
+      "当前仅支持图片（png/jpg/jpeg/webp/gif）以及 txt、md、pdf、docx 文档上传。",
+    uploadImageTooLarge: "图片过大，单文件不能超过 10MB。",
+    uploadFileTooLarge: "文档过大，单文件不能超过 20MB。",
     uploading: "正在上传...",
     stopGenerating: "停止生成",
     sending: "发送中...",
     send: "发送消息",
-    authConnected: "登录体系：已接通",
-    memoryConnected: "会话记忆：已接通",
-    modelConnected: "模型切换：已接通",
-    streamFetch: "文本流：原生 Fetch",
-    previewConnected: "附件缩略图：已接通",
     contextPanelTitle: "上下文治理诊断",
     contextNoticesTitle: "上下文提示",
     contextMode: "上下文模式",
@@ -168,18 +176,20 @@ const THREAD_TEXT = {
     selectAll: "Select all",
     deselectAll: "Deselect all",
     cancel: "Cancel",
+    confirm: "Confirm",
     deleteSelected: "Delete selected",
+    deleteMessagesTitle: "Delete selected messages",
+    deleteMessagesDescription: "Deleted messages cannot be restored. Continue?",
     inputPlaceholder: "Type your question",
     uploadAttachment: "Upload attachment",
+    uploadUnsupportedType:
+      "Only images (png/jpg/jpeg/webp/gif) and txt, md, pdf, docx documents are supported.",
+    uploadImageTooLarge: "Image is too large. Each image must be 10MB or less.",
+    uploadFileTooLarge: "Document is too large. Each file must be 20MB or less.",
     uploading: "Uploading...",
     stopGenerating: "Stop",
     sending: "Sending...",
     send: "Send",
-    authConnected: "Auth: connected",
-    memoryConnected: "Memory: connected",
-    modelConnected: "Model switch: connected",
-    streamFetch: "Streaming: native Fetch",
-    previewConnected: "Attachment previews: connected",
     contextPanelTitle: "Context governance diagnostics",
     contextNoticesTitle: "Context notices",
     contextMode: "Context mode",
@@ -345,6 +355,22 @@ function buildAttachmentUrl(storageKey: string) {
   return `/api/backend/uploads/file?storage_key=${encodeURIComponent(storageKey)}`;
 }
 
+function fileExtension(fileName: string) {
+  const index = fileName.lastIndexOf(".");
+  return index >= 0 ? fileName.slice(index).toLowerCase() : "";
+}
+
+function classifyClientFile(file: File) {
+  const extension = fileExtension(file.name);
+  if (file.type.startsWith("image/") || SUPPORTED_IMAGE_EXTENSIONS.has(extension)) {
+    return "image";
+  }
+  if (SUPPORTED_FILE_EXTENSIONS.has(extension)) {
+    return "file";
+  }
+  return null;
+}
+
 function cloneUploadItems(items: UploadItem[]) {
   return items.map((item) => ({ ...item }));
 }
@@ -415,6 +441,7 @@ export function ChatThread({
   isLoadingMessages,
   selectedModel,
   systemPrompt,
+  projectId,
   contextInfo,
   uiLanguage,
   onContextInfoChange,
@@ -432,6 +459,7 @@ export function ChatThread({
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
   const [expandedChunkKeys, setExpandedChunkKeys] = useState<string[]>([]);
   const [previewItem, setPreviewItem] = useState<UploadItem | null>(null);
+  const [isDeleteMessagesDialogOpen, setIsDeleteMessagesDialogOpen] = useState(false);
   const [localConversationId, setLocalConversationId] = useState<string | null>(initialConversationId);
   const [streamingStartedAt, setStreamingStartedAt] = useState<number | null>(null);
   const [streamingElapsedSeconds, setStreamingElapsedSeconds] = useState(0);
@@ -717,7 +745,7 @@ export function ChatThread({
       return;
     }
 
-    const maxHeight = 240;
+    const maxHeight = 168;
     textarea.style.height = "auto";
     const nextHeight = Math.min(textarea.scrollHeight, maxHeight);
     textarea.style.height = `${nextHeight}px`;
@@ -773,6 +801,7 @@ export function ChatThread({
         title: buildDraftTitle(content, uiLanguage),
         model_name: selectedModel,
         system_prompt: systemPrompt,
+        project_id: projectId,
       }),
     });
 
@@ -785,6 +814,19 @@ export function ChatThread({
   async function uploadFiles(files: FileList | null) {
     if (!files || files.length === 0) {
       return [];
+    }
+
+    for (const file of Array.from(files)) {
+      const kind = classifyClientFile(file);
+      if (!kind) {
+        throw new Error(text.uploadUnsupportedType);
+      }
+      if (kind === "image" && file.size > MAX_IMAGE_BYTES) {
+        throw new Error(text.uploadImageTooLarge);
+      }
+      if (kind === "file" && file.size > MAX_FILE_BYTES) {
+        throw new Error(text.uploadFileTooLarge);
+      }
     }
 
     const formData = new FormData();
@@ -865,11 +907,6 @@ export function ChatThread({
       return;
     }
 
-    const confirmed = window.confirm(`确认删除选中的 ${selectedMessageIds.length} 条消息吗？`);
-    if (!confirmed) {
-      return;
-    }
-
     setIsDeletingMessages(true);
     setLocalError(null);
 
@@ -892,6 +929,7 @@ export function ChatThread({
 
       setSelectedMessageIds([]);
       setIsManageMode(false);
+      setIsDeleteMessagesDialogOpen(false);
       await reloadConversationMessages();
     } catch (deleteError) {
       setLocalError(`批量删除失败：${requestErrorMessage(deleteError)}`);
@@ -1747,7 +1785,7 @@ export function ChatThread({
               </button>
               <button
                 type="button"
-                onClick={() => void handleBulkDeleteMessages()}
+                onClick={() => setIsDeleteMessagesDialogOpen(true)}
                 disabled={selectedMessageIds.length === 0 || isDeletingMessages}
                 className="rounded-full border border-[rgba(185,66,42,0.16)] bg-[rgba(255,238,231,0.95)] px-3 py-1.5 text-xs text-[#8f3524] transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -1775,9 +1813,9 @@ export function ChatThread({
             onChange={(event) => void handleEditUpload(event.target.files)}
           />
 
-          <div className="rounded-[24px] border border-[rgba(22,34,27,0.1)] bg-white px-4 py-2.5 shadow-[0_18px_48px_rgba(32,45,35,0.08)]">
+          <div className="chat-composer rounded-[24px] border border-[var(--composer-border)] bg-[var(--composer-bg)] px-3 py-2 shadow-[var(--composer-shadow)] backdrop-blur">
             {uploadedItems.length > 0 ? (
-              <div className="mb-4 flex flex-wrap gap-3">
+              <div className="mb-2 flex flex-wrap gap-2">
                 {uploadedItems.map((item) =>
                   isImageAttachment(item) ? (
                     <div
@@ -1854,29 +1892,30 @@ export function ChatThread({
               onChange={(event) => setComposer(event.target.value)}
               onKeyDown={(event) => void handleComposerKeyDown(event)}
               placeholder={text.inputPlaceholder}
-              rows={2}
+              rows={1}
               disabled={Boolean(editingUserMessageId)}
-              className="min-h-[40px] w-full resize-none border-none bg-transparent text-[15px] leading-6 outline-none placeholder:text-[var(--ink-muted)]"
+              className="chat-composer-textarea min-h-[34px] w-full resize-none border-none bg-transparent text-[15px] leading-6 outline-none placeholder:text-[var(--ink-muted)]"
             />
 
-            <div className="mt-2.5 flex flex-col gap-2 border-t border-[rgba(22,34,27,0.08)] pt-2.5">
+            <div className="mt-1.5 flex flex-col gap-1.5 border-t border-[rgba(22,34,27,0.08)] pt-1.5">
               {streamingStatusLabel ? (
                 <div className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] px-4 py-2 text-sm text-[var(--ink-soft)]">
                   {streamingStatusLabel}
                 </div>
               ) : null}
 
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={Boolean(editingUserMessageId)}
-                  className="rounded-full border border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
-                >
-                  {text.uploadAttachment}
-                </button>
-                {contextInfo && hasContextDiagnostics ? (
-                  <div className="relative">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={Boolean(editingUserMessageId)}
+                    className="rounded-full border border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                  >
+                    {text.uploadAttachment}
+                  </button>
+                  {contextInfo && hasContextDiagnostics ? (
+                    <div className="relative">
                     <button
                       type="button"
                       onClick={() => setIsContextPanelOpen((current) => !current)}
@@ -2003,28 +2042,18 @@ export function ChatThread({
                         </div>
                       </div>
                     ) : null}
-                  </div>
-                ) : null}
-                {isUploading ? (
-                  <span className="text-xs text-[var(--ink-muted)]">{text.uploading}</span>
-                ) : null}
-              </div>
-
-              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">
-                  <span>{text.authConnected}</span>
-                  <span>{text.memoryConnected}</span>
-                  <span>{text.modelConnected}</span>
-                  <span>{text.streamFetch}</span>
-                  <span>{text.previewConnected}</span>
+                    </div>
+                  ) : null}
+                  {isUploading ? (
+                    <span className="text-xs text-[var(--ink-muted)]">{text.uploading}</span>
+                  ) : null}
                 </div>
-
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-2">
                   {isGenerating ? (
                     <button
                       type="button"
                       onClick={() => abortControllerRef.current?.abort()}
-                      className="inline-flex items-center justify-center rounded-full border border-[rgba(185,66,42,0.22)] bg-[rgba(255,238,231,0.95)] px-5 py-2 text-sm font-medium text-[#8f3524] transition hover:brightness-95"
+                      className="inline-flex items-center justify-center rounded-full border border-[rgba(185,66,42,0.22)] bg-[rgba(255,238,231,0.95)] px-4 py-1.5 text-sm font-medium text-[#8f3524] transition hover:brightness-95"
                     >
                       {text.stopGenerating}
                     </button>
@@ -2032,7 +2061,7 @@ export function ChatThread({
                   <button
                     type="submit"
                     disabled={isGenerating || !composer.trim() || Boolean(editingUserMessageId)}
-                    className="inline-flex items-center justify-center rounded-full bg-[linear-gradient(135deg,_#d38d2d_0%,_#be6f24_100%)] px-6 py-2 text-sm font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
+                    className="inline-flex items-center justify-center rounded-full bg-[linear-gradient(135deg,_#d38d2d_0%,_#be6f24_100%)] px-5 py-1.5 text-sm font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     {isGenerating ? text.sending : text.send}
                   </button>
@@ -2042,6 +2071,47 @@ export function ChatThread({
           </div>
         </form>
       </footer>
+
+      {isDeleteMessagesDialogOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(16,31,24,0.42)] p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[var(--modal-bg)] shadow-[var(--panel-shadow)]">
+            <div className="border-b border-[var(--hairline)] px-5 py-4">
+              <p className="text-xs uppercase tracking-[0.22em] text-[var(--ink-muted)]">
+                {text.deleteSelected}
+              </p>
+              <h3 className="mt-1 text-2xl font-semibold text-[var(--ink-strong)]">
+                {text.deleteMessagesTitle}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
+                {text.deleteMessagesDescription}
+              </p>
+            </div>
+            <div className="px-5 py-5">
+              <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3 text-sm text-[var(--ink-soft)]">
+                {text.selected} {selectedMessageIds.length} / {threadMessages.length}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--hairline)] px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setIsDeleteMessagesDialogOpen(false)}
+                disabled={isDeletingMessages}
+                className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {text.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleBulkDeleteMessages()}
+                disabled={selectedMessageIds.length === 0 || isDeletingMessages}
+                className="rounded-full border border-[rgba(185,66,42,0.18)] bg-[var(--danger-bg)] px-5 py-2 text-sm font-medium text-[var(--danger-text)] transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {text.confirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {previewItem ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(16,31,24,0.55)] p-4 backdrop-blur-sm">

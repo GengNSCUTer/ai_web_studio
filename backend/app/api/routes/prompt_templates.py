@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
+from app.repositories.project_repo import ProjectRepository
 from app.repositories.prompt_template_repo import PromptTemplateRepository
 from app.schemas.prompt_template import (
     PromptTemplateCreate,
@@ -29,6 +30,8 @@ def create_prompt_template(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PromptTemplateResponse:
+    if payload.project_id and not ProjectRepository(db).get_by_user(payload.project_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     service = PromptTemplateService(PromptTemplateRepository(db))
     return service.create_template(current_user.id, payload)
 
@@ -40,6 +43,12 @@ def update_prompt_template(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PromptTemplateResponse:
+    if (
+        "project_id" in payload.model_fields_set
+        and payload.project_id
+        and not ProjectRepository(db).get_by_user(payload.project_id, current_user.id)
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     service = PromptTemplateService(PromptTemplateRepository(db))
     template = service.update_template(template_id, current_user.id, payload)
     if not template:

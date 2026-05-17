@@ -1,4 +1,5 @@
 import mimetypes
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,6 +26,17 @@ SUPPORTED_TEXT_MIME_TYPES = {
 }
 
 
+@dataclass(frozen=True)
+class PendingUpload:
+    id: str
+    original_name: str
+    stored_name: str
+    target_path: Path
+    content: bytes
+    mime_type: str
+    kind: str
+
+
 def _classify_upload(*, original_name: str, mime_type: str) -> str | None:
     suffix = Path(original_name).suffix.lower()
     if mime_type.startswith("image/") or suffix in SUPPORTED_IMAGE_EXTENSIONS:
@@ -45,6 +57,8 @@ async def upload_files(
 
     uploaded_items: list[UploadItemResponse] = []
     parser = FileParserService()
+    pending_uploads: list[PendingUpload] = []
+
     for file in files:
         original_name = Path(file.filename or "upload.bin").name
         suffix = Path(original_name).suffix
@@ -69,26 +83,45 @@ async def upload_files(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"文档过大，单文件不能超过 {MAX_FILE_BYTES // (1024 * 1024)}MB",
             )
-        target_path.write_bytes(content)
-
-        parsed_text = parser.parse_file(target_path)
-        if kind == "file" and not parsed_text:
-            target_path.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"文档解析失败：{original_name} 未提取到有效文本，请检查文件内容后重试",
-            )
-        uploaded_items.append(
-            UploadItemResponse(
+        pending_uploads.append(
+            PendingUpload(
                 id=generated_id,
-                file_name=original_name,
+                original_name=original_name,
+                stored_name=stored_name,
+                target_path=target_path,
+                content=content,
                 mime_type=mime_type,
-                file_size=len(content),
                 kind=kind,
-                storage_key=f"{current_user.id}/{stored_name}",
-                parsed_text=parsed_text,
             )
         )
+
+    written_paths: list[Path] = []
+    try:
+        for item in pending_uploads:
+            item.target_path.write_bytes(item.content)
+            written_paths.append(item.target_path)
+
+            parsed_text = parser.parse_file(item.target_path)
+            if item.kind == "file" and not parsed_text:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"文档解析失败：{item.original_name} 未提取到有效文本，请检查文件内容后重试",
+                )
+            uploaded_items.append(
+                UploadItemResponse(
+                    id=item.id,
+                    file_name=item.original_name,
+                    mime_type=item.mime_type,
+                    file_size=len(item.content),
+                    kind=item.kind,
+                    storage_key=f"{current_user.id}/{item.stored_name}",
+                    parsed_text=parsed_text,
+                )
+            )
+    except Exception:
+        for path in written_paths:
+            path.unlink(missing_ok=True)
+        raise
 
     return uploaded_items
 

@@ -1,5 +1,6 @@
 export type Conversation = {
   id: string;
+  project_id: string | null;
   title: string;
   model_name: string;
   is_pinned: boolean;
@@ -11,6 +12,17 @@ export type Conversation = {
   context_summary_boundary_message_id?: string | null;
   context_summary_updated_at?: string | null;
   user_id?: string | null;
+};
+
+export type Project = {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  default_model: string | null;
+  system_prompt: string | null;
+  created_at: string;
+  updated_at: string | null;
 };
 
 export type ContextAttachmentChunk = {
@@ -88,6 +100,7 @@ export type UserSettings = {
 export type PromptTemplate = {
   id: string;
   user_id: string;
+  project_id: string | null;
   name: string;
   description: string | null;
   content: string;

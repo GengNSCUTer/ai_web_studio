@@ -8,6 +8,7 @@ import type {
   Conversation,
   Message,
   ProviderInfo,
+  Project,
   User,
   UserSettings,
 } from "@/lib/types";
@@ -51,6 +52,7 @@ export default async function Home() {
   let initialSettings: UserSettings | null = null;
   let initialConversations: Conversation[] = [];
   let initialMessages: Message[] = [];
+  let initialProjects: Project[] = [];
 
   try {
     currentUser = await fetchBackendJson<User>("/api/auth/me", token);
@@ -58,16 +60,18 @@ export default async function Home() {
     return <AuthScreen initialError="登录状态已失效，请重新登录。" />;
   }
 
-  const [providerInfoResult, settingsResult, conversationsResult] =
+  const [providerInfoResult, settingsResult, conversationsResult, projectsResult] =
     await Promise.all([
       fetchBackendJsonOrNull<ProviderInfo>("/api/models", token),
       fetchBackendJsonOrNull<UserSettings>("/api/settings", token),
       fetchBackendJsonOrNull<Conversation[]>("/api/conversations", token),
+      fetchBackendJsonOrNull<Project[]>("/api/projects", token),
     ]);
 
   initialProviderInfo = providerInfoResult;
   initialSettings = settingsResult;
   initialConversations = conversationsResult ?? [];
+  initialProjects = projectsResult ?? [];
   if (initialConversations[0]?.id) {
     initialMessages =
       (await fetchBackendJsonOrNull<Message[]>(
@@ -83,6 +87,7 @@ export default async function Home() {
       initialMessages={initialMessages}
       initialProviderInfo={initialProviderInfo}
       initialSettings={initialSettings}
+      initialProjects={initialProjects}
     />
   );
 }

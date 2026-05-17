@@ -17,5 +17,6 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversations = relationship("Conversation", back_populates="user")
+    projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     settings = relationship("UserSetting", back_populates="user")
     memories = relationship("UserMemory", back_populates="user", cascade="all, delete-orphan")

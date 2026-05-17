@@ -3,34 +3,28 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class PromptTemplateCreate(BaseModel):
-    project_id: str | None = Field(default=None, max_length=36)
+class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str | None = None
-    content: str = Field(min_length=1)
     default_model: str | None = Field(default=None, max_length=128)
-    is_default: bool = False
+    system_prompt: str | None = None
 
 
-class PromptTemplateUpdate(BaseModel):
-    project_id: str | None = Field(default=None, max_length=36)
+class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = None
-    content: str | None = Field(default=None, min_length=1)
     default_model: str | None = Field(default=None, max_length=128)
-    is_default: bool | None = None
+    system_prompt: str | None = None
 
 
-class PromptTemplateResponse(BaseModel):
+class ProjectResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     user_id: str
-    project_id: str | None = None
     name: str
     description: str | None = None
-    content: str
     default_model: str | None = None
-    is_default: bool
+    system_prompt: str | None = None
     created_at: datetime
     updated_at: datetime | None = None

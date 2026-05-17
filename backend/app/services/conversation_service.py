@@ -24,6 +24,7 @@ class ConversationService:
     def create_conversation(self, payload: ConversationCreate, user_id: str) -> ConversationResponse:
         conversation = Conversation(
             user_id=user_id,
+            project_id=payload.project_id,
             title=payload.title,
             model_name=payload.model_name,
             system_prompt=payload.system_prompt,
@@ -49,6 +50,8 @@ class ConversationService:
             conversation.is_archived = payload.is_archived
         if payload.is_pinned is not None:
             conversation.is_pinned = payload.is_pinned
+        if "project_id" in payload.model_fields_set:
+            conversation.project_id = payload.project_id
 
         updated = self.repo.save(conversation)
         return ConversationResponse.model_validate(updated)

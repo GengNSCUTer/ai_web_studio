@@ -11,6 +11,7 @@ import type {
   PromptTemplate,
   ProviderConnectionTestResult,
   ProviderInfo,
+  Project,
   User,
   UserMemory,
   UserSettings,
@@ -22,11 +23,19 @@ type ChatAppProps = {
   initialMessages: Message[];
   initialProviderInfo: ProviderInfo | null;
   initialSettings: UserSettings | null;
+  initialProjects: Project[];
 };
 
 type UILanguage = "zh-CN" | "en-US";
 type SettingsTab = "provider" | "generation" | "context" | "memory" | "system" | "appearance" | "templates";
 type ThemeMode = "system" | "light" | "dark";
+type WorkspaceModalMode = "create" | "edit" | "move" | null;
+type AppDialogState =
+  | { type: "rename-conversation"; conversationId: string; title: string }
+  | { type: "delete-conversation"; conversationId: string; title: string }
+  | { type: "delete-project"; projectId: string; title: string }
+  | { type: "delete-template"; templateId: string; title: string }
+  | null;
 
 const PROVIDER_PRESETS = {
   ollama: {
@@ -51,6 +60,28 @@ const APP_TEXT = {
     providerLoading: "读取中...",
     providerBaseUrlLoading: "正在读取模型服务地址",
     historyChats: "历史会话",
+    workspace: "工作区",
+    allWorkspaces: "全部工作区",
+    unassignedWorkspace: "未分配会话",
+    newWorkspace: "新建工作区",
+    renameWorkspace: "重命名工作区",
+    configureWorkspace: "工作区设置",
+    workspaceSettings: "工作区设置",
+    workspaceManage: "设置",
+    workspaceName: "工作区名称",
+    workspaceDefaultModel: "默认模型",
+    workspaceSystemPrompt: "System Prompt",
+    workspaceNoDefaultModel: "不设置默认模型",
+    workspaceTarget: "目标工作区",
+    saveWorkspace: "保存工作区",
+    moveWorkspace: "移动会话",
+    deleteWorkspace: "删除工作区",
+    workspaceNamePrompt: "请输入工作区名称：",
+    workspaceModelPrompt: "请输入工作区默认模型（留空则不设置）：",
+    workspaceSystemPromptPrompt: "请输入工作区 System Prompt（留空则不设置）：",
+    workspaceDeleteConfirm: "确认删除当前工作区吗？会话不会被删除，只会变为未分配。",
+    workspaceSaveFailed: "工作区保存失败：",
+    workspaceDeleteFailed: "工作区删除失败：",
     activeChats: "进行中",
     archivedChats: "已归档",
     historyCountSuffix: "条",
@@ -65,6 +96,8 @@ const APP_TEXT = {
     unpin: "取消置顶",
     archive: "归档",
     unarchive: "取消归档",
+    moveToWorkspace: "移动到工作区",
+    removeFromWorkspace: "移出工作区",
     delete: "删除",
     currentConversation: "当前会话",
     newConversation: "新的对话",
@@ -85,6 +118,16 @@ const APP_TEXT = {
     settingsTabAppearance: "外观",
     settingsTabTemplates: "Prompt 模板",
     close: "关闭",
+    confirm: "确认",
+    dialogCancel: "取消",
+    renameConversationTitle: "重命名会话",
+    renameConversationDescription: "修改后会同步更新左侧历史会话标题。",
+    deleteConversationTitle: "删除会话",
+    deleteConversationDescription: "这一步不可撤销，会同时删除该会话下的历史消息。",
+    deleteWorkspaceTitle: "删除工作区",
+    deleteWorkspaceDescription: "会话不会被删除，只会变为未分配。",
+    deletePromptTemplateTitle: "删除 Prompt 模板",
+    deletePromptTemplateDescription: "删除后无法从模板库恢复。",
     provider: "Provider",
     defaultModel: "默认模型",
     baseUrl: "Base URL",
@@ -101,13 +144,21 @@ const APP_TEXT = {
     promptTemplateDescription: "模板说明",
     promptTemplateContent: "模板内容",
     promptTemplateModel: "默认模型（可选）",
+    promptTemplateProject: "模板可见范围",
+    promptTemplateScopeHint: "只决定模板在哪个范围下分类展示，不会自动写入工作区提示词。真正生效请在模板卡片里选择应用目标。",
+    promptTemplateApplyTarget: "应用目标",
+    promptTemplateApplyTo: "应用到",
+    promptTemplateApplied: "Prompt 模板已应用。",
+    globalTemplate: "全局模板",
     promptTemplateDefault: "设为默认模板",
     promptTemplateEmpty: "还没有 Prompt 模板。",
     promptTemplateCreate: "新增模板",
     promptTemplateUpdate: "保存修改",
     promptTemplateNew: "新建模板",
     promptTemplateEdit: "编辑",
-    promptTemplateApply: "应用到系统提示",
+    promptTemplateApply: "应用",
+    promptTemplateApplyGlobal: "全局 System Prompt",
+    promptTemplateApplyWorkspace: "工作区 System Prompt",
     promptTemplateCancelEdit: "取消编辑",
     promptTemplateDeleteConfirm: "确认删除这个 Prompt 模板吗？",
     promptTemplateSaveFailed: "Prompt 模板保存失败：",
@@ -176,6 +227,28 @@ const APP_TEXT = {
     providerLoading: "Loading...",
     providerBaseUrlLoading: "Loading model service URL",
     historyChats: "Conversations",
+    workspace: "Workspace",
+    allWorkspaces: "All workspaces",
+    unassignedWorkspace: "Unassigned chats",
+    newWorkspace: "New workspace",
+    renameWorkspace: "Rename workspace",
+    configureWorkspace: "Workspace settings",
+    workspaceSettings: "Workspace settings",
+    workspaceManage: "Settings",
+    workspaceName: "Workspace name",
+    workspaceDefaultModel: "Default model",
+    workspaceSystemPrompt: "System Prompt",
+    workspaceNoDefaultModel: "No default model",
+    workspaceTarget: "Target workspace",
+    saveWorkspace: "Save workspace",
+    moveWorkspace: "Move conversation",
+    deleteWorkspace: "Delete workspace",
+    workspaceNamePrompt: "Enter workspace name:",
+    workspaceModelPrompt: "Enter workspace default model (leave empty to unset):",
+    workspaceSystemPromptPrompt: "Enter workspace System Prompt (leave empty to unset):",
+    workspaceDeleteConfirm: "Delete this workspace? Conversations will remain and become unassigned.",
+    workspaceSaveFailed: "Save workspace failed: ",
+    workspaceDeleteFailed: "Delete workspace failed: ",
     activeChats: "Active",
     archivedChats: "Archived",
     historyCountSuffix: "",
@@ -190,6 +263,8 @@ const APP_TEXT = {
     unpin: "Unpin",
     archive: "Archive",
     unarchive: "Unarchive",
+    moveToWorkspace: "Move to workspace",
+    removeFromWorkspace: "Remove from workspace",
     delete: "Delete",
     currentConversation: "Current conversation",
     newConversation: "New chat",
@@ -210,6 +285,16 @@ const APP_TEXT = {
     settingsTabAppearance: "Appearance",
     settingsTabTemplates: "Prompt Templates",
     close: "Close",
+    confirm: "Confirm",
+    dialogCancel: "Cancel",
+    renameConversationTitle: "Rename conversation",
+    renameConversationDescription: "The title in the conversation list will be updated.",
+    deleteConversationTitle: "Delete conversation",
+    deleteConversationDescription: "This cannot be undone and will delete messages in this conversation.",
+    deleteWorkspaceTitle: "Delete workspace",
+    deleteWorkspaceDescription: "Conversations will remain and become unassigned.",
+    deletePromptTemplateTitle: "Delete prompt template",
+    deletePromptTemplateDescription: "This template cannot be restored after deletion.",
     provider: "Provider",
     defaultModel: "Default model",
     baseUrl: "Base URL",
@@ -226,13 +311,22 @@ const APP_TEXT = {
     promptTemplateDescription: "Description",
     promptTemplateContent: "Template content",
     promptTemplateModel: "Default model (optional)",
+    promptTemplateProject: "Template visibility",
+    promptTemplateScopeHint:
+      "This only controls where the template is categorized. It does not update any active system prompt until you choose an apply target on the template card.",
+    promptTemplateApplyTarget: "Apply target",
+    promptTemplateApplyTo: "Apply to",
+    promptTemplateApplied: "Prompt template applied.",
+    globalTemplate: "Global template",
     promptTemplateDefault: "Set as default",
     promptTemplateEmpty: "No prompt templates yet.",
     promptTemplateCreate: "Create template",
     promptTemplateUpdate: "Save changes",
     promptTemplateNew: "New template",
     promptTemplateEdit: "Edit",
-    promptTemplateApply: "Apply to system prompt",
+    promptTemplateApply: "Apply",
+    promptTemplateApplyGlobal: "Global System Prompt",
+    promptTemplateApplyWorkspace: "Workspace System Prompt",
     promptTemplateCancelEdit: "Cancel edit",
     promptTemplateDeleteConfirm: "Delete this prompt template?",
     promptTemplateSaveFailed: "Save prompt template failed: ",
@@ -358,6 +452,7 @@ export function ChatApp({
   initialMessages,
   initialProviderInfo,
   initialSettings,
+  initialProjects,
 }: ChatAppProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(initialUser);
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
@@ -366,6 +461,20 @@ export function ChatApp({
   );
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(initialProviderInfo);
+  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [selectedProjectScope, setSelectedProjectScope] = useState<string>("all");
+  const [workspaceModalMode, setWorkspaceModalMode] = useState<WorkspaceModalMode>(null);
+  const [workspaceDraft, setWorkspaceDraft] = useState({
+    id: "",
+    name: "",
+    default_model: "",
+    system_prompt: "",
+    target_project_id: "",
+  });
+  const [workspaceMoveConversation, setWorkspaceMoveConversation] = useState<Conversation | null>(null);
+  const [appDialog, setAppDialog] = useState<AppDialogState>(null);
+  const [renameConversationDraft, setRenameConversationDraft] = useState("");
+  const [isDialogSubmitting, setIsDialogSubmitting] = useState(false);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(
     initialSettings ? normalizeUserSettings(initialSettings) : null
   );
@@ -390,12 +499,14 @@ export function ChatApp({
   const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [editingPromptTemplateId, setEditingPromptTemplateId] = useState<string | null>(null);
   const [promptTemplateDraft, setPromptTemplateDraft] = useState({
+    project_id: "",
     name: "",
     description: "",
     content: "",
     default_model: "",
     is_default: false,
   });
+  const [promptTemplateApplyTargets, setPromptTemplateApplyTargets] = useState<Record<string, string>>({});
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState({
     memory_type: "fact",
@@ -421,6 +532,10 @@ export function ChatApp({
   ];
 
   const availableModels = providerInfo?.models ?? [];
+  const activeProject =
+    selectedProjectScope !== "all" && selectedProjectScope !== "unassigned"
+      ? projects.find((project) => project.id === selectedProjectScope) ?? null
+      : null;
   const modelOptions = availableModels.includes(selectedModel)
     ? availableModels
     : selectedModel
@@ -431,6 +546,47 @@ export function ChatApp({
     : userSettings?.default_model
       ? [userSettings.default_model, ...settingsModels]
       : settingsModels;
+  const workspaceModelOptions = Array.from(
+    new Set(
+      [
+        workspaceDraft.default_model,
+        selectedModel,
+        userSettings?.default_model ?? "",
+        ...(providerInfo?.models ?? []),
+        ...settingsModels,
+      ].filter((model) => model.trim().length > 0)
+    )
+  );
+  const promptTemplateTargetOptions = [
+    { id: "global", label: text.promptTemplateApplyGlobal },
+    ...projects.map((project) => ({
+      id: project.id,
+      label: `${text.promptTemplateApplyWorkspace} · ${project.name}`,
+    })),
+  ];
+
+  function getPromptTemplateApplyTarget(template: PromptTemplate) {
+    return promptTemplateApplyTargets[template.id] ?? activeProject?.id ?? "global";
+  }
+
+  function buildSettingsPayload(settings: UserSettings) {
+    return {
+      provider_type: settings.provider_type,
+      default_model: settings.default_model,
+      ollama_base_url: settings.ollama_base_url,
+      api_key: settings.api_key,
+      temperature: settings.temperature,
+      top_p: settings.top_p,
+      max_tokens: settings.max_tokens,
+      system_prompt: settings.system_prompt,
+      model_context_window: settings.model_context_window,
+      context_mode: settings.context_mode,
+      memory_enabled: settings.memory_enabled,
+      memory_max_chars: settings.memory_max_chars,
+      ui_language: settings.ui_language,
+      theme_mode: settings.theme_mode,
+    };
+  }
 
   function applyProviderPreset(providerType: string) {
     const preset = buildProviderPreset(providerType);
@@ -480,6 +636,7 @@ export function ChatApp({
     }
     void loadMemories().catch(() => undefined);
     void loadPromptTemplates().catch(() => undefined);
+    void loadProjects().catch(() => undefined);
   }, [currentUser]);
 
   function resetSettingsToDefaults() {
@@ -520,6 +677,12 @@ export function ChatApp({
   async function loadConversations() {
     const data = await requestJson<Conversation[]>("/api/backend/conversations");
     setConversations(data);
+    return data;
+  }
+
+  async function loadProjects() {
+    const data = await requestJson<Project[]>("/api/backend/projects");
+    setProjects(data);
     return data;
   }
 
@@ -573,6 +736,7 @@ export function ChatApp({
   function resetPromptTemplateDraft() {
     setEditingPromptTemplateId(null);
     setPromptTemplateDraft({
+      project_id: "",
       name: "",
       description: "",
       content: "",
@@ -586,6 +750,193 @@ export function ChatApp({
     setMessages([]);
     setErrorMessage(null);
     setOpenConversationMenuId(null);
+  }
+
+  function handleSelectProjectScope(projectScope: string) {
+    setSelectedProjectScope(projectScope);
+    const project = projects.find((item) => item.id === projectScope);
+    if (project?.default_model) {
+      setSelectedModel(project.default_model);
+    }
+  }
+
+  function openCreateProjectModal() {
+    setWorkspaceMoveConversation(null);
+    setWorkspaceDraft({
+      id: "",
+      name: "",
+      default_model: selectedModel || userSettings?.default_model || "",
+      system_prompt: userSettings?.system_prompt ?? "",
+      target_project_id: projects[0]?.id ?? "",
+    });
+    setWorkspaceModalMode("create");
+  }
+
+  function openEditProjectModal() {
+    if (!activeProject) {
+      return;
+    }
+    setWorkspaceMoveConversation(null);
+    setWorkspaceDraft({
+      id: activeProject.id,
+      name: activeProject.name,
+      default_model: activeProject.default_model ?? "",
+      system_prompt: activeProject.system_prompt ?? "",
+      target_project_id: activeProject.id,
+    });
+    setWorkspaceModalMode("edit");
+  }
+
+  function openMoveConversationModal(conversation: Conversation) {
+    setWorkspaceMoveConversation(conversation);
+    setWorkspaceDraft((current) => ({
+      ...current,
+      target_project_id:
+        conversation.project_id ?? activeProject?.id ?? projects[0]?.id ?? "",
+    }));
+    setWorkspaceModalMode("move");
+  }
+
+  function closeWorkspaceModal() {
+    setWorkspaceModalMode(null);
+    setWorkspaceMoveConversation(null);
+  }
+
+  function closeAppDialog() {
+    if (isDialogSubmitting) {
+      return;
+    }
+    setAppDialog(null);
+    setRenameConversationDraft("");
+  }
+
+  function openRenameConversationDialog(conversationId = selectedConversationId) {
+    if (!conversationId) {
+      return;
+    }
+    const title = conversations.find((item) => item.id === conversationId)?.title ?? "";
+    setRenameConversationDraft(title);
+    setAppDialog({ type: "rename-conversation", conversationId, title });
+  }
+
+  function openDeleteConversationDialog(conversationId = selectedConversationId) {
+    if (!conversationId) {
+      return;
+    }
+    const title = conversations.find((item) => item.id === conversationId)?.title ?? text.currentConversation;
+    setAppDialog({ type: "delete-conversation", conversationId, title });
+  }
+
+  function openDeleteProjectDialog() {
+    if (!activeProject) {
+      return;
+    }
+    setAppDialog({ type: "delete-project", projectId: activeProject.id, title: activeProject.name });
+  }
+
+  function openDeletePromptTemplateDialog(template: PromptTemplate) {
+    setAppDialog({ type: "delete-template", templateId: template.id, title: template.name });
+  }
+
+  async function handleSaveProjectFromModal() {
+    const name = workspaceDraft.name.trim();
+    if (!name) {
+      return;
+    }
+    try {
+      const payload = {
+        name,
+        default_model: workspaceDraft.default_model.trim() || null,
+        system_prompt: workspaceDraft.system_prompt.trim() || null,
+      };
+      const project = await requestJson<Project>(
+        workspaceModalMode === "edit"
+          ? `/api/backend/projects/${workspaceDraft.id}`
+          : "/api/backend/projects",
+        {
+          method: workspaceModalMode === "edit" ? "PATCH" : "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      await loadProjects();
+      setSelectedProjectScope(project.id);
+      if (project.default_model) {
+        setSelectedModel(project.default_model);
+      }
+      closeWorkspaceModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.workspaceSaveFailed}${message}`);
+    }
+  }
+
+  async function handleMoveConversationFromModal() {
+    if (!workspaceMoveConversation || !workspaceDraft.target_project_id) {
+      return;
+    }
+    await handleMoveConversationToProject(workspaceMoveConversation, workspaceDraft.target_project_id);
+    closeWorkspaceModal();
+  }
+
+  async function handleConfigureProject() {
+    openEditProjectModal();
+  }
+
+  async function deleteProject(projectId: string) {
+    try {
+      await requestVoid(`/api/backend/projects/${projectId}`, {
+        method: "DELETE",
+      });
+      setSelectedProjectScope("all");
+      await Promise.all([loadProjects(), loadConversations()]);
+      closeWorkspaceModal();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.workspaceDeleteFailed}${message}`);
+    }
+  }
+
+  async function renameConversation(conversationId: string, nextTitle: string) {
+    const title = nextTitle.trim();
+    if (!title) {
+      return;
+    }
+
+    try {
+      await requestJson<Conversation>(`/api/backend/conversations/${conversationId}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+        }),
+      });
+      if (conversationId !== selectedConversationId) {
+        setSelectedConversationId(conversationId);
+      }
+      await loadConversations();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.renameFailed}${message}`);
+    }
+  }
+
+  async function handleMoveConversationToProject(conversation: Conversation, projectId: string | null) {
+    try {
+      await requestJson<Conversation>(`/api/backend/conversations/${conversation.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+        }),
+      });
+      await loadConversations();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.workspaceSaveFailed}${message}`);
+    }
   }
 
   async function handleSelectConversation(conversationId: string) {
@@ -627,45 +978,8 @@ export function ChatApp({
     window.location.reload();
   }
 
-  async function handleRenameConversation(conversationId = selectedConversationId) {
+  async function deleteConversation(conversationId: string) {
     if (!conversationId) {
-      return;
-    }
-
-    const currentTitle =
-      conversations.find((item) => item.id === conversationId)?.title ?? "";
-    const nextTitle = window.prompt(text.renamePrompt, currentTitle);
-    if (!nextTitle || !nextTitle.trim()) {
-      return;
-    }
-
-    try {
-      await requestJson<Conversation>(`/api/backend/conversations/${conversationId}`, {
-        method: "PATCH",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          title: nextTitle.trim(),
-        }),
-      });
-      if (conversationId !== selectedConversationId) {
-        setSelectedConversationId(conversationId);
-      }
-      await loadConversations();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : text.unknownError;
-      setErrorMessage(`${text.renameFailed}${message}`);
-    }
-  }
-
-  async function handleDeleteConversation(conversationId = selectedConversationId) {
-    if (!conversationId) {
-      return;
-    }
-
-    const confirmed = window.confirm(text.deleteConversationConfirm);
-    if (!confirmed) {
       return;
     }
 
@@ -692,6 +1006,48 @@ export function ChatApp({
     } catch (error) {
       const message = error instanceof Error ? error.message : text.unknownError;
       setErrorMessage(`${text.deleteConversationFailed}${message}`);
+    }
+  }
+
+  async function deletePromptTemplate(templateId: string) {
+    try {
+      await requestVoid(`/api/backend/prompt-templates/${templateId}`, {
+        method: "DELETE",
+      });
+      if (editingPromptTemplateId === templateId) {
+        resetPromptTemplateDraft();
+      }
+      await loadPromptTemplates();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.promptTemplateDeleteFailed}${message}`);
+    }
+  }
+
+  async function handleConfirmAppDialog() {
+    if (!appDialog || isDialogSubmitting) {
+      return;
+    }
+
+    if (appDialog.type === "rename-conversation" && !renameConversationDraft.trim()) {
+      return;
+    }
+
+    setIsDialogSubmitting(true);
+    try {
+      if (appDialog.type === "rename-conversation") {
+        await renameConversation(appDialog.conversationId, renameConversationDraft);
+      } else if (appDialog.type === "delete-conversation") {
+        await deleteConversation(appDialog.conversationId);
+      } else if (appDialog.type === "delete-project") {
+        await deleteProject(appDialog.projectId);
+      } else if (appDialog.type === "delete-template") {
+        await deletePromptTemplate(appDialog.templateId);
+      }
+      setAppDialog(null);
+      setRenameConversationDraft("");
+    } finally {
+      setIsDialogSubmitting(false);
     }
   }
 
@@ -771,6 +1127,7 @@ export function ChatApp({
 
     const payload = {
       name,
+      project_id: promptTemplateDraft.project_id || null,
       description: promptTemplateDraft.description.trim() || null,
       content,
       default_model: promptTemplateDraft.default_model.trim() || null,
@@ -803,6 +1160,7 @@ export function ChatApp({
     setEditingPromptTemplateId(template.id);
     setPromptTemplateDraft({
       name: template.name,
+      project_id: template.project_id ?? "",
       description: template.description ?? "",
       content: template.content,
       default_model: template.default_model ?? "",
@@ -810,38 +1168,63 @@ export function ChatApp({
     });
   }
 
-  function handleApplyPromptTemplate(template: PromptTemplate) {
-    setUserSettings((current) =>
-      current
-        ? {
-            ...current,
-            system_prompt: template.content,
-            default_model: template.default_model || current.default_model,
-          }
-        : current
-    );
-    if (template.default_model) {
-      setSelectedModel(template.default_model);
-    }
-    setActiveSettingsTab("system");
-  }
-
-  async function handleDeletePromptTemplate(templateId: string) {
-    if (!window.confirm(text.promptTemplateDeleteConfirm)) {
-      return;
-    }
-
+  async function handleApplyPromptTemplate(template: PromptTemplate, targetId: string) {
     try {
-      await requestVoid(`/api/backend/prompt-templates/${templateId}`, {
-        method: "DELETE",
-      });
-      if (editingPromptTemplateId === templateId) {
-        resetPromptTemplateDraft();
+      if (targetId === "global") {
+        if (!userSettings) {
+          return;
+        }
+
+        const nextSettings = {
+          ...userSettings,
+          system_prompt: template.content,
+          default_model: template.default_model || userSettings.default_model,
+        };
+        const savedRaw = await requestJson<UserSettings>("/api/backend/settings", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(buildSettingsPayload(nextSettings)),
+        });
+        const saved = normalizeUserSettings(savedRaw);
+        setUserSettings(saved);
+        if (template.default_model) {
+          setSelectedModel(template.default_model);
+        }
+        setSettingsMessage(text.promptTemplateApplied);
+        return;
       }
-      await loadPromptTemplates();
+
+      const targetProject = projects.find((project) => project.id === targetId);
+      if (!targetProject) {
+        return;
+      }
+
+      const project = await requestJson<Project>(`/api/backend/projects/${targetProject.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          system_prompt: template.content,
+          default_model: template.default_model || targetProject.default_model,
+        }),
+      });
+      const nextProjects = await loadProjects();
+      if (selectedProjectScope === project.id && project.default_model) {
+        setSelectedModel(project.default_model);
+      }
+      if (workspaceModalMode === "edit" && workspaceDraft.id === project.id) {
+        const refreshedProject = nextProjects.find((item) => item.id === project.id) ?? project;
+        setWorkspaceDraft({
+          id: refreshedProject.id,
+          name: refreshedProject.name,
+          default_model: refreshedProject.default_model ?? "",
+          system_prompt: refreshedProject.system_prompt ?? "",
+          target_project_id: refreshedProject.id,
+        });
+      }
+      setSettingsMessage(text.promptTemplateApplied);
     } catch (error) {
       const message = error instanceof Error ? error.message : text.unknownError;
-      setErrorMessage(`${text.promptTemplateDeleteFailed}${message}`);
+      setErrorMessage(`${text.workspaceSaveFailed}${message}`);
     }
   }
 
@@ -861,22 +1244,7 @@ export function ChatApp({
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          provider_type: userSettings.provider_type,
-          default_model: userSettings.default_model,
-          ollama_base_url: userSettings.ollama_base_url,
-          api_key: userSettings.api_key,
-          temperature: userSettings.temperature,
-          top_p: userSettings.top_p,
-          max_tokens: userSettings.max_tokens,
-          system_prompt: userSettings.system_prompt,
-          model_context_window: userSettings.model_context_window,
-          context_mode: userSettings.context_mode,
-          memory_enabled: userSettings.memory_enabled,
-          memory_max_chars: userSettings.memory_max_chars,
-          ui_language: userSettings.ui_language,
-          theme_mode: userSettings.theme_mode,
-        }),
+        body: JSON.stringify(buildSettingsPayload(userSettings)),
       });
       const saved = normalizeUserSettings(savedRaw);
       setUserSettings(saved);
@@ -1101,6 +1469,16 @@ export function ChatApp({
     : null;
   const normalizedConversationQuery = conversationQuery.trim().toLowerCase();
   const filteredConversations = conversations.filter((conversation) => {
+    if (selectedProjectScope === "unassigned" && conversation.project_id) {
+      return false;
+    }
+    if (
+      selectedProjectScope !== "all" &&
+      selectedProjectScope !== "unassigned" &&
+      conversation.project_id !== selectedProjectScope
+    ) {
+      return false;
+    }
     if (!normalizedConversationQuery) {
       return true;
     }
@@ -1143,6 +1521,38 @@ export function ChatApp({
     });
   }
 
+  function appDialogTitle() {
+    if (!appDialog) {
+      return "";
+    }
+    if (appDialog.type === "rename-conversation") {
+      return text.renameConversationTitle;
+    }
+    if (appDialog.type === "delete-conversation") {
+      return text.deleteConversationTitle;
+    }
+    if (appDialog.type === "delete-project") {
+      return text.deleteWorkspaceTitle;
+    }
+    return text.deletePromptTemplateTitle;
+  }
+
+  function appDialogDescription() {
+    if (!appDialog) {
+      return "";
+    }
+    if (appDialog.type === "rename-conversation") {
+      return text.renameConversationDescription;
+    }
+    if (appDialog.type === "delete-conversation") {
+      return text.deleteConversationDescription;
+    }
+    if (appDialog.type === "delete-project") {
+      return text.deleteWorkspaceDescription;
+    }
+    return text.deletePromptTemplateDescription;
+  }
+
   function renderConversationItem(conversation: Conversation) {
     const isActive = conversation.id === selectedConversationId;
     const isMenuOpen = openConversationMenuId === conversation.id;
@@ -1173,9 +1583,9 @@ export function ChatApp({
         </button>
 
         <div className="absolute right-2 top-2">
-          <button
-            type="button"
-            onClick={() =>
+              <button
+                type="button"
+                onClick={() =>
               setOpenConversationMenuId((current) =>
                 current === conversation.id ? null : conversation.id
               )
@@ -1197,7 +1607,7 @@ export function ChatApp({
                 type="button"
                 onClick={() => {
                   setOpenConversationMenuId(null);
-                  void handleRenameConversation(conversation.id);
+                  openRenameConversationDialog(conversation.id);
                 }}
                 className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
               >
@@ -1223,6 +1633,30 @@ export function ChatApp({
               >
                 {conversation.is_archived ? text.unarchive : text.archive}
               </button>
+              {projects.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenConversationMenuId(null);
+                    openMoveConversationModal(conversation);
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+                >
+                  {text.moveToWorkspace}
+                </button>
+              ) : null}
+              {conversation.project_id ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenConversationMenuId(null);
+                    void handleMoveConversationToProject(conversation, null);
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+                >
+                  {text.removeFromWorkspace}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -1247,7 +1681,7 @@ export function ChatApp({
                 type="button"
                 onClick={() => {
                   setOpenConversationMenuId(null);
-                  void handleDeleteConversation(conversation.id);
+                  openDeleteConversationDialog(conversation.id);
                 }}
                 className="block w-full px-3 py-2 text-left text-sm text-[#ffcabd] transition hover:bg-white/8"
               >
@@ -1266,7 +1700,7 @@ export function ChatApp({
       className="h-screen overflow-hidden bg-[var(--app-bg)] px-3 py-3 text-[var(--ink-strong)] sm:px-4 lg:px-5"
     >
       <div className="mx-auto flex h-[calc(100vh-1.5rem)] max-w-[1840px] flex-col gap-2.5 lg:flex-row">
-        <aside className="flex w-full min-h-0 flex-col overflow-hidden rounded-[24px] border border-white/70 bg-[rgba(16,31,24,0.92)] p-3 text-white shadow-[0_24px_80px_rgba(16,31,24,0.28)] lg:h-full lg:w-[260px] lg:shrink-0">
+        <aside className="flex w-full min-h-0 max-h-[42vh] flex-col overflow-hidden rounded-[24px] border border-white/70 bg-[rgba(16,31,24,0.92)] p-3 text-white shadow-[0_24px_80px_rgba(16,31,24,0.28)] lg:h-full lg:max-h-none lg:w-[260px] lg:shrink-0">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.35em] text-white/55">
@@ -1320,6 +1754,44 @@ export function ChatApp({
                 {conversations.length}
                 {text.historyCountSuffix ? ` ${text.historyCountSuffix}` : ""}
               </p>
+            </div>
+
+            <div className="mb-3 shrink-0 rounded-2xl border border-white/10 bg-white/6 p-2">
+              <div className="mb-2 px-1 text-xs uppercase tracking-[0.18em] text-white/45">
+                {text.workspace}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selectedProjectScope}
+                  onChange={(event) => handleSelectProjectScope(event.target.value)}
+                  className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/8 px-3 py-2 text-xs text-white outline-none"
+                >
+                  <option value="all">{text.allWorkspaces}</option>
+                  <option value="unassigned">{text.unassignedWorkspace}</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+                {activeProject ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleConfigureProject()}
+                    className="shrink-0 rounded-xl border border-white/12 bg-white/8 px-2.5 py-2 text-[11px] text-white/70 transition hover:bg-white/14"
+                  >
+                    {text.workspaceManage}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={openCreateProjectModal}
+                  className="shrink-0 rounded-xl border border-white/12 bg-white/8 px-2.5 py-2 text-xs text-white/75 transition hover:bg-white/14"
+                  aria-label={text.newWorkspace}
+                >
+                  +
+                </button>
+              </div>
             </div>
 
             <input
@@ -1403,13 +1875,235 @@ export function ChatApp({
             initialMessages={messages}
             isLoadingMessages={isLoadingMessages}
             selectedModel={selectedModel}
-            systemPrompt={userSettings?.system_prompt ?? null}
+            systemPrompt={activeProject?.system_prompt ?? userSettings?.system_prompt ?? null}
+            projectId={activeProject?.id ?? null}
             contextInfo={contextInfo}
             uiLanguage={uiLanguage}
             onContextInfoChange={handleContextInfoChange}
             onChatSettled={refreshAfterChat}
             onConversationMessagesChanged={handleConversationMessagesChanged}
           />
+
+          {workspaceModalMode ? (
+            <div className="absolute inset-0 z-30 flex items-center justify-center rounded-[32px] bg-[var(--overlay-bg)] p-4 backdrop-blur-sm">
+              <div className="flex max-h-[calc(100vh-4rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[var(--modal-bg)] shadow-[var(--panel-shadow)]">
+                <div className="flex shrink-0 items-center justify-between border-b border-[var(--hairline)] px-5 py-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-[var(--ink-muted)]">
+                      {text.workspace}
+                    </p>
+                    <h3 className="mt-1 text-2xl font-semibold text-[var(--ink-strong)]">
+                      {workspaceModalMode === "move"
+                        ? text.moveWorkspace
+                        : workspaceModalMode === "edit"
+                          ? text.workspaceSettings
+                          : text.newWorkspace}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeWorkspaceModal}
+                    className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                  >
+                    {text.close}
+                  </button>
+                </div>
+
+                <div className="min-h-0 overflow-y-auto px-5 py-5">
+                  {workspaceModalMode === "move" ? (
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3">
+                        <p className="text-sm font-medium text-[var(--ink-strong)]">
+                          {workspaceMoveConversation?.title ?? text.currentConversation}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                          {workspaceMoveConversation?.model_name ?? "--"}
+                        </p>
+                      </div>
+                      <label className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.workspaceTarget}</span>
+                        <select
+                          value={workspaceDraft.target_project_id}
+                          onChange={(event) =>
+                            setWorkspaceDraft((current) => ({
+                              ...current,
+                              target_project_id: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                        >
+                          {projects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {project.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <label className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.workspaceName}</span>
+                        <input
+                          value={workspaceDraft.name}
+                          onChange={(event) =>
+                            setWorkspaceDraft((current) => ({
+                              ...current,
+                              name: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                        />
+                      </label>
+
+                      <label className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.workspaceDefaultModel}</span>
+                        <select
+                          value={workspaceDraft.default_model}
+                          onChange={(event) =>
+                            setWorkspaceDraft((current) => ({
+                              ...current,
+                              default_model: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                        >
+                          <option value="">{text.workspaceNoDefaultModel}</option>
+                          {workspaceModelOptions.map((model) => (
+                            <option key={model} value={model}>
+                              {model}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.workspaceSystemPrompt}</span>
+                        <textarea
+                          value={workspaceDraft.system_prompt}
+                          onChange={(event) =>
+                            setWorkspaceDraft((current) => ({
+                              ...current,
+                              system_prompt: event.target.value,
+                            }))
+                          }
+                          className="min-h-[180px] w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[var(--hairline)] px-5 py-4">
+                  <div>
+                    {workspaceModalMode === "edit" ? (
+                      <button
+                        type="button"
+                        onClick={openDeleteProjectDialog}
+                        className="rounded-full border border-[rgba(174,65,45,0.22)] px-4 py-2 text-sm text-[#9f3a2b]"
+                      >
+                        {text.deleteWorkspace}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={closeWorkspaceModal}
+                      className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)]"
+                    >
+                      {text.cancel}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        workspaceModalMode === "move"
+                          ? void handleMoveConversationFromModal()
+                          : void handleSaveProjectFromModal()
+                      }
+                      disabled={
+                        workspaceModalMode === "move"
+                          ? !workspaceDraft.target_project_id
+                          : !workspaceDraft.name.trim()
+                      }
+                      className="rounded-full bg-[linear-gradient(135deg,_#d38d2d_0%,_#be6f24_100%)] px-5 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      {workspaceModalMode === "move" ? text.moveWorkspace : text.saveWorkspace}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {appDialog ? (
+            <div className="absolute inset-0 z-40 flex items-center justify-center rounded-[32px] bg-[var(--overlay-bg)] p-4 backdrop-blur-sm">
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleConfirmAppDialog();
+                }}
+                className="w-full max-w-lg overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[var(--modal-bg)] shadow-[var(--panel-shadow)]"
+              >
+                <div className="border-b border-[var(--hairline)] px-5 py-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-[var(--ink-muted)]">
+                    {appDialog.type === "rename-conversation" ? text.rename : text.delete}
+                  </p>
+                  <h3 className="mt-1 text-2xl font-semibold text-[var(--ink-strong)]">
+                    {appDialogTitle()}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">
+                    {appDialogDescription()}
+                  </p>
+                </div>
+
+                <div className="px-5 py-5">
+                  {appDialog.type === "rename-conversation" ? (
+                    <label className="block text-sm">
+                      <span className="mb-2 block text-[var(--ink-soft)]">{text.currentConversation}</span>
+                      <input
+                        autoFocus
+                        value={renameConversationDraft}
+                        onChange={(event) => setRenameConversationDraft(event.target.value)}
+                        className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-[var(--ink-strong)] outline-none focus:border-[var(--accent-strong)]"
+                      />
+                    </label>
+                  ) : (
+                    <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3">
+                      <p className="break-words text-sm font-medium text-[var(--ink-strong)]">
+                        {appDialog.title}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t border-[var(--hairline)] px-5 py-4">
+                  <button
+                    type="button"
+                    onClick={closeAppDialog}
+                    disabled={isDialogSubmitting}
+                    className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    {text.dialogCancel}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={
+                      isDialogSubmitting ||
+                      (appDialog.type === "rename-conversation" && !renameConversationDraft.trim())
+                    }
+                    className={`rounded-full px-5 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55 ${
+                      appDialog.type === "rename-conversation"
+                        ? "bg-[var(--ink-strong)] text-[var(--inverse-ink)] hover:opacity-90"
+                        : "border border-[rgba(174,65,45,0.22)] bg-[var(--danger-bg)] text-[var(--danger-text)] hover:brightness-95"
+                    }`}
+                  >
+                    {appDialog.type === "rename-conversation" ? text.confirm : text.delete}
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : null}
 
           {isSettingsOpen && userSettings ? (
             <div className="absolute inset-0 z-20 flex items-start justify-end rounded-[32px] bg-[var(--overlay-bg)] p-4 backdrop-blur-sm">
@@ -2026,7 +2720,7 @@ export function ChatApp({
                               ) : null}
                             </div>
 
-                            <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="grid gap-3 sm:grid-cols-3">
                               <label className="block text-sm">
                                 <span className="mb-2 block text-[var(--ink-soft)]">{text.promptTemplateName}</span>
                                 <input
@@ -2039,6 +2733,29 @@ export function ChatApp({
                                   }
                                   className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
                                 />
+                              </label>
+                              <label className="block text-sm">
+                                <span className="mb-2 block text-[var(--ink-soft)]">{text.promptTemplateProject}</span>
+                                <select
+                                  value={promptTemplateDraft.project_id}
+                                  onChange={(event) =>
+                                    setPromptTemplateDraft((current) => ({
+                                      ...current,
+                                      project_id: event.target.value,
+                                    }))
+                                  }
+                                  className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                                >
+                                  <option value="">{text.globalTemplate}</option>
+                                  {projects.map((project) => (
+                                    <option key={project.id} value={project.id}>
+                                      {project.name}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="mt-2 block text-[11px] leading-5 text-[var(--ink-muted)]">
+                                  {text.promptTemplateScopeHint}
+                                </span>
                               </label>
                               <label className="block text-sm">
                                 <span className="mb-2 block text-[var(--ink-soft)]">{text.promptTemplateModel}</span>
@@ -2112,63 +2829,93 @@ export function ChatApp({
 
                           <div className="space-y-2">
                             {promptTemplates.length > 0 ? (
-                              promptTemplates.map((template) => (
-                                <div
-                                  key={template.id}
-                                  className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-4 py-3"
-                                >
-                                  <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <p className="text-sm font-semibold text-[var(--ink-strong)]">
-                                          {template.name}
-                                        </p>
-                                        {template.is_default ? (
-                                          <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-muted)]">
-                                            DEFAULT
-                                          </span>
+                              promptTemplates.map((template) => {
+                                const applyTarget = getPromptTemplateApplyTarget(template);
+                                const scopeLabel = template.project_id
+                                  ? projects.find((project) => project.id === template.project_id)?.name ??
+                                    template.project_id
+                                  : text.globalTemplate;
+
+                                return (
+                                  <div
+                                    key={template.id}
+                                    className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-4 py-3"
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <p className="text-sm font-semibold text-[var(--ink-strong)]">
+                                            {template.name}
+                                          </p>
+                                          {template.is_default ? (
+                                            <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-muted)]">
+                                              DEFAULT
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                        {template.description ? (
+                                          <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                            {template.description}
+                                          </p>
                                         ) : null}
+                                        {template.default_model ? (
+                                          <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                            {template.default_model}
+                                          </p>
+                                        ) : null}
+                                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                          {text.promptTemplateProject}：{scopeLabel}
+                                        </p>
                                       </div>
-                                      {template.description ? (
-                                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                                          {template.description}
-                                        </p>
-                                      ) : null}
-                                      {template.default_model ? (
-                                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                                          {template.default_model}
-                                        </p>
-                                      ) : null}
+                                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                        <label className="flex items-center gap-2 text-xs text-[var(--ink-soft)]">
+                                          <span>{text.promptTemplateApplyTarget}</span>
+                                          <select
+                                            value={applyTarget}
+                                            onChange={(event) =>
+                                              setPromptTemplateApplyTargets((current) => ({
+                                                ...current,
+                                                [template.id]: event.target.value,
+                                              }))
+                                            }
+                                            className="max-w-[220px] rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs outline-none focus:border-[var(--accent-strong)]"
+                                          >
+                                            {promptTemplateTargetOptions.map((target) => (
+                                              <option key={target.id} value={target.id}>
+                                                {target.label}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleApplyPromptTemplate(template, applyTarget)}
+                                          className="rounded-full bg-[var(--ink-strong)] px-3 py-1.5 text-xs text-[var(--inverse-ink)]"
+                                        >
+                                          {text.promptTemplateApply}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleEditPromptTemplate(template)}
+                                          className="rounded-full border border-[var(--control-border)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+                                        >
+                                          {text.promptTemplateEdit}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => openDeletePromptTemplateDialog(template)}
+                                          className="rounded-full border border-[rgba(174,65,45,0.22)] px-3 py-1.5 text-xs text-[#9f3a2b]"
+                                        >
+                                          {text.delete}
+                                        </button>
+                                      </div>
                                     </div>
-                                    <div className="flex shrink-0 flex-wrap gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleApplyPromptTemplate(template)}
-                                        className="rounded-full bg-[var(--ink-strong)] px-3 py-1.5 text-xs text-[var(--inverse-ink)]"
-                                      >
-                                        {text.promptTemplateApply}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleEditPromptTemplate(template)}
-                                        className="rounded-full border border-[var(--control-border)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
-                                      >
-                                        {text.promptTemplateEdit}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handleDeletePromptTemplate(template.id)}
-                                        className="rounded-full border border-[rgba(174,65,45,0.22)] px-3 py-1.5 text-xs text-[#9f3a2b]"
-                                      >
-                                        {text.delete}
-                                      </button>
-                                    </div>
+                                    <p className="mt-3 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-[var(--ink-soft)]">
+                                      {template.content}
+                                    </p>
                                   </div>
-                                  <p className="mt-3 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-[var(--ink-soft)]">
-                                    {template.content}
-                                  </p>
-                                </div>
-                              ))
+                                );
+                              })
                             ) : (
                               <p className="rounded-2xl border border-dashed border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-4 text-sm text-[var(--ink-soft)]">
                                 {text.promptTemplateEmpty}

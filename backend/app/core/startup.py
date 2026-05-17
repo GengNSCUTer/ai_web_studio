@@ -1,7 +1,7 @@
 from sqlalchemy import text
 
 from app.core.database import Base, engine
-from app.models import Attachment, Conversation, Message, PromptTemplate, User, UserMemory, UserSetting  # noqa: F401
+from app.models import Attachment, Conversation, Message, Project, PromptTemplate, User, UserMemory, UserSetting  # noqa: F401
 
 
 def _get_column_names(table_name: str) -> set[str]:
@@ -43,6 +43,8 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table user_settings add column theme_mode varchar(16) default 'system'")
 
     conversation_columns = _get_column_names("conversations")
+    if "project_id" not in conversation_columns:
+        statements.append("alter table conversations add column project_id varchar(36)")
     if "context_summary" not in conversation_columns:
         statements.append("alter table conversations add column context_summary text")
     if "context_summary_boundary_message_id" not in conversation_columns:
@@ -63,6 +65,10 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table user_memories add column source_message_ids text")
     if "confidence" not in memory_columns:
         statements.append("alter table user_memories add column confidence varchar(16)")
+
+    prompt_template_columns = _get_column_names("prompt_templates")
+    if prompt_template_columns and "project_id" not in prompt_template_columns:
+        statements.append("alter table prompt_templates add column project_id varchar(36)")
 
     if not statements:
         return

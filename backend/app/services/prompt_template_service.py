@@ -24,6 +24,7 @@ class PromptTemplateService:
     def create_template(self, user_id: str, payload: PromptTemplateCreate) -> PromptTemplateResponse:
         template = PromptTemplate(
             user_id=user_id,
+            project_id=payload.project_id,
             name=payload.name.strip(),
             description=self._normalize_optional_text(payload.description),
             content=payload.content.strip(),
@@ -48,6 +49,8 @@ class PromptTemplateService:
         data = payload.model_dump(exclude_unset=True)
         if "name" in data and data["name"] is not None:
             template.name = data["name"].strip()
+        if "project_id" in data:
+            template.project_id = data["project_id"]
         if "description" in data:
             template.description = self._normalize_optional_text(data["description"])
         if "content" in data and data["content"] is not None:

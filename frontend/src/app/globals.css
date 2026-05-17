@@ -24,6 +24,9 @@
   --hairline: rgba(22, 34, 27, 0.08);
   --overlay-bg: rgba(24, 35, 29, 0.18);
   --panel-shadow: 0 28px 100px rgba(112, 96, 56, 0.18);
+  --composer-bg: rgba(255, 250, 242, 0.92);
+  --composer-border: rgba(22, 34, 27, 0.1);
+  --composer-shadow: 0 18px 48px rgba(32, 45, 35, 0.08);
   --danger-bg: rgba(255, 238, 231, 0.95);
   --danger-border: rgba(185, 66, 42, 0.18);
   --danger-text: #8f3524;
@@ -51,6 +54,9 @@
   --hairline: rgba(255, 255, 255, 0.1);
   --overlay-bg: rgba(0, 0, 0, 0.32);
   --panel-shadow: 0 28px 100px rgba(0, 0, 0, 0.32);
+  --composer-bg: rgba(255, 255, 255, 0.055);
+  --composer-border: rgba(255, 255, 255, 0.12);
+  --composer-shadow: 0 22px 70px rgba(0, 0, 0, 0.22);
   --danger-bg: rgba(91, 36, 31, 0.74);
   --danger-border: rgba(255, 153, 130, 0.2);
   --danger-text: #ffd0c4;
@@ -236,4 +242,15 @@ h4 {
 
 [data-theme="dark"] :is(input, textarea, select) {
   border-color: var(--control-border);
+}
+
+[data-theme="dark"] .chat-composer .chat-composer-textarea {
+  background: transparent !important;
+  color: var(--ink-strong);
+}
+
+[data-theme="dark"] .chat-composer {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.018)),
+    rgba(255, 255, 255, 0.025);
 }

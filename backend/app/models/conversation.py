@@ -12,6 +12,7 @@ class Conversation(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255), default="New Chat")
     model_name: Mapped[str] = mapped_column(String(128))
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -28,4 +29,5 @@ class Conversation(Base):
     )
 
     user = relationship("User", back_populates="conversations")
+    project = relationship("Project", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")

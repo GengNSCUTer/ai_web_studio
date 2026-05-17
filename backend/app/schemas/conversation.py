@@ -9,6 +9,7 @@ class ConversationCreate(BaseModel):
     title: str = Field(default="New Chat", max_length=255)
     model_name: str = Field(default=settings.ollama_default_model, max_length=128)
     system_prompt: str | None = None
+    project_id: str | None = Field(default=None, max_length=36)
 
 
 class ConversationUpdate(BaseModel):
@@ -17,12 +18,14 @@ class ConversationUpdate(BaseModel):
     is_archived: bool | None = None
     is_pinned: bool | None = None
     context_summary: str | None = None
+    project_id: str | None = Field(default=None, max_length=36)
 
 
 class ConversationListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    project_id: str | None = None
     title: str
     model_name: str
     is_pinned: bool
