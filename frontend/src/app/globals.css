@@ -254,3 +254,29 @@ h4 {
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.018)),
     rgba(255, 255, 255, 0.025);
 }
+
+.reasoning-panel {
+  color-scheme: light;
+}
+
+.reasoning-panel summary {
+  color: var(--ink-strong);
+}
+
+.reasoning-panel > div {
+  color: var(--ink-soft);
+}
+
+[data-theme="dark"] .reasoning-panel {
+  background: rgba(255, 255, 255, 0.055) !important;
+  border-color: var(--hairline) !important;
+  color-scheme: dark;
+}
+
+[data-theme="dark"] .reasoning-panel summary {
+  color: var(--ink-strong) !important;
+}
+
+[data-theme="dark"] .reasoning-panel > div {
+  color: var(--ink-soft) !important;
+}

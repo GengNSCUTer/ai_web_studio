@@ -1745,7 +1745,7 @@ export function ChatThread({
                   />
                 )}
                 {!isUser && message.reasoningContent?.trim() ? (
-                  <details className="mt-3 rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.78)] px-3 py-2 text-xs text-[var(--ink-soft)]">
+                  <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">
                     <summary className="cursor-pointer select-none font-medium text-[var(--ink-strong)]">
                       {text.reasoningTitle}
                     </summary>
