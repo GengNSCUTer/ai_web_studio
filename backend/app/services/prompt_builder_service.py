@@ -36,49 +36,35 @@ class ContextPromptBuilder:
     ) -> PromptBuildResult:
         prompt_messages: list[dict[str, Any]] = []
         layers: list[str] = []
-
-        prompt_messages.append(
-            {
-                "role": "system",
-                "content": self._build_system_instruction(system_prompt),
-                "_context_layer": "system",
-            }
-        )
+        system_sections = [self._build_system_instruction(system_prompt)]
         layers.append("system")
 
         if memory_context:
-            prompt_messages.append(
-                {
-                    "role": "system",
-                    "content": self._wrap_layer("长期记忆", memory_context),
-                    "_context_layer": "long_term_memory",
-                }
-            )
+            system_sections.append(self._wrap_layer("长期记忆", memory_context))
             layers.append("long_term_memory")
 
         if context_summary:
-            prompt_messages.append(
-                {
-                    "role": "system",
-                    "content": self._wrap_layer(
-                        "会话滚动摘要",
-                        "以下是本会话较早历史的压缩摘要，请作为长期上下文参考：\n"
-                        f"{context_summary}",
-                    ),
-                    "_context_layer": "conversation_summary",
-                }
+            system_sections.append(
+                self._wrap_layer(
+                    "会话滚动摘要",
+                    "以下是本会话较早历史的压缩摘要，请作为长期上下文参考：\n"
+                    f"{context_summary}",
+                )
             )
             layers.append("conversation_summary")
 
         if external_context:
-            prompt_messages.append(
-                {
-                    "role": "system",
-                    "content": self._wrap_layer("外部信息源", external_context),
-                    "_context_layer": "external_context",
-                }
-            )
+            system_sections.append(self._wrap_layer("外部信息源", external_context))
             layers.append("external_context")
+
+        # Some OpenAI-compatible providers only accept one leading system message.
+        prompt_messages.append(
+            {
+                "role": "system",
+                "content": "\n\n".join(section for section in system_sections if section.strip()),
+                "_context_layer": "system_prefix",
+            }
+        )
 
         start_index = self._find_history_start_index(
             messages=messages,

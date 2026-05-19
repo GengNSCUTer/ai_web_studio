@@ -600,6 +600,8 @@ export function ChatApp({
   const [isTestingProvider, setIsTestingProvider] = useState(false);
   const [isSuggestingMemory, setIsSuggestingMemory] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDeepThinkingEnabled, setIsDeepThinkingEnabled] = useState(false);
+  const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("provider");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
@@ -2243,6 +2245,10 @@ export function ChatApp({
             contextInfo={contextInfo}
             highlightedMessageId={highlightedMessageId}
             uiLanguage={uiLanguage}
+            isDeepThinkingEnabled={isDeepThinkingEnabled}
+            isWebSearchEnabled={isWebSearchEnabled}
+            onDeepThinkingEnabledChange={setIsDeepThinkingEnabled}
+            onWebSearchEnabledChange={setIsWebSearchEnabled}
             onContextInfoChange={handleContextInfoChange}
             onChatSettled={refreshAfterChat}
             onConversationMessagesChanged={handleConversationMessagesChanged}

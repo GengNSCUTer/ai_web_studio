@@ -18,6 +18,10 @@ type ChatThreadProps = {
   contextInfo: ContextGovernanceInfo | null;
   highlightedMessageId: string | null;
   uiLanguage: UILanguage;
+  isDeepThinkingEnabled: boolean;
+  isWebSearchEnabled: boolean;
+  onDeepThinkingEnabledChange: (enabled: boolean) => void;
+  onWebSearchEnabledChange: (enabled: boolean) => void;
   onContextInfoChange: (
     info: ContextGovernanceInfo | null,
     conversationId?: string | null
@@ -500,6 +504,10 @@ export function ChatThread({
   contextInfo,
   highlightedMessageId,
   uiLanguage,
+  isDeepThinkingEnabled,
+  isWebSearchEnabled,
+  onDeepThinkingEnabledChange,
+  onWebSearchEnabledChange,
   onContextInfoChange,
   onChatSettled,
   onConversationMessagesChanged,
@@ -524,8 +532,6 @@ export function ChatThread({
   const [editingAttachments, setEditingAttachments] = useState<UploadItem[]>([]);
   const [isEditingUploading, setIsEditingUploading] = useState(false);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
-  const [isDeepThinkingEnabled, setIsDeepThinkingEnabled] = useState(false);
-  const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>(() =>
     toThreadMessages(initialMessages)
   );
@@ -2094,7 +2100,7 @@ export function ChatThread({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsWebSearchEnabled((current) => !current)}
+                    onClick={() => onWebSearchEnabledChange(!isWebSearchEnabled)}
                     disabled={Boolean(editingUserMessageId) || isGenerating}
                     className={`rounded-full border px-3 py-1.5 text-xs transition ${
                       isWebSearchEnabled
@@ -2106,7 +2112,7 @@ export function ChatThread({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsDeepThinkingEnabled((current) => !current)}
+                    onClick={() => onDeepThinkingEnabledChange(!isDeepThinkingEnabled)}
                     disabled={Boolean(editingUserMessageId) || isGenerating}
                     className={`rounded-full border px-3 py-1.5 text-xs transition ${
                       isDeepThinkingEnabled
