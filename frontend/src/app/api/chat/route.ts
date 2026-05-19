@@ -29,6 +29,8 @@ type ChatRequestPayload = {
     kind: string;
     storage_key: string;
   }>;
+  thinkingEnabled?: boolean;
+  webSearchEnabled?: boolean;
 };
 
 function extractMessageText(message: UIMessage | undefined) {
@@ -68,12 +70,12 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const upstream = await fetchBackend("/api/chat/text-stream", {
+  const upstream = await fetchBackend("/api/chat/events-stream", {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
-      accept: "text/plain",
+      accept: "application/x-ndjson",
     },
     body: JSON.stringify({
       conversation_id: payload.conversationId,
@@ -82,6 +84,8 @@ export async function POST(request: NextRequest) {
       system_prompt: payload.systemPrompt,
       title: payload.title,
       attachments: payload.attachments ?? [],
+      thinking_enabled: Boolean(payload.thinkingEnabled),
+      web_search_enabled: Boolean(payload.webSearchEnabled),
     }),
   });
 
@@ -95,9 +99,9 @@ export async function POST(request: NextRequest) {
   }
 
   return new Response(upstream.body, {
-    status: upstream.status,
-    headers: {
-      "content-type": "text/plain; charset=utf-8",
+      status: upstream.status,
+      headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       "x-accel-buffering": "no",
       "x-conversation-id": upstream.headers.get("x-conversation-id") ?? "",

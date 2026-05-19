@@ -4,7 +4,7 @@
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { MessageMarkdown } from "@/components/message-markdown";
-import type { ContextAttachmentChunk, ContextGovernanceInfo, Message, UploadItem } from "@/lib/types";
+import type { ContextAttachmentChunk, ContextGovernanceInfo, ExternalSource, Message, UploadItem } from "@/lib/types";
 
 type UILanguage = "zh-CN" | "en-US";
 
@@ -30,6 +30,8 @@ type ThreadMessage = {
   id: string;
   role: "user" | "assistant" | "system" | string;
   content: string;
+  reasoningContent?: string | null;
+  externalSources?: ExternalSource[];
   status: "done" | "streaming" | "failed" | "cancelled" | string;
   created_at: string;
   attachments: UploadItem[];
@@ -57,6 +59,10 @@ const THREAD_TEXT = {
     firstToken: "等待首个回答 token",
     firstTokenGenerating: "首个回答 token 生成中",
     streaming: "正在流式输出",
+    deepThinking: "深度思考",
+    webSearch: "联网搜索",
+    reasoningTitle: "思考过程",
+    sourcesTitle: "外部来源",
     replyFailed: "该条回答生成失败，请稍后重试。",
     replyStopped: "该条回答已停止生成。",
     copyAnswer: "复制回答",
@@ -158,6 +164,10 @@ const THREAD_TEXT = {
     firstToken: "Waiting for the first answer token",
     firstTokenGenerating: "Generating first answer token",
     streaming: "Streaming output",
+    deepThinking: "Deep thinking",
+    webSearch: "Web search",
+    reasoningTitle: "Reasoning",
+    sourcesTitle: "Sources",
     replyFailed: "This answer failed to generate. Please try again later.",
     replyStopped: "This answer was stopped.",
     copyAnswer: "Copy answer",
@@ -399,10 +409,27 @@ function toThreadMessages(messages: Message[]): ThreadMessage[] {
       id: message.id,
       role: message.role,
       content: message.content,
+      reasoningContent: message.reasoning_content ?? null,
+      externalSources: parseExternalSources(message.external_sources),
       status: message.status,
       created_at: message.created_at,
       attachments: message.attachments ?? [],
     }));
+}
+
+function parseExternalSources(value: string | null | undefined): ExternalSource[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is ExternalSource => Boolean(item) && typeof item === "object");
+    }
+  } catch {
+    return [];
+  }
+  return [];
 }
 
 function requestErrorMessage(error: unknown) {
@@ -434,6 +461,33 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T
   }
 
   return response.json() as Promise<T>;
+}
+
+type ChatStreamEvent =
+  | { type: "answer_delta"; text: string }
+  | { type: "reasoning_delta"; text: string }
+  | { type: "tool_sources"; sources: ExternalSource[] }
+  | { type: "done"; assistant_message_id?: string };
+
+function parseStreamEvents(buffer: string) {
+  const lines = buffer.split("\n");
+  const rest = lines.pop() ?? "";
+  const events: ChatStreamEvent[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(trimmed) as ChatStreamEvent;
+      if (parsed && typeof parsed === "object" && "type" in parsed) {
+        events.push(parsed);
+      }
+    } catch {
+      // Ignore malformed partial chunks; the server always emits newline-delimited JSON.
+    }
+  }
+  return { events, rest };
 }
 
 export function ChatThread({
@@ -470,6 +524,8 @@ export function ChatThread({
   const [editingAttachments, setEditingAttachments] = useState<UploadItem[]>([]);
   const [isEditingUploading, setIsEditingUploading] = useState(false);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  const [isDeepThinkingEnabled, setIsDeepThinkingEnabled] = useState(false);
+  const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>(() =>
     toThreadMessages(initialMessages)
   );
@@ -1021,6 +1077,8 @@ export function ChatThread({
           ? {
               ...message,
               content: "",
+              reasoningContent: "",
+              externalSources: [],
               status: "streaming",
             }
           : message
@@ -1062,6 +1120,9 @@ export function ChatThread({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantText = "";
+      let reasoningText = "";
+      let externalSources: ExternalSource[] = [];
+      let eventBuffer = "";
 
       while (true) {
         const { value, done } = await reader.read();
@@ -1072,13 +1133,26 @@ export function ChatThread({
           continue;
         }
 
-        assistantText += decoder.decode(value, { stream: true });
+        eventBuffer += decoder.decode(value, { stream: true });
+        const parsed = parseStreamEvents(eventBuffer);
+        eventBuffer = parsed.rest;
+        for (const streamEvent of parsed.events) {
+          if (streamEvent.type === "answer_delta") {
+            assistantText += streamEvent.text;
+          } else if (streamEvent.type === "reasoning_delta") {
+            reasoningText += streamEvent.text;
+          } else if (streamEvent.type === "tool_sources") {
+            externalSources = streamEvent.sources ?? [];
+          }
+        }
         setThreadMessages((current) =>
           current.map((message) =>
             message.id === assistantMessageId
               ? {
                   ...message,
                   content: assistantText,
+                  reasoningContent: reasoningText,
+                  externalSources,
                   status: "streaming",
                 }
               : message
@@ -1086,13 +1160,25 @@ export function ChatThread({
         );
       }
 
-      assistantText += decoder.decode();
+      eventBuffer += decoder.decode();
+      const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
+      for (const streamEvent of finalParsed.events) {
+        if (streamEvent.type === "answer_delta") {
+          assistantText += streamEvent.text;
+        } else if (streamEvent.type === "reasoning_delta") {
+          reasoningText += streamEvent.text;
+        } else if (streamEvent.type === "tool_sources") {
+          externalSources = streamEvent.sources ?? [];
+        }
+      }
       setThreadMessages((current) =>
         current.map((message) =>
           message.id === assistantMessageId
             ? {
                 ...message,
                 content: assistantText,
+                reasoningContent: reasoningText,
+                externalSources,
                 status: "done",
               }
             : message
@@ -1139,6 +1225,8 @@ export function ChatThread({
         assistantMessageId,
         modelName: selectedModel,
         systemPrompt,
+        thinkingEnabled: isDeepThinkingEnabled,
+        webSearchEnabled: isWebSearchEnabled,
       }, assistantMessageId);
     } catch {
       // localError 已在 helper 中设置
@@ -1216,6 +1304,8 @@ export function ChatThread({
         attachments: nextAttachments,
         modelName: selectedModel,
         systemPrompt,
+        thinkingEnabled: isDeepThinkingEnabled,
+        webSearchEnabled: isWebSearchEnabled,
       }, latestAssistantMessageId);
     } catch {
       // 用户消息在后端已被更新，失败时保留编辑结果，只标记回答失败。
@@ -1280,6 +1370,8 @@ export function ChatThread({
         id: tempAssistantMessageId,
         role: "assistant",
         content: "",
+        reasoningContent: "",
+        externalSources: [],
         status: "streaming",
         created_at: nowIso,
         attachments: [],
@@ -1302,6 +1394,8 @@ export function ChatThread({
           systemPrompt,
           title: buildDraftTitle(content, uiLanguage),
           attachments: pendingUploads,
+          thinkingEnabled: isDeepThinkingEnabled,
+          webSearchEnabled: isWebSearchEnabled,
           messages: [
             {
               role: "user",
@@ -1343,6 +1437,9 @@ export function ChatThread({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantText = "";
+      let reasoningText = "";
+      let externalSources: ExternalSource[] = [];
+      let eventBuffer = "";
 
       while (true) {
         const { value, done } = await reader.read();
@@ -1354,13 +1451,26 @@ export function ChatThread({
           continue;
         }
 
-        assistantText += decoder.decode(value, { stream: true });
+        eventBuffer += decoder.decode(value, { stream: true });
+        const parsed = parseStreamEvents(eventBuffer);
+        eventBuffer = parsed.rest;
+        for (const streamEvent of parsed.events) {
+          if (streamEvent.type === "answer_delta") {
+            assistantText += streamEvent.text;
+          } else if (streamEvent.type === "reasoning_delta") {
+            reasoningText += streamEvent.text;
+          } else if (streamEvent.type === "tool_sources") {
+            externalSources = streamEvent.sources ?? [];
+          }
+        }
         setThreadMessages((current) =>
           current.map((message) =>
             message.id === tempAssistantMessageId
               ? {
                   ...message,
                   content: assistantText,
+                  reasoningContent: reasoningText,
+                  externalSources,
                   status: "streaming",
                 }
               : message
@@ -1368,13 +1478,25 @@ export function ChatThread({
         );
       }
 
-      assistantText += decoder.decode();
+      eventBuffer += decoder.decode();
+      const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
+      for (const streamEvent of finalParsed.events) {
+        if (streamEvent.type === "answer_delta") {
+          assistantText += streamEvent.text;
+        } else if (streamEvent.type === "reasoning_delta") {
+          reasoningText += streamEvent.text;
+        } else if (streamEvent.type === "tool_sources") {
+          externalSources = streamEvent.sources ?? [];
+        }
+      }
       setThreadMessages((current) =>
         current.map((message) =>
           message.id === tempAssistantMessageId
             ? {
                 ...message,
                 content: assistantText,
+                reasoningContent: reasoningText,
+                externalSources,
                 status: "done",
               }
             : message
@@ -1616,6 +1738,46 @@ export function ChatThread({
                     isStreaming={Boolean(shouldShowStreamingIndicator && isLatestStreamingAssistant)}
                   />
                 )}
+                {!isUser && message.reasoningContent?.trim() ? (
+                  <details className="mt-3 rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.78)] px-3 py-2 text-xs text-[var(--ink-soft)]">
+                    <summary className="cursor-pointer select-none font-medium text-[var(--ink-strong)]">
+                      {text.reasoningTitle}
+                    </summary>
+                    <div className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap leading-5">
+                      {message.reasoningContent}
+                    </div>
+                  </details>
+                ) : null}
+                {!isUser && message.externalSources && message.externalSources.length > 0 ? (
+                  <div className="mt-3 rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] p-3">
+                    <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-[var(--ink-muted)]">
+                      {text.sourcesTitle}
+                    </div>
+                    <div className="grid gap-2">
+                      {message.externalSources.slice(0, 6).map((source, index) => (
+                        <a
+                          key={`${source.provider}-${source.title}-${index}`}
+                          href={source.url ?? undefined}
+                          target={source.url ? "_blank" : undefined}
+                          rel={source.url ? "noreferrer" : undefined}
+                          className={`rounded-xl border border-[rgba(22,34,27,0.08)] bg-white/72 px-3 py-2 text-xs text-[var(--ink-soft)] transition ${
+                            source.url ? "hover:border-[var(--accent-strong)]" : "cursor-default"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium text-[var(--ink-strong)]">
+                              {source.citation_label ?? `[${index + 1}]`} {source.title}
+                            </span>
+                            <span className="shrink-0 rounded-full bg-[rgba(22,34,27,0.06)] px-2 py-0.5 text-[10px]">
+                              {source.provider}
+                            </span>
+                          </div>
+                          <div className="mt-1 line-clamp-2 leading-5">{source.display_text}</div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {!isEditingThisUser && message.attachments.length > 0 ? (
                   <div className="mt-4 flex flex-wrap gap-3">
                     {message.attachments.map((attachment) =>
@@ -1929,6 +2091,30 @@ export function ChatThread({
                     className="rounded-full border border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
                   >
                     {text.uploadAttachment}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsWebSearchEnabled((current) => !current)}
+                    disabled={Boolean(editingUserMessageId) || isGenerating}
+                    className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                      isWebSearchEnabled
+                        ? "border-[var(--accent-strong)] bg-[rgba(69,107,87,0.14)] text-[var(--ink-strong)]"
+                        : "border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] text-[var(--ink-soft)] hover:border-[var(--accent-strong)]"
+                    }`}
+                  >
+                    {text.webSearch}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsDeepThinkingEnabled((current) => !current)}
+                    disabled={Boolean(editingUserMessageId) || isGenerating}
+                    className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                      isDeepThinkingEnabled
+                        ? "border-[var(--accent-strong)] bg-[rgba(69,107,87,0.14)] text-[var(--ink-strong)]"
+                        : "border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] text-[var(--ink-soft)] hover:border-[var(--accent-strong)]"
+                    }`}
+                  >
+                    {text.deepThinking}
                   </button>
                   {contextInfo && hasContextDiagnostics ? (
                     <div className="relative">

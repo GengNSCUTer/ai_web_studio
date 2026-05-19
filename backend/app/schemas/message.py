@@ -17,6 +17,8 @@ class MessageResponse(BaseModel):
     conversation_id: str
     role: str
     content: str
+    reasoning_content: str | None = None
+    external_sources: str | None = None
     status: str
     created_at: datetime
     updated_at: datetime | None = None
@@ -34,6 +36,9 @@ class ChatStreamRequest(BaseModel):
     model_name: str | None = Field(default=None, max_length=128)
     system_prompt: str | None = None
     attachments: list[UploadItemReference] = Field(default_factory=list)
+    thinking_enabled: bool = False
+    thinking_budget: int | None = None
+    web_search_enabled: bool = False
 
 
 class ChatRegenerateRequest(BaseModel):
@@ -41,6 +46,9 @@ class ChatRegenerateRequest(BaseModel):
     assistant_message_id: str
     model_name: str | None = Field(default=None, max_length=128)
     system_prompt: str | None = None
+    thinking_enabled: bool = False
+    thinking_budget: int | None = None
+    web_search_enabled: bool = False
 
 
 class ChatEditLastUserRequest(BaseModel):
@@ -51,3 +59,6 @@ class ChatEditLastUserRequest(BaseModel):
     attachments: list[UploadItemReference] | None = None
     model_name: str | None = Field(default=None, max_length=128)
     system_prompt: str | None = None
+    thinking_enabled: bool = False
+    thinking_budget: int | None = None
+    web_search_enabled: bool = False

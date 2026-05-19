@@ -69,6 +69,12 @@ def ensure_runtime_schema() -> None:
     if "is_pinned" not in conversation_columns:
         statements.append("alter table conversations add column is_pinned boolean default false")
 
+    message_columns = _get_column_names("messages")
+    if "reasoning_content" not in message_columns:
+        statements.append("alter table messages add column reasoning_content text")
+    if "external_sources" not in message_columns:
+        statements.append("alter table messages add column external_sources text")
+
     memory_columns = _get_column_names("user_memories")
     if "source_conversation_id" not in memory_columns:
         statements.append("alter table user_memories add column source_conversation_id varchar(36)")

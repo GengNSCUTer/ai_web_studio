@@ -112,6 +112,8 @@ class MessageService:
             conversation_id=message.conversation_id,
             role=message.role,
             content=message.content,
+            reasoning_content=message.reasoning_content,
+            external_sources=message.external_sources,
             status=message.status,
             created_at=message.created_at,
             updated_at=message.updated_at,

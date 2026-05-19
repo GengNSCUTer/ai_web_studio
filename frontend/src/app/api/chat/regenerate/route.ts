@@ -10,6 +10,8 @@ type RegenerateRequestPayload = {
   assistantMessageId?: string;
   modelName?: string;
   systemPrompt?: string | null;
+  thinkingEnabled?: boolean;
+  webSearchEnabled?: boolean;
 };
 
 export async function POST(request: NextRequest) {
@@ -38,13 +40,15 @@ export async function POST(request: NextRequest) {
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
-      accept: "text/plain",
+      accept: "application/x-ndjson",
     },
     body: JSON.stringify({
       conversation_id: payload.conversationId,
       assistant_message_id: payload.assistantMessageId,
       model_name: payload.modelName,
       system_prompt: payload.systemPrompt,
+      thinking_enabled: Boolean(payload.thinkingEnabled),
+      web_search_enabled: Boolean(payload.webSearchEnabled),
     }),
   });
 
@@ -60,7 +64,7 @@ export async function POST(request: NextRequest) {
   return new Response(upstream.body, {
     status: upstream.status,
     headers: {
-      "content-type": "text/plain; charset=utf-8",
+      "content-type": "application/x-ndjson; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       "x-accel-buffering": "no",
       "x-conversation-id": upstream.headers.get("x-conversation-id") ?? "",

@@ -38,6 +38,10 @@ class Settings:
 
     upload_dir: str = os.getenv("UPLOAD_DIR", str(ROOT_DIR / "uploads"))
 
+    tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
+    amap_api_key: str = os.getenv("AMAP_API_KEY", "")
+    external_tool_timeout_seconds: int = int(os.getenv("EXTERNAL_TOOL_TIMEOUT_SECONDS", "8"))
+
     @property
     def sqlalchemy_database_uri(self) -> str:
         auth = self.postgres_user

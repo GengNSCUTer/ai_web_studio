@@ -24,6 +24,7 @@ from app.services.attachment_context_service import AttachmentContextService
 from app.services.chat_provider_service import ChatProviderService, resolve_provider_base_url
 from app.services.context_governance_service import ContextBudgetPlanner, ContextGovernanceService
 from app.services.conversation_service import ConversationService
+from app.services.external_context_service import ExternalContextService
 from app.services.memory_service import MemoryService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import ContextPromptBuilder
@@ -52,6 +53,9 @@ class ChatExecutionContext:
     context_stats: dict[str, Any]
     context_details: dict[str, Any]
     context_summary: str | None
+    thinking_enabled: bool
+    thinking_budget: int | None
+    external_sources: list[dict[str, Any]]
 
 
 def _stringify_stats(stats: dict[str, Any]) -> str:
@@ -70,6 +74,10 @@ def _encode_json_payload(payload: dict[str, Any] | list[Any] | None) -> str:
         return ""
     encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     return base64.b64encode(encoded).decode("ascii")
+
+
+def _encode_stream_event(event_type: str, **payload: Any) -> str:
+    return json.dumps({"type": event_type, **payload}, ensure_ascii=False) + "\n"
 
 
 def _is_supported_text_file(attachment: object) -> bool:
@@ -270,6 +278,11 @@ async def _prepare_chat_execution(
         query=payload.content,
         max_chars=budget.max_attachment_chars,
     )
+    external_context_result = await ExternalContextService().build_context(
+        query=payload.content,
+        enabled=payload.web_search_enabled,
+        max_chars=max(1200, min(budget.max_attachment_chars, 6000)),
+    )
 
     async def summarize_with_model(
         *,
@@ -317,6 +330,7 @@ async def _prepare_chat_execution(
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
         summary_boundary_message_id=next_summary_boundary_message_id
         or _clean_optional_str(getattr(conversation, "context_summary_boundary_message_id", None)),
+        external_context=external_context_result.context_text,
         attachment_context=attachment_context_result.context_text,
         provider_type=provider_type,
         model_name=resolved_model,
@@ -356,6 +370,7 @@ async def _prepare_chat_execution(
     attachment_context_tokens = tokenizer.estimate_text_tokens(attachment_context_result.context_text or "")
     context_details = {
         "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
+        "external_sources": external_context_result.details.get("external_sources", []),
     }
 
     return ChatExecutionContext(
@@ -372,7 +387,7 @@ async def _prepare_chat_execution(
         temperature=default_settings.temperature,
         top_p=default_settings.top_p,
         max_tokens=default_settings.max_tokens,
-        context_notices=governed_context.notices,
+        context_notices=[*external_context_result.notices, *governed_context.notices],
         context_stats={
             "context_mode": budget.context_mode,
             "model_context_window": budget.model_context_window,
@@ -400,6 +415,7 @@ async def _prepare_chat_execution(
             "memory_injected": int(bool(memory_context)),
             "memory_count": memory_count,
             "memory_chars": memory_chars,
+            "thinking_enabled": int(bool(payload.thinking_enabled)),
             "tokenizer_encoding": tokenizer.estimate.encoding_name,
             "prompt_prefix_hash": prompt_prefix_hash,
             "prompt_prefix_tokens": prompt_prefix_tokens,
@@ -407,10 +423,14 @@ async def _prepare_chat_execution(
             "prompt_recent_history_tokens": prompt_recent_history_tokens,
             "prompt_prefix_reused_last_turn": prompt_prefix_reused_last_turn,
             **attachment_context_result.diagnostics,
+            **external_context_result.diagnostics,
             **prompt_result.diagnostics,
         },
         context_details=context_details,
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
+        thinking_enabled=payload.thinking_enabled,
+        thinking_budget=payload.thinking_budget,
+        external_sources=[source.to_public_dict() for source in external_context_result.sources],
     )
 
 
@@ -422,6 +442,9 @@ async def _prepare_existing_turn_execution(
     assistant_message: object,
     model_name: str | None,
     system_prompt: str | None,
+    thinking_enabled: bool,
+    thinking_budget: int | None,
+    web_search_enabled: bool,
     db: Session,
     current_user: User,
 ) -> ChatExecutionContext:
@@ -473,6 +496,11 @@ async def _prepare_existing_turn_execution(
         query=getattr(user_message, "content", "") or "",
         max_chars=budget.max_attachment_chars,
     )
+    external_context_result = await ExternalContextService().build_context(
+        query=getattr(user_message, "content", "") or "",
+        enabled=web_search_enabled,
+        max_chars=max(1200, min(budget.max_attachment_chars, 6000)),
+    )
 
     async def summarize_with_model(
         *,
@@ -520,6 +548,7 @@ async def _prepare_existing_turn_execution(
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
         summary_boundary_message_id=next_summary_boundary_message_id
         or _clean_optional_str(getattr(conversation, "context_summary_boundary_message_id", None)),
+        external_context=external_context_result.context_text,
         attachment_context=attachment_context_result.context_text,
         provider_type=provider_type,
         model_name=resolved_model,
@@ -559,6 +588,7 @@ async def _prepare_existing_turn_execution(
     attachment_context_tokens = tokenizer.estimate_text_tokens(attachment_context_result.context_text or "")
     context_details = {
         "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
+        "external_sources": external_context_result.details.get("external_sources", []),
     }
 
     return ChatExecutionContext(
@@ -575,7 +605,7 @@ async def _prepare_existing_turn_execution(
         temperature=default_settings.temperature,
         top_p=default_settings.top_p,
         max_tokens=default_settings.max_tokens,
-        context_notices=governed_context.notices,
+        context_notices=[*external_context_result.notices, *governed_context.notices],
         context_stats={
             "context_mode": budget.context_mode,
             "model_context_window": budget.model_context_window,
@@ -603,6 +633,7 @@ async def _prepare_existing_turn_execution(
             "memory_injected": int(bool(memory_context)),
             "memory_count": memory_count,
             "memory_chars": memory_chars,
+            "thinking_enabled": int(bool(thinking_enabled)),
             "tokenizer_encoding": tokenizer.estimate.encoding_name,
             "prompt_prefix_hash": prompt_prefix_hash,
             "prompt_prefix_tokens": prompt_prefix_tokens,
@@ -610,18 +641,33 @@ async def _prepare_existing_turn_execution(
             "prompt_recent_history_tokens": prompt_recent_history_tokens,
             "prompt_prefix_reused_last_turn": prompt_prefix_reused_last_turn,
             **attachment_context_result.diagnostics,
+            **external_context_result.diagnostics,
             **prompt_result.diagnostics,
         },
         context_details=context_details,
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
+        thinking_enabled=thinking_enabled,
+        thinking_budget=thinking_budget,
+        external_sources=[source.to_public_dict() for source in external_context_result.sources],
     )
 
 
-def _build_streaming_response(context: ChatExecutionContext, provider_service: ChatProviderService) -> StreamingResponse:
+def _build_streaming_response(
+    context: ChatExecutionContext,
+    provider_service: ChatProviderService,
+    *,
+    event_stream: bool = False,
+) -> StreamingResponse:
     async def text_generator():
         content_parts: list[str] = []
+        reasoning_parts: list[str] = []
         try:
-            async for chunk in provider_service.stream_chat(
+            if event_stream:
+                yield _encode_stream_event(
+                    "tool_sources",
+                    sources=context.external_sources,
+                )
+            async for event in provider_service.stream_chat_events(
                 provider_type=context.provider_type,
                 base_url=context.base_url,
                 api_key=context.api_key,
@@ -630,30 +676,46 @@ def _build_streaming_response(context: ChatExecutionContext, provider_service: C
                 temperature=context.temperature,
                 top_p=context.top_p,
                 max_tokens=context.max_tokens,
+                thinking_enabled=context.thinking_enabled,
+                thinking_budget=context.thinking_budget,
             ):
-                content_parts.append(chunk)
-                yield chunk
+                if event.type == "reasoning_delta":
+                    reasoning_parts.append(event.text)
+                    if event_stream:
+                        yield _encode_stream_event("reasoning_delta", text=event.text)
+                    continue
+                if event.type == "answer_delta":
+                    content_parts.append(event.text)
+                    yield _encode_stream_event("answer_delta", text=event.text) if event_stream else event.text
 
             context.assistant_message.content = "".join(content_parts)
+            context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
+            context.assistant_message.external_sources = (
+                json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
+            )
             context.assistant_message.status = "done"
             context.message_service.save_message(context.assistant_message)
             context.conversation_repo.touch(context.conversation.id)
+            if event_stream:
+                yield _encode_stream_event("done", assistant_message_id=context.assistant_message.id)
         except asyncio.CancelledError:
             context.assistant_message.status = "cancelled"
             context.assistant_message.content = "".join(content_parts)
+            context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
             context.message_service.save_message(context.assistant_message)
             context.conversation_repo.touch(context.conversation.id)
             raise
         except Exception:
             context.assistant_message.status = "failed"
             context.assistant_message.content = "".join(content_parts)
+            context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
             context.message_service.save_message(context.assistant_message)
             context.conversation_repo.touch(context.conversation.id)
             raise
 
     return StreamingResponse(
         text_generator(),
-        media_type="text/plain; charset=utf-8",
+        media_type="application/x-ndjson; charset=utf-8" if event_stream else "text/plain; charset=utf-8",
         headers={
             "cache-control": "no-cache, no-transform",
             "x-conversation-id": context.conversation.id,
@@ -674,6 +736,17 @@ async def chat_text_stream(
     provider_service = ChatProviderService()
     context = await _prepare_chat_execution(payload=payload, db=db, current_user=current_user)
     return _build_streaming_response(context, provider_service)
+
+
+@router.post("/events-stream")
+async def chat_events_stream(
+    payload: ChatStreamRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    provider_service = ChatProviderService()
+    context = await _prepare_chat_execution(payload=payload, db=db, current_user=current_user)
+    return _build_streaming_response(context, provider_service, event_stream=True)
 
 
 @router.post("/regenerate-last-stream")
@@ -717,10 +790,13 @@ async def regenerate_last_answer_stream(
         assistant_message=assistant_message,
         model_name=payload.model_name,
         system_prompt=payload.system_prompt,
+        thinking_enabled=payload.thinking_enabled,
+        thinking_budget=payload.thinking_budget,
+        web_search_enabled=payload.web_search_enabled,
         db=db,
         current_user=current_user,
     )
-    return _build_streaming_response(context, provider_service)
+    return _build_streaming_response(context, provider_service, event_stream=True)
 
 
 @router.post("/edit-last-user-stream")
@@ -779,7 +855,10 @@ async def edit_last_user_stream(
         assistant_message=assistant_message,
         model_name=payload.model_name,
         system_prompt=payload.system_prompt,
+        thinking_enabled=payload.thinking_enabled,
+        thinking_budget=payload.thinking_budget,
+        web_search_enabled=payload.web_search_enabled,
         db=db,
         current_user=current_user,
     )
-    return _build_streaming_response(context, provider_service)
+    return _build_streaming_response(context, provider_service, event_stream=True)

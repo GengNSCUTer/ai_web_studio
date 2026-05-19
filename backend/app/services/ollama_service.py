@@ -1,9 +1,16 @@
 import json
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 
 import httpx
 
 from app.core.config import settings
+
+
+@dataclass(frozen=True)
+class OllamaChatEvent:
+    type: str
+    text: str
 
 
 class OllamaService:
@@ -23,11 +30,26 @@ class OllamaService:
         model_name: str,
         messages: list[dict[str, str]],
     ) -> AsyncGenerator[str, None]:
+        async for event in self.stream_chat_events(
+            model_name=model_name,
+            messages=messages,
+            thinking_enabled=False,
+        ):
+            if event.type == "answer_delta":
+                yield event.text
+
+    async def stream_chat_events(
+        self,
+        *,
+        model_name: str,
+        messages: list[dict[str, str]],
+        thinking_enabled: bool = False,
+    ) -> AsyncGenerator[OllamaChatEvent, None]:
         payload = {
             "model": model_name,
             "messages": messages,
             "stream": True,
-            "think": False,
+            "think": thinking_enabled,
             "keep_alive": settings.ollama_keep_alive,
         }
 
@@ -52,9 +74,13 @@ class OllamaService:
                             data = json.loads(line)
                         except json.JSONDecodeError:
                             continue
-                        chunk = data.get("message", {}).get("content", "")
+                        message = data.get("message", {})
+                        thinking = message.get("thinking", "")
+                        if thinking:
+                            yield OllamaChatEvent(type="reasoning_delta", text=thinking)
+                        chunk = message.get("content", "")
                         if chunk:
-                            yield chunk
+                            yield OllamaChatEvent(type="answer_delta", text=chunk)
                         if data.get("done"):
                             break
             except httpx.ConnectError as exc:

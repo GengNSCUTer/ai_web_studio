@@ -29,6 +29,7 @@ class ContextPromptBuilder:
         memory_context: str | None,
         context_summary: str | None,
         summary_boundary_message_id: str | None,
+        external_context: str | None,
         attachment_context: str | None,
         provider_type: str,
         model_name: str | None = None,
@@ -68,6 +69,16 @@ class ContextPromptBuilder:
                 }
             )
             layers.append("conversation_summary")
+
+        if external_context:
+            prompt_messages.append(
+                {
+                    "role": "system",
+                    "content": self._wrap_layer("外部信息源", external_context),
+                    "_context_layer": "external_context",
+                }
+            )
+            layers.append("external_context")
 
         start_index = self._find_history_start_index(
             messages=messages,
@@ -123,6 +134,7 @@ class ContextPromptBuilder:
                 "prompt_system_layers": len(layers),
                 "prompt_history_messages": history_messages,
                 "prompt_attachment_context_injected": attachment_context_injected,
+                "prompt_external_context_injected": int(bool(external_context)),
                 "prompt_image_messages": image_messages,
             },
             stable_prefix_messages=stable_prefix_messages,

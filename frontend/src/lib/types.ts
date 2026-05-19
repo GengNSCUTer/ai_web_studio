@@ -56,8 +56,22 @@ export type ContextAttachmentChunk = {
   expanded_preview: string;
 };
 
+export type ExternalSource = {
+  source_type: string;
+  provider: string;
+  title: string;
+  display_text: string;
+  url?: string | null;
+  rank?: number | null;
+  score?: number | null;
+  used_in_prompt?: boolean;
+  citation_label?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
 export type ContextDiagnosticDetails = {
   attachment_chunks?: ContextAttachmentChunk[];
+  external_sources?: ExternalSource[];
 };
 
 export type ContextGovernanceInfo = {
@@ -71,6 +85,8 @@ export type Message = {
   conversation_id: string;
   role: "user" | "assistant" | "system" | string;
   content: string;
+  reasoning_content?: string | null;
+  external_sources?: string | null;
   status: "done" | "streaming" | "failed" | "cancelled" | string;
   created_at: string;
   updated_at: string | null;
