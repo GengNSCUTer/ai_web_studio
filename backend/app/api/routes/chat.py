@@ -76,6 +76,55 @@ def _encode_json_payload(payload: dict[str, Any] | list[Any] | None) -> str:
     return base64.b64encode(encoded).decode("ascii")
 
 
+def _truncate_header_text(value: Any, max_chars: int) -> Any:
+    if not isinstance(value, str):
+        return value
+    if len(value) <= max_chars:
+        return value
+    return value[:max_chars].rstrip() + "...[truncated]"
+
+
+def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, Any]:
+    """Keep diagnostic headers small; full sources are streamed in NDJSON body."""
+    compact: dict[str, Any] = {}
+
+    attachment_chunks = details.get("attachment_chunks")
+    if isinstance(attachment_chunks, list):
+        compact["attachment_chunks"] = [
+            {
+                **chunk,
+                "preview": _truncate_header_text(chunk.get("preview"), 360),
+                "expanded_preview": _truncate_header_text(chunk.get("expanded_preview"), 720),
+            }
+            for chunk in attachment_chunks[:8]
+            if isinstance(chunk, dict)
+        ]
+
+    external_sources = details.get("external_sources")
+    if isinstance(external_sources, list):
+        compact["external_sources"] = [
+            {
+                "source_type": source.get("source_type"),
+                "provider": source.get("provider"),
+                "title": _truncate_header_text(source.get("title"), 160),
+                "display_text": _truncate_header_text(source.get("display_text"), 360),
+                "url": _truncate_header_text(source.get("url"), 240),
+                "rank": source.get("rank"),
+                "score": source.get("score"),
+                "citation_label": source.get("citation_label"),
+                "metadata": {
+                    key: _truncate_header_text(value, 160)
+                    for key, value in (source.get("metadata") or {}).items()
+                    if key in {"tool", "query", "domain", "city", "province", "name", "address", "type"}
+                },
+            }
+            for source in external_sources[:6]
+            if isinstance(source, dict)
+        ]
+
+    return compact
+
+
 def _encode_stream_event(event_type: str, **payload: Any) -> str:
     return json.dumps({"type": event_type, **payload}, ensure_ascii=False) + "\n"
 
@@ -722,7 +771,9 @@ def _build_streaming_response(
             "x-assistant-message-id": context.assistant_message.id,
             "x-context-notices": _encode_context_notices(context.context_notices),
             "x-context-stats": _stringify_stats(context.context_stats),
-            "x-context-details": _encode_json_payload(context.context_details),
+            "x-context-details": _encode_json_payload(
+                _compact_context_details_for_header(context.context_details)
+            ),
         },
     )
 
