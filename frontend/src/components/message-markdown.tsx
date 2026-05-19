@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 
+import rehypeKatex from "rehype-katex";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 
 type MessageMarkdownProps = {
   content: string;
@@ -18,6 +20,30 @@ type CodeBlockProps = {
 function normalizeCode(children: React.ReactNode) {
   const text = Array.isArray(children) ? children.join("") : String(children ?? "");
   return text.replace(/\n$/, "");
+}
+
+function normalizeMathDelimiters(markdown: string) {
+  return markdown
+    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g)
+    .map((block) => {
+      if (block.startsWith("```") || block.startsWith("~~~")) {
+        return block;
+      }
+
+      return block
+        .split(/(`[^`\n]*`)/g)
+        .map((part) => {
+          if (part.startsWith("`") && part.endsWith("`")) {
+            return part;
+          }
+
+          return part
+            .replace(/\\\[([\s\S]*?)\\\]/g, (_, formula: string) => `\n\n$$\n${formula.trim()}\n$$\n\n`)
+            .replace(/\\\(([\s\S]*?)\\\)/g, (_, formula: string) => `$${formula}$`);
+        })
+        .join("");
+    })
+    .join("");
 }
 
 function CopyCodeButton({ code }: { code: string }) {
@@ -75,10 +101,13 @@ export function MessageMarkdown({
   content,
   isStreaming = false,
 }: MessageMarkdownProps) {
+  const normalizedContent = normalizeMathDelimiters(content);
+
   return (
     <div className="chat-markdown text-sm leading-7 sm:text-[15px]">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
         components={{
           h1: ({ children }) => (
             <h1 className="mt-6 mb-3 text-2xl font-semibold leading-tight first:mt-0">
@@ -160,7 +189,7 @@ export function MessageMarkdown({
           },
         }}
       >
-        {content}
+        {normalizedContent}
       </ReactMarkdown>
       {isStreaming ? (
         <span className="ml-1 inline-block h-5 w-2 animate-pulse rounded-sm bg-[var(--accent-strong)] align-[-0.2em]" />

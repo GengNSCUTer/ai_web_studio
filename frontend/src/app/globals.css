@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
@@ -566,4 +567,20 @@ h4 {
 
 .chat-markdown blockquote {
   background: var(--accent-soft);
+}
+
+.chat-markdown .katex {
+  color: var(--ink-strong);
+  font-size: 1.04em;
+}
+
+.chat-markdown .katex-display {
+  margin: 1rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+
+.chat-markdown .katex-display > .katex {
+  min-width: max-content;
 }
