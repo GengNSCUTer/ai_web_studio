@@ -1551,17 +1551,17 @@ export function ChatThread({
 
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4">
-        <div className="mx-auto flex w-full max-w-[86rem] flex-col gap-4">
+      <div className="chat-scroll min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
+        <div className="mx-auto flex w-full max-w-[74rem] flex-col gap-4">
           {threadMessages.length === 0 && !isLoadingMessages ? (
-            <div className="rounded-[24px] border border-dashed border-[rgba(22,34,27,0.12)] bg-white/70 px-5 py-6 text-center">
+            <div className="rounded-[22px] border border-dashed border-[var(--control-border)] bg-[var(--soft-bg)] px-5 py-6 text-center">
               <p className="text-lg font-medium">{text.emptyTitle}</p>
               <p className="mt-2 text-sm text-[var(--ink-soft)]">{text.emptySubtitle}</p>
             </div>
           ) : null}
 
           {isLoadingMessages ? (
-            <div className="rounded-3xl border border-[rgba(22,34,27,0.1)] bg-white/75 px-5 py-3 text-sm text-[var(--ink-soft)]">
+            <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--soft-bg)] px-5 py-3 text-sm text-[var(--ink-soft)]">
               {text.loadingHistory}
             </div>
           ) : null}
@@ -1590,10 +1590,10 @@ export function ChatThread({
               <article
                 key={message.id}
                 id={`message-${message.id}`}
-                className={`group max-w-[96%] rounded-[24px] px-4 py-3.5 shadow-[0_18px_40px_rgba(64,58,42,0.08)] lg:max-w-[92%] ${
+                className={`message-card group max-w-[96%] rounded-[22px] px-4 py-3.5 lg:max-w-[86%] ${
                   isUser
-                    ? "ml-auto bg-[linear-gradient(135deg,_#16221b_0%,_#254636_100%)] text-white"
-                    : "border border-[rgba(22,34,27,0.08)] bg-white text-[var(--ink-strong)]"
+                    ? "message-user ml-auto"
+                    : "message-assistant"
                 } ${
                   isSelected || isHighlighted
                     ? "ring-2 ring-[var(--accent-strong)] ring-offset-2 ring-offset-transparent"
@@ -1755,7 +1755,7 @@ export function ChatThread({
                   </details>
                 ) : null}
                 {!isUser && message.externalSources && message.externalSources.length > 0 ? (
-                  <div className="mt-3 rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] p-3">
+                  <div className="mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] p-3">
                     <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-[var(--ink-muted)]">
                       {text.sourcesTitle}
                     </div>
@@ -1766,7 +1766,7 @@ export function ChatThread({
                           href={source.url ?? undefined}
                           target={source.url ? "_blank" : undefined}
                           rel={source.url ? "noreferrer" : undefined}
-                          className={`rounded-xl border border-[rgba(22,34,27,0.08)] bg-white/72 px-3 py-2 text-xs text-[var(--ink-soft)] transition ${
+                          className={`rounded-xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2 text-xs text-[var(--ink-soft)] transition ${
                             source.url ? "hover:border-[var(--accent-strong)]" : "cursor-default"
                           }`}
                         >
@@ -1918,7 +1918,7 @@ export function ChatThread({
           })}
 
           {isGenerating && !activeStreamingAssistantMessage ? (
-            <article className="max-w-[96%] rounded-[24px] border border-[rgba(22,34,27,0.08)] bg-white px-4 py-3.5 text-[var(--ink-strong)] shadow-[0_18px_40px_rgba(64,58,42,0.08)] lg:max-w-[92%]">
+            <article className="message-card message-assistant max-w-[96%] rounded-[22px] px-4 py-3.5 text-[var(--ink-strong)] lg:max-w-[86%]">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 text-xs uppercase tracking-[0.2em]">
                   <span className="text-[var(--ink-muted)]">{text.assistant}</span>
@@ -1937,15 +1937,15 @@ export function ChatThread({
         </div>
       </div>
 
-      <footer className="border-t border-[rgba(22,34,27,0.08)] px-3 py-2.5 sm:px-4">
+      <footer className="composer-footer border-t px-3 py-2.5 sm:px-5">
         {displayError ? (
-          <div className="mx-auto mb-2.5 w-full max-w-[86rem] rounded-2xl border border-[rgba(185,66,42,0.18)] bg-[rgba(255,238,231,0.95)] px-4 py-3 text-sm text-[#8f3524]">
+          <div className="mx-auto mb-2.5 w-full max-w-[74rem] rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-text)]">
             {displayError}
           </div>
         ) : null}
 
         {isManageMode ? (
-          <div className="mx-auto mb-2.5 flex w-full max-w-[86rem] flex-wrap items-center justify-between gap-3 rounded-[22px] border border-[rgba(22,34,27,0.08)] bg-[rgba(255,250,242,0.96)] px-4 py-2.5 shadow-[0_14px_36px_rgba(32,45,35,0.08)]">
+          <div className="mx-auto mb-2.5 flex w-full max-w-[74rem] flex-wrap items-center justify-between gap-3 rounded-[20px] border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2.5 shadow-[var(--composer-shadow)]">
             <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--ink-soft)]">
               <span>{text.deleteMode}</span>
               <span>
@@ -1979,7 +1979,7 @@ export function ChatThread({
           </div>
         ) : null}
 
-        <form onSubmit={handleSubmit} className="mx-auto w-full max-w-[86rem]">
+        <form onSubmit={handleSubmit} className="mx-auto w-full max-w-[74rem]">
           <input
             ref={fileInputRef}
             type="file"
@@ -1997,7 +1997,7 @@ export function ChatThread({
             onChange={(event) => void handleEditUpload(event.target.files)}
           />
 
-          <div className="chat-composer rounded-[24px] border border-[var(--composer-border)] bg-[var(--composer-bg)] px-3 py-2 shadow-[var(--composer-shadow)] backdrop-blur">
+          <div className="chat-composer rounded-[22px] border px-3 py-2 backdrop-blur">
             {uploadedItems.length > 0 ? (
               <div className="mb-2 flex flex-wrap gap-2">
                 {uploadedItems.map((item) =>
@@ -2081,9 +2081,9 @@ export function ChatThread({
               className="chat-composer-textarea min-h-[34px] w-full resize-none border-none bg-transparent text-[15px] leading-6 outline-none placeholder:text-[var(--ink-muted)]"
             />
 
-            <div className="mt-1.5 flex flex-col gap-1.5 border-t border-[rgba(22,34,27,0.08)] pt-1.5">
+            <div className="mt-1.5 flex flex-col gap-1.5 border-t border-[var(--hairline)] pt-1.5">
               {streamingStatusLabel ? (
-                <div className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-[rgba(248,244,234,0.72)] px-4 py-2 text-sm text-[var(--ink-soft)]">
+                <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-2 text-sm text-[var(--ink-soft)]">
                   {streamingStatusLabel}
                 </div>
               ) : null}
@@ -2094,7 +2094,7 @@ export function ChatThread({
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={Boolean(editingUserMessageId)}
-                    className="rounded-full border border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                    className="tool-chip rounded-full border px-3 py-1.5 text-xs transition hover:border-[var(--accent-strong)]"
                   >
                     {text.uploadAttachment}
                   </button>
@@ -2102,10 +2102,10 @@ export function ChatThread({
                     type="button"
                     onClick={() => onWebSearchEnabledChange(!isWebSearchEnabled)}
                     disabled={Boolean(editingUserMessageId) || isGenerating}
-                    className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                    className={`tool-chip rounded-full border px-3 py-1.5 text-xs transition ${
                       isWebSearchEnabled
-                        ? "border-[var(--accent-strong)] bg-[rgba(69,107,87,0.14)] text-[var(--ink-strong)]"
-                        : "border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] text-[var(--ink-soft)] hover:border-[var(--accent-strong)]"
+                        ? "is-active"
+                        : "hover:border-[var(--accent-strong)]"
                     }`}
                   >
                     {text.webSearch}
@@ -2114,10 +2114,10 @@ export function ChatThread({
                     type="button"
                     onClick={() => onDeepThinkingEnabledChange(!isDeepThinkingEnabled)}
                     disabled={Boolean(editingUserMessageId) || isGenerating}
-                    className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                    className={`tool-chip rounded-full border px-3 py-1.5 text-xs transition ${
                       isDeepThinkingEnabled
-                        ? "border-[var(--accent-strong)] bg-[rgba(69,107,87,0.14)] text-[var(--ink-strong)]"
-                        : "border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] text-[var(--ink-soft)] hover:border-[var(--accent-strong)]"
+                        ? "is-active"
+                        : "hover:border-[var(--accent-strong)]"
                     }`}
                   >
                     {text.deepThinking}
@@ -2127,7 +2127,7 @@ export function ChatThread({
                     <button
                       type="button"
                       onClick={() => setIsContextPanelOpen((current) => !current)}
-                      className="rounded-full border border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                      className="context-chip rounded-full border px-3 py-1.5 text-xs transition hover:border-[var(--accent-strong)]"
                     >
                       {text.contextButton}
                     </button>
@@ -2261,7 +2261,7 @@ export function ChatThread({
                     <button
                       type="button"
                       onClick={() => abortControllerRef.current?.abort()}
-                      className="inline-flex items-center justify-center rounded-full border border-[rgba(185,66,42,0.22)] bg-[rgba(255,238,231,0.95)] px-4 py-1.5 text-sm font-medium text-[#8f3524] transition hover:brightness-95"
+                      className="inline-flex items-center justify-center rounded-full border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-1.5 text-sm font-medium text-[var(--danger-text)] transition hover:brightness-95"
                     >
                       {text.stopGenerating}
                     </button>
@@ -2269,7 +2269,7 @@ export function ChatThread({
                   <button
                     type="submit"
                     disabled={isGenerating || !composer.trim() || Boolean(editingUserMessageId)}
-                    className="inline-flex items-center justify-center rounded-full bg-[linear-gradient(135deg,_#d38d2d_0%,_#be6f24_100%)] px-5 py-1.5 text-sm font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
+                    className="primary-action inline-flex items-center justify-center rounded-full px-5 py-1.5 text-sm font-medium transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     {isGenerating ? text.sending : text.send}
                   </button>

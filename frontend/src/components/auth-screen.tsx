@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type AuthMode = "login" | "register";
 
@@ -61,6 +61,18 @@ export function AuthScreen({ initialError = null }: AuthScreenProps) {
   const [form, setForm] = useState<AuthFormState>(INITIAL_FORM);
   const [errorMessage, setErrorMessage] = useState<string | null>(initialError);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
+  const [systemPrefersDark, setSystemPrefersDark] = useState(false);
+  const resolvedTheme =
+    themeMode === "system" ? (systemPrefersDark ? "dark" : "light") : themeMode;
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const updatePreference = () => setSystemPrefersDark(mediaQuery.matches);
+    updatePreference();
+    mediaQuery.addEventListener("change", updatePreference);
+    return () => mediaQuery.removeEventListener("change", updatePreference);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -104,45 +116,66 @@ export function AuthScreen({ initialError = null }: AuthScreenProps) {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(64,145,108,0.22),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(240,196,25,0.18),_transparent_28%),linear-gradient(180deg,_#f8f4ea_0%,_#f1ecde_100%)] px-4 py-6 text-[var(--ink-strong)] sm:px-6">
+    <main
+      data-theme={resolvedTheme}
+      className="auth-shell min-h-screen px-4 py-6 text-[var(--ink-strong)] sm:px-6"
+    >
+      <div className="mx-auto mb-4 flex max-w-6xl justify-end">
+        <div className="theme-mode-switch inline-flex rounded-full border p-1">
+          {[
+            ["system", "跟随系统"],
+            ["light", "浅色"],
+            ["dark", "深色"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setThemeMode(value as "system" | "light" | "dark")}
+              className={`theme-mode-button rounded-full px-3 py-1.5 text-xs transition ${
+                themeMode === value ? "is-active" : ""
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="mx-auto grid min-h-[calc(100vh-3rem)] max-w-6xl items-center gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="rounded-[36px] border border-white/70 bg-[rgba(16,31,24,0.94)] p-8 text-white shadow-[0_28px_110px_rgba(16,31,24,0.32)] sm:p-10">
+        <section className="auth-hero rounded-[32px] border p-8 shadow-[var(--panel-shadow)] sm:p-10">
           <p className="text-xs uppercase tracking-[0.42em] text-white/45">
             AI Web Studio
           </p>
           <h1 className="mt-5 max-w-xl text-4xl font-semibold leading-tight sm:text-5xl">
-            本地模型智能问答工作台
+            面向个人知识库的智能问答工作台
           </h1>
           <p className="mt-5 max-w-2xl text-base leading-8 text-white/68 sm:text-lg">
-            这一版已经具备用户登录、会话历史、用户级设置、文件上传入口和流式聊天链路。
-            当前模型如果被别的实验占用，页面也能先把工作台搭起来。
+            支持本地 Ollama 与 OpenAI 兼容服务，围绕会话、附件、联网搜索、深度思考和上下文治理，
+            构建可持续扩展的个人 AI 工作空间。
           </p>
 
           <div className="mt-10 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-3xl border border-white/10 bg-white/6 p-4">
-              <p className="text-sm font-medium">用户隔离</p>
-              <p className="mt-2 text-sm text-white/52">会话、设置、上传目录都按登录用户隔离。</p>
+            <div className="auth-hero-card rounded-3xl border p-4">
+              <p className="text-sm font-medium">多模型接入</p>
+              <p className="mt-2 text-sm text-white/52">可切换本地模型和在线 API，按会话保存模型配置。</p>
             </div>
-            <div className="rounded-3xl border border-white/10 bg-white/6 p-4">
-              <p className="text-sm font-medium">本地 Ollama</p>
-              <p className="mt-2 text-sm text-white/52">前后端已围绕本地模型服务做接入。</p>
+            <div className="auth-hero-card rounded-3xl border p-4">
+              <p className="text-sm font-medium">知识上下文</p>
+              <p className="mt-2 text-sm text-white/52">图片、文档、长期记忆和附件片段可进入对话上下文。</p>
             </div>
-            <div className="rounded-3xl border border-white/10 bg-white/6 p-4">
-              <p className="text-sm font-medium">前后端分离</p>
-              <p className="mt-2 text-sm text-white/52">浏览器通过 Next.js BFF 访问 FastAPI。</p>
+            <div className="auth-hero-card rounded-3xl border p-4">
+              <p className="text-sm font-medium">可观测治理</p>
+              <p className="mt-2 text-sm text-white/52">提供上下文预算、摘要、缓存命中和外部来源诊断。</p>
             </div>
           </div>
         </section>
 
-        <section className="rounded-[32px] border border-white/75 bg-[rgba(255,250,242,0.92)] p-6 shadow-[0_24px_80px_rgba(112,96,56,0.18)] sm:p-8">
-          <div className="inline-flex rounded-full border border-[rgba(22,34,27,0.1)] bg-white p-1">
+        <section className="auth-form-card rounded-[28px] border p-6 sm:p-8">
+          <div className="auth-mode-switch inline-flex rounded-full border p-1">
             <button
               type="button"
               onClick={() => setMode("login")}
-              className={`rounded-full px-4 py-2 text-sm transition ${
-                mode === "login"
-                  ? "bg-[var(--ink-strong)] text-[var(--inverse-ink)]"
-                  : "text-[var(--ink-muted)]"
+              className={`auth-mode-button rounded-full px-4 py-2 text-sm transition ${
+                mode === "login" ? "is-active" : ""
               }`}
             >
               登录
@@ -150,10 +183,8 @@ export function AuthScreen({ initialError = null }: AuthScreenProps) {
             <button
               type="button"
               onClick={() => setMode("register")}
-              className={`rounded-full px-4 py-2 text-sm transition ${
-                mode === "register"
-                  ? "bg-[var(--ink-strong)] text-[var(--inverse-ink)]"
-                  : "text-[var(--ink-muted)]"
+              className={`auth-mode-button rounded-full px-4 py-2 text-sm transition ${
+                mode === "register" ? "is-active" : ""
               }`}
             >
               注册
@@ -236,7 +267,7 @@ export function AuthScreen({ initialError = null }: AuthScreenProps) {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="inline-flex w-full items-center justify-center rounded-full bg-[linear-gradient(135deg,_#d38d2d_0%,_#be6f24_100%)] px-6 py-3 text-sm font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
+              className="primary-action inline-flex w-full items-center justify-center rounded-full px-6 py-3 text-sm font-medium transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
             >
               {isSubmitting
                 ? "提交中..."

@@ -57,7 +57,7 @@ function CodeBlock({ className, children }: CodeBlockProps) {
   const language = className?.replace("language-", "") ?? "";
 
   return (
-    <div className="my-4 overflow-hidden rounded-2xl border border-[rgba(24,35,29,0.08)] bg-[#101a16] text-[#f7f3ea] shadow-[0_18px_42px_rgba(16,31,24,0.18)]">
+    <div className="my-4 overflow-hidden rounded-2xl border border-[var(--hairline)] bg-[#0f172a] text-[#e5edf8] shadow-[0_14px_34px_rgba(15,23,42,0.16)]">
       <div className="flex items-center justify-between border-b border-white/8 px-4 py-2.5">
         <span className="text-[11px] uppercase tracking-[0.18em] text-white/45">
           {language || "code"}
@@ -108,7 +108,7 @@ export function MessageMarkdown({
           ),
           li: ({ children }) => <li className="pl-1">{children}</li>,
           blockquote: ({ children }) => (
-            <blockquote className="my-4 rounded-r-2xl border-l-4 border-[var(--accent-strong)] bg-[rgba(199,122,37,0.08)] px-4 py-3 text-[var(--ink-soft)]">
+            <blockquote className="my-4 rounded-r-2xl border-l-4 border-[var(--accent-strong)] bg-[var(--accent-soft)] px-4 py-3 text-[var(--ink-soft)]">
               {children}
             </blockquote>
           ),
@@ -117,39 +117,39 @@ export function MessageMarkdown({
               href={href}
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-[#8f5a1d] underline decoration-[rgba(143,90,29,0.35)] underline-offset-4 transition hover:text-[#6f4513]"
+              className="font-medium text-[var(--accent-strong)] underline decoration-[var(--accent-ring)] underline-offset-4 transition hover:text-[var(--accent-hover)]"
             >
               {children}
             </a>
           ),
           table: ({ children }) => (
-            <div className="my-4 overflow-x-auto rounded-2xl border border-[rgba(24,35,29,0.08)]">
-              <table className="min-w-full border-collapse bg-white/72 text-left text-sm">
+            <div className="my-4 overflow-x-auto rounded-2xl border border-[var(--hairline)]">
+              <table className="min-w-full border-collapse bg-[var(--control-bg)] text-left text-sm">
                 {children}
               </table>
             </div>
           ),
           thead: ({ children }) => (
-            <thead className="bg-[rgba(24,35,29,0.06)]">{children}</thead>
+            <thead className="bg-[var(--soft-bg)]">{children}</thead>
           ),
           th: ({ children }) => (
-            <th className="border-b border-[rgba(24,35,29,0.08)] px-4 py-3 font-semibold">
+            <th className="border-b border-[var(--hairline)] px-4 py-3 font-semibold">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border-b border-[rgba(24,35,29,0.08)] px-4 py-3 align-top last:border-b-0">
+            <td className="border-b border-[var(--hairline)] px-4 py-3 align-top last:border-b-0">
               {children}
             </td>
           ),
-          hr: () => <hr className="my-5 border-[rgba(24,35,29,0.1)]" />,
+          hr: () => <hr className="my-5 border-[var(--hairline)]" />,
           code: ({ className, children, ...props }) => {
             const isInline = !className;
             if (isInline) {
               return (
                 <code
                   {...props}
-                  className="rounded-md bg-[rgba(24,35,29,0.08)] px-1.5 py-0.5 font-mono text-[0.92em] text-[#8f5a1d]"
+                  className="rounded-md bg-[var(--soft-bg)] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--accent-strong)]"
                 >
                   {children}
                 </code>

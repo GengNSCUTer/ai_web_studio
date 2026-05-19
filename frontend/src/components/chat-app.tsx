@@ -1927,21 +1927,19 @@ export function ChatApp({
         <button
           type="button"
           onClick={() => void handleSelectConversation(conversation.id)}
-          className={`w-full rounded-2xl border px-4 py-3 pr-12 text-left transition ${
-            isActive
-              ? "border-[#f0c419]/60 bg-[#f0c419]/16 text-white"
-              : "border-white/8 bg-white/4 text-white/80 hover:bg-white/10"
+          className={`conversation-card w-full rounded-2xl border px-4 py-3 pr-12 text-left transition ${
+            isActive ? "is-active" : ""
           }`}
         >
           <div className="flex items-start justify-between gap-2">
             <div className="line-clamp-2 text-sm font-medium">{conversation.title}</div>
             {conversation.is_pinned ? (
-              <span className="shrink-0 rounded-full border border-[#f0c419]/45 bg-[#f0c419]/14 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[#f5d36b]">
+              <span className="conversation-pin shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]">
                 PIN
               </span>
             ) : null}
           </div>
-          <div className="mt-2 flex items-center justify-between text-[11px] text-white/45">
+          <div className="conversation-meta mt-2 flex items-center justify-between text-[11px]">
             <span>{conversation.model_name}</span>
             <span>{formatTime(conversation.updated_at, uiLanguage)}</span>
           </div>
@@ -1955,7 +1953,7 @@ export function ChatApp({
                 current === conversation.id ? null : conversation.id
               )
             }
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/12 bg-black/18 text-white/75 backdrop-blur transition hover:bg-black/28"
+            className="sidebar-icon-button inline-flex h-8 w-8 items-center justify-center rounded-full border backdrop-blur transition"
             aria-label={text.menuLabel}
             title={text.menuLabel}
           >
@@ -1967,14 +1965,14 @@ export function ChatApp({
           </button>
 
           {isMenuOpen ? (
-            <div className="absolute right-0 z-20 mt-2 w-40 overflow-hidden rounded-2xl border border-white/12 bg-[rgba(16,31,24,0.98)] py-1 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
+            <div className="sidebar-menu absolute right-0 z-20 mt-2 w-40 overflow-hidden rounded-2xl border py-1">
               <button
                 type="button"
                 onClick={() => {
                   setOpenConversationMenuId(null);
                   openRenameConversationDialog(conversation.id);
                 }}
-                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+                className="sidebar-menu-item block w-full px-3 py-2 text-left text-sm transition"
               >
                 {text.rename}
               </button>
@@ -1984,7 +1982,7 @@ export function ChatApp({
                   setOpenConversationMenuId(null);
                   void handleTogglePinned(conversation);
                 }}
-                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+                className="sidebar-menu-item block w-full px-3 py-2 text-left text-sm transition"
               >
                 {conversation.is_pinned ? text.unpin : text.pin}
               </button>
@@ -1994,7 +1992,7 @@ export function ChatApp({
                   setOpenConversationMenuId(null);
                   void handleToggleArchived(conversation);
                 }}
-                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+                className="sidebar-menu-item block w-full px-3 py-2 text-left text-sm transition"
               >
                 {conversation.is_archived ? text.unarchive : text.archive}
               </button>
@@ -2005,7 +2003,7 @@ export function ChatApp({
                     setOpenConversationMenuId(null);
                     openMoveConversationModal(conversation);
                   }}
-                  className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+                  className="sidebar-menu-item block w-full px-3 py-2 text-left text-sm transition"
                 >
                   {text.moveToWorkspace}
                 </button>
@@ -2017,7 +2015,7 @@ export function ChatApp({
                     setOpenConversationMenuId(null);
                     void handleMoveConversationToProject(conversation, null);
                   }}
-                  className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+                  className="sidebar-menu-item block w-full px-3 py-2 text-left text-sm transition"
                 >
                   {text.removeFromWorkspace}
                 </button>
@@ -2028,7 +2026,7 @@ export function ChatApp({
                   setOpenConversationMenuId(null);
                   void openShareModal(conversation);
                 }}
-                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+                className="sidebar-menu-item block w-full px-3 py-2 text-left text-sm transition"
               >
                 {text.shareConversation}
               </button>
@@ -2038,7 +2036,7 @@ export function ChatApp({
                   setOpenConversationMenuId(null);
                   setExportModalConversation(conversation);
                 }}
-                className="block w-full px-3 py-2 text-left text-sm text-white/82 transition hover:bg-white/8"
+                className="sidebar-menu-item block w-full px-3 py-2 text-left text-sm transition"
               >
                 {text.exportOptions}
               </button>
@@ -2048,7 +2046,7 @@ export function ChatApp({
                   setOpenConversationMenuId(null);
                   openDeleteConversationDialog(conversation.id);
                 }}
-                className="block w-full px-3 py-2 text-left text-sm text-[#ffcabd] transition hover:bg-white/8"
+                className="sidebar-menu-item is-danger block w-full px-3 py-2 text-left text-sm transition"
               >
                 {text.delete}
               </button>
@@ -2062,10 +2060,10 @@ export function ChatApp({
   return (
     <main
       data-theme={resolvedTheme}
-      className="h-screen overflow-hidden bg-[var(--app-bg)] px-3 py-3 text-[var(--ink-strong)] sm:px-4 lg:px-5"
+      className="app-shell h-screen overflow-hidden bg-[var(--app-bg)] px-2 py-2 text-[var(--ink-strong)] sm:px-3 lg:px-4"
     >
-      <div className="mx-auto flex h-[calc(100vh-1.5rem)] max-w-[1840px] flex-col gap-2.5 lg:flex-row">
-        <aside className="flex w-full min-h-0 max-h-[42vh] flex-col overflow-hidden rounded-[24px] border border-white/70 bg-[rgba(16,31,24,0.92)] p-3 text-white shadow-[0_24px_80px_rgba(16,31,24,0.28)] lg:h-full lg:max-h-none lg:w-[260px] lg:shrink-0">
+      <div className="app-frame mx-auto flex h-[calc(100vh-1rem)] flex-col gap-2.5 lg:flex-row">
+        <aside className="app-sidebar flex w-full min-h-0 max-h-[42vh] flex-col overflow-hidden rounded-[22px] border p-3 lg:h-full lg:max-h-none lg:w-[276px] lg:shrink-0">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.35em] text-white/55">
@@ -2076,13 +2074,13 @@ export function ChatApp({
             <button
               type="button"
               onClick={handleNewConversation}
-              className="rounded-full border border-white/15 bg-white/8 px-4 py-2 text-sm text-white transition hover:bg-white/14"
+              className="primary-action rounded-full border px-4 py-2 text-sm transition hover:brightness-105"
             >
               {text.newChat}
             </button>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/6 p-3 text-sm text-white/72">
+          <div className="sidebar-user-card rounded-2xl border p-3 text-sm">
             <p className="font-medium">{currentUser?.username ?? text.unnamedUser}</p>
             <p className="mt-1 break-all text-xs text-white/45">
               {currentUser?.email ?? "--"}
@@ -2105,7 +2103,7 @@ export function ChatApp({
             </div>
           </div>
 
-          <div className="mt-3 rounded-2xl border border-white/10 bg-white/6 p-3 text-sm text-white/70">
+          <div className="sidebar-provider-card mt-3 rounded-2xl border p-3 text-sm">
             <p>{text.currentProvider}：{providerInfo?.provider ?? text.providerLoading}</p>
             <p className="mt-1 break-all text-xs text-white/45">
               {providerInfo?.base_url ?? text.providerBaseUrlLoading}
@@ -2121,7 +2119,7 @@ export function ChatApp({
               </p>
             </div>
 
-            <div className="mb-3 shrink-0 rounded-2xl border border-white/10 bg-white/6 p-2">
+            <div className="sidebar-section-card mb-3 shrink-0 rounded-2xl border p-2">
               <div className="mb-2 px-1 text-xs uppercase tracking-[0.18em] text-white/45">
                 {text.workspace}
               </div>
@@ -2207,8 +2205,8 @@ export function ChatApp({
           </div>
         </aside>
 
-        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-[var(--panel-border)] bg-[var(--panel-bg)] shadow-[var(--panel-shadow)] backdrop-blur">
-          <header className="z-10 flex shrink-0 flex-col gap-1.5 border-b border-[var(--hairline)] bg-[var(--panel-header-bg)] px-3 py-2.5 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <section className="chat-surface relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border backdrop-blur">
+          <header className="chat-header z-10 flex shrink-0 flex-col gap-1.5 border-b px-3 py-2.5 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-[1.45rem] font-semibold leading-tight">{activeConversationTitle}</h2>
             </div>
@@ -2465,7 +2463,7 @@ export function ChatApp({
                           ? !workspaceDraft.target_project_id
                           : !workspaceDraft.name.trim()
                       }
-                      className="rounded-full bg-[linear-gradient(135deg,_#d38d2d_0%,_#be6f24_100%)] px-5 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-55"
+                      className="primary-action rounded-full px-5 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       {workspaceModalMode === "move" ? text.moveWorkspace : text.saveWorkspace}
                     </button>
@@ -2562,7 +2560,7 @@ export function ChatApp({
                     type="button"
                     onClick={() => void handleCreateOrEnableShare()}
                     disabled={isShareBusy}
-                    className="rounded-full bg-[var(--ink-strong)] px-5 py-2 text-sm font-medium text-[var(--inverse-ink)] disabled:opacity-55"
+                    className="primary-action rounded-full px-5 py-2 text-sm font-medium disabled:opacity-55"
                   >
                     {text.shareCreate}
                   </button>
@@ -2672,7 +2670,7 @@ export function ChatApp({
                   <button
                     type="button"
                     onClick={() => void handleExportConversationWithOptions()}
-                    className="rounded-full bg-[linear-gradient(135deg,_#d38d2d_0%,_#be6f24_100%)] px-5 py-2 text-sm font-medium text-white"
+                    className="primary-action rounded-full px-5 py-2 text-sm font-medium"
                   >
                     {text.exportRun}
                   </button>
@@ -2739,7 +2737,7 @@ export function ChatApp({
                     }
                     className={`rounded-full px-5 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-55 ${
                       appDialog.type === "rename-conversation"
-                        ? "bg-[var(--ink-strong)] text-[var(--inverse-ink)] hover:opacity-90"
+                        ? "primary-action hover:brightness-105"
                         : "border border-[rgba(174,65,45,0.22)] bg-[var(--danger-bg)] text-[var(--danger-text)] hover:brightness-95"
                     }`}
                   >
@@ -2773,16 +2771,14 @@ export function ChatApp({
                 </div>
 
                 <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden sm:grid-cols-[12rem_1fr]">
-                  <nav className="flex gap-2 overflow-x-auto border-b border-[var(--hairline)] bg-[var(--soft-bg)] p-3 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r">
+                  <nav className="settings-nav flex gap-2 overflow-x-auto border-b border-[var(--hairline)] bg-[var(--soft-bg)] p-3 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r">
                     {settingsTabs.map((tab) => (
                       <button
                         key={tab.id}
                         type="button"
                         onClick={() => setActiveSettingsTab(tab.id)}
-                        className={`whitespace-nowrap rounded-2xl px-4 py-2 text-left text-sm transition ${
-                          activeSettingsTab === tab.id
-                            ? "bg-[var(--ink-strong)] text-[var(--inverse-ink)] shadow-[0_12px_30px_rgba(16,31,24,0.16)]"
-                            : "bg-[var(--control-bg)] text-[var(--ink-soft)] hover:bg-[var(--control-hover-bg)]"
+                        className={`settings-tab whitespace-nowrap rounded-2xl border px-4 py-2 text-left text-sm transition ${
+                          activeSettingsTab === tab.id ? "is-active" : ""
                         }`}
                       >
                         {tab.label}
@@ -3178,7 +3174,7 @@ export function ChatApp({
                             <button
                               type="button"
                               onClick={() => void handleAddMemory()}
-                              className="rounded-full bg-[var(--ink-strong)] px-4 py-2 text-sm text-[var(--inverse-ink)] transition hover:opacity-90"
+                              className="primary-action rounded-full px-4 py-2 text-sm transition hover:brightness-105"
                             >
                               {text.addMemory}
                             </button>
@@ -3230,7 +3226,7 @@ export function ChatApp({
                                         <button
                                           type="button"
                                           onClick={() => void handleSaveMemorySuggestion(suggestion, index)}
-                                          className="rounded-full bg-[var(--ink-strong)] px-3 py-1 text-xs text-[var(--inverse-ink)]"
+                                          className="primary-action rounded-full px-3 py-1 text-xs"
                                         >
                                           {text.saveSuggestion}
                                         </button>
@@ -3536,7 +3532,7 @@ export function ChatApp({
                                 type="button"
                                 onClick={() => void handleSavePromptTemplate()}
                                 disabled={!promptTemplateDraft.name.trim() || !promptTemplateDraft.content.trim()}
-                                className="rounded-full bg-[var(--ink-strong)] px-4 py-2 text-sm text-[var(--inverse-ink)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
+                                className="primary-action rounded-full px-4 py-2 text-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
                               >
                                 {editingPromptTemplateId ? text.promptTemplateUpdate : text.promptTemplateCreate}
                               </button>
@@ -3619,7 +3615,7 @@ export function ChatApp({
                                         <button
                                           type="button"
                                           onClick={() => void handleApplyPromptTemplate(template, applyTarget)}
-                                          className="rounded-full bg-[var(--ink-strong)] px-3 py-1.5 text-xs text-[var(--inverse-ink)]"
+                                          className="primary-action rounded-full px-3 py-1.5 text-xs"
                                         >
                                           {text.promptTemplateApply}
                                         </button>
@@ -3704,7 +3700,7 @@ export function ChatApp({
                   <button
                     type="submit"
                     disabled={isSavingSettings || isPending}
-                    className="rounded-full bg-[linear-gradient(135deg,_#d38d2d_0%,_#be6f24_100%)] px-5 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-55"
+                    className="primary-action rounded-full px-5 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     {isSavingSettings ? text.saving : text.saveSettings}
                   </button>
