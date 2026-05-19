@@ -1755,11 +1755,11 @@ export function ChatThread({
                   </details>
                 ) : null}
                 {!isUser && message.externalSources && message.externalSources.length > 0 ? (
-                  <div className="mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] p-3">
-                    <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-[var(--ink-muted)]">
-                      {text.sourcesTitle}
-                    </div>
-                    <div className="grid gap-2">
+                  <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">
+                    <summary className="cursor-pointer select-none font-medium text-[var(--ink-strong)]">
+                      {text.sourcesTitle} · {message.externalSources.length}
+                    </summary>
+                    <div className="mt-2 grid gap-2">
                       {message.externalSources.slice(0, 6).map((source, index) => (
                         <a
                           key={`${source.provider}-${source.title}-${index}`}
@@ -1774,7 +1774,7 @@ export function ChatThread({
                             <span className="font-medium text-[var(--ink-strong)]">
                               {source.citation_label ?? `[${index + 1}]`} {source.title}
                             </span>
-                            <span className="shrink-0 rounded-full bg-[rgba(22,34,27,0.06)] px-2 py-0.5 text-[10px]">
+                            <span className="shrink-0 rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px]">
                               {source.provider}
                             </span>
                           </div>
@@ -1782,7 +1782,7 @@ export function ChatThread({
                         </a>
                       ))}
                     </div>
-                  </div>
+                  </details>
                 ) : null}
                 {!isEditingThisUser && message.attachments.length > 0 ? (
                   <div className="mt-4 flex flex-wrap gap-3">
