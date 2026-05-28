@@ -69,6 +69,66 @@ export type ExternalSource = {
   metadata?: Record<string, unknown>;
 };
 
+export type ToolTraceEvent =
+  | { type: "tool_plan"; plan?: ToolPlanPayload }
+  | {
+      type: "tool_call_start";
+      call_id?: string;
+      tool_key?: string;
+      provider?: string;
+      category?: string;
+      display_name?: string;
+      arguments?: Record<string, unknown>;
+    }
+  | {
+      type: "tool_call_end";
+      call_id?: string;
+      tool_key?: string;
+      provider?: string;
+      category?: string;
+      display_name?: string;
+      status?: string;
+      elapsed_ms?: number;
+      sources_count?: number;
+    }
+  | {
+      type: "tool_call_error";
+      call_id?: string;
+      tool_key?: string;
+      provider?: string;
+      category?: string;
+      display_name?: string;
+      status?: string;
+      elapsed_ms?: number;
+      error?: string;
+    }
+  | {
+      type: "tool_call_fallback";
+      from_call_id?: string;
+      from_tool_key?: string;
+      to_call_id?: string;
+      to_tool_key?: string;
+      reason?: string;
+    };
+
+export type ToolPlanPayload = {
+  plan_id?: string;
+  router?: string;
+  external_context_allowed?: boolean;
+  should_use_tools?: boolean;
+  fallback_tool_key?: string | null;
+  calls?: Array<{
+    call_id?: string;
+    tool_key?: string;
+    provider?: string;
+    category?: string;
+    display_name?: string;
+    confidence?: number;
+    reason?: string;
+    arguments?: Record<string, unknown>;
+  }>;
+};
+
 export type ContextDiagnosticDetails = {
   attachment_chunks?: ContextAttachmentChunk[];
   external_sources?: ExternalSource[];
@@ -87,6 +147,7 @@ export type Message = {
   content: string;
   reasoning_content?: string | null;
   external_sources?: string | null;
+  tool_events?: ToolTraceEvent[];
   status: "done" | "streaming" | "failed" | "cancelled" | string;
   created_at: string;
   updated_at: string | null;

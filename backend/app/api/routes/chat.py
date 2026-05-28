@@ -18,6 +18,7 @@ from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.message_repo import MessageRepository
 from app.repositories.setting_repo import UserSettingRepository
+from app.repositories.tool_trace_repo import ToolTraceRepository
 from app.schemas.conversation import ConversationCreate
 from app.schemas.message import ChatEditLastUserRequest, ChatRegenerateRequest, ChatStreamRequest
 from app.services.attachment_context_service import AttachmentContextService
@@ -55,6 +56,7 @@ class ChatExecutionContext:
     context_summary: str | None
     thinking_enabled: bool
     thinking_budget: int | None
+    tool_events: list[dict[str, Any]]
     external_sources: list[dict[str, Any]]
 
 
@@ -120,6 +122,27 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
             }
             for source in external_sources[:6]
             if isinstance(source, dict)
+        ]
+
+    tool_plan = details.get("tool_plan")
+    if isinstance(tool_plan, dict):
+        compact["tool_plan"] = tool_plan
+
+    tool_events = details.get("tool_events")
+    if isinstance(tool_events, list):
+        compact["tool_events"] = [
+            {
+                **event,
+                "arguments": {
+                    key: _truncate_header_text(value, 160)
+                    for key, value in (event.get("arguments") or {}).items()
+                    if isinstance(event.get("arguments"), dict)
+                }
+                if isinstance(event, dict)
+                else event
+            }
+            for event in tool_events[:8]
+            if isinstance(event, dict)
         ]
 
     return compact
@@ -332,6 +355,14 @@ async def _prepare_chat_execution(
         enabled=payload.web_search_enabled,
         max_chars=max(1200, min(budget.max_attachment_chars, 6000)),
     )
+    ToolTraceRepository(db).replace_for_assistant_message(
+        user_id=current_user.id,
+        conversation_id=conversation.id,
+        user_message_id=user_message.id,
+        assistant_message_id=assistant_message.id,
+        query=payload.content,
+        external_context=external_context_result,
+    )
 
     async def summarize_with_model(
         *,
@@ -420,6 +451,8 @@ async def _prepare_chat_execution(
     context_details = {
         "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
         "external_sources": external_context_result.details.get("external_sources", []),
+        "tool_plan": external_context_result.details.get("tool_plan"),
+        "tool_events": external_context_result.details.get("tool_events", []),
     }
 
     return ChatExecutionContext(
@@ -479,6 +512,7 @@ async def _prepare_chat_execution(
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
         thinking_enabled=payload.thinking_enabled,
         thinking_budget=payload.thinking_budget,
+        tool_events=[event.to_public_dict() for event in external_context_result.tool_events],
         external_sources=[source.to_public_dict() for source in external_context_result.sources],
     )
 
@@ -550,6 +584,14 @@ async def _prepare_existing_turn_execution(
         enabled=web_search_enabled,
         max_chars=max(1200, min(budget.max_attachment_chars, 6000)),
     )
+    ToolTraceRepository(db).replace_for_assistant_message(
+        user_id=current_user.id,
+        conversation_id=conversation.id,
+        user_message_id=getattr(user_message, "id", None),
+        assistant_message_id=getattr(assistant_message, "id"),
+        query=getattr(user_message, "content", "") or "",
+        external_context=external_context_result,
+    )
 
     async def summarize_with_model(
         *,
@@ -638,6 +680,8 @@ async def _prepare_existing_turn_execution(
     context_details = {
         "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
         "external_sources": external_context_result.details.get("external_sources", []),
+        "tool_plan": external_context_result.details.get("tool_plan"),
+        "tool_events": external_context_result.details.get("tool_events", []),
     }
 
     return ChatExecutionContext(
@@ -697,6 +741,7 @@ async def _prepare_existing_turn_execution(
         context_summary=next_summary or _clean_optional_str(getattr(conversation, "context_summary", None)),
         thinking_enabled=thinking_enabled,
         thinking_budget=thinking_budget,
+        tool_events=[event.to_public_dict() for event in external_context_result.tool_events],
         external_sources=[source.to_public_dict() for source in external_context_result.sources],
     )
 
@@ -712,6 +757,11 @@ def _build_streaming_response(
         reasoning_parts: list[str] = []
         try:
             if event_stream:
+                for tool_event in context.tool_events:
+                    event_type = str(tool_event.get("type") or "")
+                    payload = {key: value for key, value in tool_event.items() if key != "type"}
+                    if event_type:
+                        yield _encode_stream_event(event_type, **payload)
                 yield _encode_stream_event(
                     "tool_sources",
                     sources=context.external_sources,

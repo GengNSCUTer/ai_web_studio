@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -19,6 +20,7 @@ class MessageResponse(BaseModel):
     content: str
     reasoning_content: str | None = None
     external_sources: str | None = None
+    tool_events: list[dict[str, Any]] = Field(default_factory=list)
     status: str
     created_at: datetime
     updated_at: datetime | None = None

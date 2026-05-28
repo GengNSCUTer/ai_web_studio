@@ -9,6 +9,8 @@ from app.models import (  # noqa: F401
     Project,
     ProjectFile,
     PromptTemplate,
+    ToolCallRun,
+    ToolRouteRun,
     User,
     UserMemory,
     UserSetting,

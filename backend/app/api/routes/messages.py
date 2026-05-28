@@ -6,6 +6,7 @@ from app.models.user import User
 from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.message_repo import MessageRepository
+from app.repositories.tool_trace_repo import ToolTraceRepository
 from app.schemas.message import MessageBulkDeleteRequest, MessageCreate, MessageResponse
 from app.services.message_service import MessageService
 
@@ -23,7 +24,16 @@ def list_messages(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
     service = MessageService(MessageRepository(db), AttachmentRepository(db))
-    return service.list_messages(conversation_id)
+    messages = service.list_messages(conversation_id)
+    events_by_message_id = ToolTraceRepository(db).get_events_by_assistant_messages(
+        [message.id for message in messages if message.role == "assistant"]
+    )
+    responses: list[MessageResponse] = []
+    for message in messages:
+        item = MessageResponse.model_validate(message)
+        item.tool_events = events_by_message_id.get(message.id, [])
+        responses.append(item)
+    return responses
 
 
 @router.post("", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
@@ -80,4 +90,3 @@ def bulk_delete_messages(
     deleted_count = service.bulk_delete_messages(conversation_id, payload.message_ids)
     conversation_repo.touch(conversation_id)
     return {"deleted_count": deleted_count}
-

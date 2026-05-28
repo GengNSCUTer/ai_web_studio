@@ -4,7 +4,15 @@
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { MessageMarkdown } from "@/components/message-markdown";
-import type { ContextAttachmentChunk, ContextGovernanceInfo, ExternalSource, Message, UploadItem } from "@/lib/types";
+import type {
+  ContextAttachmentChunk,
+  ContextGovernanceInfo,
+  ExternalSource,
+  Message,
+  ToolPlanPayload,
+  ToolTraceEvent,
+  UploadItem,
+} from "@/lib/types";
 
 type UILanguage = "zh-CN" | "en-US";
 
@@ -36,6 +44,7 @@ type ThreadMessage = {
   content: string;
   reasoningContent?: string | null;
   externalSources?: ExternalSource[];
+  toolEvents?: ToolTraceEvent[];
   status: "done" | "streaming" | "failed" | "cancelled" | string;
   created_at: string;
   attachments: UploadItem[];
@@ -66,6 +75,7 @@ const THREAD_TEXT = {
     deepThinking: "深度思考",
     webSearch: "联网搜索",
     reasoningTitle: "思考过程",
+    toolTraceTitle: "工具过程",
     sourcesTitle: "外部来源",
     replyFailed: "该条回答生成失败，请稍后重试。",
     replyStopped: "该条回答已停止生成。",
@@ -171,6 +181,7 @@ const THREAD_TEXT = {
     deepThinking: "Deep thinking",
     webSearch: "Web search",
     reasoningTitle: "Reasoning",
+    toolTraceTitle: "Tool trace",
     sourcesTitle: "Sources",
     replyFailed: "This answer failed to generate. Please try again later.",
     replyStopped: "This answer was stopped.",
@@ -415,6 +426,7 @@ function toThreadMessages(messages: Message[]): ThreadMessage[] {
       content: message.content,
       reasoningContent: message.reasoning_content ?? null,
       externalSources: parseExternalSources(message.external_sources),
+      toolEvents: message.tool_events ?? [],
       status: message.status,
       created_at: message.created_at,
       attachments: message.attachments ?? [],
@@ -434,6 +446,164 @@ function parseExternalSources(value: string | null | undefined): ExternalSource[
     return [];
   }
   return [];
+}
+
+function isToolTraceEvent(event: ChatStreamEvent): event is ToolTraceEvent {
+  return (
+    event.type === "tool_plan" ||
+    event.type === "tool_call_start" ||
+    event.type === "tool_call_end" ||
+    event.type === "tool_call_error" ||
+    event.type === "tool_call_fallback"
+  );
+}
+
+function toolEventKey(event: ToolTraceEvent, index: number) {
+  if ("call_id" in event && event.call_id) {
+    return `${event.type}-${event.call_id}-${index}`;
+  }
+  if (event.type === "tool_call_fallback") {
+    return `${event.type}-${event.from_call_id ?? "from"}-${event.to_call_id ?? "to"}-${index}`;
+  }
+  return `${event.type}-${index}`;
+}
+
+function formatToolEvent(event: ToolTraceEvent, uiLanguage: UILanguage) {
+  const isChinese = uiLanguage === "zh-CN";
+  if (event.type === "tool_plan") {
+    const calls = event.plan?.calls ?? [];
+    if (calls.length === 0) {
+      return isChinese ? "本轮不需要调用外部工具" : "No external tool is needed for this turn";
+    }
+    const names = calls.map((call) => call.display_name || call.tool_key || "tool").join("、");
+    return isChinese ? `已生成工具计划：${names}` : `Tool plan created: ${names}`;
+  }
+  if (event.type === "tool_call_start") {
+    return isChinese
+      ? `开始调用 ${event.display_name ?? event.tool_key ?? "工具"}`
+      : `Calling ${event.display_name ?? event.tool_key ?? "tool"}`;
+  }
+  if (event.type === "tool_call_end") {
+    const elapsed = typeof event.elapsed_ms === "number" ? `${event.elapsed_ms}ms` : "-";
+    const count = typeof event.sources_count === "number" ? event.sources_count : 0;
+    return isChinese
+      ? `${event.display_name ?? event.tool_key ?? "工具"} 调用完成，耗时 ${elapsed}，返回 ${count} 个来源`
+      : `${event.display_name ?? event.tool_key ?? "Tool"} finished in ${elapsed}, ${count} source(s)`;
+  }
+  if (event.type === "tool_call_error") {
+    const elapsed = typeof event.elapsed_ms === "number" ? `${event.elapsed_ms}ms` : "-";
+    return isChinese
+      ? `${event.display_name ?? event.tool_key ?? "工具"} 调用失败，耗时 ${elapsed}：${event.error ?? "未知错误"}`
+      : `${event.display_name ?? event.tool_key ?? "Tool"} failed in ${elapsed}: ${event.error ?? "unknown error"}`;
+  }
+  return isChinese
+    ? `工具回退：${event.from_tool_key ?? "原工具"} -> ${event.to_tool_key ?? "备用工具"}`
+    : `Tool fallback: ${event.from_tool_key ?? "primary"} -> ${event.to_tool_key ?? "fallback"}`;
+}
+
+function sourceMeta(source: ExternalSource, key: string) {
+  const value = source.metadata?.[key];
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return String(value).trim();
+}
+
+function sourceKindLabel(source: ExternalSource) {
+  const tool = sourceMeta(source, "tool");
+  if (source.source_type === "weather") {
+    return "天气";
+  }
+  if (tool.includes("route")) {
+    return "路线";
+  }
+  if (tool.includes("poi")) {
+    return "地点";
+  }
+  if (tool.includes("district")) {
+    return "行政区";
+  }
+  if (source.source_type === "map") {
+    return "地图";
+  }
+  return "网页";
+}
+
+function SourceCard({ source, index }: { source: ExternalSource; index: number }) {
+  const label = source.citation_label ?? `[${index + 1}]`;
+  const providerLabel = source.provider;
+  const kindLabel = sourceKindLabel(source);
+  const weather = sourceMeta(source, "weather");
+  const temperature = sourceMeta(source, "temperature");
+  const humidity = sourceMeta(source, "humidity");
+  const windDirection = sourceMeta(source, "winddirection");
+  const windPower = sourceMeta(source, "windpower");
+  const reportTime = sourceMeta(source, "reporttime");
+  const address = sourceMeta(source, "address") || sourceMeta(source, "formatted_address");
+  const distance = sourceMeta(source, "distance");
+  const mapType = sourceMeta(source, "type");
+  const origin = sourceMeta(source, "origin");
+  const destination = sourceMeta(source, "destination");
+  const domain = sourceMeta(source, "domain");
+  const contentPreview = source.display_text;
+
+  const cardBody =
+    source.source_type === "weather" ? (
+      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+        <div>天气：{weather || "未知"}</div>
+        <div>气温：{temperature ? `${temperature}°C` : "未知"}</div>
+        <div>湿度：{humidity ? `${humidity}%` : "未知"}</div>
+        <div>
+          风力：{windDirection || "未知"} {windPower || ""}
+        </div>
+        <div className="sm:col-span-2">发布时间：{reportTime || "未知"}</div>
+      </div>
+    ) : source.source_type === "map" ? (
+      <div className="mt-2 grid gap-1.5">
+        {origin || destination ? <div>路线：{origin || "起点"} {"->"} {destination || "终点"}</div> : null}
+        {address ? <div>地址：{address}</div> : null}
+        {mapType ? <div>类型：{mapType}</div> : null}
+        {distance ? <div>距离：{distance}</div> : null}
+        <div className="line-clamp-3 leading-5">{contentPreview}</div>
+      </div>
+    ) : (
+      <div className="mt-2 grid gap-1.5">
+        {domain ? <div>域名：{domain}</div> : null}
+        <div className="line-clamp-3 leading-5">{contentPreview}</div>
+      </div>
+    );
+
+  const inner = (
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-medium text-[var(--ink-strong)]">
+          {label} {source.title}
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-soft)]">
+            {kindLabel}
+          </span>
+          <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-soft)]">
+            {providerLabel}
+          </span>
+        </span>
+      </div>
+      {cardBody}
+    </>
+  );
+
+  const className = `rounded-xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2 text-xs text-[var(--ink-soft)] transition ${
+    source.url ? "hover:border-[var(--accent-strong)]" : "cursor-default"
+  }`;
+
+  if (source.url) {
+    return (
+      <a href={source.url} target="_blank" rel="noreferrer" className={className}>
+        {inner}
+      </a>
+    );
+  }
+  return <div className={className}>{inner}</div>;
 }
 
 function requestErrorMessage(error: unknown) {
@@ -471,6 +641,7 @@ type ChatStreamEvent =
   | { type: "answer_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_sources"; sources: ExternalSource[] }
+  | ToolTraceEvent
   | { type: "done"; assistant_message_id?: string };
 
 function parseStreamEvents(buffer: string) {
@@ -1085,6 +1256,7 @@ export function ChatThread({
               content: "",
               reasoningContent: "",
               externalSources: [],
+              toolEvents: [],
               status: "streaming",
             }
           : message
@@ -1128,6 +1300,7 @@ export function ChatThread({
       let assistantText = "";
       let reasoningText = "";
       let externalSources: ExternalSource[] = [];
+      let toolEvents: ToolTraceEvent[] = [];
       let eventBuffer = "";
 
       while (true) {
@@ -1149,6 +1322,8 @@ export function ChatThread({
             reasoningText += streamEvent.text;
           } else if (streamEvent.type === "tool_sources") {
             externalSources = streamEvent.sources ?? [];
+          } else if (isToolTraceEvent(streamEvent)) {
+            toolEvents = [...toolEvents, streamEvent];
           }
         }
         setThreadMessages((current) =>
@@ -1159,6 +1334,7 @@ export function ChatThread({
                   content: assistantText,
                   reasoningContent: reasoningText,
                   externalSources,
+                  toolEvents,
                   status: "streaming",
                 }
               : message
@@ -1175,6 +1351,8 @@ export function ChatThread({
           reasoningText += streamEvent.text;
         } else if (streamEvent.type === "tool_sources") {
           externalSources = streamEvent.sources ?? [];
+        } else if (isToolTraceEvent(streamEvent)) {
+          toolEvents = [...toolEvents, streamEvent];
         }
       }
       setThreadMessages((current) =>
@@ -1185,6 +1363,7 @@ export function ChatThread({
                 content: assistantText,
                 reasoningContent: reasoningText,
                 externalSources,
+                toolEvents,
                 status: "done",
               }
             : message
@@ -1378,6 +1557,7 @@ export function ChatThread({
         content: "",
         reasoningContent: "",
         externalSources: [],
+        toolEvents: [],
         status: "streaming",
         created_at: nowIso,
         attachments: [],
@@ -1445,6 +1625,7 @@ export function ChatThread({
       let assistantText = "";
       let reasoningText = "";
       let externalSources: ExternalSource[] = [];
+      let toolEvents: ToolTraceEvent[] = [];
       let eventBuffer = "";
 
       while (true) {
@@ -1467,6 +1648,8 @@ export function ChatThread({
             reasoningText += streamEvent.text;
           } else if (streamEvent.type === "tool_sources") {
             externalSources = streamEvent.sources ?? [];
+          } else if (isToolTraceEvent(streamEvent)) {
+            toolEvents = [...toolEvents, streamEvent];
           }
         }
         setThreadMessages((current) =>
@@ -1477,6 +1660,7 @@ export function ChatThread({
                   content: assistantText,
                   reasoningContent: reasoningText,
                   externalSources,
+                  toolEvents,
                   status: "streaming",
                 }
               : message
@@ -1493,6 +1677,8 @@ export function ChatThread({
           reasoningText += streamEvent.text;
         } else if (streamEvent.type === "tool_sources") {
           externalSources = streamEvent.sources ?? [];
+        } else if (isToolTraceEvent(streamEvent)) {
+          toolEvents = [...toolEvents, streamEvent];
         }
       }
       setThreadMessages((current) =>
@@ -1503,6 +1689,7 @@ export function ChatThread({
                 content: assistantText,
                 reasoningContent: reasoningText,
                 externalSources,
+                toolEvents,
                 status: "done",
               }
             : message
@@ -1754,6 +1941,28 @@ export function ChatThread({
                     </div>
                   </details>
                 ) : null}
+                {!isUser && message.toolEvents && message.toolEvents.length > 0 ? (
+                  <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">
+                    <summary className="cursor-pointer select-none font-medium text-[var(--ink-strong)]">
+                      {text.toolTraceTitle} · {message.toolEvents.length}
+                    </summary>
+                    <div className="mt-2 grid gap-2">
+                      {message.toolEvents.map((event, index) => (
+                        <div
+                          key={toolEventKey(event, index)}
+                          className="rounded-xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2 leading-5"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--ink-strong)]">
+                              {event.type}
+                            </span>
+                            <span>{formatToolEvent(event, uiLanguage)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
                 {!isUser && message.externalSources && message.externalSources.length > 0 ? (
                   <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">
                     <summary className="cursor-pointer select-none font-medium text-[var(--ink-strong)]">
@@ -1761,25 +1970,11 @@ export function ChatThread({
                     </summary>
                     <div className="mt-2 grid gap-2">
                       {message.externalSources.slice(0, 6).map((source, index) => (
-                        <a
+                        <SourceCard
                           key={`${source.provider}-${source.title}-${index}`}
-                          href={source.url ?? undefined}
-                          target={source.url ? "_blank" : undefined}
-                          rel={source.url ? "noreferrer" : undefined}
-                          className={`rounded-xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2 text-xs text-[var(--ink-soft)] transition ${
-                            source.url ? "hover:border-[var(--accent-strong)]" : "cursor-default"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="font-medium text-[var(--ink-strong)]">
-                              {source.citation_label ?? `[${index + 1}]`} {source.title}
-                            </span>
-                            <span className="shrink-0 rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px]">
-                              {source.provider}
-                            </span>
-                          </div>
-                          <div className="mt-1 line-clamp-2 leading-5">{source.display_text}</div>
-                        </a>
+                          source={source}
+                          index={index}
+                        />
                       ))}
                     </div>
                   </details>
