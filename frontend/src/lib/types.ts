@@ -25,6 +25,44 @@ export type Project = {
   updated_at: string | null;
 };
 
+export type ToolDefinition = {
+  tool_key: string;
+  provider: string;
+  category: string;
+  display_name: string;
+  description: string;
+  read_only: boolean;
+  enabled_by_default: boolean;
+  credential_required: boolean;
+};
+
+export type UserToolCredential = {
+  provider_key: string;
+  credential_name: string;
+  is_enabled: boolean;
+  has_api_key: boolean;
+  api_key_masked: string | null;
+  source: string;
+};
+
+export type WorkspaceToolSetting = {
+  project_id: string;
+  tool_key: string;
+  is_enabled: boolean;
+};
+
+export type ToolSettings = {
+  tools: ToolDefinition[];
+  credentials: UserToolCredential[];
+  workspace_settings: WorkspaceToolSetting[];
+};
+
+export type ToolConnectionTestResult = {
+  ok: boolean;
+  provider_key: string;
+  message: string;
+};
+
 export type ProjectFile = {
   id: string;
   project_id: string;

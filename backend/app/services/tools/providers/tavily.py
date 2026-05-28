@@ -9,8 +9,8 @@ from app.services.tools.schemas import ExternalSource
 
 
 class TavilySearchProvider:
-    async def query(self, query: str) -> list[ExternalSource]:
-        api_key = settings.tavily_api_key.strip()
+    async def query(self, query: str, *, api_key: str | None = None) -> list[ExternalSource]:
+        api_key = (api_key or settings.tavily_api_key).strip()
         if not api_key:
             raise RuntimeError("未配置 TAVILY_API_KEY")
 

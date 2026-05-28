@@ -11,9 +11,11 @@ from app.models import (  # noqa: F401
     PromptTemplate,
     ToolCallRun,
     ToolRouteRun,
+    UserToolCredential,
     User,
     UserMemory,
     UserSetting,
+    WorkspaceToolSetting,
 )
 
 

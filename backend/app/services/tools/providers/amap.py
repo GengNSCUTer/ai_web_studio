@@ -10,8 +10,16 @@ from app.services.tools.schemas import ExternalSource
 
 
 class AmapToolProvider:
-    async def query_map(self, query: str) -> list[ExternalSource]:
-        api_key = settings.amap_api_key.strip()
+    def __init__(self, api_key: str | None = None) -> None:
+        self.api_key = api_key
+
+    def _api_key(self) -> str:
+        return (self.api_key or settings.amap_api_key).strip()
+
+    async def query_map(self, query: str, *, api_key: str | None = None) -> list[ExternalSource]:
+        if api_key is not None:
+            self.api_key = api_key
+        api_key = self._api_key()
         if not api_key:
             raise RuntimeError("未配置 AMAP_API_KEY")
 
@@ -63,8 +71,10 @@ class AmapToolProvider:
 
         return []
 
-    async def query_weather(self, query: str) -> list[ExternalSource]:
-        api_key = settings.amap_api_key.strip()
+    async def query_weather(self, query: str, *, api_key: str | None = None) -> list[ExternalSource]:
+        if api_key is not None:
+            self.api_key = api_key
+        api_key = self._api_key()
         if not api_key:
             raise RuntimeError("未配置 AMAP_API_KEY")
 
@@ -388,7 +398,7 @@ class AmapToolProvider:
         return sources
 
     async def _request_amap_json(self, endpoint: str, params: dict[str, str]) -> dict[str, Any]:
-        api_key = settings.amap_api_key.strip()
+        api_key = self._api_key()
         request_params = {"key": api_key, **params}
         async with httpx.AsyncClient(timeout=settings.external_tool_timeout_seconds) as client:
             response = await client.get(endpoint, params=request_params)

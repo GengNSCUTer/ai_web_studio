@@ -15,6 +15,8 @@ import type {
   Project,
   ProjectFile,
   ProjectStats,
+  ToolConnectionTestResult,
+  ToolSettings,
   User,
   UserMemory,
   UserSettings,
@@ -36,6 +38,7 @@ type SettingsTab =
   | "context"
   | "memory"
   | "system"
+  | "tools"
   | "appearance"
   | "templates"
   | "privacy";
@@ -150,6 +153,7 @@ const APP_TEXT = {
     settingsTabContext: "上下文",
     settingsTabMemory: "长期记忆",
     settingsTabSystem: "系统提示",
+    settingsTabTools: "工具与集成",
     settingsTabAppearance: "外观",
     settingsTabTemplates: "Prompt 模板",
     settingsTabPrivacy: "隐私与导出",
@@ -221,6 +225,17 @@ const APP_TEXT = {
     exportRun: "开始导出",
     exportFailed: "导出失败：",
     providerHint: "先测试连接，再保存设置。测试会用当前表单里的 provider 配置实时请求。",
+    toolsHint: "这里配置联网搜索背后的只读工具。未配置用户凭证时，会尝试使用后端 .env fallback。",
+    toolCredential: "工具凭证",
+    toolEnabled: "启用工具",
+    credentialSource: "凭证来源",
+    apiKeyMasked: "当前 Key",
+    testTool: "测试工具",
+    saveToolSettings: "保存工具设置",
+    toolSettingsSaved: "工具设置已保存",
+    toolSettingsFailed: "工具设置失败：",
+    workspaceToolOverrides: "当前工作区工具开关",
+    noActiveWorkspaceForTools: "当前未选择具体工作区，只显示用户级工具凭证。",
     testing: "测试中...",
     testConnection: "测试连接",
     temperature: "Temperature",
@@ -359,6 +374,7 @@ const APP_TEXT = {
     settingsTabContext: "Context",
     settingsTabMemory: "Memory",
     settingsTabSystem: "System Prompt",
+    settingsTabTools: "Tools",
     settingsTabAppearance: "Appearance",
     settingsTabTemplates: "Prompt Templates",
     settingsTabPrivacy: "Privacy & Export",
@@ -432,6 +448,18 @@ const APP_TEXT = {
     exportFailed: "Export failed: ",
     providerHint:
       "Test the connection before saving. The test will use the current provider form values.",
+    toolsHint:
+      "Configure read-only tools behind web search. If user credentials are missing, backend .env fallback is used.",
+    toolCredential: "Tool credential",
+    toolEnabled: "Enable tool",
+    credentialSource: "Credential source",
+    apiKeyMasked: "Current key",
+    testTool: "Test tool",
+    saveToolSettings: "Save tool settings",
+    toolSettingsSaved: "Tool settings saved",
+    toolSettingsFailed: "Tool settings failed: ",
+    workspaceToolOverrides: "Current workspace tool switches",
+    noActiveWorkspaceForTools: "No concrete workspace is selected. Showing user-level credentials only.",
     testing: "Testing...",
     testConnection: "Test connection",
     temperature: "Temperature",
@@ -640,6 +668,12 @@ export function ChatApp({
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
   const [isAddingProjectFile, setIsAddingProjectFile] = useState(false);
+  const [toolSettings, setToolSettings] = useState<ToolSettings | null>(null);
+  const [toolCredentialDrafts, setToolCredentialDrafts] = useState<Record<string, string>>({});
+  const [toolEnabledDrafts, setToolEnabledDrafts] = useState<Record<string, boolean>>({});
+  const [workspaceToolEnabledDrafts, setWorkspaceToolEnabledDrafts] = useState<Record<string, boolean>>({});
+  const [isSavingToolSettings, setIsSavingToolSettings] = useState(false);
+  const [testingToolProvider, setTestingToolProvider] = useState<string | null>(null);
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState({
     memory_type: "fact",
@@ -660,6 +694,7 @@ export function ChatApp({
     { id: "context", label: text.settingsTabContext },
     { id: "memory", label: text.settingsTabMemory },
     { id: "system", label: text.settingsTabSystem },
+    { id: "tools", label: text.settingsTabTools },
     { id: "templates", label: text.settingsTabTemplates },
     { id: "privacy", label: text.settingsTabPrivacy },
     { id: "appearance", label: text.settingsTabAppearance },
@@ -712,6 +747,10 @@ export function ChatApp({
     conversationShare && typeof window !== "undefined"
       ? `${window.location.origin}/share/${conversationShare.token}`
       : "";
+  const toolProviders = Array.from(new Set((toolSettings?.tools ?? []).map((tool) => tool.provider)));
+  const credentialByProvider = Object.fromEntries(
+    (toolSettings?.credentials ?? []).map((credential) => [credential.provider_key, credential])
+  );
 
   function getPromptTemplateApplyTarget(template: PromptTemplate) {
     return promptTemplateApplyTargets[template.id] ?? activeProject?.id ?? "global";
@@ -751,6 +790,27 @@ export function ChatApp({
       ui_language: settings.ui_language,
       theme_mode: settings.theme_mode,
     };
+  }
+
+  function applyToolSettingsDrafts(data: ToolSettings) {
+    setToolSettings(data);
+    setToolCredentialDrafts(
+      Object.fromEntries(data.credentials.map((credential) => [credential.provider_key, ""]))
+    );
+    setToolEnabledDrafts(
+      Object.fromEntries(data.credentials.map((credential) => [credential.provider_key, credential.is_enabled]))
+    );
+    const workspaceMap = new Map(data.workspace_settings.map((item) => [item.tool_key, item.is_enabled]));
+    setWorkspaceToolEnabledDrafts(
+      Object.fromEntries(data.tools.map((tool) => [tool.tool_key, workspaceMap.get(tool.tool_key) ?? true]))
+    );
+  }
+
+  async function loadToolSettings(projectId?: string | null) {
+    const suffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+    const data = await requestJson<ToolSettings>(`/api/backend/tools/settings${suffix}`);
+    applyToolSettingsDrafts(data);
+    return data;
   }
 
   function applyProviderPreset(providerType: string) {
@@ -802,7 +862,18 @@ export function ChatApp({
     void loadMemories().catch(() => undefined);
     void loadPromptTemplates().catch(() => undefined);
     void loadProjects().catch(() => undefined);
+    void loadToolSettings(activeProject?.id).catch(() => undefined);
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !isSettingsOpen || activeSettingsTab !== "tools") {
+      return;
+    }
+    void loadToolSettings(activeProject?.id).catch((error) => {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setSettingsMessage(`${text.toolSettingsFailed}${message}`);
+    });
+  }, [activeProject?.id, activeSettingsTab, currentUser, isSettingsOpen]);
 
   function resetSettingsToDefaults() {
     if (!userSettings) {
@@ -1692,6 +1763,80 @@ export function ChatApp({
       setSettingsMessage(`${text.testProviderFailed}${message}`);
     } finally {
       setIsTestingProvider(false);
+    }
+  }
+
+  async function handleSaveToolSettings() {
+    if (!toolSettings) {
+      return;
+    }
+
+    setIsSavingToolSettings(true);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+
+    try {
+      for (const providerKey of toolProviders) {
+        await requestJson(`/api/backend/tools/credentials/${providerKey}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            is_enabled: toolEnabledDrafts[providerKey] ?? true,
+            api_key: toolCredentialDrafts[providerKey]?.trim()
+              ? toolCredentialDrafts[providerKey].trim()
+              : undefined,
+          }),
+        });
+      }
+
+      if (activeProject) {
+        for (const tool of toolSettings.tools) {
+          await requestJson(`/api/backend/tools/workspaces/${activeProject.id}/${encodeURIComponent(tool.tool_key)}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              is_enabled: workspaceToolEnabledDrafts[tool.tool_key] ?? true,
+            }),
+          });
+        }
+      }
+
+      await loadToolSettings(activeProject?.id);
+      setSettingsMessage(text.toolSettingsSaved);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.toolSettingsFailed}${message}`);
+    } finally {
+      setIsSavingToolSettings(false);
+    }
+  }
+
+  async function handleTestToolProvider(providerKey: string) {
+    setTestingToolProvider(providerKey);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    try {
+      if (toolCredentialDrafts[providerKey]?.trim()) {
+        await requestJson(`/api/backend/tools/credentials/${providerKey}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            is_enabled: toolEnabledDrafts[providerKey] ?? true,
+            api_key: toolCredentialDrafts[providerKey].trim(),
+          }),
+        });
+      }
+      const result = await requestJson<ToolConnectionTestResult>(
+        `/api/backend/tools/credentials/${providerKey}/test`,
+        { method: "POST" }
+      );
+      setSettingsMessage(result.message);
+      await loadToolSettings(activeProject?.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : text.unknownError;
+      setErrorMessage(`${text.toolSettingsFailed}${message}`);
+    } finally {
+      setTestingToolProvider(null);
     }
   }
 
@@ -3341,6 +3486,124 @@ export function ChatApp({
                             className="min-h-[260px] w-full rounded-2xl border border-[rgba(22,34,27,0.12)] bg-white px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
                           />
                         </label>
+                      ) : null}
+
+                      {activeSettingsTab === "tools" ? (
+                        <div className="space-y-4">
+                          <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                            <p className="text-sm font-semibold text-[var(--ink-strong)]">
+                              {text.settingsTabTools}
+                            </p>
+                            <p className="mt-2 text-sm leading-6 text-[var(--ink-soft)]">{text.toolsHint}</p>
+                          </div>
+
+                          {toolProviders.map((providerKey) => {
+                            const credential = credentialByProvider[providerKey];
+                            return (
+                              <div
+                                key={providerKey}
+                                className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold text-[var(--ink-strong)]">
+                                      {text.toolCredential} · {providerKey}
+                                    </p>
+                                    <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                      {text.credentialSource}: {credential?.source ?? "missing"}
+                                      {credential?.api_key_masked ? ` · ${text.apiKeyMasked}: ${credential.api_key_masked}` : ""}
+                                    </p>
+                                  </div>
+                                  <label className="flex items-center gap-2 text-xs text-[var(--ink-soft)]">
+                                    <input
+                                      type="checkbox"
+                                      checked={toolEnabledDrafts[providerKey] ?? credential?.is_enabled ?? true}
+                                      onChange={(event) =>
+                                        setToolEnabledDrafts((current) => ({
+                                          ...current,
+                                          [providerKey]: event.target.checked,
+                                        }))
+                                      }
+                                    />
+                                    {text.toolEnabled}
+                                  </label>
+                                </div>
+
+                                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+                                  <input
+                                    type="password"
+                                    value={toolCredentialDrafts[providerKey] ?? ""}
+                                    placeholder={credential?.has_api_key ? credential.api_key_masked ?? "******" : "API Key"}
+                                    onChange={(event) =>
+                                      setToolCredentialDrafts((current) => ({
+                                        ...current,
+                                        [providerKey]: event.target.value,
+                                      }))
+                                    }
+                                    className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-strong)]"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleTestToolProvider(providerKey)}
+                                    disabled={testingToolProvider === providerKey}
+                                    className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+                                  >
+                                    {testingToolProvider === providerKey ? text.testing : text.testTool}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                            <p className="text-sm font-semibold text-[var(--ink-strong)]">
+                              {text.workspaceToolOverrides}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">
+                              {activeProject ? activeProject.name : text.noActiveWorkspaceForTools}
+                            </p>
+                            {activeProject ? (
+                              <div className="mt-3 grid gap-2">
+                                {(toolSettings?.tools ?? []).map((tool) => (
+                                  <label
+                                    key={tool.tool_key}
+                                    className="flex items-start justify-between gap-3 rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-3 text-sm"
+                                  >
+                                    <span>
+                                      <span className="block font-medium text-[var(--ink-strong)]">
+                                        {tool.display_name}
+                                      </span>
+                                      <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">
+                                        {tool.description}
+                                      </span>
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={workspaceToolEnabledDrafts[tool.tool_key] ?? true}
+                                      onChange={(event) =>
+                                        setWorkspaceToolEnabledDrafts((current) => ({
+                                          ...current,
+                                          [tool.tool_key]: event.target.checked,
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveToolSettings()}
+                              disabled={isSavingToolSettings}
+                              className="primary-action rounded-full px-5 py-2 text-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
+                            >
+                              {isSavingToolSettings ? text.saving : text.saveToolSettings}
+                            </button>
+                          </div>
+                        </div>
                       ) : null}
 
                       {activeSettingsTab === "privacy" ? (

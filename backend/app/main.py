@@ -13,6 +13,7 @@ from app.api.routes import (
     providers,
     settings,
     shares,
+    tools,
     uploads,
 )
 from app.core.config import settings as app_settings
@@ -47,6 +48,7 @@ app.include_router(projects.router, prefix="/api")
 app.include_router(shares.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(providers.router, prefix="/api")
+app.include_router(tools.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")
 

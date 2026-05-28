@@ -350,7 +350,11 @@ async def _prepare_chat_execution(
         query=payload.content,
         max_chars=budget.max_attachment_chars,
     )
-    external_context_result = await ExternalContextService().build_context(
+    external_context_result = await ExternalContextService(
+        db=db,
+        user_id=current_user.id,
+        project_id=getattr(conversation, "project_id", None),
+    ).build_context(
         query=payload.content,
         enabled=payload.web_search_enabled,
         max_chars=max(1200, min(budget.max_attachment_chars, 6000)),
@@ -579,7 +583,11 @@ async def _prepare_existing_turn_execution(
         query=getattr(user_message, "content", "") or "",
         max_chars=budget.max_attachment_chars,
     )
-    external_context_result = await ExternalContextService().build_context(
+    external_context_result = await ExternalContextService(
+        db=db,
+        user_id=current_user.id,
+        project_id=getattr(conversation, "project_id", None),
+    ).build_context(
         query=getattr(user_message, "content", "") or "",
         enabled=web_search_enabled,
         max_chars=max(1200, min(budget.max_attachment_chars, 6000)),

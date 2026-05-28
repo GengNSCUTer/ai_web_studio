@@ -3,6 +3,9 @@ from __future__ import annotations
 import time
 from uuid import uuid4
 
+from sqlalchemy.orm import Session
+
+from app.services.tools.credentials import ToolCredentialResolver
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.formatter import ExternalContextAssembler
 from app.services.tools.registry import ToolRegistry
@@ -26,6 +29,9 @@ class ExternalContextService:
     def __init__(
         self,
         *,
+        db: Session | None = None,
+        user_id: str | None = None,
+        project_id: str | None = None,
         registry: ToolRegistry | None = None,
         router: RuleBasedToolRouter | None = None,
         executor: ToolExecutor | None = None,
@@ -33,7 +39,11 @@ class ExternalContextService:
     ) -> None:
         self.registry = registry or ToolRegistry()
         self.router = router or RuleBasedToolRouter(self.registry)
-        self.executor = executor or ToolExecutor()
+        self.executor = executor or ToolExecutor(
+            credential_resolver=ToolCredentialResolver(db),
+            user_id=user_id,
+            project_id=project_id,
+        )
         self.assembler = assembler or ExternalContextAssembler()
 
     async def build_context(self, *, query: str, enabled: bool, max_chars: int) -> ExternalContextResult:

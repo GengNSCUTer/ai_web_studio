@@ -32,6 +32,9 @@ class ToolRegistry:
     def get(self, tool_key: str) -> ToolDefinition:
         return self._definitions[tool_key]
 
+    def list_definitions(self) -> list[ToolDefinition]:
+        return list(self._definitions.values())
+
     def web_search_tool(self) -> ToolDefinition:
         return self.get("web.tavily.search")
 
