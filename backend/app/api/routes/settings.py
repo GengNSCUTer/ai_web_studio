@@ -50,7 +50,9 @@ async def test_provider_connection(
         provider_type=provider_type,
         configured_base_url=payload.ollama_base_url,
     )
-    api_key = payload.api_key if provider_type == "openai-compatible" else None
+    api_key = None
+    if provider_type == "openai-compatible":
+        api_key = payload.api_key if payload.api_key is not None else service.resolve_provider_api_key(current_user.id)
 
     try:
         models = await ChatProviderService().list_models(

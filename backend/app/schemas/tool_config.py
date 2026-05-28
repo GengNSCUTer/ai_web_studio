@@ -26,6 +26,7 @@ class UserToolCredentialResponse(BaseModel):
 class UserToolCredentialUpdate(BaseModel):
     credential_name: str | None = Field(default=None, max_length=128)
     api_key: str | None = None
+    clear_api_key: bool | None = None
     is_enabled: bool | None = None
 
 

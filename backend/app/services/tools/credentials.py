@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.repositories.tool_config_repo import ToolConfigRepository
+from app.services.secret_service import SecretService
 
 
 @dataclass
@@ -20,6 +21,7 @@ class ToolCredentialResolver:
     def __init__(self, db: Session | None = None) -> None:
         self.db = db
         self.repo = ToolConfigRepository(db) if db else None
+        self.secrets = SecretService()
 
     def resolve(self, *, user_id: str | None, provider_key: str) -> ToolCredential:
         if self.repo and user_id:
@@ -32,7 +34,7 @@ class ToolCredentialResolver:
                         source="user_disabled",
                         is_enabled=False,
                     )
-                api_key = (credential.api_key or "").strip() or None
+                api_key = self.secrets.decrypt(credential.api_key)
                 if not api_key:
                     env_key = self._env_api_key(provider_key)
                     return ToolCredential(

@@ -21,16 +21,10 @@ from app.services.tools.credentials import ToolCredentialResolver
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.tavily import TavilySearchProvider
 from app.services.tools.registry import ToolRegistry
+from app.services.secret_service import SecretService
 
 router = APIRouter(prefix="/tools", tags=["tools"])
-
-
-def _mask_secret(value: str | None) -> str | None:
-    if not value:
-        return None
-    if len(value) <= 8:
-        return "****"
-    return f"{value[:4]}****{value[-4:]}"
+secret_service = SecretService()
 
 
 def _credential_response(
@@ -42,13 +36,13 @@ def _credential_response(
 ) -> UserToolCredentialResponse:
     resolved = resolver.resolve(user_id=user_id, provider_key=provider_key)
     if credential:
-        saved_key = (credential.api_key or "").strip() or None
+        saved_key = secret_service.decrypt(credential.api_key)
         return UserToolCredentialResponse(
             provider_key=provider_key,
             credential_name=credential.credential_name,
             is_enabled=credential.is_enabled,
             has_api_key=bool(saved_key or resolved.api_key),
-            api_key_masked=_mask_secret(saved_key or resolved.api_key),
+            api_key_masked=secret_service.mask(saved_key or resolved.api_key),
             source="user" if saved_key else resolved.source,
         )
     return UserToolCredentialResponse(
@@ -56,7 +50,7 @@ def _credential_response(
         credential_name="环境变量 fallback",
         is_enabled=resolved.is_enabled,
         has_api_key=bool(resolved.api_key),
-        api_key_masked=_mask_secret(resolved.api_key),
+        api_key_masked=secret_service.mask(resolved.api_key),
         source=resolved.source,
     )
 
@@ -136,8 +130,10 @@ def update_tool_credential(
     data = payload.model_dump(exclude_unset=True)
     if "credential_name" in data and data["credential_name"] is not None:
         credential.credential_name = data["credential_name"].strip() or f"{provider_key} 默认凭证"
-    if "api_key" in data:
-        credential.api_key = (data["api_key"] or "").strip() or None
+    if data.get("clear_api_key"):
+        credential.api_key = None
+    elif "api_key" in data and data["api_key"] is not None:
+        credential.api_key = secret_service.encrypt(data["api_key"])
     if "is_enabled" in data and data["is_enabled"] is not None:
         credential.is_enabled = bool(data["is_enabled"])
 
@@ -146,8 +142,8 @@ def update_tool_credential(
         provider_key=provider_key,
         credential_name=saved.credential_name,
         is_enabled=saved.is_enabled,
-        has_api_key=bool((saved.api_key or "").strip()),
-        api_key_masked=_mask_secret(saved.api_key),
+        has_api_key=bool(secret_service.decrypt(saved.api_key)),
+        api_key_masked=secret_service.mask(secret_service.decrypt(saved.api_key)),
         source="user",
     )
 

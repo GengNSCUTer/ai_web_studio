@@ -220,6 +220,8 @@ export type UserSettings = {
   default_model: string;
   ollama_base_url: string;
   api_key: string | null;
+  has_api_key?: boolean;
+  api_key_masked?: string | null;
   temperature: number;
   top_p: number;
   max_tokens: number | null;

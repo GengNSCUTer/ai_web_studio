@@ -1,32 +1,26 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from app.services.tools.schemas import ToolDefinition
 
 
 class ToolRegistry:
     def __init__(self) -> None:
+        manifest_path = Path(__file__).resolve().parents[2] / "tool_manifests" / "default_tools.json"
+        records = json.loads(manifest_path.read_text(encoding="utf-8"))
         self._definitions = {
-            "web.tavily.search": ToolDefinition(
-                tool_key="web.tavily.search",
-                provider="tavily",
-                category="web_search",
-                display_name="Tavily 搜索",
-                description="查询互联网最新网页资料、新闻、官网、版本、政策、价格等实时信息。",
-            ),
-            "amap.weather.current": ToolDefinition(
-                tool_key="amap.weather.current",
-                provider="amap",
-                category="weather",
-                display_name="高德天气",
-                description="查询中国城市当前天气、温度、湿度、风向和发布时间。",
-            ),
-            "amap.map.basic": ToolDefinition(
-                tool_key="amap.map.basic",
-                provider="amap",
-                category="map",
-                display_name="高德地图",
-                description="查询地址、地点、附近 POI、路线规划和行政区信息。",
-            ),
+            record["tool_key"]: ToolDefinition(
+                tool_key=record["tool_key"],
+                provider=record["provider"],
+                category=record["category"],
+                display_name=record["display_name"],
+                description=record["description"],
+                enabled_by_default=bool(record.get("enabled_by_default", True)),
+                read_only=bool(record.get("read_only", True)),
+            )
+            for record in records
         }
 
     def get(self, tool_key: str) -> ToolDefinition:

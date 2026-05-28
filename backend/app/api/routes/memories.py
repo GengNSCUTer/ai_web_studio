@@ -120,7 +120,8 @@ async def suggest_memories(
         return MemorySuggestResponse(suggestions=[])
 
     memory_service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
-    settings = SettingService(UserSettingRepository(db)).get_or_create_user_settings(current_user.id)
+    setting_service = SettingService(UserSettingRepository(db))
+    settings = setting_service.get_or_create_user_settings(current_user.id)
     provider_type = settings.provider_type or "ollama"
     base_url = resolve_provider_base_url(
         provider_type=provider_type,
@@ -131,7 +132,7 @@ async def suggest_memories(
         raw = await ChatProviderService().complete_chat(
             provider_type=provider_type,
             base_url=base_url,
-            api_key=settings.api_key,
+            api_key=setting_service.resolve_provider_api_key(current_user.id),
             model_name=settings.default_model,
             messages=_build_suggestion_prompt(
                 recent_messages_text=recent_messages_text,

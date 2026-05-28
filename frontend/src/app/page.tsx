@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { AuthScreen } from "@/components/auth-screen";
 import { ChatApp } from "@/components/chat-app";
 import { AUTH_COOKIE_NAME } from "@/lib/auth";
-import { fetchBackend } from "@/lib/backend";
+import { fetchBackendJson, fetchBackendJsonOrNull } from "@/lib/server-backend";
 import type {
   Conversation,
   Message,
@@ -14,30 +14,6 @@ import type {
 } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-async function fetchBackendJson<T>(path: string, token?: string): Promise<T> {
-  const response = await fetchBackend(path, {
-    headers: token
-      ? {
-          authorization: `Bearer ${token}`,
-        }
-      : undefined,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Backend request failed: ${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-async function fetchBackendJsonOrNull<T>(path: string, token?: string): Promise<T | null> {
-  try {
-    return await fetchBackendJson<T>(path, token);
-  } catch {
-    return null;
-  }
-}
 
 export default async function Home() {
   const cookieStore = await cookies();

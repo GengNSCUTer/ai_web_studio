@@ -3,6 +3,7 @@ from app.models.user_setting import UserSetting
 from app.repositories.setting_repo import UserSettingRepository
 from app.schemas.setting import UserSettingResponse, UserSettingUpdate
 from app.services.context_governance_service import ContextBudgetPlanner
+from app.services.secret_service import SecretService
 
 
 class SettingService:
@@ -19,6 +20,7 @@ class SettingService:
 
     def __init__(self, repo: UserSettingRepository):
         self.repo = repo
+        self.secrets = SecretService()
 
     @staticmethod
     def _normalize_optional_str(value: str | None) -> str | None:
@@ -132,7 +134,7 @@ class SettingService:
                 should_save = True
             if should_save:
                 setting = self.repo.save(setting)
-        return UserSettingResponse.model_validate(setting)
+        return self._to_response(setting)
 
     def update_user_settings(self, user_id: str, payload: UserSettingUpdate) -> UserSettingResponse:
         setting = self.repo.get_by_user(user_id)
@@ -156,11 +158,18 @@ class SettingService:
             )
 
         data = payload.model_dump(exclude_unset=True)
-        for key in ("provider_type", "default_model", "ollama_base_url", "api_key", "system_prompt"):
+        for key in ("provider_type", "default_model", "ollama_base_url", "system_prompt"):
             if key in data:
                 data[key] = self._normalize_optional_str(data[key])
         for key, value in data.items():
+            if key in {"api_key", "clear_api_key"}:
+                continue
             setattr(setting, key, value)
+
+        if data.get("clear_api_key"):
+            setting.api_key = None
+        elif "api_key" in data and data["api_key"] is not None:
+            setting.api_key = self.secrets.encrypt(data["api_key"])
 
         if "provider_type" in data and "model_context_window" not in data:
             setting.model_context_window = self.default_context_window_for_provider(setting.provider_type)
@@ -179,4 +188,36 @@ class SettingService:
         setting.memory_max_chars = max(500, min(int(setting.memory_max_chars), 20000))
 
         saved = self.repo.save(setting)
-        return UserSettingResponse.model_validate(saved)
+        return self._to_response(saved)
+
+    def resolve_provider_api_key(self, user_id: str) -> str | None:
+        setting = self.repo.get_by_user(user_id)
+        if not setting:
+            return None
+        return self.secrets.decrypt(getattr(setting, "api_key", None))
+
+    def _to_response(self, setting: UserSetting) -> UserSettingResponse:
+        raw_api_key = self.secrets.decrypt(getattr(setting, "api_key", None))
+        return UserSettingResponse.model_validate(
+            {
+                "id": setting.id,
+                "user_id": setting.user_id,
+                "provider_type": setting.provider_type,
+                "default_model": setting.default_model,
+                "ollama_base_url": setting.ollama_base_url,
+                "api_key": None,
+                "has_api_key": bool(raw_api_key),
+                "api_key_masked": self.secrets.mask(raw_api_key),
+                "temperature": setting.temperature,
+                "top_p": setting.top_p,
+                "max_tokens": setting.max_tokens,
+                "system_prompt": setting.system_prompt,
+                "model_context_window": setting.model_context_window,
+                "context_mode": setting.context_mode,
+                "memory_enabled": setting.memory_enabled,
+                "memory_max_chars": setting.memory_max_chars,
+                "ui_language": setting.ui_language,
+                "theme_mode": setting.theme_mode,
+                "updated_at": setting.updated_at,
+            }
+        )

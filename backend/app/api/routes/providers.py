@@ -17,7 +17,8 @@ async def get_provider_defaults(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, object]:
-    user_settings = SettingService(UserSettingRepository(db)).get_or_create_user_settings(current_user.id)
+    service = SettingService(UserSettingRepository(db))
+    user_settings = service.get_or_create_user_settings(current_user.id)
     provider_type = user_settings.provider_type or "ollama"
     base_url = resolve_provider_base_url(
         provider_type=provider_type,
@@ -28,7 +29,7 @@ async def get_provider_defaults(
         models = await ChatProviderService().list_models(
             provider_type=provider_type,
             base_url=base_url,
-            api_key=user_settings.api_key,
+            api_key=service.resolve_provider_api_key(current_user.id),
         )
     except httpx.HTTPError:
         models = []

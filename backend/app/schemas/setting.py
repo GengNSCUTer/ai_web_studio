@@ -12,6 +12,8 @@ class UserSettingResponse(BaseModel):
     default_model: str
     ollama_base_url: str
     api_key: str | None = None
+    has_api_key: bool = False
+    api_key_masked: str | None = None
     temperature: float
     top_p: float
     max_tokens: int | None = None
@@ -30,6 +32,7 @@ class UserSettingUpdate(BaseModel):
     default_model: str | None = Field(default=None, max_length=128)
     ollama_base_url: str | None = Field(default=None, max_length=255)
     api_key: str | None = None
+    clear_api_key: bool | None = None
     temperature: float | None = None
     top_p: float | None = None
     max_tokens: int | None = None

@@ -69,6 +69,7 @@ const APP_TEXT = {
     newChat: "新对话",
     unnamedUser: "未命名用户",
     settings: "设置",
+    advancedSettings: "高级",
     logout: "退出",
     currentProvider: "当前 Provider",
     providerLoading: "读取中...",
@@ -290,6 +291,7 @@ const APP_TEXT = {
     newChat: "New chat",
     unnamedUser: "Unnamed user",
     settings: "Settings",
+    advancedSettings: "Advanced",
     logout: "Logout",
     currentProvider: "Current provider",
     providerLoading: "Loading...",
@@ -2233,10 +2235,19 @@ export function ChatApp({
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
-                onClick={() => setIsSettingsOpen(true)}
+                onClick={() => {
+                  window.location.href = "/settings";
+                }}
                 className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-xs transition hover:bg-white/14"
               >
                 {text.settings}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(true)}
+                className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-xs transition hover:bg-white/14"
+              >
+                {text.advancedSettings}
               </button>
               <button
                 type="button"

@@ -41,6 +41,7 @@ class Settings:
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
     amap_api_key: str = os.getenv("AMAP_API_KEY", "")
     external_tool_timeout_seconds: int = int(os.getenv("EXTERNAL_TOOL_TIMEOUT_SECONDS", "8"))
+    secret_encryption_key: str = os.getenv("SECRET_ENCRYPTION_KEY", "")
 
     @property
     def sqlalchemy_database_uri(self) -> str:

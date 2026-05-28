@@ -263,6 +263,7 @@ async def _prepare_chat_execution(
     memory_service = MemoryService(UserMemoryRepository(db))
 
     default_settings = setting_service.get_or_create_user_settings(current_user.id)
+    resolved_provider_api_key = setting_service.resolve_provider_api_key(current_user.id)
 
     conversation = None
     if payload.conversation_id:
@@ -380,7 +381,7 @@ async def _prepare_chat_execution(
         summary = await ChatProviderService().complete_chat(
             provider_type=provider_type,
             base_url=base_url,
-            api_key=_clean_optional_str(getattr(default_settings, "api_key", None)),
+            api_key=resolved_provider_api_key,
             model_name=summary_model,
             messages=_build_summary_prompt(
                 existing_summary=existing_summary,
@@ -469,7 +470,7 @@ async def _prepare_chat_execution(
         resolved_model=resolved_model,
         provider_type=provider_type,
         base_url=base_url,
-        api_key=_clean_optional_str(getattr(default_settings, "api_key", None)),
+        api_key=resolved_provider_api_key,
         temperature=default_settings.temperature,
         top_p=default_settings.top_p,
         max_tokens=default_settings.max_tokens,
@@ -541,6 +542,7 @@ async def _prepare_existing_turn_execution(
     setting_service = SettingService(UserSettingRepository(db))
     memory_service = MemoryService(UserMemoryRepository(db))
     default_settings = setting_service.get_or_create_user_settings(current_user.id)
+    resolved_provider_api_key = setting_service.resolve_provider_api_key(current_user.id)
 
     cleaned_system_prompt = _clean_optional_str(system_prompt)
     cleaned_model_name = _clean_optional_str(model_name)
@@ -613,7 +615,7 @@ async def _prepare_existing_turn_execution(
         summary = await ChatProviderService().complete_chat(
             provider_type=provider_type,
             base_url=base_url,
-            api_key=_clean_optional_str(getattr(default_settings, "api_key", None)),
+            api_key=resolved_provider_api_key,
             model_name=summary_model,
             messages=_build_summary_prompt(
                 existing_summary=existing_summary,
@@ -702,7 +704,7 @@ async def _prepare_existing_turn_execution(
         resolved_model=resolved_model,
         provider_type=provider_type,
         base_url=base_url,
-        api_key=_clean_optional_str(getattr(default_settings, "api_key", None)),
+        api_key=resolved_provider_api_key,
         temperature=default_settings.temperature,
         top_p=default_settings.top_p,
         max_tokens=default_settings.max_tokens,
