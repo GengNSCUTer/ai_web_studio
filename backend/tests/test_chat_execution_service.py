@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import unittest
-from unittest.mock import patch
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -10,17 +13,23 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.database import Base
+from app.core.config import settings
+from fastapi.responses import PlainTextResponse
 from app.models import *  # noqa: F403 - import all models so metadata contains every table.
+from app.models.attachment import Attachment
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.tool_trace import ToolCallRun, ToolRouteRun
 from app.models.user import User
-from app.schemas.message import ChatStreamRequest
+from app.repositories.setting_repo import UserSettingRepository
+from app.api.routes.chat import edit_last_user_stream, regenerate_last_answer_stream
+from app.schemas.message import ChatEditLastUserRequest, ChatRegenerateRequest, ChatStreamRequest
 from app.schemas.upload import UploadItemReference
 from app.services.chat_execution_service import (
     ChatExecutionService,
     ExistingTurnExecutionInput,
 )
+from app.services.setting_service import SettingService
 from app.services.tools.schemas import (
     ExternalContextResult,
     ExternalSource,
@@ -153,11 +162,30 @@ class ChatExecutionServiceTest(unittest.TestCase):
         self.db.add(self.user)
         self.db.commit()
         self.db.refresh(self.user)
+        self._previous_upload_dir = settings.upload_dir
+        self.test_upload_root = Path("/tmp") / f"aiws_test_uploads_{uuid4()}"
+        self.test_upload_root.mkdir(parents=True, exist_ok=True)
+        object.__setattr__(settings, "upload_dir", str(self.test_upload_root))
+        setting = SettingService(UserSettingRepository(self.db))._build_default_setting(self.user.id)
+        setting.provider_type = "ollama"
+        setting.default_model = "qwen-test"
+        setting.ollama_base_url = "http://ollama.test"
+        self.db.add(setting)
+        self.db.commit()
 
     def tearDown(self) -> None:
         self.db.close()
         Base.metadata.drop_all(bind=self.engine)
         self.engine.dispose()
+        object.__setattr__(settings, "upload_dir", self._previous_upload_dir)
+        if self.test_upload_root.exists():
+            for child in self.test_upload_root.rglob("*"):
+                if child.is_file():
+                    child.unlink()
+            for child in sorted(self.test_upload_root.rglob("*"), reverse=True):
+                if child.is_dir():
+                    child.rmdir()
+            self.test_upload_root.rmdir()
 
     def test_prepare_chat_execution_builds_context_without_external_services(self) -> None:
         async def run_test() -> None:
@@ -187,7 +215,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 context = await service.prepare_chat_execution(payload)
 
             self.assertEqual(context.resolved_model, "qwen-test")
-            self.assertEqual(context.provider_type, "openai-compatible")
+            self.assertEqual(context.provider_type, "ollama")
             self.assertEqual(context.user_message.content, payload.content)
             self.assertEqual(context.assistant_message.status, "streaming")
             self.assertEqual(context.context_stats["prompt_attachment_context_injected"], 1)
@@ -264,6 +292,201 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.assertEqual(len(call_runs), 1)
             self.assertEqual(call_runs[0].tool_key, "tavily.search")
             self.assertEqual(call_runs[0].status, "success")
+
+        asyncio.run(run_test())
+
+    def test_prepare_existing_turn_injects_multimodal_image_for_ollama(self) -> None:
+        async def run_test() -> None:
+            conversation = Conversation(
+                user_id=self.user.id,
+                title="图片测试",
+                model_name="qwen-test",
+                system_prompt="识别图片内容。",
+            )
+            self.db.add(conversation)
+            self.db.commit()
+            self.db.refresh(conversation)
+
+            image_dir = self.test_upload_root / self.user.id
+            image_dir.mkdir(parents=True, exist_ok=True)
+            image_path = image_dir / "chart.png"
+            image_bytes = base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sR4tiAAAAAASUVORK5CYII="
+            )
+            image_path.write_bytes(image_bytes)
+
+            user_message = Message(
+                conversation_id=conversation.id,
+                role="user",
+                content="请描述这张图片",
+                status="done",
+            )
+            assistant_message = Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content="",
+                status="streaming",
+            )
+            self.db.add_all([user_message, assistant_message])
+            self.db.commit()
+            self.db.refresh(user_message)
+            self.db.refresh(assistant_message)
+
+            attachment = Attachment(
+                message_id=user_message.id,
+                kind="image",
+                file_name="chart.png",
+                file_ext="png",
+                mime_type="image/png",
+                file_size=len(image_bytes),
+                storage_path=str(image_path),
+                parsed_text=None,
+            )
+            self.db.add(attachment)
+            self.db.commit()
+            self.db.refresh(attachment)
+            user_message.attachments = [attachment]
+
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+            execution_input = ExistingTurnExecutionInput(
+                conversation=conversation,
+                history_rows=[user_message, assistant_message],
+                user_message=user_message,
+                assistant_message=assistant_message,
+                model_name=None,
+                system_prompt=None,
+                thinking_enabled=False,
+                thinking_budget=None,
+                web_search_enabled=False,
+            )
+
+            with patch(
+                "app.services.chat_context_assembly_service.ExternalContextService",
+                FakeExternalContextService,
+            ):
+                context = await service.prepare_existing_turn_execution(execution_input)
+
+            user_prompt = next(message for message in context.history_messages if message["role"] == "user")
+            self.assertIn("images", user_prompt)
+            self.assertEqual(len(user_prompt["images"]), 1)
+            self.assertEqual(context.context_stats["prompt_image_messages"], 1)
+
+        asyncio.run(run_test())
+
+    def test_regenerate_route_reuses_last_turn_and_streams_answer(self) -> None:
+        async def run_test() -> None:
+            conversation = Conversation(
+                user_id=self.user.id,
+                title="重生成测试",
+                model_name="qwen-test",
+                system_prompt="用中文回答。",
+            )
+            user_message = Message(
+                conversation_id=conversation.id,
+                role="user",
+                content="给我一个结论",
+                status="done",
+            )
+            assistant_message = Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content="旧回答",
+                status="done",
+            )
+            self.db.add(conversation)
+            self.db.commit()
+            self.db.refresh(conversation)
+            user_message.conversation_id = conversation.id
+            assistant_message.conversation_id = conversation.id
+            self.db.add_all([user_message, assistant_message])
+            self.db.commit()
+            self.db.refresh(user_message)
+            self.db.refresh(assistant_message)
+
+            with patch(
+                "app.api.routes.chat.ChatExecutionService.prepare_existing_turn_execution",
+                new=AsyncMock(return_value=SimpleNamespace()),
+            ), patch(
+                "app.api.routes.chat._build_streaming_response",
+                return_value=PlainTextResponse("ok"),
+            ):
+                response = await regenerate_last_answer_stream(
+                    ChatRegenerateRequest(
+                        conversation_id=conversation.id,
+                        assistant_message_id=assistant_message.id,
+                        model_name="qwen-test",
+                        system_prompt="用中文回答。",
+                        thinking_enabled=False,
+                        web_search_enabled=False,
+                    ),
+                    db=self.db,
+                    current_user=self.user,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            refreshed = self.db.get(Message, assistant_message.id)
+            self.assertEqual(refreshed.status, "streaming")
+            self.assertEqual(refreshed.content, "")
+
+        asyncio.run(run_test())
+
+    def test_edit_last_user_route_updates_message_and_streams_answer(self) -> None:
+        async def run_test() -> None:
+            conversation = Conversation(
+                user_id=self.user.id,
+                title="编辑重答测试",
+                model_name="qwen-test",
+                system_prompt="用中文回答。",
+            )
+            self.db.add(conversation)
+            self.db.commit()
+            self.db.refresh(conversation)
+            user_message = Message(
+                conversation_id=conversation.id,
+                role="user",
+                content="旧问题",
+                status="done",
+            )
+            assistant_message = Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content="旧回答",
+                status="done",
+            )
+            self.db.add_all([user_message, assistant_message])
+            self.db.commit()
+            self.db.refresh(user_message)
+            self.db.refresh(assistant_message)
+
+            with patch(
+                "app.api.routes.chat.ChatExecutionService.prepare_existing_turn_execution",
+                new=AsyncMock(return_value=SimpleNamespace()),
+            ), patch(
+                "app.api.routes.chat._build_streaming_response",
+                return_value=PlainTextResponse("ok"),
+            ):
+                response = await edit_last_user_stream(
+                    ChatEditLastUserRequest(
+                        conversation_id=conversation.id,
+                        user_message_id=user_message.id,
+                        assistant_message_id=assistant_message.id,
+                        content="新问题",
+                        attachments=[],
+                        model_name="qwen-test",
+                        system_prompt="用中文回答。",
+                        thinking_enabled=False,
+                        web_search_enabled=False,
+                    ),
+                    db=self.db,
+                    current_user=self.user,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            refreshed_user = self.db.get(Message, user_message.id)
+            refreshed_assistant = self.db.get(Message, assistant_message.id)
+            self.assertEqual(refreshed_user.content, "新问题")
+            self.assertEqual(refreshed_assistant.status, "streaming")
+            self.assertEqual(refreshed_assistant.content, "")
 
         asyncio.run(run_test())
 
