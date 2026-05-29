@@ -3,7 +3,19 @@
 
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
+import { AttachmentPreviewModal } from "@/components/attachment-preview-modal";
+import { ChatComposer } from "@/components/chat-composer";
+import { ExternalSourceCard } from "@/components/external-source-card";
 import { MessageMarkdown } from "@/components/message-markdown";
+import { ToolTracePanel } from "@/components/tool-trace-panel";
+import {
+  attachmentKindLabel,
+  buildAttachmentUrl,
+  classifyClientFile,
+  cloneUploadItems,
+  formatFileSize,
+  isImageAttachment,
+} from "@/lib/attachments";
 import type {
   ContextAttachmentChunk,
   ContextGovernanceInfo,
@@ -57,8 +69,6 @@ type ConversationCreateResponse = {
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
-const SUPPORTED_IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
-const SUPPORTED_FILE_EXTENSIONS = new Set([".txt", ".md", ".markdown", ".pdf", ".docx"]);
 
 const THREAD_TEXT = {
   "zh-CN": {
@@ -335,16 +345,6 @@ function parseContextDetailsHeader(
   }
 }
 
-function formatFileSize(size: number) {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function buildDraftTitle(content: string, uiLanguage: UILanguage) {
   const normalized = content.trim().replace(/\s+/g, " ");
   return normalized.slice(0, 24) || (uiLanguage === "en-US" ? "New Chat" : "新对话");
@@ -358,52 +358,6 @@ function formatElapsedLabel(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}m ${seconds}s`;
-}
-
-function attachmentKindLabel(kind: string, uiLanguage: UILanguage) {
-  if (uiLanguage === "en-US") {
-    return kind === "image" ? "Image" : "File";
-  }
-
-  return kind === "image" ? "图片" : "文件";
-}
-
-function isImageAttachment(attachment: UploadItem) {
-  if (attachment.kind === "image") {
-    return true;
-  }
-
-  const mimeType = attachment.mime_type ?? "";
-  return mimeType.startsWith("image/");
-}
-
-function buildAttachmentUrl(storageKey: string) {
-  return `/api/backend/uploads/file?storage_key=${encodeURIComponent(storageKey)}`;
-}
-
-function fileExtension(fileName: string) {
-  const index = fileName.lastIndexOf(".");
-  return index >= 0 ? fileName.slice(index).toLowerCase() : "";
-}
-
-function classifyClientFile(file: File) {
-  const extension = fileExtension(file.name);
-  if (file.type.startsWith("image/") || SUPPORTED_IMAGE_EXTENSIONS.has(extension)) {
-    return "image";
-  }
-  if (SUPPORTED_FILE_EXTENSIONS.has(extension)) {
-    return "file";
-  }
-  return null;
-}
-
-function cloneUploadItems(items: UploadItem[]) {
-  return items.map((item) => ({ ...item }));
-}
-
-function isPdfAttachment(attachment: UploadItem) {
-  const fileName = attachment.file_name.toLowerCase();
-  return attachment.mime_type === "application/pdf" || fileName.endsWith(".pdf");
 }
 
 function formatMessageTime(value: string, uiLanguage: UILanguage) {
@@ -456,154 +410,6 @@ function isToolTraceEvent(event: ChatStreamEvent): event is ToolTraceEvent {
     event.type === "tool_call_error" ||
     event.type === "tool_call_fallback"
   );
-}
-
-function toolEventKey(event: ToolTraceEvent, index: number) {
-  if ("call_id" in event && event.call_id) {
-    return `${event.type}-${event.call_id}-${index}`;
-  }
-  if (event.type === "tool_call_fallback") {
-    return `${event.type}-${event.from_call_id ?? "from"}-${event.to_call_id ?? "to"}-${index}`;
-  }
-  return `${event.type}-${index}`;
-}
-
-function formatToolEvent(event: ToolTraceEvent, uiLanguage: UILanguage) {
-  const isChinese = uiLanguage === "zh-CN";
-  if (event.type === "tool_plan") {
-    const calls = event.plan?.calls ?? [];
-    if (calls.length === 0) {
-      return isChinese ? "本轮不需要调用外部工具" : "No external tool is needed for this turn";
-    }
-    const names = calls.map((call) => call.display_name || call.tool_key || "tool").join("、");
-    return isChinese ? `已生成工具计划：${names}` : `Tool plan created: ${names}`;
-  }
-  if (event.type === "tool_call_start") {
-    return isChinese
-      ? `开始调用 ${event.display_name ?? event.tool_key ?? "工具"}`
-      : `Calling ${event.display_name ?? event.tool_key ?? "tool"}`;
-  }
-  if (event.type === "tool_call_end") {
-    const elapsed = typeof event.elapsed_ms === "number" ? `${event.elapsed_ms}ms` : "-";
-    const count = typeof event.sources_count === "number" ? event.sources_count : 0;
-    return isChinese
-      ? `${event.display_name ?? event.tool_key ?? "工具"} 调用完成，耗时 ${elapsed}，返回 ${count} 个来源`
-      : `${event.display_name ?? event.tool_key ?? "Tool"} finished in ${elapsed}, ${count} source(s)`;
-  }
-  if (event.type === "tool_call_error") {
-    const elapsed = typeof event.elapsed_ms === "number" ? `${event.elapsed_ms}ms` : "-";
-    return isChinese
-      ? `${event.display_name ?? event.tool_key ?? "工具"} 调用失败，耗时 ${elapsed}：${event.error ?? "未知错误"}`
-      : `${event.display_name ?? event.tool_key ?? "Tool"} failed in ${elapsed}: ${event.error ?? "unknown error"}`;
-  }
-  return isChinese
-    ? `工具回退：${event.from_tool_key ?? "原工具"} -> ${event.to_tool_key ?? "备用工具"}`
-    : `Tool fallback: ${event.from_tool_key ?? "primary"} -> ${event.to_tool_key ?? "fallback"}`;
-}
-
-function sourceMeta(source: ExternalSource, key: string) {
-  const value = source.metadata?.[key];
-  if (value === null || value === undefined) {
-    return "";
-  }
-  return String(value).trim();
-}
-
-function sourceKindLabel(source: ExternalSource) {
-  const tool = sourceMeta(source, "tool");
-  if (source.source_type === "weather") {
-    return "天气";
-  }
-  if (tool.includes("route")) {
-    return "路线";
-  }
-  if (tool.includes("poi")) {
-    return "地点";
-  }
-  if (tool.includes("district")) {
-    return "行政区";
-  }
-  if (source.source_type === "map") {
-    return "地图";
-  }
-  return "网页";
-}
-
-function SourceCard({ source, index }: { source: ExternalSource; index: number }) {
-  const label = source.citation_label ?? `[${index + 1}]`;
-  const providerLabel = source.provider;
-  const kindLabel = sourceKindLabel(source);
-  const weather = sourceMeta(source, "weather");
-  const temperature = sourceMeta(source, "temperature");
-  const humidity = sourceMeta(source, "humidity");
-  const windDirection = sourceMeta(source, "winddirection");
-  const windPower = sourceMeta(source, "windpower");
-  const reportTime = sourceMeta(source, "reporttime");
-  const address = sourceMeta(source, "address") || sourceMeta(source, "formatted_address");
-  const distance = sourceMeta(source, "distance");
-  const mapType = sourceMeta(source, "type");
-  const origin = sourceMeta(source, "origin");
-  const destination = sourceMeta(source, "destination");
-  const domain = sourceMeta(source, "domain");
-  const contentPreview = source.display_text;
-
-  const cardBody =
-    source.source_type === "weather" ? (
-      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-        <div>天气：{weather || "未知"}</div>
-        <div>气温：{temperature ? `${temperature}°C` : "未知"}</div>
-        <div>湿度：{humidity ? `${humidity}%` : "未知"}</div>
-        <div>
-          风力：{windDirection || "未知"} {windPower || ""}
-        </div>
-        <div className="sm:col-span-2">发布时间：{reportTime || "未知"}</div>
-      </div>
-    ) : source.source_type === "map" ? (
-      <div className="mt-2 grid gap-1.5">
-        {origin || destination ? <div>路线：{origin || "起点"} {"->"} {destination || "终点"}</div> : null}
-        {address ? <div>地址：{address}</div> : null}
-        {mapType ? <div>类型：{mapType}</div> : null}
-        {distance ? <div>距离：{distance}</div> : null}
-        <div className="line-clamp-3 leading-5">{contentPreview}</div>
-      </div>
-    ) : (
-      <div className="mt-2 grid gap-1.5">
-        {domain ? <div>域名：{domain}</div> : null}
-        <div className="line-clamp-3 leading-5">{contentPreview}</div>
-      </div>
-    );
-
-  const inner = (
-    <>
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-medium text-[var(--ink-strong)]">
-          {label} {source.title}
-        </span>
-        <span className="flex shrink-0 items-center gap-1.5">
-          <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-soft)]">
-            {kindLabel}
-          </span>
-          <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-soft)]">
-            {providerLabel}
-          </span>
-        </span>
-      </div>
-      {cardBody}
-    </>
-  );
-
-  const className = `rounded-xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2 text-xs text-[var(--ink-soft)] transition ${
-    source.url ? "hover:border-[var(--accent-strong)]" : "cursor-default"
-  }`;
-
-  if (source.url) {
-    return (
-      <a href={source.url} target="_blank" rel="noreferrer" className={className}>
-        {inner}
-      </a>
-    );
-  }
-  return <div className={className}>{inner}</div>;
 }
 
 function requestErrorMessage(error: unknown) {
@@ -1942,26 +1748,11 @@ export function ChatThread({
                   </details>
                 ) : null}
                 {!isUser && message.toolEvents && message.toolEvents.length > 0 ? (
-                  <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">
-                    <summary className="cursor-pointer select-none font-medium text-[var(--ink-strong)]">
-                      {text.toolTraceTitle} · {message.toolEvents.length}
-                    </summary>
-                    <div className="mt-2 grid gap-2">
-                      {message.toolEvents.map((event, index) => (
-                        <div
-                          key={toolEventKey(event, index)}
-                          className="rounded-xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2 leading-5"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] font-medium text-[var(--ink-strong)]">
-                              {event.type}
-                            </span>
-                            <span>{formatToolEvent(event, uiLanguage)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
+                  <ToolTracePanel
+                    events={message.toolEvents}
+                    title={text.toolTraceTitle}
+                    uiLanguage={uiLanguage}
+                  />
                 ) : null}
                 {!isUser && message.externalSources && message.externalSources.length > 0 ? (
                   <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">
@@ -1970,7 +1761,7 @@ export function ChatThread({
                     </summary>
                     <div className="mt-2 grid gap-2">
                       {message.externalSources.slice(0, 6).map((source, index) => (
-                        <SourceCard
+                        <ExternalSourceCard
                           key={`${source.provider}-${source.title}-${index}`}
                           source={source}
                           index={index}
@@ -2174,305 +1965,41 @@ export function ChatThread({
           </div>
         ) : null}
 
-        <form onSubmit={handleSubmit} className="mx-auto w-full max-w-[74rem]">
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept="image/*,.txt,.md,.markdown,.pdf,.docx"
-            className="hidden"
-            onChange={(event) => void handleUpload(event.target.files)}
-          />
-          <input
-            ref={editFileInputRef}
-            type="file"
-            multiple
-            accept="image/*,.txt,.md,.markdown,.pdf,.docx"
-            className="hidden"
-            onChange={(event) => void handleEditUpload(event.target.files)}
-          />
-
-          <div className="chat-composer rounded-[22px] border px-3 py-2 backdrop-blur">
-            {uploadedItems.length > 0 ? (
-              <div className="mb-2 flex flex-wrap gap-2">
-                {uploadedItems.map((item) =>
-                  isImageAttachment(item) ? (
-                    <div
-                      key={item.id}
-                      onClick={() => setPreviewItem(item)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setPreviewItem(item);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      className="cursor-pointer overflow-hidden rounded-2xl border border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)]"
-                    >
-                      <div className="flex items-start gap-3 p-2">
-                        <img
-                          src={buildAttachmentUrl(item.storage_key)}
-                          alt={item.file_name}
-                          className="h-16 w-16 rounded-xl object-cover"
-                        />
-                        <div className="min-w-0 pr-2 text-xs text-[var(--ink-soft)]">
-                          <div className="truncate font-medium">{item.file_name}</div>
-                          <div className="mt-1 text-[var(--ink-muted)]">{formatFileSize(item.file_size)}</div>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              removeUploadedItem(item.id);
-                            }}
-                            className="mt-2 text-[var(--ink-muted)] transition hover:text-[var(--ink-strong)]"
-                          >
-                            {uiLanguage === "en-US" ? "Remove" : "移除"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      key={item.id}
-                      onClick={() => setPreviewItem(item)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setPreviewItem(item);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.9)] px-3 py-2 text-xs text-[var(--ink-soft)]"
-                    >
-                      <span>{attachmentKindLabel(item.kind, uiLanguage)}</span>
-                      <span className="max-w-[260px] truncate">{item.file_name}</span>
-                      <span>{formatFileSize(item.file_size)}</span>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          removeUploadedItem(item.id);
-                        }}
-                        className="text-[var(--ink-muted)] transition hover:text-[var(--ink-strong)]"
-                      >
-                        {uiLanguage === "en-US" ? "Remove" : "移除"}
-                      </button>
-                    </div>
-                  )
-                )}
-              </div>
-            ) : null}
-
-            <textarea
-              ref={composerRef}
-              value={composer}
-              onChange={(event) => setComposer(event.target.value)}
-              onKeyDown={(event) => void handleComposerKeyDown(event)}
-              placeholder={text.inputPlaceholder}
-              rows={1}
-              disabled={Boolean(editingUserMessageId)}
-              className="chat-composer-textarea min-h-[34px] w-full resize-none border-none bg-transparent text-[15px] leading-6 outline-none placeholder:text-[var(--ink-muted)]"
-            />
-
-            <div className="mt-1.5 flex flex-col gap-1.5 border-t border-[var(--hairline)] pt-1.5">
-              {streamingStatusLabel ? (
-                <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-2 text-sm text-[var(--ink-soft)]">
-                  {streamingStatusLabel}
-                </div>
-              ) : null}
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={Boolean(editingUserMessageId)}
-                    className="tool-chip rounded-full border px-3 py-1.5 text-xs transition hover:border-[var(--accent-strong)]"
-                  >
-                    {text.uploadAttachment}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onWebSearchEnabledChange(!isWebSearchEnabled)}
-                    disabled={Boolean(editingUserMessageId) || isGenerating}
-                    className={`tool-chip rounded-full border px-3 py-1.5 text-xs transition ${
-                      isWebSearchEnabled
-                        ? "is-active"
-                        : "hover:border-[var(--accent-strong)]"
-                    }`}
-                  >
-                    {text.webSearch}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDeepThinkingEnabledChange(!isDeepThinkingEnabled)}
-                    disabled={Boolean(editingUserMessageId) || isGenerating}
-                    className={`tool-chip rounded-full border px-3 py-1.5 text-xs transition ${
-                      isDeepThinkingEnabled
-                        ? "is-active"
-                        : "hover:border-[var(--accent-strong)]"
-                    }`}
-                  >
-                    {text.deepThinking}
-                  </button>
-                  {contextInfo && hasContextDiagnostics ? (
-                    <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setIsContextPanelOpen((current) => !current)}
-                      className="context-chip rounded-full border px-3 py-1.5 text-xs transition hover:border-[var(--accent-strong)]"
-                    >
-                      {text.contextButton}
-                    </button>
-
-                    {isContextPanelOpen ? (
-                      <div className="absolute bottom-[calc(100%+0.75rem)] left-0 z-20 flex max-h-[min(72vh,34rem)] w-[min(92vw,44rem)] flex-col overflow-hidden rounded-[24px] border border-[var(--control-border)] bg-[var(--modal-bg)] shadow-[var(--panel-shadow)] backdrop-blur">
-                        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--hairline)] px-4 py-3">
-                          <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
-                            {text.contextPanelTitle}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => setIsContextPanelOpen(false)}
-                            className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
-                          >
-                            {text.closeContextPanel}
-                          </button>
-                        </div>
-
-                        <div className="min-h-0 overflow-y-auto p-4">
-                          {overviewStatCards.length > 0 ? (
-                            <div>
-                              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">
-                                {text.contextOverviewTitle}
-                              </p>
-                              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                                {overviewStatCards.map((item) => (
-                                  <div
-                                    key={item.key}
-                                    className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2"
-                                  >
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">
-                                      {item.label}
-                                    </p>
-                                    <p className="mt-1 break-all text-sm font-medium text-[var(--ink-strong)]">
-                                      {item.value}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {contextInfo.notices.length > 0 ? (
-                            <div className="mt-3 rounded-2xl border border-dashed border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-2">
-                              <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
-                                {text.contextNoticesTitle}
-                              </p>
-                              <div className="mt-2 flex flex-col gap-1 text-xs leading-5 text-[var(--ink-soft)]">
-                                {contextInfo.notices.map((notice) => (
-                                  <span key={notice}>{notice}</span>
-                                ))}
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {attachmentChunkDetails.length > 0 ? (
-                            <div className="mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-3">
-                              <p className="text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
-                                {text.attachmentPreviewTitle}
-                              </p>
-                              <div className="mt-2 space-y-2">
-                                {attachmentChunkDetails.map((chunk) => {
-                                  const chunkKey = `${chunk.file_name}-${chunk.index}-${chunk.score}`;
-                                  const isExpanded = expandedChunkKeys.includes(chunkKey);
-                                  return (
-                                    <div
-                                      key={chunkKey}
-                                      className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2"
-                                    >
-                                      <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <div className="min-w-0">
-                                          <p className="truncate text-sm font-medium text-[var(--ink-strong)]">
-                                            {chunk.file_name}
-                                          </p>
-                                          <p className="mt-1 text-[11px] text-[var(--ink-muted)]">
-                                            {text.attachmentPreviewMeta} #{chunk.index} · score={chunk.score} · {chunk.char_count} chars
-                                          </p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => toggleAttachmentChunk(chunkKey)}
-                                          className="shrink-0 rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
-                                        >
-                                          {isExpanded ? text.attachmentPreviewCollapse : text.attachmentPreviewExpand}
-                                        </button>
-                                      </div>
-                                      <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-[var(--ink-soft)]">
-                                        {isExpanded ? chunk.expanded_preview : chunk.preview}
-                                      </p>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {advancedStatCards.length > 0 ? (
-                            <details className="mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2">
-                              <summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-[var(--ink-muted)]">
-                                {text.contextAdvancedTitle}
-                              </summary>
-                              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                                {advancedStatCards.map((item) => (
-                                  <div
-                                    key={item.key}
-                                    className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2"
-                                  >
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">
-                                      {item.label}
-                                    </p>
-                                    <p className="mt-1 break-all text-sm font-medium text-[var(--ink-strong)]">
-                                      {item.value}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            </details>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-                    </div>
-                  ) : null}
-                  {isUploading ? (
-                    <span className="text-xs text-[var(--ink-muted)]">{text.uploading}</span>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {isGenerating ? (
-                    <button
-                      type="button"
-                      onClick={() => abortControllerRef.current?.abort()}
-                      className="inline-flex items-center justify-center rounded-full border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-1.5 text-sm font-medium text-[var(--danger-text)] transition hover:brightness-95"
-                    >
-                      {text.stopGenerating}
-                    </button>
-                  ) : null}
-                  <button
-                    type="submit"
-                    disabled={isGenerating || !composer.trim() || Boolean(editingUserMessageId)}
-                    className="primary-action inline-flex items-center justify-center rounded-full px-5 py-1.5 text-sm font-medium transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
-                  >
-                    {isGenerating ? text.sending : text.send}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </form>
+        <ChatComposer
+          text={text}
+          uiLanguage={uiLanguage}
+          composer={composer}
+          uploadedItems={uploadedItems}
+          isUploading={isUploading}
+          isGenerating={isGenerating}
+          isEditingUserMessage={Boolean(editingUserMessageId)}
+          streamingStatusLabel={streamingStatusLabel}
+          isWebSearchEnabled={isWebSearchEnabled}
+          isDeepThinkingEnabled={isDeepThinkingEnabled}
+          contextInfo={contextInfo}
+          hasContextDiagnostics={Boolean(hasContextDiagnostics)}
+          overviewStatCards={overviewStatCards}
+          advancedStatCards={advancedStatCards}
+          attachmentChunkDetails={attachmentChunkDetails}
+          expandedChunkKeys={expandedChunkKeys}
+          isContextPanelOpen={isContextPanelOpen}
+          fileInputRef={fileInputRef}
+          editFileInputRef={editFileInputRef}
+          composerRef={composerRef}
+          onComposerChange={setComposer}
+          onUpload={handleUpload}
+          onEditUpload={handleEditUpload}
+          onPreviewAttachment={setPreviewItem}
+          onRemoveUploadedItem={removeUploadedItem}
+          onWebSearchEnabledChange={onWebSearchEnabledChange}
+          onDeepThinkingEnabledChange={onDeepThinkingEnabledChange}
+          onToggleContextPanel={() => setIsContextPanelOpen((current) => !current)}
+          onCloseContextPanel={() => setIsContextPanelOpen(false)}
+          onToggleAttachmentChunk={toggleAttachmentChunk}
+          onComposerKeyDown={handleComposerKeyDown}
+          onSubmit={handleSubmit}
+          onStopGenerating={() => abortControllerRef.current?.abort()}
+        />
       </footer>
 
       {isDeleteMessagesDialogOpen ? (
@@ -2516,63 +2043,12 @@ export function ChatThread({
         </div>
       ) : null}
 
-      {previewItem ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-[rgba(16,31,24,0.55)] p-4 backdrop-blur-sm">
-          <div className="flex h-[min(86vh,56rem)] w-[min(92vw,72rem)] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-[rgba(255,250,242,0.98)] shadow-[0_28px_90px_rgba(16,31,24,0.22)]">
-            <div className="flex items-center justify-between gap-3 border-b border-[rgba(22,34,27,0.08)] px-5 py-4">
-              <div className="min-w-0">
-                <p className="truncate text-lg font-semibold text-[var(--ink-strong)]">
-                  {previewItem.file_name}
-                </p>
-                <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                  {formatFileSize(previewItem.file_size ?? 0)}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <a
-                  href={buildAttachmentUrl(previewItem.storage_key)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
-                >
-                  {text.openOriginal}
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setPreviewItem(null)}
-                  className="rounded-full border border-[rgba(22,34,27,0.12)] bg-white px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
-                >
-                  {text.closePreview}
-                </button>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              {isImageAttachment(previewItem) ? (
-                <div className="flex h-full items-center justify-center">
-                  <img
-                    src={buildAttachmentUrl(previewItem.storage_key)}
-                    alt={previewItem.file_name}
-                    className="max-h-full max-w-full rounded-2xl object-contain"
-                  />
-                </div>
-              ) : isPdfAttachment(previewItem) ? (
-                <iframe
-                  src={buildAttachmentUrl(previewItem.storage_key)}
-                  title={previewItem.file_name}
-                  className="h-full min-h-[60vh] w-full rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white"
-                />
-              ) : (
-                <div className="rounded-2xl border border-[rgba(22,34,27,0.08)] bg-white p-4">
-                  <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-[var(--ink-strong)]">
-                    {previewItem.parsed_text?.trim() || previewItem.file_name}
-                  </pre>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <AttachmentPreviewModal
+        item={previewItem}
+        openOriginalText={text.openOriginal}
+        closeText={text.closePreview}
+        onClose={() => setPreviewItem(null)}
+      />
     </>
   );
 }

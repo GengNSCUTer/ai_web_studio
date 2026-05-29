@@ -61,26 +61,30 @@ class SettingService:
             return cls.DEFAULT_OLLAMA_CONTEXT_WINDOW
         return cls.DEFAULT_OPENAI_CONTEXT_WINDOW
 
+    @classmethod
+    def _build_default_setting(cls, user_id: str) -> UserSetting:
+        return UserSetting(
+            user_id=user_id,
+            provider_type="openai-compatible",
+            default_model=cls.DEFAULT_OPENAI_MODEL,
+            ollama_base_url=cls.DEFAULT_OPENAI_BASE_URL,
+            api_key=cls.DEFAULT_OPENAI_API_KEY,
+            temperature=0.7,
+            top_p=0.9,
+            max_tokens=None,
+            system_prompt=None,
+            model_context_window=cls.DEFAULT_OPENAI_CONTEXT_WINDOW,
+            context_mode=cls.DEFAULT_CONTEXT_MODE,
+            memory_enabled=cls.DEFAULT_MEMORY_ENABLED,
+            memory_max_chars=cls.DEFAULT_MEMORY_MAX_CHARS,
+            ui_language=cls.DEFAULT_UI_LANGUAGE,
+            theme_mode=cls.DEFAULT_THEME_MODE,
+        )
+
     def get_or_create_user_settings(self, user_id: str) -> UserSettingResponse:
         setting = self.repo.get_by_user(user_id)
         if not setting:
-            setting = UserSetting(
-                user_id=user_id,
-                provider_type="openai-compatible",
-                default_model=self.DEFAULT_OPENAI_MODEL,
-                ollama_base_url=self.DEFAULT_OPENAI_BASE_URL,
-                api_key=self.DEFAULT_OPENAI_API_KEY,
-                temperature=0.7,
-                top_p=0.9,
-                max_tokens=None,
-                system_prompt=None,
-                model_context_window=self.DEFAULT_OPENAI_CONTEXT_WINDOW,
-                context_mode=self.DEFAULT_CONTEXT_MODE,
-                memory_enabled=self.DEFAULT_MEMORY_ENABLED,
-                memory_max_chars=self.DEFAULT_MEMORY_MAX_CHARS,
-                ui_language=self.DEFAULT_UI_LANGUAGE,
-                theme_mode=self.DEFAULT_THEME_MODE,
-            )
+            setting = self._build_default_setting(user_id)
             setting = self.repo.save(setting)
         else:
             should_save = False
@@ -139,23 +143,7 @@ class SettingService:
     def update_user_settings(self, user_id: str, payload: UserSettingUpdate) -> UserSettingResponse:
         setting = self.repo.get_by_user(user_id)
         if not setting:
-            setting = UserSetting(
-                user_id=user_id,
-                provider_type="openai-compatible",
-                default_model=self.DEFAULT_OPENAI_MODEL,
-                ollama_base_url=self.DEFAULT_OPENAI_BASE_URL,
-                api_key=self.DEFAULT_OPENAI_API_KEY,
-                temperature=0.7,
-                top_p=0.9,
-                max_tokens=None,
-                system_prompt=None,
-                model_context_window=self.DEFAULT_OPENAI_CONTEXT_WINDOW,
-                context_mode=self.DEFAULT_CONTEXT_MODE,
-                memory_enabled=self.DEFAULT_MEMORY_ENABLED,
-                memory_max_chars=self.DEFAULT_MEMORY_MAX_CHARS,
-                ui_language=self.DEFAULT_UI_LANGUAGE,
-                theme_mode=self.DEFAULT_THEME_MODE,
-            )
+            setting = self._build_default_setting(user_id)
 
         data = payload.model_dump(exclude_unset=True)
         for key in ("provider_type", "default_model", "ollama_base_url", "system_prompt"):

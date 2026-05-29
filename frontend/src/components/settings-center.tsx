@@ -2,6 +2,13 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import {
+  buildProviderPreset,
+  buildSettingsPayload,
+  normalizeThemeMode,
+  normalizeUserSettings,
+  type ThemeMode,
+} from "@/lib/settings";
 import type {
   Project,
   PromptTemplate,
@@ -34,9 +41,6 @@ type SettingsCenterProps = {
   initialMemories?: UserMemory[];
   initialPromptTemplates?: PromptTemplate[];
 };
-
-type UILanguage = "zh-CN" | "en-US";
-type ThemeMode = "system" | "light" | "dark";
 
 const TEXT = {
   "zh-CN": {
@@ -174,34 +178,6 @@ const TEXT = {
   },
 } as const;
 
-function normalizeUserSettings(settings: UserSettings): UserSettings {
-  return {
-    ...settings,
-    memory_enabled: settings.memory_enabled ?? true,
-    memory_max_chars: settings.memory_max_chars || 4000,
-    theme_mode: settings.theme_mode || "system",
-  };
-}
-
-function normalizeThemeMode(value: string | null | undefined): ThemeMode {
-  return value === "light" || value === "dark" || value === "system" ? value : "system";
-}
-
-function providerDefaults(providerType: string) {
-  if (providerType === "ollama") {
-    return {
-      baseUrl: "http://127.0.0.1:11435",
-      model: "qwen3.5:27b-q8_0",
-      modelContextWindow: 100000,
-    };
-  }
-  return {
-    baseUrl: "https://api.siliconflow.cn/v1",
-    model: "Qwen/Qwen3.5-35B-A3B",
-    modelContextWindow: 128000,
-  };
-}
-
 async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     ...init,
@@ -246,7 +222,7 @@ export function SettingsCenter({
   const [testingToolProvider, setTestingToolProvider] = useState<string | null>(null);
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
 
-  const uiLanguage: UILanguage = userSettings.ui_language === "en-US" ? "en-US" : "zh-CN";
+  const uiLanguage = userSettings.ui_language === "en-US" ? "en-US" : "zh-CN";
   const text = TEXT[uiLanguage];
   const selectedThemeMode = normalizeThemeMode(userSettings.theme_mode);
   const resolvedTheme = selectedThemeMode === "system" ? (systemPrefersDark ? "dark" : "light") : selectedThemeMode;
@@ -325,7 +301,7 @@ export function SettingsCenter({
   }
 
   function applyProviderPreset(providerType: string) {
-    const defaults = providerDefaults(providerType);
+    const defaults = buildProviderPreset(providerType);
     setProviderInfo((current) =>
       current && current.provider === providerType
         ? current
@@ -356,23 +332,11 @@ export function SettingsCenter({
       const saved = await requestJson<UserSettings>("/api/backend/settings", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          provider_type: userSettings.provider_type,
-          default_model: userSettings.default_model,
-          ollama_base_url: userSettings.ollama_base_url,
-          api_key: providerApiKeyDraft.trim() ? providerApiKeyDraft.trim() : undefined,
-          clear_api_key: clearProviderApiKey,
-          temperature: userSettings.temperature,
-          top_p: userSettings.top_p,
-          max_tokens: userSettings.max_tokens,
-          system_prompt: userSettings.system_prompt,
-          model_context_window: userSettings.model_context_window,
-          context_mode: userSettings.context_mode,
-          memory_enabled: userSettings.memory_enabled,
-          memory_max_chars: userSettings.memory_max_chars,
-          ui_language: userSettings.ui_language,
-          theme_mode: userSettings.theme_mode,
-        }),
+      body: JSON.stringify({
+        ...buildSettingsPayload(userSettings),
+        api_key: providerApiKeyDraft.trim() ? providerApiKeyDraft.trim() : undefined,
+        clear_api_key: clearProviderApiKey,
+      }),
       });
       setUserSettings(normalizeUserSettings(saved));
       setProviderApiKeyDraft("");
