@@ -1,0 +1,979 @@
+# 知识库 / RAG 调研与实施路线
+
+本文档对应 AI Web Studio 从“多模态聊天工作台 + 工具调用”进入“个人知识库 / RAG 系统”的阶段 0 设计。
+
+阶段 0 目标不是马上写代码，而是把产品边界、技术路线、数据模型、实施顺序先定清楚，避免后续把知识库能力直接堆进聊天链路，导致维护困难。
+
+---
+
+## 1. 当前项目状态
+
+截至 2026-06-07，项目已经完成这些基础能力：
+
+- 前后端分离聊天工作台。
+- 用户注册、登录、会话隔离。
+- 历史会话、消息、附件持久化。
+- Ollama 与 OpenAI-compatible provider。
+- 文本、图片、文件进入当前会话上下文。
+- 流式回答、停止生成、重生成、编辑后重答。
+- 上下文治理：动态预算、滚动摘要、长期记忆、附件片段按需注入、上下文诊断。
+- 工具调用阶段收尾：ToolCatalog、MCP schema、LLM planner、ToolWorkflow、Tool Trace、用户级工具凭据、来源展示。
+
+这说明当前项目已经具备进入 RAG 阶段的基础：
+
+- 有用户体系，可以做用户级知识库隔离。
+- 有 PostgreSQL，可以保存知识库、文档、分块、任务、检索日志。
+- 有上下文治理层，可以把知识库召回结果纳入统一预算。
+- 有来源卡片和 Trace 经验，可以复用到 RAG 引用和检索观测。
+- 有工作区雏形，可以把知识库和项目/工作区关联起来。
+
+---
+
+## 2. 对标 Dify 后的产品结论
+
+参考 Dify Knowledge Base / Knowledge Pipeline 的设计，知识库不是“上传一个文件然后问问题”的临时功能，而是一条完整管线：
+
+```text
+数据源
+-> 文档解析
+-> 清洗与分块
+-> 向量化 / 索引
+-> 检索
+-> 可选重排
+-> 注入上下文
+-> 带引用回答
+```
+
+Dify 里值得参考的点：
+
+- 知识库创建前就需要选择索引/分块策略。
+- 文档上传后走独立处理任务，不应阻塞聊天主链路。
+- 检索参数包括 Top K、Score Threshold、Rerank、Metadata Filter 等。
+- 知识库检索结果应能在应用节点或聊天回答里解释来源。
+- 不同 chunk 模式会影响索引结构，部分配置修改后需要重建索引。
+
+因此本项目不建议继续沿用“当前轮附件直接塞上下文”的方式扩展成长知识库。正确路线是新增独立知识库模块，再把检索结果接入现有上下文治理。
+
+参考资料：
+
+- Dify Knowledge Pipeline：https://docs.dify.ai/en/guides/knowledge-base/knowledge-pipeline/readme
+- Dify 创建知识管线：https://docs.dify.ai/en/guides/knowledge-base/knowledge-pipeline/create-knowledge-pipeline
+- Dify Chunking and Cleaning：https://docs.dify.ai/en/use-dify/knowledge/create-knowledge/chunking-and-cleaning-text
+- Dify Knowledge Retrieval：https://docs.dify.ai/en/use-dify/nodes/knowledge-retrieval
+
+---
+
+## 3. 第一阶段产品形态
+
+### 3.1 新增页面
+
+建议新增两个主页面：
+
+```text
+/knowledge
+/knowledge/[id]
+```
+
+`/knowledge` 负责知识库列表：
+
+- 创建知识库。
+- 查看知识库名称、描述、文档数、分块数、索引状态、embedding 模型、rerank 模型、更新时间。
+- 按工作区筛选。
+- 删除或归档知识库。
+
+`/knowledge/[id]` 负责知识库详情：
+
+- 文档管理。
+- 文档解析状态。
+- 分块预览。
+- 检索测试。
+- 配置查看与有限编辑。
+- 任务日志。
+
+### 3.2 创建知识库向导
+
+创建知识库建议做成 Dify 风格的分步向导：
+
+```text
+基础信息
+-> 解析器配置
+-> 分块配置
+-> Embedding / Rerank 配置
+-> 检索配置
+-> 确认创建
+```
+
+第一版建议默认值：
+
+```text
+parser_provider = mineru，如果用户已配置 MinerU token
+parser_provider = local_basic，如果用户未配置 MinerU token
+chunk_mode = general
+chunk_size = 1000
+chunk_overlap = 150
+chunk_delimiter = "\n\n"
+embedding_provider = siliconflow
+embedding_model = BAAI/bge-m3
+embedding_dimensions = 1024
+rerank_enabled = true
+rerank_provider = siliconflow
+rerank_model = BAAI/bge-reranker-v2-m3
+retrieval_mode = vector
+retrieval_top_k = 20
+rerank_top_n = 6
+score_threshold = 0.2
+max_context_chunks = 6
+max_context_chars = 12000
+strict_knowledge_answer = false
+```
+
+### 3.3 聊天页接入
+
+聊天页不应默认强行使用所有知识库。建议用户在输入区附近显式选择：
+
+- 不使用知识库。
+- 使用当前工作区默认知识库。
+- 选择一个知识库。
+- 后续扩展为选择多个知识库。
+
+第一版先做单知识库选择，减少上下文预算和引用展示复杂度。
+
+---
+
+## 4. MinerU 的定位
+
+MinerU 更适合放在“文档入库解析阶段”，而不是每次聊天时临时调用。
+
+推荐流程：
+
+```text
+用户上传 PDF / Office / 图片文档
+-> 创建 document 记录
+-> 创建 parse job
+-> ParserService 调用 MinerU
+-> 获取 Markdown / 图片资源 / 页面结构
+-> 保存解析结果
+-> chunker 分块
+-> embedding
+-> 写入向量索引
+```
+
+MinerU token 必须按用户级凭据管理：
+
+- 不写入 Git。
+- 不写入文档。
+- 不写入命令历史。
+- 不在前端回显明文。
+- 后端加密存储。
+- 前端只显示是否已配置和掩码摘要。
+
+当前项目已经有用户级工具凭据加密存储经验，MinerU token 可以复用同类能力，但建议在知识库设置里单独展示为“文档解析服务凭据”，不要混在联网搜索工具里。
+
+MinerU 相关入口：
+
+- MinerU API 文档：https://mineru.net/apiManage/docs
+- MinerU GitHub：https://github.com/opendatalab/MinerU
+
+---
+
+## 5. Embedding 与 Rerank 选择
+
+### 5.1 Embedding 默认模型
+
+第一版默认使用：
+
+```text
+provider = siliconflow
+model = BAAI/bge-m3
+dimensions = 1024
+```
+
+理由：
+
+- BGE-M3 是多语言、多粒度检索常用模型，适合中文知识库起步。
+- 当前已通过 SiliconFlow embedding API 连接测试。
+- 默认免费模型适合第一版低成本验证。
+- 1024 维向量对 FAISS 本地索引压力可控。
+
+后续可作为高级选项提供：
+
+```text
+Qwen/Qwen3-Embedding-0.6B
+Qwen/Qwen3-Embedding-4B
+Qwen/Qwen3-Embedding-8B
+```
+
+Qwen3 embedding 的优势是更长输入窗口和可配置维度，但第一版不建议默认上更大模型，避免索引成本和延迟不稳定。
+
+### 5.2 Rerank 默认模型
+
+第一版默认使用：
+
+```text
+provider = siliconflow
+model = BAAI/bge-reranker-v2-m3
+```
+
+推荐召回链路：
+
+```text
+query
+-> embedding
+-> vector top_k = 20
+-> rerank top_n = 6
+-> score threshold
+-> context budget
+-> prompt injection
+```
+
+理由：
+
+- 向量召回负责扩大候选范围。
+- rerank 负责提高最终进入上下文的片段质量。
+- 免费 reranker 适合第一阶段使用。
+
+SiliconFlow 相关文档：
+
+- Embeddings API：https://api-docs.siliconflow.cn/docs/api/embeddings-post
+- Rerank API：https://siliconflow-4a6a0801.mintlify.app/en/api-reference/rerank/create-rerank
+
+---
+
+## 6. 向量库选择
+
+当前用户态 PostgreSQL 可用，但 pgvector 扩展不可用：
+
+```text
+vector.control 不存在
+```
+
+这意味着第一版不能把 pgvector 作为硬依赖。
+
+推荐第一版方案：
+
+```text
+FAISS 本地向量索引 + PostgreSQL 元数据
+```
+
+设计理由：
+
+- 不依赖 root 权限。
+- 不依赖系统级 PostgreSQL 扩展。
+- 适合单机个人知识库第一版。
+- PostgreSQL 仍保存知识库、文档、chunk、embedding metadata、job、retrieval log。
+- 后续可以迁移到 pgvector / Qdrant，不影响上层检索接口。
+
+必须提前抽象 `VectorStore` 接口：
+
+```python
+class VectorStore:
+    def add_embeddings(...): ...
+    def delete_by_document(...): ...
+    def search(...): ...
+    def rebuild(...): ...
+```
+
+第一版实现：
+
+```text
+FaissVectorStore
+```
+
+后续实现：
+
+```text
+PgVectorStore
+QdrantVectorStore
+```
+
+FAISS 参考：
+
+- FAISS 官方文档：https://faiss.ai/
+- FAISS GitHub：https://github.com/facebookresearch/faiss
+
+---
+
+## 7. 数据库设计
+
+### 7.1 knowledge_bases
+
+保存知识库配置。
+
+```text
+id
+user_id
+project_id
+name
+description
+visibility
+parser_provider
+chunk_mode
+chunk_size
+chunk_overlap
+chunk_delimiter
+parent_chunk_size
+child_chunk_size
+child_chunk_overlap
+embedding_provider
+embedding_model
+embedding_dimensions
+rerank_enabled
+rerank_provider
+rerank_model
+retrieval_mode
+retrieval_top_k
+rerank_top_n
+score_threshold
+max_context_chunks
+max_context_chars
+strict_knowledge_answer
+created_at
+updated_at
+```
+
+第一版 `visibility` 只做 `private`。
+
+### 7.2 knowledge_documents
+
+保存文档记录与处理状态。
+
+```text
+id
+knowledge_base_id
+user_id
+project_id
+file_name
+mime_type
+file_size
+storage_key
+parser_provider
+parse_status
+index_status
+document_version
+content_hash
+parsed_markdown_path
+parsed_assets_json
+error_message
+created_at
+updated_at
+```
+
+状态建议：
+
+```text
+pending
+parsing
+parsed
+indexing
+indexed
+failed
+deleted
+```
+
+### 7.3 knowledge_chunks
+
+保存分块文本和来源定位。
+
+```text
+id
+knowledge_base_id
+document_id
+chunk_index
+chunk_type
+content
+content_hash
+title_path
+section_title
+page_start
+page_end
+token_count
+char_count
+metadata_json
+created_at
+```
+
+### 7.4 knowledge_embeddings
+
+保存 chunk 与向量索引 id 的映射。
+
+```text
+id
+knowledge_base_id
+document_id
+chunk_id
+embedding_provider
+embedding_model
+embedding_dimensions
+vector_store_type
+vector_id
+content_hash
+created_at
+```
+
+FAISS 文件建议：
+
+```text
+data/vector_indexes/{knowledge_base_id}/{embedding_model_hash}.faiss
+data/vector_indexes/{knowledge_base_id}/mapping.json
+```
+
+### 7.5 knowledge_jobs
+
+保存解析、分块、索引任务。
+
+```text
+id
+user_id
+knowledge_base_id
+document_id
+job_type
+status
+payload_json
+retry_count
+error_message
+started_at
+finished_at
+created_at
+updated_at
+```
+
+job_type：
+
+```text
+parse_document
+chunk_document
+index_document
+reindex_document
+delete_document
+```
+
+### 7.6 knowledge_retrieval_logs
+
+保存每次知识库检索记录，用于调试和后续评估。
+
+```text
+id
+user_id
+conversation_id
+message_id
+knowledge_base_ids_json
+query
+retrieval_mode
+embedding_model
+rerank_model
+top_k
+rerank_top_n
+score_threshold
+returned_chunks_json
+latency_ms
+created_at
+```
+
+---
+
+## 8. 后端服务分层
+
+建议新增目录：
+
+```text
+backend/app/services/knowledge/
+```
+
+推荐模块：
+
+```text
+knowledge_base_service.py
+document_service.py
+parser_service.py
+mineru_parser.py
+local_parser.py
+chunker.py
+embedding_service.py
+rerank_service.py
+vector_store.py
+faiss_store.py
+retriever.py
+knowledge_context_service.py
+indexing_worker.py
+```
+
+职责边界：
+
+- `KnowledgeBaseService`：知识库 CRUD、配置校验。
+- `KnowledgeDocumentService`：上传、状态、删除、重试。
+- `ParserService`：选择 MinerU 或本地解析器。
+- `MinerUParser`：调用 MinerU API/MCP。
+- `LocalParser`：本地基础解析，作为无 MinerU token 时的 fallback。
+- `Chunker`：Markdown / 文本切块，生成 metadata。
+- `EmbeddingService`：调用 SiliconFlow embeddings，处理批量、重试、限流。
+- `RerankService`：调用 SiliconFlow rerank。
+- `VectorStore`：向量库接口。
+- `FaissVectorStore`：第一版本地 FAISS 实现。
+- `KnowledgeRetriever`：query -> vector recall -> rerank -> threshold -> sources。
+- `KnowledgeContextService`：把检索结果转换成上下文治理可消费的知识片段。
+- `IndexingWorker`：处理知识库后台任务。
+
+关键原则：
+
+- 不把解析、chunk、embedding、检索逻辑塞进聊天 service。
+- 不让聊天 route 知道 FAISS、MinerU、SiliconFlow 的细节。
+- 知识库召回结果和工具来源一样，都进入统一 `ExternalContext / SourceCitation` 体系。
+
+---
+
+## 9. 与当前上下文治理的关系
+
+RAG 不应另起一套 prompt 拼装逻辑，而应作为新的上下文通道接入现有上下文治理。
+
+推荐链路：
+
+```text
+用户问题
+-> 判断是否选择知识库
+-> KnowledgeRetriever 检索片段
+-> RerankService 可选重排
+-> KnowledgeContextService 生成 KnowledgeSource[]
+-> ContextAssemblyService 按预算注入
+-> ContextPromptBuilder 统一拼 prompt
+-> LLM 回答
+-> 前端展示知识库引用
+```
+
+新增上下文诊断字段：
+
+```text
+knowledge_retrieval_enabled
+knowledge_bases_selected
+knowledge_chunks_retrieved
+knowledge_chunks_injected
+knowledge_context_chars
+knowledge_rerank_used
+knowledge_retrieval_latency_ms
+```
+
+预算默认值：
+
+```text
+CONTEXT_MAX_KNOWLEDGE_CHARS = 12000
+CONTEXT_MAX_KNOWLEDGE_CHUNKS = 6
+CONTEXT_KNOWLEDGE_PER_CHUNK_MAX_CHARS = 2200
+```
+
+预算优先级建议：
+
+```text
+System Prompt
+-> 用户长期记忆
+-> 工作区 System Prompt
+-> 当前问题
+-> 知识库片段
+-> 当前轮附件
+-> 最近历史
+-> 会话摘要
+```
+
+说明：
+
+- 当前问题必须保留。
+- System Prompt 和工作区 System Prompt 应保持稳定，利于 prompt cache。
+- 知识库片段应有单独预算，避免挤掉当前用户问题或关键历史。
+- 知识库片段过多时宁可少注入，也不要把低分片段全部塞进上下文。
+
+---
+
+## 10. 前端交互设计
+
+### 10.1 知识库列表页
+
+列表字段：
+
+- 名称。
+- 描述。
+- 所属工作区。
+- 文档数。
+- 分块数。
+- 索引状态。
+- embedding 模型。
+- rerank 模型。
+- 更新时间。
+
+操作：
+
+- 新建知识库。
+- 进入详情。
+- 删除知识库。
+- 后续支持复制配置。
+
+### 10.2 知识库详情页
+
+建议拆成 tab：
+
+```text
+文档
+检索测试
+配置
+任务
+```
+
+文档 tab：
+
+- 上传文件。
+- 文档列表。
+- 解析状态。
+- 索引状态。
+- 错误信息。
+- 重新解析。
+- 重新索引。
+- 删除文档。
+
+检索测试 tab：
+
+- 输入 query。
+- 显示向量召回 top_k。
+- 显示 rerank 后 top_n。
+- 展示 score、文档名、页码、标题路径、chunk 内容。
+
+配置 tab：
+
+- 展示创建时配置。
+- 允许修改部分检索参数。
+- 修改 chunk / embedding 模型时提示需要 reindex。
+
+任务 tab：
+
+- pending / running / success / failed。
+- 耗时。
+- 错误原因。
+- 重试入口。
+
+### 10.3 聊天页知识库选择
+
+输入区附近新增：
+
+- 知识库开关。
+- 知识库选择器。
+- 当前选择的知识库标签。
+
+回答下方来源展示：
+
+```text
+知识库来源
+[K1] 文件名 / 页码 / 标题路径
+[K2] 文件名 / 页码 / 标题路径
+```
+
+点击来源：
+
+- 打开文档预览。
+- 定位 chunk。
+- 高亮命中片段。
+
+---
+
+## 11. 实施阶段
+
+### RAG-0：文档与技术路线
+
+目标：
+
+- 明确知识库产品形态。
+- 明确 Dify 风格配置。
+- 明确 MinerU、embedding、rerank、FAISS 的第一版选型。
+- 明确数据表、服务边界和实施顺序。
+
+交付：
+
+- `52_知识库_RAG_调研与实施路线.md`
+- 更新 `05_详细需求清单.md`
+- 更新 `06_技术实现设计.md`
+- 更新 `07_当前实现进展与下一步计划.md`
+
+### RAG-1：知识库模型与页面骨架
+
+目标：
+
+- 先把知识库作为独立产品模块立起来。
+
+实现：
+
+- `knowledge_bases`
+- `knowledge_documents`
+- `knowledge_jobs`
+- `/knowledge` 列表页。
+- 创建知识库向导。
+- `/knowledge/[id]` 详情页骨架。
+- 上传文件只创建 document 记录，暂不做完整索引。
+
+验收：
+
+- 用户可创建知识库。
+- 用户可配置 parser、chunk、embedding、rerank、retrieval。
+- 用户可上传文件并看到 document 记录。
+- 不同用户只能看到自己的知识库。
+
+### RAG-2：解析与 MinerU 凭据
+
+目标：
+
+- 跑通文档解析。
+
+实现：
+
+- 用户级 MinerU token 加密存储。
+- MinerU token 测试连接。
+- local_basic parser。
+- MinerU parser。
+- parse job。
+- 解析 Markdown 预览。
+- 失败重试。
+
+验收：
+
+- 未配置 MinerU 时可使用本地基础解析。
+- 配置 MinerU 后可用 MinerU 解析 PDF。
+- 解析失败能显示原因并重试。
+
+### RAG-3：Chunk、Embedding 与 FAISS
+
+目标：
+
+- 跑通知识库索引。
+
+实现：
+
+- chunker。
+- `knowledge_chunks`
+- SiliconFlow embedding service。
+- `BAAI/bge-m3`
+- FAISS 本地索引。
+- `knowledge_embeddings`
+- index job。
+
+验收：
+
+- 文档解析后能生成 chunks。
+- chunks 能批量 embedding。
+- FAISS index 文件生成。
+- vector search 可以返回相关 chunks。
+
+### RAG-4：检索测试与 Rerank
+
+目标：
+
+- 在接入聊天前先把检索质量调试界面做好。
+
+实现：
+
+- 检索测试 tab。
+- vector top_k。
+- rerank top_n。
+- score threshold。
+- retrieval logs。
+
+验收：
+
+- 输入 query 能看到召回片段。
+- 能比较 rerank 前后排序。
+- 能看到 score、文档、页码和 chunk 内容。
+
+### RAG-5：聊天集成与引用
+
+目标：
+
+- 让知识库真正服务聊天回答。
+
+实现：
+
+- 聊天页知识库选择器。
+- `KnowledgeRetriever` 接入聊天链路。
+- 检索结果进入上下文治理预算。
+- 回答展示知识库引用。
+- 点击引用定位到文档片段。
+
+验收：
+
+- 选择知识库后，回答会利用知识库内容。
+- 未选择知识库时，不触发 RAG 检索。
+- 回答下方能看到引用来源。
+- 引用可点击查看原文片段。
+
+### RAG-6：增强方向
+
+后续增强：
+
+- 多知识库检索。
+- 混合检索：向量 + 关键词。
+- RRF 融合。
+- 元数据过滤。
+- 父子分块。
+- 文档级权限。
+- 检索评测集。
+- 召回命中率、rerank 效果、引用准确率观测。
+- pgvector / Qdrant 可选后端。
+- 知识库 Trace 与工具 Trace 统一观测。
+
+---
+
+## 12. 第一版不做什么
+
+为了避免阶段 1 膨胀，第一版不做：
+
+- 不做公开知识库市场。
+- 不做团队共享权限。
+- 不做多租户企业后台。
+- 不做复杂 ACL。
+- 不做在线协作文档编辑。
+- 不做自动网页爬虫入库。
+- 不做全量混合检索。
+- 不做检索评测平台。
+- 不强依赖 pgvector。
+- 不把 MinerU token 写进配置文件或环境变量。
+
+---
+
+## 13. 风险与处理
+
+### 13.1 MinerU 调用稳定性
+
+风险：
+
+- 在线解析服务可能有延迟、限流、失败。
+
+处理：
+
+- 所有解析走异步 job。
+- 前端显示状态。
+- 失败可重试。
+- local_basic parser 作为 fallback。
+
+### 13.2 Embedding 成本和速率
+
+风险：
+
+- 大文件 embedding 批量调用可能慢或触发限流。
+
+处理：
+
+- 批处理。
+- 重试。
+- job 状态持久化。
+- 文档 hash 去重。
+- 后续加速率限制和队列。
+
+### 13.3 FAISS 文件一致性
+
+风险：
+
+- PostgreSQL metadata 和 FAISS 文件可能不一致。
+
+处理：
+
+- index job 必须事务化更新 metadata。
+- FAISS 写临时文件，成功后原子替换。
+- 提供 rebuild index。
+- `knowledge_embeddings` 保存 vector_id 映射。
+
+### 13.4 分块质量
+
+风险：
+
+- chunk 太大召回粗，太小上下文碎。
+
+处理：
+
+- 默认 `1000 / 150` 起步。
+- 提供检索测试 tab。
+- 修改 chunk 配置提示 reindex。
+- 后续引入父子分块。
+
+### 13.5 上下文挤压
+
+风险：
+
+- RAG 片段太多会挤掉历史上下文或当前附件。
+
+处理：
+
+- 知识库单独预算。
+- `max_context_chunks` 和 `max_context_chars` 双限制。
+- rerank top_n 控制最终注入片段。
+- 上下文诊断展示知识片段占用。
+
+---
+
+## 14. 阶段 0 结论
+
+知识库阶段应按“独立知识库模块 + 后台任务 + 检索测试 + 聊天集成”的顺序推进。
+
+近期最合理路线：
+
+```text
+RAG-1 知识库模型与页面骨架
+-> RAG-2 MinerU / local parser
+-> RAG-3 chunk + embedding + FAISS
+-> RAG-4 retrieval test + rerank
+-> RAG-5 chat integration + citations
+```
+
+不要一开始就把 RAG 直接塞进聊天接口。先做知识库 CRUD、配置、文档任务和检索测试，等入库链路稳定后再接聊天，整体风险最低。
+
+---
+
+## 15. 2026-06-07 RAG-1 实现记录
+
+本轮已完成 `RAG-1：知识库模型与页面骨架` 第一版。
+
+### 15.1 已落地能力
+
+后端：
+
+- 新增 `knowledge_bases`、`knowledge_documents`、`knowledge_jobs` 三类 ORM 模型。
+- 新增知识库 repository、schema、service、API route。
+- 知识库创建时保存 parser、chunk、embedding、rerank、retrieval 配置。
+- 文档记录绑定现有上传链路返回的 `storage_key`。
+- 文档进入知识库后创建 `parse_document` 的 `pending` job。
+- 删除工作区时会把关联知识库和知识文档的 `project_id` 置空，避免外键约束影响工作区删除。
+- 新增 `test_knowledge_service.py`，覆盖知识库创建、文档绑定、pending job 创建、非法 storage_key 拒绝。
+
+前端：
+
+- 新增 `/knowledge` 页面。
+- 新增 `/knowledge/[id]` 页面。
+- 新增 `KnowledgeWorkspace` 组件。
+- 支持知识库列表、创建知识库、详情页配置概览、文档列表、任务列表。
+- 支持上传文档并创建知识库文档记录。
+
+### 15.2 当前仍未做
+
+- 不执行 MinerU 解析。
+- 不执行本地 parser job。
+- 不生成 Markdown 预览。
+- 不生成 chunks。
+- 不调用 SiliconFlow embedding。
+- 不写 FAISS index。
+- 不做检索测试。
+- 不接入聊天页知识库选择器。
+
+这些进入后续 `RAG-2` 到 `RAG-5`。
+
+### 15.3 验证结果
+
+```text
+后端知识库单测：Ran 2 tests, OK
+后端全量相关单测：Ran 36 tests, OK
+后端 compileall：通过
+前端 ESLint：通过
+前端 next build：通过
+```
+
+### 15.4 下一步
+
+下一步进入 `RAG-2：文档解析与 MinerU 凭据`。
+
+建议实施顺序：
+
+1. 先做用户级 MinerU token 加密凭据和连接测试。
+2. 再做 local_basic parser job，把当前已上传文件解析成 Markdown。
+3. 再接 MinerU parser job。
+4. 详情页增加 Markdown 预览、失败原因和重试。
+5. 解析链路稳定后再进入 `RAG-3：Chunk、Embedding 与 FAISS`。

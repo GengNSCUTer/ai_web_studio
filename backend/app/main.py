@@ -6,6 +6,7 @@ from app.api.routes import (
     chat,
     conversations,
     health,
+    knowledge,
     memories,
     messages,
     prompt_templates,
@@ -41,6 +42,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/api")
 app.include_router(conversations.router, prefix="/api")
+app.include_router(knowledge.router, prefix="/api")
 app.include_router(memories.router, prefix="/api")
 app.include_router(messages.router, prefix="/api")
 app.include_router(prompt_templates.router, prefix="/api")

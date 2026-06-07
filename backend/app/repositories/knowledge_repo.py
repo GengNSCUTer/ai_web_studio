@@ -1,0 +1,99 @@
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeJob
+
+
+class KnowledgeBaseRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_by_user(self, user_id: str) -> list[KnowledgeBase]:
+        stmt = (
+            select(KnowledgeBase)
+            .where(KnowledgeBase.user_id == user_id)
+            .order_by(KnowledgeBase.updated_at.desc(), KnowledgeBase.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def get_by_user(self, knowledge_base_id: str, user_id: str) -> KnowledgeBase | None:
+        stmt = (
+            select(KnowledgeBase)
+            .where(KnowledgeBase.id == knowledge_base_id, KnowledgeBase.user_id == user_id)
+            .limit(1)
+        )
+        return self.db.scalars(stmt).first()
+
+    def save(self, knowledge_base: KnowledgeBase) -> KnowledgeBase:
+        self.db.add(knowledge_base)
+        self.db.commit()
+        self.db.refresh(knowledge_base)
+        return knowledge_base
+
+    def delete(self, knowledge_base: KnowledgeBase) -> None:
+        self.db.delete(knowledge_base)
+        self.db.commit()
+
+    def document_count(self, knowledge_base_id: str, user_id: str) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(KnowledgeDocument)
+            .where(
+                KnowledgeDocument.knowledge_base_id == knowledge_base_id,
+                KnowledgeDocument.user_id == user_id,
+            )
+        )
+        return int(self.db.scalar(stmt) or 0)
+
+
+class KnowledgeDocumentRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_by_knowledge_base(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeDocument]:
+        stmt = (
+            select(KnowledgeDocument)
+            .where(
+                KnowledgeDocument.knowledge_base_id == knowledge_base_id,
+                KnowledgeDocument.user_id == user_id,
+            )
+            .order_by(KnowledgeDocument.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def get_by_user(self, document_id: str, user_id: str) -> KnowledgeDocument | None:
+        stmt = (
+            select(KnowledgeDocument)
+            .where(KnowledgeDocument.id == document_id, KnowledgeDocument.user_id == user_id)
+            .limit(1)
+        )
+        return self.db.scalars(stmt).first()
+
+    def save(self, document: KnowledgeDocument) -> KnowledgeDocument:
+        self.db.add(document)
+        self.db.commit()
+        self.db.refresh(document)
+        return document
+
+    def delete(self, document: KnowledgeDocument) -> None:
+        self.db.delete(document)
+        self.db.commit()
+
+
+class KnowledgeJobRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_by_knowledge_base(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeJob]:
+        stmt = (
+            select(KnowledgeJob)
+            .where(KnowledgeJob.knowledge_base_id == knowledge_base_id, KnowledgeJob.user_id == user_id)
+            .order_by(KnowledgeJob.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def save(self, job: KnowledgeJob) -> KnowledgeJob:
+        self.db.add(job)
+        self.db.commit()
+        self.db.refresh(job)
+        return job

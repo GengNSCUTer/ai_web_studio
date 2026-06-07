@@ -2,6 +2,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models.conversation import Conversation
+from app.models.knowledge import KnowledgeBase, KnowledgeDocument
 from app.models.message import Message
 from app.models.project_file import ProjectFile
 from app.models.prompt_template import PromptTemplate
@@ -39,6 +40,16 @@ class ProjectRepository:
         self.db.execute(
             update(PromptTemplate)
             .where(PromptTemplate.project_id == project.id)
+            .values(project_id=None)
+        )
+        self.db.execute(
+            update(KnowledgeBase)
+            .where(KnowledgeBase.project_id == project.id)
+            .values(project_id=None)
+        )
+        self.db.execute(
+            update(KnowledgeDocument)
+            .where(KnowledgeDocument.project_id == project.id)
             .values(project_id=None)
         )
         self.db.delete(project)

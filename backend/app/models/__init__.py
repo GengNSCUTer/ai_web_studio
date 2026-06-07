@@ -1,6 +1,7 @@
 from app.models.attachment import Attachment
 from app.models.conversation import Conversation
 from app.models.conversation_share import ConversationShare
+from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeJob
 from app.models.message import Message
 from app.models.project import Project
 from app.models.project_file import ProjectFile
@@ -15,6 +16,9 @@ __all__ = [
     "Attachment",
     "Conversation",
     "ConversationShare",
+    "KnowledgeBase",
+    "KnowledgeDocument",
+    "KnowledgeJob",
     "Message",
     "McpServer",
     "McpTool",

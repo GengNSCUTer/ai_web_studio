@@ -7,12 +7,38 @@
 
 每次完成一个可验证功能点（或一次阶段性修复）后，按顺序执行：
 
-1. 更新本地项目文档（`docs/`）
-2. 同步文档到飞书
-3. 向用户汇报本次变更与验证结果
-4. 主动询问是否同步到 GitHub（私有仓库）
+1. 根据改动范围执行必要测试 / 检查，确认没有明显 bug 或回归
+2. 更新本地项目文档（`docs/`）
+3. 同步文档到飞书
+4. 向用户汇报本次变更与验证结果
+5. 主动询问是否同步到 GitHub（私有仓库）
 
-不允许跳过第 4 步的询问。
+不允许跳过第 1 步的验证，也不允许跳过第 5 步的询问。
+
+## 1.1 测试与检查要求
+
+每次代码修改完成后，必须按改动范围选择合适的验证方式，并在最终回复中说明执行结果。
+
+最低要求：
+
+- 后端改动：至少执行相关后端单测；涉及 import / model / route / service 时额外执行 `compileall`
+- 前端改动：至少执行相关文件 ESLint；涉及页面、路由、类型或构建配置时额外执行 `npm run build`
+- 文档-only 改动：至少检查 `git diff` 和敏感信息，不要求跑完整构建
+- 全链路阶段性功能：尽量执行后端相关测试集合 + 前端 build
+
+当前常用验证命令：
+
+```bash
+cd /disk2/gengnan/ai_web_studio
+PYTHONPATH=backend /disk2/gengnan/conda_envs/ai_web_studio/bin/python -m compileall -q backend/app backend/tests
+PYTHONPATH=backend /disk2/gengnan/conda_envs/ai_web_studio/bin/python -m unittest backend.tests.test_knowledge_service
+
+cd /disk2/gengnan/ai_web_studio/frontend
+npx eslint <changed-files>
+npm run build
+```
+
+如果某项测试无法执行，必须说明原因，不要隐瞒。
 
 ## 2. 本地文档更新范围
 

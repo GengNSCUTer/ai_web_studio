@@ -132,6 +132,76 @@ export type ProjectStats = {
   total_file_size: number;
 };
 
+export type KnowledgeBase = {
+  id: string;
+  user_id: string;
+  project_id: string | null;
+  name: string;
+  description: string | null;
+  visibility: string;
+  parser_provider: string;
+  chunk_mode: string;
+  chunk_size: number;
+  chunk_overlap: number;
+  chunk_delimiter: string;
+  parent_chunk_size: number | null;
+  child_chunk_size: number | null;
+  child_chunk_overlap: number | null;
+  embedding_provider: string;
+  embedding_model: string;
+  embedding_dimensions: number;
+  rerank_enabled: boolean;
+  rerank_provider: string;
+  rerank_model: string;
+  retrieval_mode: string;
+  retrieval_top_k: number;
+  rerank_top_n: number;
+  score_threshold: number;
+  max_context_chunks: number;
+  max_context_chars: number;
+  strict_knowledge_answer: boolean;
+  document_count: number;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type KnowledgeDocument = {
+  id: string;
+  knowledge_base_id: string;
+  user_id: string;
+  project_id: string | null;
+  file_name: string;
+  mime_type: string | null;
+  file_size: number | null;
+  storage_key: string;
+  parser_provider: string;
+  parse_status: string;
+  index_status: string;
+  document_version: number;
+  content_hash: string | null;
+  parsed_markdown_path: string | null;
+  parsed_assets_json: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type KnowledgeJob = {
+  id: string;
+  user_id: string;
+  knowledge_base_id: string;
+  document_id: string | null;
+  job_type: string;
+  status: string;
+  payload_json: string | null;
+  retry_count: number;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
 export type ContextAttachmentChunk = {
   attachment_id: string | null;
   file_name: string;
