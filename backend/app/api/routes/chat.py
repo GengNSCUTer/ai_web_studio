@@ -25,21 +25,22 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 def _stringify_stats(stats: dict[str, Any]) -> str:
-    return ";".join(f"{key}={value}" for key, value in stats.items())
+    return ";".join(f"{key}={value}" for key, value in stats.items())[:2048]
 
 
 def _encode_context_notices(notices: list[str]) -> str:
     if not notices:
         return ""
-    payload = json.dumps(notices, ensure_ascii=False).encode("utf-8")
+    payload = json.dumps(notices[:8], ensure_ascii=False).encode("utf-8")
     return base64.b64encode(payload).decode("ascii")
 
 
-def _encode_json_payload(payload: dict[str, Any] | list[Any] | None) -> str:
+def _encode_json_payload(payload: dict[str, Any] | list[Any] | None, *, max_encoded_chars: int = 4096) -> str:
     if not payload:
         return ""
     encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    return base64.b64encode(encoded).decode("ascii")
+    value = base64.b64encode(encoded).decode("ascii")
+    return value if len(value) <= max_encoded_chars else ""
 
 
 def _truncate_header_text(value: Any, max_chars: int) -> Any:
@@ -72,42 +73,38 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
             {
                 "source_type": source.get("source_type"),
                 "provider": source.get("provider"),
-                "title": _truncate_header_text(source.get("title"), 160),
-                "display_text": _truncate_header_text(source.get("display_text"), 360),
-                "url": _truncate_header_text(source.get("url"), 240),
+                "title": _truncate_header_text(source.get("title"), 80),
+                "display_text": _truncate_header_text(source.get("display_text"), 120),
+                "url": _truncate_header_text(source.get("url"), 120),
                 "rank": source.get("rank"),
                 "score": source.get("score"),
                 "citation_label": source.get("citation_label"),
                 "metadata": {
-                    key: _truncate_header_text(value, 160)
+                    key: _truncate_header_text(value, 80)
                     for key, value in (source.get("metadata") or {}).items()
                     if key in {"tool", "query", "domain", "city", "province", "name", "address", "type"}
                 },
             }
-            for source in external_sources[:6]
+            for source in external_sources[:3]
             if isinstance(source, dict)
         ]
 
     tool_plan = details.get("tool_plan")
     if isinstance(tool_plan, dict):
-        compact["tool_plan"] = tool_plan
-
-    tool_events = details.get("tool_events")
-    if isinstance(tool_events, list):
-        compact["tool_events"] = [
-            {
-                **event,
-                "arguments": {
-                    key: _truncate_header_text(value, 160)
-                    for key, value in (event.get("arguments") or {}).items()
-                    if isinstance(event.get("arguments"), dict)
+        compact["tool_plan"] = {
+            "router": tool_plan.get("router"),
+            "should_use_tools": tool_plan.get("should_use_tools"),
+            "need_more_rounds": tool_plan.get("need_more_rounds"),
+            "calls": [
+                {
+                    "tool_key": call.get("tool_key"),
+                    "display_name": call.get("display_name"),
+                    "confidence": call.get("confidence"),
                 }
-                if isinstance(event, dict)
-                else event
-            }
-            for event in tool_events[:8]
-            if isinstance(event, dict)
-        ]
+                for call in (tool_plan.get("calls") or [])[:5]
+                if isinstance(call, dict)
+            ],
+        }
 
     return compact
 
@@ -181,12 +178,19 @@ def _build_streaming_response(
             context.message_service.save_message(context.assistant_message)
             context.conversation_repo.touch(context.conversation.id)
             raise
-        except Exception:
+        except Exception as exc:
             context.assistant_message.status = "failed"
             context.assistant_message.content = "".join(content_parts)
             context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
             context.message_service.save_message(context.assistant_message)
             context.conversation_repo.touch(context.conversation.id)
+            if event_stream:
+                yield _encode_stream_event(
+                    "model_error",
+                    error=str(exc) or "模型调用失败",
+                    assistant_message_id=context.assistant_message.id,
+                )
+                return
             raise
 
     return StreamingResponse(

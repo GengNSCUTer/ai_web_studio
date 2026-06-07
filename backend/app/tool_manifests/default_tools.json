@@ -3,27 +3,505 @@
     "tool_key": "web.tavily.search",
     "provider": "tavily",
     "category": "web_search",
-    "display_name": "Tavily 搜索",
-    "description": "查询互联网最新网页资料、新闻、官网、版本、政策、价格等实时信息。",
-    "read_only": true,
-    "enabled_by_default": true
+    "display_name": "Tavily Search",
+    "description": "Search the web for current information on any topic. Use for news, facts, or data beyond your knowledge cutoff. Returns snippets and source URLs.",
+    "when_to_use": [
+      "Search the web for current information on any topic. Use for news, facts, or data beyond your knowledge cutoff. Returns snippets and source URLs."
+    ],
+    "when_not_to_use": [],
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "description": "Search query",
+          "type": "string"
+        },
+        "max_results": {
+          "default": 5,
+          "description": "The maximum number of search results to return",
+          "type": "integer"
+        },
+        "search_depth": {
+          "default": "basic",
+          "description": "The depth of the search. 'basic' for generic results, 'advanced' for more thorough search, 'fast' for optimized low latency with high relevance, 'ultra-fast' for prioritizing latency above all else",
+          "enum": [
+            "basic",
+            "advanced",
+            "fast",
+            "ultra-fast"
+          ],
+          "type": "string"
+        },
+        "topic": {
+          "const": "general",
+          "default": "general",
+          "description": "The category of the search. This will determine which of our agents will be used for the search",
+          "type": "string"
+        },
+        "time_range": {
+          "anyOf": [
+            {
+              "enum": [
+                "day",
+                "week",
+                "month",
+                "year"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The time range back from the current date to include in the search results"
+        },
+        "include_images": {
+          "default": false,
+          "description": "Include a list of query-related images in the response",
+          "type": "boolean"
+        },
+        "include_image_descriptions": {
+          "default": false,
+          "description": "Include a list of query-related images and their descriptions in the response",
+          "type": "boolean"
+        },
+        "include_raw_content": {
+          "default": false,
+          "description": "Include the cleaned and parsed HTML content of each search result",
+          "type": "boolean"
+        },
+        "include_domains": {
+          "default": [],
+          "description": "A list of domains to specifically include in the search results, if the user asks to search on specific sites set this to the domain of the site",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "exclude_domains": {
+          "default": [],
+          "description": "List of domains to specifically exclude, if the user asks to exclude a domain set this to the domain of the site",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "country": {
+          "default": "",
+          "description": "Boost search results from a specific country. Must be a full country name (e.g., 'United States', 'Japan', 'Germany'). ISO country codes (e.g., 'us', 'jp') are not supported. Available only if topic is general. See https://docs.tavily.com/documentation/api-reference/search for the full list of supported countries.",
+          "type": "string"
+        },
+        "include_favicon": {
+          "default": false,
+          "description": "Whether to include the favicon URL for each result",
+          "type": "boolean"
+        },
+        "start_date": {
+          "default": "",
+          "description": "Will return all results after the specified start date. Required to be written in the format YYYY-MM-DD.",
+          "type": "string"
+        },
+        "end_date": {
+          "default": "",
+          "description": "Will return all results before the specified end date. Required to be written in the format YYYY-MM-DD",
+          "type": "string"
+        },
+        "exact_match": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only return results containing the exact phrase(s) in quotes in your query"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "adapter_type": "mcp_http",
+    "adapter": {
+      "type": "mcp_http",
+      "credential_provider": "tavily",
+      "endpoint_template": "https://mcp.tavily.com/mcp/?tavilyApiKey={api_key}",
+      "mcp_tool_name": "tavily_search",
+      "default_arguments": {
+        "max_results": 5,
+        "search_depth": "basic"
+      },
+      "result_mapper": "tavily_search"
+    },
+    "source_type": "mcp",
+    "risk_level": "low",
+    "fallback_tool_key": null,
+    "enabled_by_default": true,
+    "read_only": true
   },
   {
-    "tool_key": "amap.weather.current",
+    "tool_key": "amap.maps.geo",
+    "provider": "amap",
+    "category": "map_geo",
+    "display_name": "高德 MCP 地理编码",
+    "description": "将详细的结构化地址转换为经纬度坐标。支持对地标性名胜景区、建筑物名称解析为经纬度坐标",
+    "when_to_use": [
+      "将详细的结构化地址转换为经纬度坐标。支持对地标性名胜景区、建筑物名称解析为经纬度坐标"
+    ],
+    "when_not_to_use": [],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "待解析的结构化地址信息"
+        },
+        "city": {
+          "type": "string",
+          "description": "指定查询的城市"
+        }
+      },
+      "required": [
+        "address"
+      ]
+    },
+    "adapter_type": "mcp_http",
+    "adapter": {
+      "type": "mcp_http",
+      "credential_provider": "amap",
+      "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
+      "mcp_tool_name": "maps_geo",
+      "default_arguments": {},
+      "result_mapper": "amap_map"
+    },
+    "source_type": "mcp",
+    "risk_level": "low",
+    "fallback_tool_key": "web.tavily.search",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "amap.maps.weather",
     "provider": "amap",
     "category": "weather",
-    "display_name": "高德天气",
-    "description": "查询中国城市当前天气、温度、湿度、风向和发布时间。",
-    "read_only": true,
-    "enabled_by_default": true
+    "display_name": "高德 MCP 天气",
+    "description": "根据城市名称或者标准adcode查询指定城市的天气",
+    "when_to_use": [
+      "根据城市名称或者标准adcode查询指定城市的天气"
+    ],
+    "when_not_to_use": [],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string",
+          "description": "城市名称或者adcode"
+        }
+      },
+      "required": [
+        "city"
+      ]
+    },
+    "adapter_type": "mcp_http",
+    "adapter": {
+      "type": "mcp_http",
+      "credential_provider": "amap",
+      "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
+      "mcp_tool_name": "maps_weather",
+      "default_arguments": {},
+      "result_mapper": "amap_weather"
+    },
+    "source_type": "mcp",
+    "risk_level": "low",
+    "fallback_tool_key": "web.tavily.search",
+    "enabled_by_default": true,
+    "read_only": true
   },
   {
-    "tool_key": "amap.map.basic",
+    "tool_key": "amap.maps.distance",
     "provider": "amap",
-    "category": "map",
-    "display_name": "高德地图",
-    "description": "查询地址、地点、附近 POI、路线规划和行政区信息。",
-    "read_only": true,
-    "enabled_by_default": true
+    "category": "map_distance",
+    "display_name": "高德 MCP 距离测量",
+    "description": "测量两个经纬度坐标之间的距离,支持驾车、步行以及球面距离测量",
+    "when_to_use": [
+      "测量两个经纬度坐标之间的距离,支持驾车、步行以及球面距离测量"
+    ],
+    "when_not_to_use": [],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "origins": {
+          "type": "string",
+          "description": "起点经度，纬度，可以传多个坐标，使用竖线隔离，比如120,30|120,31，坐标格式为：经度，纬度"
+        },
+        "destination": {
+          "type": "string",
+          "description": "终点经度，纬度，坐标格式为：经度，纬度"
+        },
+        "type": {
+          "type": "string",
+          "description": "距离测量类型,1代表驾车距离测量，0代表直线距离测量，3步行距离测量"
+        }
+      },
+      "required": [
+        "origins",
+        "destination"
+      ]
+    },
+    "adapter_type": "mcp_http",
+    "adapter": {
+      "type": "mcp_http",
+      "credential_provider": "amap",
+      "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
+      "mcp_tool_name": "maps_distance",
+      "default_arguments": {
+        "type": "1"
+      },
+      "result_mapper": "amap_distance"
+    },
+    "source_type": "mcp",
+    "risk_level": "low",
+    "fallback_tool_key": "web.tavily.search",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "amap.maps.direction.driving",
+    "provider": "amap",
+    "category": "map_route",
+    "display_name": "高德 MCP 驾车路线",
+    "description": "驾车路径规划 API 可以根据用户起终点经纬度坐标规划以小客车、轿车通勤出行的方案，并且返回通勤方案的数据。",
+    "when_to_use": [
+      "驾车路径规划 API 可以根据用户起终点经纬度坐标规划以小客车、轿车通勤出行的方案，并且返回通勤方案的数据。"
+    ],
+    "when_not_to_use": [],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "string",
+          "description": "出发点经纬度，坐标格式为：经度，纬度"
+        },
+        "destination": {
+          "type": "string",
+          "description": "目的地经纬度，坐标格式为：经度，纬度"
+        }
+      },
+      "required": [
+        "origin",
+        "destination"
+      ]
+    },
+    "adapter_type": "mcp_http",
+    "adapter": {
+      "type": "mcp_http",
+      "credential_provider": "amap",
+      "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
+      "mcp_tool_name": "maps_direction_driving",
+      "default_arguments": {},
+      "result_mapper": "amap_map"
+    },
+    "source_type": "mcp",
+    "risk_level": "low",
+    "fallback_tool_key": "web.tavily.search",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "amap.maps.direction.walking",
+    "provider": "amap",
+    "category": "map_route",
+    "display_name": "高德 MCP 步行路线",
+    "description": "根据输入起点终点经纬度坐标规划100km 以内的步行通勤方案，并且返回通勤方案的数据",
+    "when_to_use": [
+      "根据输入起点终点经纬度坐标规划100km 以内的步行通勤方案，并且返回通勤方案的数据"
+    ],
+    "when_not_to_use": [],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "string",
+          "description": "出发点经度，纬度，坐标格式为：经度，纬度"
+        },
+        "destination": {
+          "type": "string",
+          "description": "目的地经度，纬度，坐标格式为：经度，纬度"
+        }
+      },
+      "required": [
+        "origin",
+        "destination"
+      ]
+    },
+    "adapter_type": "mcp_http",
+    "adapter": {
+      "type": "mcp_http",
+      "credential_provider": "amap",
+      "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
+      "mcp_tool_name": "maps_direction_walking",
+      "default_arguments": {},
+      "result_mapper": "amap_map"
+    },
+    "source_type": "mcp",
+    "risk_level": "low",
+    "fallback_tool_key": "web.tavily.search",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "amap.maps.direction.transit",
+    "provider": "amap",
+    "category": "map_route",
+    "display_name": "高德 MCP 公共交通路线",
+    "description": "根据用户起终点经纬度坐标规划综合各类公共（火车、公交、地铁）交通方式的通勤方案，并且返回通勤方案的数据，跨城场景下必须传起点城市与终点城市",
+    "when_to_use": [
+      "根据用户起终点经纬度坐标规划综合各类公共（火车、公交、地铁）交通方式的通勤方案，并且返回通勤方案的数据，跨城场景下必须传起点城市与终点城市"
+    ],
+    "when_not_to_use": [],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "string",
+          "description": "出发点经纬度，坐标格式为：经度，纬度"
+        },
+        "destination": {
+          "type": "string",
+          "description": "目的地经纬度，坐标格式为：经度，纬度"
+        },
+        "city": {
+          "type": "string",
+          "description": "公共交通规划起点城市"
+        },
+        "cityd": {
+          "type": "string",
+          "description": "公共交通规划终点城市"
+        }
+      },
+      "required": [
+        "origin",
+        "destination",
+        "city",
+        "cityd"
+      ]
+    },
+    "adapter_type": "mcp_http",
+    "adapter": {
+      "type": "mcp_http",
+      "credential_provider": "amap",
+      "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
+      "mcp_tool_name": "maps_direction_transit_integrated",
+      "default_arguments": {},
+      "result_mapper": "amap_map"
+    },
+    "source_type": "mcp",
+    "risk_level": "low",
+    "fallback_tool_key": "web.tavily.search",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "amap.maps.text_search",
+    "provider": "amap",
+    "category": "map_poi",
+    "display_name": "高德 MCP 关键词搜索",
+    "description": "关键字搜索 API 根据用户输入的关键字进行 POI 搜索，并返回相关的信息",
+    "when_to_use": [
+      "关键字搜索 API 根据用户输入的关键字进行 POI 搜索，并返回相关的信息"
+    ],
+    "when_not_to_use": [],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "keywords": {
+          "type": "string",
+          "description": "查询关键字"
+        },
+        "city": {
+          "type": "string",
+          "description": "查询城市"
+        },
+        "citylimit": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否限制城市范围内搜索，默认不限制"
+        }
+      },
+      "required": [
+        "keywords"
+      ]
+    },
+    "adapter_type": "mcp_http",
+    "adapter": {
+      "type": "mcp_http",
+      "credential_provider": "amap",
+      "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
+      "mcp_tool_name": "maps_text_search",
+      "default_arguments": {},
+      "result_mapper": "amap_map"
+    },
+    "source_type": "mcp",
+    "risk_level": "low",
+    "fallback_tool_key": "web.tavily.search",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "amap.maps.around_search",
+    "provider": "amap",
+    "category": "map_poi",
+    "display_name": "高德 MCP 周边搜索",
+    "description": "周边搜，根据用户传入关键词以及坐标location，搜索出radius半径范围的POI",
+    "when_to_use": [
+      "周边搜，根据用户传入关键词以及坐标location，搜索出radius半径范围的POI"
+    ],
+    "when_not_to_use": [],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "keywords": {
+          "type": "string",
+          "description": "搜索关键词"
+        },
+        "location": {
+          "type": "string",
+          "description": "中心点经度纬度"
+        },
+        "radius": {
+          "type": "string",
+          "description": "搜索半径"
+        },
+        "strategy": {
+          "type": "integer",
+          "description": "召回策略，0=默认召回策略，1=优先召回扫街榜POI",
+          "default": 0
+        }
+      },
+      "required": [
+        "keywords",
+        "location"
+      ]
+    },
+    "adapter_type": "mcp_http",
+    "adapter": {
+      "type": "mcp_http",
+      "credential_provider": "amap",
+      "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
+      "mcp_tool_name": "maps_around_search",
+      "default_arguments": {
+        "radius": "3000"
+      },
+      "result_mapper": "amap_map"
+    },
+    "source_type": "mcp",
+    "risk_level": "low",
+    "fallback_tool_key": "web.tavily.search",
+    "enabled_by_default": true,
+    "read_only": true
   }
 ]

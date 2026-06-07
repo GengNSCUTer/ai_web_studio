@@ -45,7 +45,15 @@ class FakeExternalContextService:
         self.user_id = user_id
         self.project_id = project_id
 
-    async def build_context(self, *, query: str, enabled: bool, max_chars: int) -> ExternalContextResult:
+    async def build_context(
+        self,
+        *,
+        query: str,
+        enabled: bool,
+        max_chars: int,
+        recent_messages: list[object] | None = None,
+        planner_runtime: object | None = None,
+    ) -> ExternalContextResult:
         if not enabled:
             plan = ToolPlan(
                 plan_id="plan-skipped",

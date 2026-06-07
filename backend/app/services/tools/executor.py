@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+from app.services.tools.adapters import ToolAdapterRunner
+from app.services.tools.catalog import ToolCatalog
 from app.services.tools.credentials import ToolCredentialResolver
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.tavily import TavilySearchProvider
@@ -15,27 +17,117 @@ class ToolExecutor:
         tavily_provider: TavilySearchProvider | None = None,
         amap_provider: AmapToolProvider | None = None,
         credential_resolver: ToolCredentialResolver | None = None,
+        catalog: ToolCatalog | None = None,
+        adapter_runner: ToolAdapterRunner | None = None,
         user_id: str | None = None,
         project_id: str | None = None,
     ) -> None:
-        self.tavily_provider = tavily_provider or TavilySearchProvider()
-        self.amap_provider = amap_provider or AmapToolProvider()
+        self.catalog = catalog or ToolCatalog()
+        self.adapter_runner = adapter_runner or ToolAdapterRunner(
+            tavily_provider=tavily_provider or TavilySearchProvider(),
+            amap_provider=amap_provider or AmapToolProvider(),
+        )
         self.credential_resolver = credential_resolver or ToolCredentialResolver()
         self.user_id = user_id
         self.project_id = project_id
 
     async def execute(self, call: PlannedToolCall) -> tuple[ToolCallResult, list[ToolTraceEvent]]:
+        definition = self.catalog.get_or_none(call.tool_key)
+        if not definition:
+            return self._skipped(call, f"未知工具：{call.tool_key}")
+
+        events: list[ToolTraceEvent] = []
+        events.append(
+            ToolTraceEvent(
+                type="tool_policy_check",
+                payload={
+                    "call_id": call.call_id,
+                    "tool_key": call.tool_key,
+                    "provider": call.provider,
+                    "category": call.category,
+                    "display_name": call.display_name,
+                    "risk_level": definition.risk_level,
+                    "read_only": definition.read_only,
+                    "adapter_type": definition.adapter_type,
+                    "source_type": definition.source_type,
+                    "status": "checking",
+                },
+            )
+        )
         if not self.credential_resolver.is_tool_enabled_for_workspace(
             project_id=self.project_id,
             tool_key=call.tool_key,
         ):
-            return self._skipped(call, "当前工作区已禁用该工具。")
+            events.append(
+                ToolTraceEvent(
+                    type="tool_policy_check",
+                    payload={
+                        "call_id": call.call_id,
+                        "tool_key": call.tool_key,
+                        "provider": call.provider,
+                        "category": call.category,
+                        "display_name": call.display_name,
+                        "risk_level": definition.risk_level,
+                        "read_only": definition.read_only,
+                        "status": "denied",
+                        "reason": "当前工作区已禁用该工具。",
+                    },
+                )
+            )
+            result, skipped_events = self._skipped(call, "当前工作区已禁用该工具。")
+            return result, [*events, *skipped_events]
 
-        credential = self.credential_resolver.resolve(user_id=self.user_id, provider_key=call.provider)
+        requires_confirmation = bool(not definition.read_only or definition.risk_level == "high")
+        if requires_confirmation:
+            events.append(
+                ToolTraceEvent(
+                    type="tool_confirmation_required",
+                    payload={
+                        "call_id": call.call_id,
+                        "tool_key": call.tool_key,
+                        "provider": call.provider,
+                        "category": call.category,
+                        "display_name": call.display_name,
+                        "risk_level": definition.risk_level,
+                        "read_only": definition.read_only,
+                        "status": "blocked",
+                        "reason": "高风险或非只读工具需要用户确认，当前版本默认不直接执行。",
+                    },
+                )
+            )
+            result, skipped_events = self._skipped(call, "高风险或非只读工具需要用户确认后才能执行。")
+            return result, [*events, *skipped_events]
+
+        credential = self.credential_resolver.resolve(
+            user_id=self.user_id,
+            provider_key=definition.credential_provider,
+        )
+        events.append(
+            ToolTraceEvent(
+                type="tool_policy_check",
+                payload={
+                    "call_id": call.call_id,
+                    "tool_key": call.tool_key,
+                    "provider": call.provider,
+                    "category": call.category,
+                    "display_name": call.display_name,
+                    "risk_level": definition.risk_level,
+                    "read_only": definition.read_only,
+                    "status": "passed" if credential.is_enabled else "denied",
+                    "credential_provider": definition.credential_provider,
+                    "credential_source": credential.source,
+                    "requires_confirmation": False,
+                    "reason": "只读低风险工具，允许执行。"
+                    if credential.is_enabled
+                    else None,
+                },
+            )
+        )
         if not credential.is_enabled:
-            return self._skipped(call, f"工具 provider {call.provider} 未启用或未配置凭证。")
+            result, skipped_events = self._skipped(call, f"工具 provider {definition.credential_provider} 未启用或未配置凭证。")
+            return result, [*events, *skipped_events]
 
-        events = [
+        events.append(
             ToolTraceEvent(
                 type="tool_call_start",
                 payload={
@@ -46,20 +138,23 @@ class ToolExecutor:
                     "display_name": call.display_name,
                     "arguments": call.arguments,
                     "credential_source": credential.source,
+                    "adapter_type": definition.adapter_type,
+                    "source_type": definition.source_type,
                 },
             )
-        ]
+        )
         started = time.perf_counter()
         try:
-            query = str(call.arguments.get("query") or "")
-            if call.tool_key == "web.tavily.search":
-                sources = await self.tavily_provider.query(query, api_key=credential.api_key)
-            elif call.tool_key == "amap.weather.current":
-                sources = await self.amap_provider.query_weather(query, api_key=credential.api_key)
-            elif call.tool_key == "amap.map.basic":
-                sources = await self.amap_provider.query_map(query, api_key=credential.api_key)
-            else:
-                raise RuntimeError(f"未知工具：{call.tool_key}")
+            sources, adapter_metadata = await self.adapter_runner.run(
+                definition=definition,
+                call=call,
+                api_key=credential.api_key,
+            )
+            for source_index, source in enumerate(sources, start=1):
+                source.metadata.setdefault("call_id", call.call_id)
+                source.metadata.setdefault("tool_key", call.tool_key)
+                source.metadata.setdefault("tool_display_name", call.display_name)
+                source.metadata.setdefault("source_index", source_index)
 
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             result = ToolCallResult(
@@ -80,6 +175,7 @@ class ToolExecutor:
                         "status": "success",
                         "elapsed_ms": elapsed_ms,
                         "sources_count": len(sources),
+                        "adapter": adapter_metadata,
                     },
                 )
             )

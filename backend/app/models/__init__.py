@@ -5,7 +5,7 @@ from app.models.message import Message
 from app.models.project import Project
 from app.models.project_file import ProjectFile
 from app.models.prompt_template import PromptTemplate
-from app.models.tool_config import UserToolCredential, WorkspaceToolSetting
+from app.models.tool_config import McpServer, McpTool, UserToolCredential, WorkspaceToolSetting
 from app.models.tool_trace import ToolCallRun, ToolRouteRun
 from app.models.user import User
 from app.models.user_memory import UserMemory
@@ -16,6 +16,8 @@ __all__ = [
     "Conversation",
     "ConversationShare",
     "Message",
+    "McpServer",
+    "McpTool",
     "Project",
     "ProjectFile",
     "PromptTemplate",

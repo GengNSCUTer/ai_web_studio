@@ -341,6 +341,11 @@ function MessageItem({
                 key={`${source.provider}-${source.title}-${index}`}
                 source={source}
                 index={index}
+                sourceId={
+                  typeof source.metadata?.call_id === "string"
+                    ? `source-call-${source.metadata.call_id}-${index + 1}`
+                    : `source-${message.id}-${index + 1}`
+                }
               />
             ))}
           </div>

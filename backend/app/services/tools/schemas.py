@@ -28,8 +28,23 @@ class ToolDefinition:
     category: str
     display_name: str
     description: str
+    when_to_use: list[str] = field(default_factory=list)
+    when_not_to_use: list[str] = field(default_factory=list)
+    input_schema: dict[str, Any] = field(default_factory=dict)
+    adapter_type: str = "python"
+    adapter: dict[str, Any] = field(default_factory=dict)
+    source_type: str = "local_manifest"
+    risk_level: str = "low"
+    fallback_tool_key: str | None = None
     enabled_by_default: bool = True
     read_only: bool = True
+
+    @property
+    def credential_provider(self) -> str:
+        return str(self.adapter.get("credential_provider") or self.provider)
+
+    def to_public_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -42,6 +57,8 @@ class PlannedToolCall:
     confidence: float
     reason: str
     arguments: dict[str, Any] = field(default_factory=dict)
+    depends_on: list[str] = field(default_factory=list)
+    can_parallel: bool = True
 
     def to_public_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -55,6 +72,10 @@ class ToolPlan:
     should_use_tools: bool
     calls: list[PlannedToolCall]
     fallback_tool_key: str | None = None
+    original_query: str | None = None
+    rewritten_query: str | None = None
+    need_more_rounds: bool = False
+    trace_events: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -64,6 +85,9 @@ class ToolPlan:
             "should_use_tools": self.should_use_tools,
             "calls": [call.to_public_dict() for call in self.calls],
             "fallback_tool_key": self.fallback_tool_key,
+            "original_query": self.original_query,
+            "rewritten_query": self.rewritten_query,
+            "need_more_rounds": self.need_more_rounds,
         }
 
 

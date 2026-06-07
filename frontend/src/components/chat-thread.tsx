@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 
 import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
@@ -15,7 +14,6 @@ import type {
   ContextGovernanceInfo,
   ExternalSource,
   Message,
-  ToolPlanPayload,
   ToolTraceEvent,
   UploadItem,
 } from "@/lib/types";
@@ -82,6 +80,8 @@ const THREAD_TEXT = {
     toolTraceTitle: "工具过程",
     sourcesTitle: "外部来源",
     replyFailed: "该条回答生成失败，请稍后重试。",
+    replyModelFailed: "模型回答生成失败，请稍后重试。",
+    replyStreamFailed: "流式连接中断，请重新生成。",
     replyStopped: "该条回答已停止生成。",
     copyAnswer: "复制回答",
     copied: "已复制",
@@ -188,6 +188,8 @@ const THREAD_TEXT = {
     toolTraceTitle: "Tool trace",
     sourcesTitle: "Sources",
     replyFailed: "This answer failed to generate. Please try again later.",
+    replyModelFailed: "Model generation failed. Please try again later.",
+    replyStreamFailed: "The stream was interrupted. Please regenerate.",
     replyStopped: "This answer was stopped.",
     copyAnswer: "Copy answer",
     copied: "Copied",
@@ -398,11 +400,27 @@ function parseExternalSources(value: string | null | undefined): ExternalSource[
 
 function isToolTraceEvent(event: ChatStreamEvent): event is ToolTraceEvent {
   return (
+    event.type === "tool_planner_start" ||
+    event.type === "tool_planner_llm_output" ||
+    event.type === "tool_planner_end" ||
+    event.type === "tool_agent_round_start" ||
+    event.type === "tool_agent_round_end" ||
+    event.type === "tool_candidate_selection" ||
+    event.type === "tool_schema_validation" ||
+    event.type === "tool_policy_check" ||
+    event.type === "tool_confirmation_required" ||
     event.type === "tool_plan" ||
+    event.type === "tool_workflow_start" ||
+    event.type === "tool_workflow_batch" ||
+    event.type === "tool_workflow_step" ||
+    event.type === "tool_workflow_step_skipped" ||
+    event.type === "tool_workflow_end" ||
     event.type === "tool_call_start" ||
     event.type === "tool_call_end" ||
     event.type === "tool_call_error" ||
-    event.type === "tool_call_fallback"
+    event.type === "tool_call_fallback" ||
+    event.type === "tool_fallback" ||
+    event.type === "tool_query_rewrite"
   );
 }
 
@@ -441,6 +459,8 @@ type ChatStreamEvent =
   | { type: "answer_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_sources"; sources: ExternalSource[] }
+  | { type: "model_error"; error?: string; assistant_message_id?: string }
+  | { type: "stream_error"; error?: string }
   | ToolTraceEvent
   | { type: "done"; assistant_message_id?: string };
 
@@ -516,6 +536,7 @@ export function ChatThread({
   const shouldSelectAfterFinishRef = useRef(false);
   const didSyncAfterRequestRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const userStopRequestedRef = useRef(false);
   const text = THREAD_TEXT[uiLanguage];
   const statEntries = Object.entries(contextInfo?.stats ?? {});
   const statMap = Object.fromEntries(statEntries);
@@ -1065,6 +1086,7 @@ export function ChatThread({
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    userStopRequestedRef.current = false;
 
     try {
       const response = await fetch(endpoint, {
@@ -1102,6 +1124,7 @@ export function ChatThread({
       let externalSources: ExternalSource[] = [];
       let toolEvents: ToolTraceEvent[] = [];
       let eventBuffer = "";
+      let streamErrorReason: string | null = null;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -1124,6 +1147,8 @@ export function ChatThread({
             externalSources = streamEvent.sources ?? [];
           } else if (isToolTraceEvent(streamEvent)) {
             toolEvents = [...toolEvents, streamEvent];
+          } else if (streamEvent.type === "model_error" || streamEvent.type === "stream_error") {
+            streamErrorReason = streamEvent.error || text.replyModelFailed;
           }
         }
         setThreadMessages((current) =>
@@ -1153,7 +1178,12 @@ export function ChatThread({
           externalSources = streamEvent.sources ?? [];
         } else if (isToolTraceEvent(streamEvent)) {
           toolEvents = [...toolEvents, streamEvent];
+        } else if (streamEvent.type === "model_error" || streamEvent.type === "stream_error") {
+          streamErrorReason = streamEvent.error || text.replyModelFailed;
         }
+      }
+      if (streamErrorReason) {
+        throw new Error(streamErrorReason);
       }
       setThreadMessages((current) =>
         current.map((message) =>
@@ -1175,6 +1205,7 @@ export function ChatThread({
       syncAfterRequest();
     } catch (error) {
       const isAbort = error instanceof DOMException && error.name === "AbortError";
+      const isUserStop = isAbort && userStopRequestedRef.current;
       setStreamingStartedAt(null);
       setStreamingElapsedSeconds(0);
       setThreadMessages((current) =>
@@ -1182,19 +1213,20 @@ export function ChatThread({
           message.id === assistantMessageId
             ? {
                 ...message,
-                status: isAbort ? "cancelled" : "failed",
+                status: isUserStop ? "cancelled" : "failed",
               }
             : message
         )
       );
-      if (!isAbort) {
-        setLocalError(requestErrorMessage(error));
+      if (!isUserStop) {
+        setLocalError(isAbort ? text.replyStreamFailed : requestErrorMessage(error));
       }
       syncAfterRequest();
       throw error;
     } finally {
       setIsGenerating(false);
       abortControllerRef.current = null;
+      userStopRequestedRef.current = false;
     }
   }
 
@@ -1367,6 +1399,7 @@ export function ChatThread({
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    userStopRequestedRef.current = false;
 
     try {
       const response = await fetch("/api/chat", {
@@ -1427,6 +1460,7 @@ export function ChatThread({
       let externalSources: ExternalSource[] = [];
       let toolEvents: ToolTraceEvent[] = [];
       let eventBuffer = "";
+      let streamErrorReason: string | null = null;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -1450,6 +1484,8 @@ export function ChatThread({
             externalSources = streamEvent.sources ?? [];
           } else if (isToolTraceEvent(streamEvent)) {
             toolEvents = [...toolEvents, streamEvent];
+          } else if (streamEvent.type === "model_error" || streamEvent.type === "stream_error") {
+            streamErrorReason = streamEvent.error || text.replyModelFailed;
           }
         }
         setThreadMessages((current) =>
@@ -1479,7 +1515,12 @@ export function ChatThread({
           externalSources = streamEvent.sources ?? [];
         } else if (isToolTraceEvent(streamEvent)) {
           toolEvents = [...toolEvents, streamEvent];
+        } else if (streamEvent.type === "model_error" || streamEvent.type === "stream_error") {
+          streamErrorReason = streamEvent.error || text.replyModelFailed;
         }
+      }
+      if (streamErrorReason) {
+        throw new Error(streamErrorReason);
       }
       setThreadMessages((current) =>
         current.map((message) =>
@@ -1502,27 +1543,31 @@ export function ChatThread({
       syncAfterRequest();
     } catch (sendError) {
       const isAbort = sendError instanceof DOMException && sendError.name === "AbortError";
+      const isUserStop = isAbort && userStopRequestedRef.current;
       setStreamingStartedAt(null);
       setStreamingElapsedSeconds(0);
-      setComposer(content);
-      setUploadedItems(pendingUploads);
+      if (!isUserStop) {
+        setComposer(content);
+        setUploadedItems(pendingUploads);
+      }
       setThreadMessages((current) =>
         current.map((message) =>
           message.id === tempAssistantMessageId
             ? {
                 ...message,
-                status: isAbort ? "cancelled" : "failed",
+                status: isUserStop ? "cancelled" : "failed",
               }
             : message
         )
       );
-      if (!isAbort) {
-        setLocalError(requestErrorMessage(sendError));
+      if (!isUserStop) {
+        setLocalError(isAbort ? text.replyStreamFailed : requestErrorMessage(sendError));
       }
       syncAfterRequest();
     } finally {
       setIsGenerating(false);
       abortControllerRef.current = null;
+      userStopRequestedRef.current = false;
     }
   }
 
@@ -1648,7 +1693,10 @@ export function ChatThread({
           onToggleAttachmentChunk={toggleAttachmentChunk}
           onComposerKeyDown={handleComposerKeyDown}
           onSubmit={handleSubmit}
-          onStopGenerating={() => abortControllerRef.current?.abort()}
+          onStopGenerating={() => {
+            userStopRequestedRef.current = true;
+            abortControllerRef.current?.abort();
+          }}
         />
       </footer>
 

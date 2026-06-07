@@ -30,7 +30,7 @@ function sourceKindLabel(source: ExternalSource) {
   return "网页";
 }
 
-export function ExternalSourceCard({ source, index }: { source: ExternalSource; index: number }) {
+export function ExternalSourceCard({ source, index, sourceId }: { source: ExternalSource; index: number; sourceId?: string }) {
   const label = source.citation_label ?? `[${index + 1}]`;
   const providerLabel = source.provider;
   const kindLabel = sourceKindLabel(source);
@@ -46,6 +46,8 @@ export function ExternalSourceCard({ source, index }: { source: ExternalSource; 
   const origin = sourceMeta(source, "origin");
   const destination = sourceMeta(source, "destination");
   const domain = sourceMeta(source, "domain");
+  const toolDisplayName = sourceMeta(source, "tool_display_name");
+  const callId = sourceMeta(source, "call_id");
   const contentPreview = source.display_text;
 
   const cardBody =
@@ -78,8 +80,11 @@ export function ExternalSourceCard({ source, index }: { source: ExternalSource; 
       </div>
     );
 
-  const inner = (
-    <>
+  return (
+    <div
+      id={sourceId}
+      className="rounded-xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+    >
       <div className="flex items-center justify-between gap-3">
         <span className="font-medium text-[var(--ink-strong)]">
           {label} {source.title}
@@ -94,19 +99,39 @@ export function ExternalSourceCard({ source, index }: { source: ExternalSource; 
         </span>
       </div>
       {cardBody}
-    </>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {toolDisplayName ? (
+          <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-muted)]">
+            工具：{toolDisplayName}
+          </span>
+        ) : null}
+        {callId ? (
+          <a
+            href={`#tool-call-${callId}`}
+            className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-muted)] hover:text-[var(--accent-strong)]"
+          >
+            跳到工具调用
+          </a>
+        ) : null}
+        {source.url ? (
+          <a
+            href={source.url}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-muted)] hover:text-[var(--accent-strong)]"
+          >
+            打开来源
+          </a>
+        ) : null}
+      </div>
+      <details className="mt-2 rounded-lg border border-[var(--hairline)] bg-[var(--soft-bg)] px-2 py-1">
+        <summary className="cursor-pointer select-none text-[10px] font-medium text-[var(--ink-strong)]">
+          查看原始结果
+        </summary>
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-[var(--control-bg)] p-2 text-[10px] leading-4 text-[var(--ink-strong)]">
+          {JSON.stringify({ ...source, metadata: source.metadata ?? {} }, null, 2)}
+        </pre>
+      </details>
+    </div>
   );
-
-  const className = `rounded-xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2 text-xs text-[var(--ink-soft)] transition ${
-    source.url ? "hover:border-[var(--accent-strong)]" : "cursor-default"
-  }`;
-
-  if (source.url) {
-    return (
-      <a href={source.url} target="_blank" rel="noreferrer" className={className}>
-        {inner}
-      </a>
-    );
-  }
-  return <div className={className}>{inner}</div>;
 }

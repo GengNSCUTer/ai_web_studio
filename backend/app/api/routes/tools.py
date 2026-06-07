@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+import json
+import re
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.models.tool_config import UserToolCredential, WorkspaceToolSetting
+from app.models.tool_config import McpServer, McpTool, UserToolCredential, WorkspaceToolSetting
 from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.tool_config_repo import ToolConfigRepository
 from app.schemas.tool_config import (
+    McpServerCreate,
+    McpServerResponse,
+    McpServerUpdate,
+    McpSyncResponse,
+    McpToolResponse,
+    McpToolTestRequest,
+    McpToolUpdate,
     ToolConnectionTestResponse,
     ToolDefinitionResponse,
     ToolSettingsResponse,
@@ -18,6 +29,7 @@ from app.schemas.tool_config import (
     WorkspaceToolSettingUpdate,
 )
 from app.services.tools.credentials import ToolCredentialResolver
+from app.services.tools.mcp_client import McpHttpClient
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.tavily import TavilySearchProvider
 from app.services.tools.registry import ToolRegistry
@@ -25,6 +37,74 @@ from app.services.secret_service import SecretService
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 secret_service = SecretService()
+
+
+def _json_dumps(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _json_loads(value: str | None, fallback: object) -> object:
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return fallback
+
+
+def _slug(value: str) -> str:
+    normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "-", value.strip().lower()).strip("-")
+    return normalized or "mcp"
+
+
+def _dt(value: object) -> str | None:
+    return value.isoformat() if hasattr(value, "isoformat") else None
+
+
+def _mcp_endpoint(server: McpServer, api_key: str | None) -> tuple[str, dict[str, str]]:
+    endpoint = server.url.replace("{api_key}", api_key or "")
+    if server.auth_type == "bearer" and api_key:
+        return endpoint, {"Authorization": f"Bearer {api_key}"}
+    if server.auth_type == "api_key_header" and api_key:
+        return endpoint, {"X-API-Key": api_key}
+    return endpoint, {}
+
+
+def _server_response(server: McpServer) -> McpServerResponse:
+    return McpServerResponse(
+        id=server.id,
+        server_key=server.server_key,
+        name=server.name,
+        description=server.description,
+        url=server.url,
+        transport_type=server.transport_type,
+        auth_type=server.auth_type,
+        credential_provider=server.credential_provider,
+        trust_level=server.trust_level,
+        is_enabled=server.is_enabled,
+        last_sync_at=_dt(server.last_sync_at),
+        last_error=server.last_error,
+    )
+
+
+def _tool_response(tool: McpTool, server: McpServer | None = None) -> McpToolResponse:
+    return McpToolResponse(
+        id=tool.id,
+        server_id=tool.server_id,
+        server_key=server.server_key if server else None,
+        raw_name=tool.raw_name,
+        tool_key=tool.tool_key,
+        display_name=tool.display_name,
+        description=tool.description,
+        description_override=tool.description_override,
+        input_schema=_json_loads(tool.input_schema_json, {}),
+        fixed_arguments=_json_loads(tool.fixed_arguments_json, {}),
+        category=tool.category,
+        risk_level=tool.risk_level,
+        read_only=tool.read_only,
+        is_enabled=tool.is_enabled,
+        last_seen_at=_dt(tool.last_seen_at),
+    )
 
 
 def _credential_response(
@@ -64,11 +144,13 @@ def get_tool_settings(
     if project_id and not ProjectRepository(db).get_by_user(project_id, current_user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    registry = ToolRegistry()
+    registry = ToolRegistry(db=db, user_id=current_user.id)
     repo = ToolConfigRepository(db)
     resolver = ToolCredentialResolver(db)
     credentials = {item.provider_key: item for item in repo.list_credentials(current_user.id)}
-    provider_keys = sorted({tool.provider for tool in registry.list_definitions()})
+    mcp_servers = repo.list_mcp_servers(current_user.id)
+    mcp_tool_pairs = repo.list_mcp_tools(user_id=current_user.id)
+    provider_keys = sorted({tool.credential_provider for tool in registry.list_definitions()} | {server.credential_provider or server.server_key for server in mcp_servers})
     workspace_settings = repo.list_workspace_settings(project_id) if project_id else []
 
     return ToolSettingsResponse(
@@ -79,9 +161,14 @@ def get_tool_settings(
                 category=tool.category,
                 display_name=tool.display_name,
                 description=tool.description,
+                source_type=tool.source_type,
+                adapter_type=tool.adapter_type,
+                risk_level=tool.risk_level,
+                input_schema=tool.input_schema,
                 read_only=tool.read_only,
                 enabled_by_default=tool.enabled_by_default,
                 credential_required=True,
+                credential_provider=tool.credential_provider,
             )
             for tool in registry.list_definitions()
         ],
@@ -102,6 +189,8 @@ def get_tool_settings(
             )
             for item in workspace_settings
         ],
+        mcp_servers=[_server_response(server) for server in mcp_servers],
+        mcp_tools=[_tool_response(tool, server) for tool, server in mcp_tool_pairs],
     )
 
 
@@ -112,11 +201,13 @@ def update_tool_credential(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserToolCredentialResponse:
-    valid_providers = {tool.provider for tool in ToolRegistry().list_definitions()}
+    repo = ToolConfigRepository(db)
+    registry = ToolRegistry(db=db, user_id=current_user.id)
+    valid_providers = {tool.credential_provider for tool in registry.list_definitions()}
+    valid_providers.update({server.credential_provider or server.server_key for server in repo.list_mcp_servers(current_user.id)})
     if provider_key not in valid_providers:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool provider not found")
 
-    repo = ToolConfigRepository(db)
     credential = repo.get_credential(current_user.id, provider_key)
     if not credential:
         credential = UserToolCredential(
@@ -156,7 +247,7 @@ def update_workspace_tool_setting(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> WorkspaceToolSettingResponse:
-    if tool_key not in {tool.tool_key for tool in ToolRegistry().list_definitions()}:
+    if tool_key not in {tool.tool_key for tool in ToolRegistry(db=db, user_id=current_user.id).list_definitions()}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool not found")
     if not ProjectRepository(db).get_by_user(project_id, current_user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -201,4 +292,243 @@ async def test_tool_credential(
         ok=True,
         provider_key=provider_key,
         message=f"连接成功，返回 {len(sources)} 个来源，凭证来源：{credential.source}",
+    )
+
+
+@router.post("/mcp-servers", response_model=McpServerResponse)
+def create_mcp_server(
+    payload: McpServerCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> McpServerResponse:
+    repo = ToolConfigRepository(db)
+    server_key = _slug(payload.server_key)
+    if repo.get_mcp_server_by_key(user_id=current_user.id, server_key=server_key):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="MCP server key already exists")
+    server = McpServer(
+        user_id=current_user.id,
+        server_key=server_key,
+        name=payload.name.strip(),
+        description=(payload.description or "").strip() or None,
+        transport_type=payload.transport_type,
+        url=payload.url.strip(),
+        auth_type=payload.auth_type,
+        credential_provider=(payload.credential_provider or server_key).strip(),
+        is_enabled=payload.is_enabled,
+    )
+    return _server_response(repo.save_mcp_server(server))
+
+
+@router.patch("/mcp-servers/{server_id}", response_model=McpServerResponse)
+def update_mcp_server(
+    server_id: str,
+    payload: McpServerUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> McpServerResponse:
+    repo = ToolConfigRepository(db)
+    server = repo.get_mcp_server(user_id=current_user.id, server_id=server_id)
+    if not server:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data and data["name"] is not None:
+        server.name = data["name"].strip() or server.name
+    if "description" in data:
+        server.description = (data["description"] or "").strip() or None
+    if "url" in data and data["url"] is not None:
+        server.url = data["url"].strip()
+    if "transport_type" in data and data["transport_type"] is not None:
+        server.transport_type = data["transport_type"]
+    if "auth_type" in data and data["auth_type"] is not None:
+        server.auth_type = data["auth_type"]
+    if "credential_provider" in data and data["credential_provider"] is not None:
+        server.credential_provider = data["credential_provider"].strip() or server.server_key
+    if "is_enabled" in data and data["is_enabled"] is not None:
+        server.is_enabled = bool(data["is_enabled"])
+    return _server_response(repo.save_mcp_server(server))
+
+
+@router.delete("/mcp-servers/{server_id}")
+def delete_mcp_server(
+    server_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, bool]:
+    repo = ToolConfigRepository(db)
+    server = repo.get_mcp_server(user_id=current_user.id, server_id=server_id)
+    if not server:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
+    repo.delete_mcp_server(server)
+    return {"ok": True}
+
+
+async def _list_mcp_tools_for_server(
+    *,
+    server: McpServer,
+    credential: ToolCredentialResolver,
+    user_id: str,
+) -> list:
+    provider_key = server.credential_provider or server.server_key
+    resolved = credential.resolve(user_id=user_id, provider_key=provider_key)
+    needs_api_key = server.auth_type != "none" or "{api_key}" in server.url
+    if needs_api_key and not resolved.api_key:
+        raise RuntimeError(f"MCP server {server.name} 需要配置凭据：{provider_key}")
+    endpoint, headers = _mcp_endpoint(server, resolved.api_key)
+    return await McpHttpClient(endpoint=endpoint, extra_headers=headers).list_tools()
+
+
+@router.post("/mcp-servers/{server_id}/test", response_model=ToolConnectionTestResponse)
+async def test_mcp_server(
+    server_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ToolConnectionTestResponse:
+    repo = ToolConfigRepository(db)
+    server = repo.get_mcp_server(user_id=current_user.id, server_id=server_id)
+    if not server:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
+    try:
+        tools = await _list_mcp_tools_for_server(
+            server=server,
+            credential=ToolCredentialResolver(db),
+            user_id=current_user.id,
+        )
+        server.last_error = None
+        repo.save_mcp_server(server)
+    except Exception as exc:
+        server.last_error = str(exc)
+        repo.save_mcp_server(server)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MCP 连接失败：{exc}") from exc
+    return ToolConnectionTestResponse(
+        ok=True,
+        provider_key=server.credential_provider or server.server_key,
+        message=f"MCP 连接成功，发现 {len(tools)} 个工具。",
+    )
+
+
+@router.post("/mcp-servers/{server_id}/sync-tools", response_model=McpSyncResponse)
+async def sync_mcp_tools(
+    server_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> McpSyncResponse:
+    repo = ToolConfigRepository(db)
+    server = repo.get_mcp_server(user_id=current_user.id, server_id=server_id)
+    if not server:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
+    try:
+        remote_tools = await _list_mcp_tools_for_server(
+            server=server,
+            credential=ToolCredentialResolver(db),
+            user_id=current_user.id,
+        )
+    except Exception as exc:
+        server.last_error = str(exc)
+        repo.save_mcp_server(server)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MCP 同步失败：{exc}") from exc
+
+    existing = {tool.raw_name: tool for tool in repo.list_mcp_tools_for_server(user_id=current_user.id, server_id=server.id)}
+    now = datetime.now(timezone.utc)
+    saved_tools: list[McpTool] = []
+    for remote in remote_tools:
+        raw_name = remote.name.strip()
+        if not raw_name:
+            continue
+        annotations = remote.raw.get("annotations") if isinstance(remote.raw, dict) else {}
+        annotations = annotations if isinstance(annotations, dict) else {}
+        read_only = bool(annotations.get("readOnlyHint", True))
+        tool = existing.get(raw_name)
+        if not tool:
+            tool = McpTool(
+                server_id=server.id,
+                raw_name=raw_name,
+                tool_key=f"mcp.{server.server_key}.{_slug(raw_name)}",
+                display_name=raw_name,
+                is_enabled=False,
+            )
+        tool.description = remote.description or tool.description
+        tool.input_schema_json = _json_dumps(remote.input_schema or {})
+        tool.annotations_json = _json_dumps(annotations)
+        tool.read_only = read_only
+        tool.risk_level = "low" if read_only else "high"
+        tool.last_seen_at = now
+        repo.flush_mcp_tool(tool)
+        saved_tools.append(tool)
+
+    server.last_sync_at = now
+    server.last_error = None
+    db.add(server)
+    db.commit()
+    for tool in saved_tools:
+        db.refresh(tool)
+    db.refresh(server)
+    return McpSyncResponse(
+        ok=True,
+        server=_server_response(server),
+        tools=[_tool_response(tool, server) for tool in saved_tools],
+        message=f"同步完成，发现 {len(saved_tools)} 个工具。新工具默认未启用。",
+    )
+
+
+@router.patch("/mcp-tools/{tool_id}", response_model=McpToolResponse)
+def update_mcp_tool(
+    tool_id: str,
+    payload: McpToolUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> McpToolResponse:
+    repo = ToolConfigRepository(db)
+    result = repo.get_mcp_tool(user_id=current_user.id, tool_id=tool_id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP tool not found")
+    tool, server = result
+    data = payload.model_dump(exclude_unset=True)
+    if "display_name" in data and data["display_name"] is not None:
+        tool.display_name = data["display_name"].strip() or tool.display_name
+    if "description_override" in data:
+        tool.description_override = (data["description_override"] or "").strip() or None
+    if "category" in data and data["category"] is not None:
+        tool.category = _slug(data["category"])[:64] or tool.category
+    if "is_enabled" in data and data["is_enabled"] is not None:
+        tool.is_enabled = bool(data["is_enabled"])
+    if "risk_level" in data and data["risk_level"] is not None:
+        tool.risk_level = data["risk_level"]
+    if "read_only" in data and data["read_only"] is not None:
+        tool.read_only = bool(data["read_only"])
+    if "fixed_arguments" in data and data["fixed_arguments"] is not None:
+        tool.fixed_arguments_json = _json_dumps(data["fixed_arguments"])
+    saved = repo.save_mcp_tool(tool)
+    return _tool_response(saved, server)
+
+
+@router.post("/mcp-tools/{tool_id}/test", response_model=ToolConnectionTestResponse)
+async def test_mcp_tool(
+    tool_id: str,
+    payload: McpToolTestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ToolConnectionTestResponse:
+    repo = ToolConfigRepository(db)
+    result = repo.get_mcp_tool(user_id=current_user.id, tool_id=tool_id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP tool not found")
+    tool, server = result
+    provider_key = server.credential_provider or server.server_key
+    credential = ToolCredentialResolver(db).resolve(user_id=current_user.id, provider_key=provider_key)
+    needs_api_key = server.auth_type != "none" or "{api_key}" in server.url
+    if needs_api_key and not credential.api_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MCP 工具需要配置凭据：{provider_key}")
+    endpoint, headers = _mcp_endpoint(server, credential.api_key)
+    try:
+        response = await McpHttpClient(endpoint=endpoint, extra_headers=headers).call_tool(
+            tool_name=tool.raw_name,
+            arguments=payload.arguments or {},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MCP 工具测试失败：{exc}") from exc
+    return ToolConnectionTestResponse(
+        ok=True,
+        provider_key=provider_key,
+        message=f"MCP 工具 {tool.display_name} 调用成功。",
+        raw=response.raw,
     )

@@ -31,9 +31,14 @@ export type ToolDefinition = {
   category: string;
   display_name: string;
   description: string;
+  source_type?: string;
+  adapter_type?: string;
+  risk_level?: string;
+  input_schema?: Record<string, unknown>;
   read_only: boolean;
   enabled_by_default: boolean;
   credential_required: boolean;
+  credential_provider?: string | null;
 };
 
 export type UserToolCredential = {
@@ -55,11 +60,54 @@ export type ToolSettings = {
   tools: ToolDefinition[];
   credentials: UserToolCredential[];
   workspace_settings: WorkspaceToolSetting[];
+  mcp_servers: McpServer[];
+  mcp_tools: McpTool[];
 };
 
 export type ToolConnectionTestResult = {
   ok: boolean;
   provider_key: string;
+  message: string;
+  raw?: Record<string, unknown> | null;
+};
+
+export type McpServer = {
+  id: string;
+  server_key: string;
+  name: string;
+  description: string | null;
+  url: string;
+  transport_type: string;
+  auth_type: string;
+  credential_provider: string | null;
+  trust_level: string;
+  is_enabled: boolean;
+  last_sync_at: string | null;
+  last_error: string | null;
+};
+
+export type McpTool = {
+  id: string;
+  server_id: string;
+  server_key?: string | null;
+  raw_name: string;
+  tool_key: string;
+  display_name: string;
+  description: string | null;
+  description_override: string | null;
+  input_schema: Record<string, unknown>;
+  fixed_arguments: Record<string, unknown>;
+  category: string;
+  risk_level: string;
+  read_only: boolean;
+  is_enabled: boolean;
+  last_seen_at: string | null;
+};
+
+export type McpSyncResult = {
+  ok: boolean;
+  server: McpServer;
+  tools: McpTool[];
   message: string;
 };
 
@@ -107,47 +155,63 @@ export type ExternalSource = {
   metadata?: Record<string, unknown>;
 };
 
-export type ToolTraceEvent =
-  | { type: "tool_plan"; plan?: ToolPlanPayload }
-  | {
-      type: "tool_call_start";
-      call_id?: string;
-      tool_key?: string;
-      provider?: string;
-      category?: string;
-      display_name?: string;
-      arguments?: Record<string, unknown>;
-    }
-  | {
-      type: "tool_call_end";
-      call_id?: string;
-      tool_key?: string;
-      provider?: string;
-      category?: string;
-      display_name?: string;
-      status?: string;
-      elapsed_ms?: number;
-      sources_count?: number;
-    }
-  | {
-      type: "tool_call_error";
-      call_id?: string;
-      tool_key?: string;
-      provider?: string;
-      category?: string;
-      display_name?: string;
-      status?: string;
-      elapsed_ms?: number;
-      error?: string;
-    }
-  | {
-      type: "tool_call_fallback";
-      from_call_id?: string;
-      from_tool_key?: string;
-      to_call_id?: string;
-      to_tool_key?: string;
-      reason?: string;
-    };
+export type ToolTraceEvent = {
+  type:
+    | "tool_planner_start"
+    | "tool_planner_llm_output"
+    | "tool_planner_end"
+    | "tool_agent_round_start"
+    | "tool_agent_round_end"
+    | "tool_candidate_selection"
+    | "tool_schema_validation"
+    | "tool_policy_check"
+    | "tool_confirmation_required"
+    | "tool_plan"
+    | "tool_workflow_start"
+    | "tool_workflow_batch"
+    | "tool_workflow_step"
+    | "tool_workflow_step_skipped"
+    | "tool_workflow_end"
+    | "tool_call_start"
+    | "tool_call_end"
+    | "tool_call_error"
+    | "tool_call_fallback"
+    | "tool_fallback"
+    | "tool_query_rewrite";
+  plan?: ToolPlanPayload;
+  call_id?: string;
+  tool_key?: string;
+  provider?: string;
+  category?: string;
+  display_name?: string;
+  arguments?: Record<string, unknown>;
+  raw_arguments?: unknown;
+  normalized_arguments?: unknown;
+  selected_tools?: ToolPlanPayload["calls"];
+  elapsed_ms?: number;
+  sources_count?: number;
+  status?: string;
+  error?: string;
+  reason?: string;
+  planner?: string;
+  strategy?: string;
+  confidence?: number;
+  risk_level?: string;
+  read_only?: boolean;
+  credential_source?: string;
+  credential_provider?: string;
+  requires_confirmation?: boolean;
+  from?: string;
+  to?: string;
+  from_call_id?: string;
+  from_tool_key?: string;
+  to_call_id?: string;
+  to_tool_key?: string;
+  original_query?: string;
+  rewritten_query?: string;
+  extracted_places?: string[];
+  [key: string]: unknown;
+};
 
 export type ToolPlanPayload = {
   plan_id?: string;

@@ -78,27 +78,81 @@ class AmapToolProvider:
         if not api_key:
             raise RuntimeError("未配置 AMAP_API_KEY")
 
-        city = self._extract_city(query)
+        requested_location = self._extract_city(query)
+        tried_cities: list[str] = []
+
+        direct_data = await self._request_amap_weather(requested_location)
+        tried_cities.append(requested_location)
+        lives = direct_data.get("lives") or []
+        resolved_city = requested_location
+
+        if not lives:
+            for candidate in await self._resolve_weather_city_candidates(requested_location):
+                if not candidate or candidate in tried_cities:
+                    continue
+                tried_cities.append(candidate)
+                fallback_data = await self._request_amap_weather(candidate)
+                lives = fallback_data.get("lives") or []
+                if lives:
+                    resolved_city = candidate
+                    break
+
+        if not lives:
+            raise RuntimeError(f"高德天气查询无结果：{requested_location}（已尝试：{'、'.join(tried_cities)}）")
+
+        return self._format_weather_sources(
+            lives,
+            requested_location=requested_location,
+            resolved_city=resolved_city,
+        )
+
+    async def _request_amap_weather(self, city: str) -> dict[str, Any]:
         params = {
-            "key": api_key,
             "city": city,
             "extensions": "base",
             "output": "JSON",
         }
         async with httpx.AsyncClient(timeout=settings.external_tool_timeout_seconds) as client:
-            response = await client.get("https://restapi.amap.com/v3/weather/weatherInfo", params=params)
+            response = await client.get(
+                "https://restapi.amap.com/v3/weather/weatherInfo",
+                params={"key": self._api_key(), **params},
+            )
             response.raise_for_status()
             data = response.json()
 
-        lives = data.get("lives") or []
-        if not lives:
-            info = data.get("info") or "无天气结果"
+        if str(data.get("status")) != "1":
+            info = data.get("info") or data.get("infocode") or "未知错误"
             raise RuntimeError(f"高德天气查询失败：{info}")
+        return data
 
+    async def _resolve_weather_city_candidates(self, location: str) -> list[str]:
+        candidates: list[str] = []
+        geocode = await self._query_amap_geocode_one(location)
+        if geocode:
+            for key in ("adcode", "district", "city"):
+                value = self._clean_amap_scalar(geocode.get(key))
+                if value and value not in candidates:
+                    candidates.append(value)
+
+        # 高德天气接口要求城市/区县级 city 或 adcode；街道级地点常返回 OK 但 lives 为空。
+        compact = re.sub(r"\s+", "", location)
+        if compact.endswith(("街道", "镇", "乡")) and len(compact) > 2:
+            stripped = re.sub(r"(街道|镇|乡)$", "", compact)
+            if stripped and stripped not in candidates:
+                candidates.append(stripped)
+        return candidates
+
+    def _format_weather_sources(
+        self,
+        lives: list[dict[str, Any]],
+        *,
+        requested_location: str,
+        resolved_city: str,
+    ) -> list[ExternalSource]:
         sources: list[ExternalSource] = []
         for index, item in enumerate(lives, start=1):
             province = item.get("province") or ""
-            city_name = item.get("city") or city
+            city_name = item.get("city") or requested_location
             weather = item.get("weather") or "未知"
             temperature = item.get("temperature") or "未知"
             wind_direction = item.get("winddirection") or "未知"
@@ -120,6 +174,8 @@ class AmapToolProvider:
                     metadata={
                         "city": city_name,
                         "province": province,
+                        "requested_location": requested_location,
+                        "resolved_city": resolved_city,
                         "weather": weather,
                         "temperature": temperature,
                         "winddirection": wind_direction,
@@ -538,15 +594,23 @@ class AmapToolProvider:
         cleaned = re.sub(r"(今天|明天|后天|现在|当前|最近|请问|帮我|查一下|查询)", "", query)
         match = re.search(r"([\u4e00-\u9fa5]{2,10}?)(?:的)?(?:天气|气温|温度|下雨|降雨|空气质量)", cleaned)
         if match:
-            return match.group(1)
+            city = AmapToolProvider._extract_city_name_from_place(match.group(1))
+            if city:
+                return city
         return "广州"
 
     @staticmethod
     def _extract_route_query(query: str) -> tuple[str, str, str] | None:
         compact = re.sub(r"\s+", "", query.strip())
         patterns = [
+            r"(.+?)分别到(.+?)(?:有)?(?:多远|多少公里|几公里|要多久|多久|开车多久|步行多久)",
             r"从(.+?)到(.+?)(?:怎么走|怎么去|路线|导航|驾车|开车|步行|公交|地铁|公共交通|$)",
+            r"(.+?)到(.+?)(?:路上|沿途|途中)(?:有|有哪些|有什么)?",
+            r"(.+?)到(.+?)(?:预计耗时|耗时|多久到)",
             r"(.+?)到(.+?)(?:怎么走|怎么去|路线|导航|驾车|开车|步行|公交|地铁|公共交通)",
+            r"(.+?)(?:离|距离)(.+?)(?:有)?(?:多远|多少公里|几公里|要多久|多久|开车多久|步行多久)",
+            r"(.+?)(?:和|与|跟)(.+?)(?:相距|距离)(?:多远|多少公里|几公里|多久)?",
+            r"(.+?)到(.+?)(?:有)?(?:多远|多少公里|几公里|要多久|多久|开车多久|步行多久)",
         ]
         for pattern in patterns:
             match = re.search(pattern, compact)
@@ -624,7 +688,23 @@ class AmapToolProvider:
         cleaned = re.sub(r"[？?。！!，,；;：:]", "", value or "")
         cleaned = re.sub(r"(请问|帮我|查询|查一下|一下|从|到)$", "", cleaned)
         cleaned = re.sub(r"(坐|乘坐|搭乘|地铁|公交|公共交通|开车|驾车|步行|走路)$", "", cleaned)
+        cleaned = re.sub(r"(路上|沿途|途中|有哪些|有什么|服务区|预计耗时|耗时|天气|顺便看).*$", "", cleaned)
         return cleaned.strip()
+
+    @staticmethod
+    def _extract_city_name_from_place(value: str) -> str:
+        cleaned = AmapToolProvider._clean_place_text(value)
+        if not cleaned:
+            return ""
+        match = re.search(r"([\u4e00-\u9fa5]{2,8}?市)", cleaned)
+        if match:
+            return match.group(1)
+        match = re.search(r"([\u4e00-\u9fa5]{2,6})(?:区|县|镇|街道|站|村|机场|港口|服务区)", cleaned)
+        if match:
+            return match.group(1)
+        if len(cleaned) <= 6 and re.fullmatch(r"[\u4e00-\u9fa5]+", cleaned):
+            return cleaned
+        return cleaned[:8]
 
     @staticmethod
     def _clean_amap_scalar(value: Any) -> str:

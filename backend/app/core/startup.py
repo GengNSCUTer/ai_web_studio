@@ -11,6 +11,8 @@ from app.models import (  # noqa: F401
     PromptTemplate,
     ToolCallRun,
     ToolRouteRun,
+    McpServer,
+    McpTool,
     UserToolCredential,
     User,
     UserMemory,

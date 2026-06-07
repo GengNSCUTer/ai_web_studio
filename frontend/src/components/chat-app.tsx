@@ -541,7 +541,7 @@ export function ChatApp({
   const [appDialog, setAppDialog] = useState<AppDialogState>(null);
   const [renameConversationDraft, setRenameConversationDraft] = useState("");
   const [isDialogSubmitting, setIsDialogSubmitting] = useState(false);
-  const [userSettings, setUserSettings] = useState<UserSettings | null>(
+  const [userSettings] = useState<UserSettings | null>(
     initialSettings ? normalizeUserSettings(initialSettings) : null
   );
   const [contextInfoByConversationId, setContextInfoByConversationId] = useState<
@@ -570,7 +570,7 @@ export function ChatApp({
     include_context: false,
     as_zip: false,
   });
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [highlightedMessageId] = useState<string | null>(null);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const [projectStats, setProjectStats] = useState<ProjectStats | null>(null);
   const [isAddingProjectFile, setIsAddingProjectFile] = useState(false);

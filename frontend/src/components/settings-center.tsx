@@ -1,17 +1,19 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import {
   buildProviderPreset,
   buildSettingsPayload,
   normalizeThemeMode,
   normalizeUserSettings,
-  type ThemeMode,
 } from "@/lib/settings";
 import type {
   Project,
   PromptTemplate,
+  McpServer,
+  McpSyncResult,
   ProviderInfo,
   ToolConnectionTestResult,
   ToolSettings,
@@ -96,6 +98,19 @@ const TEXT = {
     saveToolSettings: "保存工具设置",
     toolSettingsSaved: "工具设置已保存",
     toolSettingsFailed: "工具设置失败：",
+    mcpServers: "MCP Servers",
+    addMcpServer: "添加 MCP Server",
+    mcpServerKey: "Server Key",
+    mcpServerName: "名称",
+    mcpServerUrl: "MCP URL",
+    mcpAuthType: "鉴权方式",
+    mcpCredentialProvider: "凭据 Provider Key",
+    syncMcpTools: "同步工具",
+    noMcpServers: "还没有自定义 MCP Server。",
+    mcpTools: "MCP 工具",
+    noMcpTools: "同步后会在这里显示 MCP 工具。新工具默认不启用。",
+    enabled: "已启用",
+    disabled: "未启用",
     providerConnectionSuccess: "连接成功",
     templatesCount: "模板数量",
     memoriesCount: "记忆数量",
@@ -108,6 +123,16 @@ const TEXT = {
     activeWorkspaceDefaults: "工作区默认配置",
     selectWorkspace: "选择工作区",
     testTool: "测试工具",
+    close: "关闭",
+    cancel: "取消",
+    schema: "参数 Schema",
+    editTool: "编辑工具",
+    toolCategory: "工具分类",
+    toolDescription: "工具描述",
+    testArguments: "测试参数 JSON",
+    testResult: "测试结果",
+    addMcpServerTitle: "添加 MCP Server",
+    mcpServerDialogHint: "填写 Streamable HTTP / SSE MCP Server 地址。需要 API Key 时，先在工具凭证里配置对应 provider。",
   },
   "en-US": {
     title: "Settings Center",
@@ -163,6 +188,19 @@ const TEXT = {
     saveToolSettings: "Save tool settings",
     toolSettingsSaved: "Tool settings saved",
     toolSettingsFailed: "Tool settings failed: ",
+    mcpServers: "MCP Servers",
+    addMcpServer: "Add MCP Server",
+    mcpServerKey: "Server Key",
+    mcpServerName: "Name",
+    mcpServerUrl: "MCP URL",
+    mcpAuthType: "Auth type",
+    mcpCredentialProvider: "Credential provider key",
+    syncMcpTools: "Sync tools",
+    noMcpServers: "No custom MCP Server yet.",
+    mcpTools: "MCP tools",
+    noMcpTools: "MCP tools will appear here after sync. New tools are disabled by default.",
+    enabled: "Enabled",
+    disabled: "Disabled",
     providerConnectionSuccess: "Connection succeeded",
     templatesCount: "Template count",
     memoriesCount: "Memory count",
@@ -175,6 +213,16 @@ const TEXT = {
     activeWorkspaceDefaults: "Workspace default configuration",
     selectWorkspace: "Select workspace",
     testTool: "Test tool",
+    close: "Close",
+    cancel: "Cancel",
+    schema: "Input schema",
+    editTool: "Edit tool",
+    toolCategory: "Tool category",
+    toolDescription: "Tool description",
+    testArguments: "Test arguments JSON",
+    testResult: "Test result",
+    addMcpServerTitle: "Add MCP Server",
+    mcpServerDialogHint: "Fill in a Streamable HTTP / SSE MCP Server URL. If it needs an API key, configure its provider credential first.",
   },
 } as const;
 
@@ -190,6 +238,101 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T
   return response.json() as Promise<T>;
 }
 
+function ModelPicker({
+  value,
+  options,
+  onChange,
+  placeholder,
+  emptyLabel,
+}: {
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+  placeholder: string;
+  emptyLabel?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+  const normalizedOptions = useMemo(
+    () => Array.from(new Set([value, ...options].filter(Boolean))),
+    [options, value]
+  );
+  const filteredOptions = normalizedOptions.filter((model) =>
+    model.toLowerCase().includes(query.trim().toLowerCase())
+  );
+  const typedValue = query.trim();
+  const canUseTypedValue = Boolean(typedValue && !normalizedOptions.includes(typedValue));
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => {
+          setQuery("");
+          setIsOpen((current) => !current);
+        }}
+        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-left text-sm text-[var(--ink-strong)] outline-none transition hover:border-[var(--accent-strong)] focus:border-[var(--accent-strong)]"
+      >
+        <span className={value ? "truncate" : "truncate text-[var(--ink-muted)]"}>
+          {value || emptyLabel || placeholder}
+        </span>
+        <span className="text-[var(--ink-muted)]">⌄</span>
+      </button>
+      {isOpen ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 rounded-[22px] border border-[var(--control-border)] bg-[var(--panel)] p-2 shadow-[var(--panel-shadow)]">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={placeholder}
+            className="mb-2 w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm text-[var(--ink-strong)] outline-none focus:border-[var(--accent-strong)]"
+          />
+          <div className="max-h-72 overflow-y-auto pr-1">
+            {emptyLabel ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange("");
+                  setIsOpen(false);
+                }}
+                className="block w-full rounded-2xl px-3 py-2 text-left text-sm text-[var(--ink-soft)] transition hover:bg-[var(--soft-bg)] hover:text-[var(--ink-strong)]"
+              >
+                {emptyLabel}
+              </button>
+            ) : null}
+            {filteredOptions.map((model) => (
+              <button
+                key={model}
+                type="button"
+                onClick={() => {
+                  onChange(model);
+                  setIsOpen(false);
+                }}
+                className={`block w-full rounded-2xl px-3 py-2 text-left text-sm transition hover:bg-[var(--soft-bg)] hover:text-[var(--ink-strong)] ${
+                  model === value ? "bg-[var(--soft-bg)] text-[var(--ink-strong)]" : "text-[var(--ink-soft)]"
+                }`}
+              >
+                {model}
+              </button>
+            ))}
+            {canUseTypedValue ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onChange(typedValue);
+                  setIsOpen(false);
+                }}
+                className="mt-1 block w-full rounded-2xl border border-dashed border-[var(--control-border)] px-3 py-2 text-left text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)]"
+              >
+                使用：{typedValue}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function SettingsCenter({
   currentUser,
   initialSettings,
@@ -203,8 +346,8 @@ export function SettingsCenter({
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(initialProviderInfo);
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [toolSettings, setToolSettings] = useState<ToolSettings | null>(initialToolSettings);
-  const [memories, setMemories] = useState<UserMemory[]>(initialMemories);
-  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>(initialPromptTemplates);
+  const [memories] = useState<UserMemory[]>(initialMemories);
+  const [promptTemplates] = useState<PromptTemplate[]>(initialPromptTemplates);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjects[0]?.id ?? "");
   const [activeTab, setActiveTab] = useState<SettingsTab>("provider");
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
@@ -220,15 +363,31 @@ export function SettingsCenter({
   const [isSavingToolSettings, setIsSavingToolSettings] = useState(false);
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
   const [testingToolProvider, setTestingToolProvider] = useState<string | null>(null);
+  const [mcpServerDraft, setMcpServerDraft] = useState({
+    server_key: "",
+    name: "",
+    url: "",
+    auth_type: "none",
+    credential_provider: "",
+  });
+  const [isMcpServerDialogOpen, setIsMcpServerDialogOpen] = useState(false);
+  const [expandedMcpToolId, setExpandedMcpToolId] = useState<string | null>(null);
+  const [mcpToolDrafts, setMcpToolDrafts] = useState<Record<string, { description: string; category: string }>>({});
+  const [mcpToolTestArgs, setMcpToolTestArgs] = useState<Record<string, string>>({});
+  const [testingMcpToolId, setTestingMcpToolId] = useState<string | null>(null);
+  const [mcpToolTestResult, setMcpToolTestResult] = useState<Record<string, string>>({});
+  const [isCreatingMcpServer, setIsCreatingMcpServer] = useState(false);
+  const [testingMcpServerId, setTestingMcpServerId] = useState<string | null>(null);
+  const [syncingMcpServerId, setSyncingMcpServerId] = useState<string | null>(null);
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
 
   const uiLanguage = userSettings.ui_language === "en-US" ? "en-US" : "zh-CN";
   const text = TEXT[uiLanguage];
   const selectedThemeMode = normalizeThemeMode(userSettings.theme_mode);
   const resolvedTheme = selectedThemeMode === "system" ? (systemPrefersDark ? "dark" : "light") : selectedThemeMode;
-  const availableModels = providerInfo?.models ?? [];
+  const availableModels = useMemo(() => providerInfo?.models ?? [], [providerInfo?.models]);
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
-  const toolProviders = Array.from(new Set((toolSettings?.tools ?? []).map((tool) => tool.provider)));
+  const toolProviders = Array.from(new Set((toolSettings?.credentials ?? []).map((credential) => credential.provider_key)));
   const credentialByProvider = Object.fromEntries(
     (toolSettings?.credentials ?? []).map((credential) => [credential.provider_key, credential])
   );
@@ -258,6 +417,7 @@ export function SettingsCenter({
     if (!toolSettings) {
       return;
     }
+    /* eslint-disable react-hooks/set-state-in-effect */
     setToolCredentialDrafts(
       Object.fromEntries(toolSettings.credentials.map((credential) => [credential.provider_key, ""]))
     );
@@ -271,6 +431,21 @@ export function SettingsCenter({
     setWorkspaceToolEnabledDrafts(
       Object.fromEntries(toolSettings.tools.map((tool) => [tool.tool_key, workspaceMap.get(tool.tool_key) ?? true]))
     );
+    setMcpToolDrafts(
+      Object.fromEntries(
+        toolSettings.mcp_tools.map((tool) => [
+          tool.id,
+          {
+            description: tool.description_override ?? tool.description ?? "",
+            category: tool.category ?? "mcp_tool",
+          },
+        ])
+      )
+    );
+    setMcpToolTestArgs((current) =>
+      Object.fromEntries(toolSettings.mcp_tools.map((tool) => [tool.id, current[tool.id] ?? "{}"]))
+    );
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [toolSettings]);
 
   useEffect(() => {
@@ -279,6 +454,17 @@ export function SettingsCenter({
     }
     void reloadToolSettings(selectedProjectId).catch(() => undefined);
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!settingsMessage && !errorMessage) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setSettingsMessage(null);
+      setErrorMessage(null);
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [settingsMessage, errorMessage]);
 
   const selectedProjectModelOptions = useMemo(() => {
     return Array.from(
@@ -292,6 +478,17 @@ export function SettingsCenter({
       )
     );
   }, [availableModels, providerInfo?.default_model, selectedProject?.default_model, userSettings.default_model]);
+  const settingsModelOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        [
+          userSettings.default_model,
+          providerInfo?.default_model ?? "",
+          ...availableModels,
+        ].filter(Boolean)
+      )
+    );
+  }, [availableModels, providerInfo?.default_model, userSettings.default_model]);
 
   async function reloadToolSettings(projectId?: string) {
     const suffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
@@ -463,6 +660,138 @@ export function SettingsCenter({
     }
   }
 
+  async function handleCreateMcpServer() {
+    setIsCreatingMcpServer(true);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    try {
+      const payload = {
+        server_key: mcpServerDraft.server_key.trim(),
+        name: mcpServerDraft.name.trim(),
+        url: mcpServerDraft.url.trim(),
+        auth_type: mcpServerDraft.auth_type,
+        transport_type: "streamable_http",
+        credential_provider: mcpServerDraft.credential_provider.trim() || mcpServerDraft.server_key.trim(),
+        is_enabled: true,
+      };
+      if (!payload.server_key || !payload.name || !payload.url) {
+        throw new Error(uiLanguage === "zh-CN" ? "请填写 Server Key、名称和 URL" : "Server key, name, and URL are required");
+      }
+      await requestJson<McpServer>("/api/backend/tools/mcp-servers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      setMcpServerDraft({ server_key: "", name: "", url: "", auth_type: "none", credential_provider: "" });
+      setIsMcpServerDialogOpen(false);
+      await reloadToolSettings(selectedProject?.id);
+      setSettingsMessage(uiLanguage === "zh-CN" ? "MCP Server 已添加" : "MCP Server added");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setErrorMessage(`${text.toolSettingsFailed}${message}`);
+    } finally {
+      setIsCreatingMcpServer(false);
+    }
+  }
+
+  async function handleTestMcpServer(serverId: string) {
+    setTestingMcpServerId(serverId);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    try {
+      const result = await requestJson<ToolConnectionTestResult>(
+        `/api/backend/tools/mcp-servers/${serverId}/test`,
+        { method: "POST" }
+      );
+      setSettingsMessage(result.message);
+      await reloadToolSettings(selectedProject?.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setErrorMessage(`${text.toolSettingsFailed}${message}`);
+    } finally {
+      setTestingMcpServerId(null);
+    }
+  }
+
+  async function handleSyncMcpServer(serverId: string) {
+    setSyncingMcpServerId(serverId);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    try {
+      const result = await requestJson<McpSyncResult>(
+        `/api/backend/tools/mcp-servers/${serverId}/sync-tools`,
+        { method: "POST" }
+      );
+      setSettingsMessage(result.message);
+      await reloadToolSettings(selectedProject?.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setErrorMessage(`${text.toolSettingsFailed}${message}`);
+    } finally {
+      setSyncingMcpServerId(null);
+    }
+  }
+
+  async function handleUpdateMcpTool(toolId: string, patch: Record<string, unknown>) {
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    try {
+      await requestJson(`/api/backend/tools/mcp-tools/${toolId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      await reloadToolSettings(selectedProject?.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setErrorMessage(`${text.toolSettingsFailed}${message}`);
+    }
+  }
+
+  async function handleSaveMcpToolMeta(toolId: string) {
+    const draft = mcpToolDrafts[toolId];
+    if (!draft) {
+      return;
+    }
+    await handleUpdateMcpTool(toolId, {
+      description_override: draft.description,
+      category: draft.category,
+    });
+    setSettingsMessage(uiLanguage === "zh-CN" ? "MCP 工具信息已保存" : "MCP tool metadata saved");
+  }
+
+  async function handleTestMcpTool(toolId: string) {
+    setTestingMcpToolId(toolId);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    try {
+      let args: Record<string, unknown> = {};
+      const rawArgs = (mcpToolTestArgs[toolId] ?? "{}").trim();
+      if (rawArgs) {
+        const parsed = JSON.parse(rawArgs) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error(uiLanguage === "zh-CN" ? "测试参数必须是 JSON 对象" : "Test arguments must be a JSON object");
+        }
+        args = parsed as Record<string, unknown>;
+      }
+      const result = await requestJson<ToolConnectionTestResult>(`/api/backend/tools/mcp-tools/${toolId}/test`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ arguments: args }),
+      });
+      setMcpToolTestResult((current) => ({
+        ...current,
+        [toolId]: JSON.stringify(result.raw ?? { message: result.message }, null, 2),
+      }));
+      setSettingsMessage(result.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setErrorMessage(`${text.toolSettingsFailed}${message}`);
+    } finally {
+      setTestingMcpToolId(null);
+    }
+  }
+
   async function handleSaveWorkspaceSettings() {
     if (!selectedProject) {
       return;
@@ -507,12 +836,12 @@ export function SettingsCenter({
             <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3 text-sm text-[var(--ink-soft)]">
               {currentUser.email || currentUser.username || currentUser.id}
             </div>
-            <a
+            <Link
               href="/"
               className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
             >
               {text.backHome}
-            </a>
+            </Link>
           </div>
         </div>
 
@@ -580,22 +909,17 @@ export function SettingsCenter({
                   </label>
                   <label className="block text-sm xl:col-span-2">
                     <span className="mb-2 block text-[var(--ink-soft)]">{text.defaultModel}</span>
-                    <input
-                      list="settings-models"
+                    <ModelPicker
                       value={userSettings.default_model}
-                      onChange={(event) =>
+                      options={settingsModelOptions}
+                      placeholder={uiLanguage === "zh-CN" ? "搜索或输入模型名" : "Search or enter model name"}
+                      onChange={(model) =>
                         setUserSettings((current) => ({
                           ...current,
-                          default_model: event.target.value,
+                          default_model: model,
                         }))
                       }
-                      className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
                     />
-                    <datalist id="settings-models">
-                      {availableModels.map((model) => (
-                        <option key={model} value={model} />
-                      ))}
-                    </datalist>
                   </label>
                   {userSettings.provider_type === "openai-compatible" ? (
                     <div className="xl:col-span-2 rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
@@ -825,6 +1149,194 @@ export function SettingsCenter({
                   <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
                     <p className="text-sm leading-6 text-[var(--ink-soft)]">{text.toolsHint}</p>
                   </div>
+                  <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-[var(--ink-strong)]">{text.mcpServers}</p>
+                      <button
+                        type="button"
+                        onClick={() => setIsMcpServerDialogOpen(true)}
+                        className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                      >
+                        {text.addMcpServer} · {(toolSettings?.mcp_servers ?? []).length}
+                      </button>
+                    </div>
+                    <div className="mt-4 grid gap-3">
+                      {(toolSettings?.mcp_servers ?? []).length === 0 ? (
+                        <p className="text-sm text-[var(--ink-soft)]">{text.noMcpServers}</p>
+                      ) : (
+                        (toolSettings?.mcp_servers ?? []).map((server) => (
+                          <div key={server.id} className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-4 py-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium text-[var(--ink-strong)]">
+                                  {server.name} · {server.server_key}
+                                </p>
+                                <p className="mt-1 break-all text-xs text-[var(--ink-muted)]">{server.url}</p>
+                                <p className="mt-1 text-xs text-[var(--ink-soft)]">
+                                  auth={server.auth_type} · credential={server.credential_provider ?? server.server_key}
+                                  {server.last_error ? ` · error=${server.last_error}` : ""}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleTestMcpServer(server.id)}
+                                  disabled={testingMcpServerId === server.id}
+                                  className="rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:opacity-55"
+                                >
+                                  {testingMcpServerId === server.id ? text.testing : text.testTool}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSyncMcpServer(server.id)}
+                                  disabled={syncingMcpServerId === server.id}
+                                  className="rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:opacity-55"
+                                >
+                                  {syncingMcpServerId === server.id ? text.loading : text.syncMcpTools}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-[var(--ink-strong)]">{text.mcpTools}</p>
+                      <span className="rounded-full bg-[var(--control-bg)] px-3 py-1 text-xs text-[var(--ink-soft)]">
+                        {(toolSettings?.mcp_tools ?? []).length}
+                      </span>
+                    </div>
+                    {(toolSettings?.mcp_tools ?? []).length === 0 ? (
+                      <p className="text-sm text-[var(--ink-soft)]">{text.noMcpTools}</p>
+                    ) : (
+                      <div className="grid gap-2">
+                        {(toolSettings?.mcp_tools ?? []).map((tool) => (
+                          <div
+                            key={tool.id}
+                            className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-3 text-sm"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedMcpToolId((current) => (current === tool.id ? null : tool.id))}
+                                className="min-w-0 text-left"
+                              >
+                                <span className="block font-medium text-[var(--ink-strong)]">
+                                  {tool.display_name} · {tool.server_key}
+                                </span>
+                                <span className="mt-1 block break-all text-xs text-[var(--ink-muted)]">{tool.tool_key}</span>
+                                <span className="mt-1 block text-xs leading-5 text-[var(--ink-soft)]">
+                                  {tool.description_override || tool.description || tool.raw_name}
+                                </span>
+                                <span className="mt-1 flex flex-wrap gap-2 text-[10px] text-[var(--ink-muted)]">
+                                  <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">category={tool.category}</span>
+                                  <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">risk={tool.risk_level}</span>
+                                  <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">read_only={String(tool.read_only)}</span>
+                                </span>
+                              </button>
+                              <label className="flex shrink-0 items-center gap-2 text-xs text-[var(--ink-soft)]">
+                                <input
+                                  type="checkbox"
+                                  checked={tool.is_enabled}
+                                  onChange={(event) =>
+                                    void handleUpdateMcpTool(tool.id, { is_enabled: event.target.checked })
+                                  }
+                                />
+                                {tool.is_enabled ? text.enabled : text.disabled}
+                              </label>
+                            </div>
+                            {expandedMcpToolId === tool.id ? (
+                              <div className="mt-4 grid gap-3 border-t border-[var(--hairline)] pt-4">
+                                <div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
+                                  <label className="grid gap-1 text-xs text-[var(--ink-soft)]">
+                                    {text.toolDescription}
+                                    <input
+                                      value={mcpToolDrafts[tool.id]?.description ?? ""}
+                                      onChange={(event) =>
+                                        setMcpToolDrafts((current) => ({
+                                          ...current,
+                                          [tool.id]: {
+                                            description: event.target.value,
+                                            category: current[tool.id]?.category ?? tool.category,
+                                          },
+                                        }))
+                                      }
+                                      className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm text-[var(--ink-strong)] outline-none focus:border-[var(--accent-strong)]"
+                                    />
+                                  </label>
+                                  <label className="grid gap-1 text-xs text-[var(--ink-soft)]">
+                                    {text.toolCategory}
+                                    <input
+                                      value={mcpToolDrafts[tool.id]?.category ?? tool.category}
+                                      onChange={(event) =>
+                                        setMcpToolDrafts((current) => ({
+                                          ...current,
+                                          [tool.id]: {
+                                            description: current[tool.id]?.description ?? tool.description_override ?? tool.description ?? "",
+                                            category: event.target.value,
+                                          },
+                                        }))
+                                      }
+                                      className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm text-[var(--ink-strong)] outline-none focus:border-[var(--accent-strong)]"
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSaveMcpToolMeta(tool.id)}
+                                    className="self-end rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                                  >
+                                    {text.save}
+                                  </button>
+                                </div>
+                                <details className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2">
+                                  <summary className="cursor-pointer text-xs font-medium text-[var(--ink-strong)]">
+                                    {text.schema}
+                                  </summary>
+                                  <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-[var(--control-bg)] p-3 text-xs leading-5 text-[var(--ink-soft)]">
+                                    {JSON.stringify(tool.input_schema ?? {}, null, 2)}
+                                  </pre>
+                                </details>
+                                <div className="grid gap-2">
+                                  <label className="grid gap-1 text-xs text-[var(--ink-soft)]">
+                                    {text.testArguments}
+                                    <textarea
+                                      value={mcpToolTestArgs[tool.id] ?? "{}"}
+                                      onChange={(event) =>
+                                        setMcpToolTestArgs((current) => ({ ...current, [tool.id]: event.target.value }))
+                                      }
+                                      className="min-h-28 rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 font-mono text-xs text-[var(--ink-strong)] outline-none focus:border-[var(--accent-strong)]"
+                                    />
+                                  </label>
+                                  <div className="flex justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleTestMcpTool(tool.id)}
+                                      disabled={testingMcpToolId === tool.id}
+                                      className="rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-4 py-2 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:opacity-55"
+                                    >
+                                      {testingMcpToolId === tool.id ? text.testing : text.testTool}
+                                    </button>
+                                  </div>
+                                  {mcpToolTestResult[tool.id] ? (
+                                    <details className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2" open>
+                                      <summary className="cursor-pointer text-xs font-medium text-[var(--ink-strong)]">
+                                        {text.testResult}
+                                      </summary>
+                                      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-[var(--control-bg)] p-3 text-xs leading-5 text-[var(--ink-soft)]">
+                                        {mcpToolTestResult[tool.id]}
+                                      </pre>
+                                    </details>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   {toolProviders.map((providerKey) => {
                     const credential = credentialByProvider[providerKey];
                     return (
@@ -984,25 +1496,21 @@ export function SettingsCenter({
                       <div className="grid gap-4 xl:grid-cols-2">
                         <label className="block text-sm">
                           <span className="mb-2 block text-[var(--ink-soft)]">{text.defaultModel}</span>
-                          <input
-                            list="workspace-models"
+                          <ModelPicker
                             value={selectedProject.default_model ?? ""}
-                            onChange={(event) =>
+                            options={selectedProjectModelOptions}
+                            placeholder={uiLanguage === "zh-CN" ? "搜索或输入模型名" : "Search or enter model name"}
+                            emptyLabel={uiLanguage === "zh-CN" ? "不设置默认模型" : "No default model"}
+                            onChange={(model) =>
                               setProjects((current) =>
                                 current.map((project) =>
                                   project.id === selectedProject.id
-                                    ? { ...project, default_model: event.target.value || null }
+                                    ? { ...project, default_model: model || null }
                                     : project
                                 )
                               )
                             }
-                            className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
                           />
-                          <datalist id="workspace-models">
-                            {selectedProjectModelOptions.map((model) => (
-                              <option key={model} value={model} />
-                            ))}
-                          </datalist>
                         </label>
                         <label className="block text-sm xl:col-span-2">
                           <span className="mb-2 block text-[var(--ink-soft)]">{text.systemPrompt}</span>
@@ -1133,6 +1641,88 @@ export function SettingsCenter({
           </section>
         </div>
       </div>
+      {isMcpServerDialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl rounded-[28px] border border-[var(--hairline)] bg-[var(--panel-bg)] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-[var(--ink-strong)]">{text.addMcpServerTitle}</h2>
+                <p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">{text.mcpServerDialogHint}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMcpServerDialogOpen(false)}
+                className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)]"
+              >
+                {text.close}
+              </button>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <input
+                value={mcpServerDraft.server_key}
+                onChange={(event) =>
+                  setMcpServerDraft((current) => ({ ...current, server_key: event.target.value }))
+                }
+                placeholder={text.mcpServerKey}
+                className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)]"
+              />
+              <input
+                value={mcpServerDraft.name}
+                onChange={(event) =>
+                  setMcpServerDraft((current) => ({ ...current, name: event.target.value }))
+                }
+                placeholder={text.mcpServerName}
+                className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)]"
+              />
+              <input
+                value={mcpServerDraft.url}
+                onChange={(event) =>
+                  setMcpServerDraft((current) => ({ ...current, url: event.target.value }))
+                }
+                placeholder={text.mcpServerUrl}
+                className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)] sm:col-span-2"
+              />
+              <select
+                value={mcpServerDraft.auth_type}
+                onChange={(event) =>
+                  setMcpServerDraft((current) => ({ ...current, auth_type: event.target.value }))
+                }
+                className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)]"
+              >
+                <option value="none">none</option>
+                <option value="api_key">api_key in URL</option>
+                <option value="bearer">bearer</option>
+                <option value="api_key_header">X-API-Key</option>
+              </select>
+              <input
+                value={mcpServerDraft.credential_provider}
+                onChange={(event) =>
+                  setMcpServerDraft((current) => ({ ...current, credential_provider: event.target.value }))
+                }
+                placeholder={text.mcpCredentialProvider}
+                className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)]"
+              />
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsMcpServerDialogOpen(false)}
+                className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)]"
+              >
+                {text.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCreateMcpServer()}
+                disabled={isCreatingMcpServer}
+                className="rounded-full bg-[var(--accent-strong)] px-5 py-2 text-sm text-white transition hover:brightness-105 disabled:opacity-55"
+              >
+                {isCreatingMcpServer ? text.saving : text.addMcpServer}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

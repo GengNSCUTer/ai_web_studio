@@ -19,6 +19,7 @@ from app.services.chat_provider_service import ChatProviderService
 from app.services.external_context_service import ExternalContextService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import ContextPromptBuilder
+from app.services.tools.planner import PlannerRuntime
 
 
 def clean_optional_str(value: str | None) -> str | None:
@@ -129,8 +130,10 @@ class ChatContextAssemblyService:
             assistant_message=assistant_message,
             user_message=user_message,
             query=query,
+            history_rows=history_rows,
             web_search_enabled=web_search_enabled,
             max_attachment_chars=runtime.budget.max_attachment_chars,
+            runtime=runtime,
         )
         summary_bundle = await self._refresh_context_summary(
             conversation=conversation,
@@ -245,8 +248,10 @@ class ChatContextAssemblyService:
         assistant_message: object,
         user_message: object,
         query: str,
+        history_rows: list[object],
         web_search_enabled: bool,
         max_attachment_chars: int,
+        runtime: ChatRuntimeConfig,
     ) -> object:
         external_context_result = await ExternalContextService(
             db=self.db,
@@ -256,6 +261,13 @@ class ChatContextAssemblyService:
             query=query,
             enabled=web_search_enabled,
             max_chars=max(1200, min(max_attachment_chars, 6000)),
+            recent_messages=list(history_rows),
+            planner_runtime=PlannerRuntime(
+                provider_type=runtime.provider_type,
+                base_url=runtime.base_url,
+                api_key=runtime.provider_api_key,
+                model_name=runtime.resolved_model,
+            ),
         )
         self.tool_trace_repo.replace_for_assistant_message(
             user_id=self.user_id,
