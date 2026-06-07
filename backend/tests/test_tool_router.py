@@ -139,6 +139,9 @@ class ToolRouterTest(unittest.TestCase):
             self.assertEqual(result.diagnostics["external_context_enabled"], 0)
             self.assertEqual(result.diagnostics["external_tool_called"], "none")
             self.assertFalse(result.diagnostics["external_context_error"])
+            self.assertEqual(result.diagnostics["external_tool_events_total"], 0)
+            self.assertEqual(result.tool_events, [])
+            self.assertIsNone(result.tool_plan)
 
         import asyncio
 

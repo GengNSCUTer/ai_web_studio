@@ -136,10 +136,11 @@ def _build_streaming_response(
                     payload = {key: value for key, value in tool_event.items() if key != "type"}
                     if event_type:
                         yield _encode_stream_event(event_type, **payload)
-                yield _encode_stream_event(
-                    "tool_sources",
-                    sources=context.external_sources,
-                )
+                if context.tool_events or context.external_sources:
+                    yield _encode_stream_event(
+                        "tool_sources",
+                        sources=context.external_sources,
+                    )
             async for event in provider_service.stream_chat_events(
                 provider_type=context.provider_type,
                 base_url=context.base_url,

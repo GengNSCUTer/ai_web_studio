@@ -65,6 +65,30 @@ class ExternalContextService:
         recent_messages: list[object] | None = None,
         planner_runtime: PlannerRuntime | None = None,
     ) -> ExternalContextResult:
+        if not enabled:
+            return ExternalContextResult(
+                context_text=None,
+                sources=[],
+                notices=[],
+                diagnostics={
+                    "external_context_enabled": 0,
+                    "external_tool_called": "none",
+                    "external_sources_total": 0,
+                    "external_sources_included": 0,
+                    "external_context_chars": 0,
+                    "external_context_latency_ms": 0,
+                    "external_context_error": 0,
+                    "external_tool_events_total": 0,
+                },
+                details={
+                    "external_sources": [],
+                    "tool_plan": None,
+                    "tool_events": [],
+                },
+                tool_plan=None,
+                tool_events=[],
+            )
+
         rewrite = self.query_rewriter.rewrite(query=query, recent_messages=recent_messages)
         routed_query = rewrite.rewritten_query
         observations: list[dict] = []
