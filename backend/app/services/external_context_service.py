@@ -185,8 +185,8 @@ class ExternalContextService:
             sources=sources,
             notices=notices,
             diagnostics={
-                "external_context_enabled": 1,
-                "external_tool_called": workflow_result.selected_tool,
+                "external_context_enabled": int(enabled),
+                "external_tool_called": selected_tool,
                 "external_sources_total": len(sources),
                 "external_sources_included": len(included_sources),
                 "external_context_chars": len(context_text or ""),

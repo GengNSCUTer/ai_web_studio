@@ -123,6 +123,27 @@ class ToolRouterTest(unittest.TestCase):
         self.assertEqual(plan.calls[0].arguments["origins"], ["深圳松岗", "广州南站"])
         self.assertEqual(plan.calls[0].arguments["destination"], "汕头市潮阳区西凤村")
 
+    def test_external_context_disabled_does_not_require_workflow_result(self) -> None:
+        async def run_test() -> None:
+            service = ExternalContextService()
+
+            result = await service.build_context(
+                query="你好，简单介绍一下你自己",
+                enabled=False,
+                max_chars=2000,
+                recent_messages=[],
+            )
+
+            self.assertIsNone(result.context_text)
+            self.assertEqual(result.sources, [])
+            self.assertEqual(result.diagnostics["external_context_enabled"], 0)
+            self.assertEqual(result.diagnostics["external_tool_called"], "none")
+            self.assertFalse(result.diagnostics["external_context_error"])
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_external_context_rewrites_coreference_before_routing(self) -> None:
         async def run_test() -> None:
             executor = FakeExecutor()
