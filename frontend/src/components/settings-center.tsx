@@ -9,7 +9,11 @@ import {
   normalizeThemeMode,
   normalizeUserSettings,
 } from "@/lib/settings";
+import { inferEmbeddingDimensions } from "@/lib/knowledge-models";
 import type {
+  KnowledgeCredential,
+  KnowledgeConnectionTestResult,
+  KnowledgeModelOptions,
   Project,
   PromptTemplate,
   McpServer,
@@ -24,6 +28,7 @@ import type {
 
 type SettingsTab =
   | "provider"
+  | "knowledge"
   | "generation"
   | "context"
   | "memory"
@@ -42,6 +47,7 @@ type SettingsCenterProps = {
   initialToolSettings: ToolSettings | null;
   initialMemories?: UserMemory[];
   initialPromptTemplates?: PromptTemplate[];
+  initialMineruCredential?: KnowledgeCredential | null;
 };
 
 const TEXT = {
@@ -57,8 +63,9 @@ const TEXT = {
     testProvider: "测试连接",
     testing: "测试中...",
     providerTestFailed: "连接测试失败：",
-    providerSaved: "模型服务设置已保存",
-    provider: "模型服务",
+    providerSaved: "问答模型设置已保存",
+    provider: "问答模型",
+    knowledge: "知识库模型",
     generation: "生成参数",
     context: "上下文",
     memory: "长期记忆",
@@ -133,6 +140,28 @@ const TEXT = {
     testResult: "测试结果",
     addMcpServerTitle: "添加 MCP Server",
     mcpServerDialogHint: "填写 Streamable HTTP / SSE MCP Server 地址。需要 API Key 时，先在工具凭证里配置对应 provider。",
+    knowledgeSettingsHint:
+      "知识库模型服务独立于聊天模型服务：Embedding/Rerank 可使用云端 API，也可后续切到本地模型服务。新建知识库时会默认带入这里的配置。",
+    parserProvider: "默认解析器",
+    embeddingProvider: "Embedding Provider",
+    embeddingBaseUrl: "Embedding Base URL",
+    embeddingModel: "Embedding 模型",
+    embeddingDimensions: "Embedding 维度",
+    rerankEnabled: "启用 Rerank",
+    rerankProvider: "Rerank Provider",
+    rerankBaseUrl: "Rerank Base URL",
+    rerankModel: "Rerank 模型",
+    mineruCredentialEntry: "MinerU 凭据",
+    mineruCredentialHint: "MinerU token 按用户加密保存，不会在页面回显明文。用于 PDF/复杂文档入库解析。",
+    saveMineruToken: "保存 MinerU Token",
+    testMineruToken: "测试 MinerU",
+    refreshModelOptions: "测试连接",
+    modelOptionsSource: "模型列表来源",
+    embeddingApiKey: "Embedding API Key",
+    rerankApiKey: "Rerank API Key",
+    knowledgeApiKeyHint: "云端服务需要对应 API Key；本地 Ollama 可留空。Key 按用户加密保存，不回显明文。",
+    modelOptionsFailed: "连接测试失败：",
+    modelOptionsHint: "点击测试连接会验证当前 Provider/Base URL/API Key，并同步更新可用模型候选。",
   },
   "en-US": {
     title: "Settings Center",
@@ -147,8 +176,9 @@ const TEXT = {
     testProvider: "Test Connection",
     testing: "Testing...",
     providerTestFailed: "Provider test failed: ",
-    providerSaved: "Provider settings saved",
-    provider: "Provider",
+    providerSaved: "Chat model settings saved",
+    provider: "Chat model",
+    knowledge: "Knowledge Models",
     generation: "Generation",
     context: "Context",
     memory: "Memory",
@@ -223,6 +253,28 @@ const TEXT = {
     testResult: "Test result",
     addMcpServerTitle: "Add MCP Server",
     mcpServerDialogHint: "Fill in a Streamable HTTP / SSE MCP Server URL. If it needs an API key, configure its provider credential first.",
+    knowledgeSettingsHint:
+      "Knowledge model services are separate from chat model services. Embedding/Rerank can use cloud APIs and can later be switched to local model services. New knowledge bases use these defaults.",
+    parserProvider: "Default parser",
+    embeddingProvider: "Embedding provider",
+    embeddingBaseUrl: "Embedding base URL",
+    embeddingModel: "Embedding model",
+    embeddingDimensions: "Embedding dimensions",
+    rerankEnabled: "Enable rerank",
+    rerankProvider: "Rerank provider",
+    rerankBaseUrl: "Rerank base URL",
+    rerankModel: "Rerank model",
+    mineruCredentialEntry: "MinerU credential",
+    mineruCredentialHint: "MinerU token is encrypted per user and never displayed in plaintext. It is used for PDF/complex document parsing.",
+    saveMineruToken: "Save MinerU token",
+    testMineruToken: "Test MinerU",
+    refreshModelOptions: "Test connection",
+    modelOptionsSource: "Model list source",
+    embeddingApiKey: "Embedding API Key",
+    rerankApiKey: "Rerank API Key",
+    knowledgeApiKeyHint: "Cloud services need a matching API key; local Ollama can leave it empty. Keys are encrypted per user and never displayed in plaintext.",
+    modelOptionsFailed: "Connection test failed: ",
+    modelOptionsHint: "Test connection validates the current provider/base URL/API key and refreshes available model candidates.",
   },
 } as const;
 
@@ -333,6 +385,13 @@ function ModelPicker({
   );
 }
 
+function knowledgeProviderDefaultBaseUrl(provider: string) {
+  if (provider === "ollama") {
+    return "http://127.0.0.1:11435";
+  }
+  return "https://api.siliconflow.cn/v1";
+}
+
 export function SettingsCenter({
   currentUser,
   initialSettings,
@@ -341,6 +400,7 @@ export function SettingsCenter({
   initialToolSettings,
   initialMemories = [],
   initialPromptTemplates = [],
+  initialMineruCredential = null,
 }: SettingsCenterProps) {
   const [userSettings, setUserSettings] = useState<UserSettings>(normalizeUserSettings(initialSettings));
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(initialProviderInfo);
@@ -359,6 +419,29 @@ export function SettingsCenter({
   const [workspaceToolEnabledDrafts, setWorkspaceToolEnabledDrafts] = useState<Record<string, boolean>>({});
   const [providerApiKeyDraft, setProviderApiKeyDraft] = useState("");
   const [clearProviderApiKey, setClearProviderApiKey] = useState(false);
+  const [knowledgeEmbeddingApiKeyDraft, setKnowledgeEmbeddingApiKeyDraft] = useState("");
+  const [clearKnowledgeEmbeddingApiKey, setClearKnowledgeEmbeddingApiKey] = useState(false);
+  const [knowledgeRerankApiKeyDraft, setKnowledgeRerankApiKeyDraft] = useState("");
+  const [clearKnowledgeRerankApiKey, setClearKnowledgeRerankApiKey] = useState(false);
+  const [mineruCredential, setMineruCredential] = useState<KnowledgeCredential | null>(initialMineruCredential);
+  const [mineruTokenDraft, setMineruTokenDraft] = useState("");
+  const [isSavingMineru, setIsSavingMineru] = useState(false);
+  const [isTestingMineru, setIsTestingMineru] = useState(false);
+  const [embeddingModelOptions, setEmbeddingModelOptions] = useState<string[]>([
+    userSettings.knowledge_embedding_model,
+    "BAAI/bge-m3",
+    "Qwen/Qwen3-Embedding-0.6B",
+    "Qwen/Qwen3-Embedding-4B",
+    "Qwen/Qwen3-Embedding-8B",
+  ].filter(Boolean));
+  const [rerankModelOptions, setRerankModelOptions] = useState<string[]>([
+    userSettings.knowledge_rerank_model,
+    "BAAI/bge-reranker-v2-m3",
+    "Qwen/Qwen3-Reranker-0.6B",
+    "Qwen/Qwen3-Reranker-8B",
+  ].filter(Boolean));
+  const [knowledgeModelOptionsSource, setKnowledgeModelOptionsSource] = useState<string>("remote");
+  const [loadingKnowledgeModels, setLoadingKnowledgeModels] = useState<"embedding" | "rerank" | null>(null);
   const [clearToolApiKeys, setClearToolApiKeys] = useState<Record<string, boolean>>({});
   const [isSavingToolSettings, setIsSavingToolSettings] = useState(false);
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
@@ -394,6 +477,7 @@ export function SettingsCenter({
 
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: "provider", label: text.provider },
+    { id: "knowledge", label: text.knowledge },
     { id: "generation", label: text.generation },
     { id: "context", label: text.context },
     { id: "memory", label: text.memory },
@@ -466,6 +550,23 @@ export function SettingsCenter({
     return () => window.clearTimeout(timer);
   }, [settingsMessage, errorMessage]);
 
+  useEffect(() => {
+    if (activeTab !== "knowledge") {
+      return;
+    }
+    void handleRefreshKnowledgeModels("embedding", true);
+    void handleRefreshKnowledgeModels("rerank", true);
+    // Refresh when the selected knowledge model service changes. Draft API key is
+    // intentionally excluded to avoid firing network calls while the user types.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeTab,
+    userSettings.knowledge_embedding_provider,
+    userSettings.knowledge_embedding_base_url,
+    userSettings.knowledge_rerank_provider,
+    userSettings.knowledge_rerank_base_url,
+  ]);
+
   const selectedProjectModelOptions = useMemo(() => {
     return Array.from(
       new Set(
@@ -529,15 +630,27 @@ export function SettingsCenter({
       const saved = await requestJson<UserSettings>("/api/backend/settings", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ...buildSettingsPayload(userSettings),
-        api_key: providerApiKeyDraft.trim() ? providerApiKeyDraft.trim() : undefined,
-        clear_api_key: clearProviderApiKey,
-      }),
+        body: JSON.stringify({
+          ...buildSettingsPayload(userSettings),
+          api_key: providerApiKeyDraft.trim() ? providerApiKeyDraft.trim() : undefined,
+          clear_api_key: clearProviderApiKey,
+          knowledge_embedding_api_key: knowledgeEmbeddingApiKeyDraft.trim()
+            ? knowledgeEmbeddingApiKeyDraft.trim()
+            : undefined,
+          clear_knowledge_embedding_api_key: clearKnowledgeEmbeddingApiKey,
+          knowledge_rerank_api_key: knowledgeRerankApiKeyDraft.trim()
+            ? knowledgeRerankApiKeyDraft.trim()
+            : undefined,
+          clear_knowledge_rerank_api_key: clearKnowledgeRerankApiKey,
+        }),
       });
       setUserSettings(normalizeUserSettings(saved));
       setProviderApiKeyDraft("");
       setClearProviderApiKey(false);
+      setKnowledgeEmbeddingApiKeyDraft("");
+      setClearKnowledgeEmbeddingApiKey(false);
+      setKnowledgeRerankApiKeyDraft("");
+      setClearKnowledgeRerankApiKey(false);
       setSettingsMessage(text.settingsSaved);
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown error";
@@ -583,6 +696,97 @@ export function SettingsCenter({
       setErrorMessage(`${text.providerTestFailed}${message}`);
     } finally {
       setIsTestingProvider(false);
+    }
+  }
+
+  async function handleRefreshKnowledgeModels(modelKind: "embedding" | "rerank", silent = false) {
+    setLoadingKnowledgeModels(modelKind);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    const provider =
+      modelKind === "embedding"
+        ? userSettings.knowledge_embedding_provider
+        : userSettings.knowledge_rerank_provider;
+    const baseUrl =
+      modelKind === "embedding"
+        ? userSettings.knowledge_embedding_base_url
+        : userSettings.knowledge_rerank_base_url;
+    const apiKeyDraft =
+      modelKind === "embedding" ? knowledgeEmbeddingApiKeyDraft : knowledgeRerankApiKeyDraft;
+    try {
+      const result = await requestJson<KnowledgeModelOptions>("/api/backend/settings/knowledge-model-options", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          base_url: baseUrl,
+          model_kind: modelKind,
+          api_key: apiKeyDraft.trim() ? apiKeyDraft.trim() : undefined,
+          strict: !silent,
+        }),
+      });
+      if (modelKind === "embedding") {
+        setEmbeddingModelOptions(
+          Array.from(new Set([userSettings.knowledge_embedding_model, ...result.models].filter(Boolean)))
+        );
+      } else {
+        setRerankModelOptions(
+          Array.from(new Set([userSettings.knowledge_rerank_model, ...result.models].filter(Boolean)))
+        );
+      }
+      setKnowledgeModelOptionsSource(result.source);
+      if (!silent) {
+        setSettingsMessage(result.message);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      if (!silent) {
+        setErrorMessage(`${text.modelOptionsFailed}${message}`);
+      }
+    } finally {
+      setLoadingKnowledgeModels(null);
+    }
+  }
+
+  async function handleSaveMineruCredential() {
+    setIsSavingMineru(true);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    try {
+      const updated = await requestJson<KnowledgeCredential>("/api/backend/knowledge/credentials/mineru", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          api_key: mineruTokenDraft.trim() || undefined,
+          is_enabled: true,
+        }),
+      });
+      setMineruCredential(updated);
+      setMineruTokenDraft("");
+      setSettingsMessage(uiLanguage === "zh-CN" ? "MinerU token 已保存" : "MinerU token saved");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setErrorMessage(`${text.settingsSaveFailed}${message}`);
+    } finally {
+      setIsSavingMineru(false);
+    }
+  }
+
+  async function handleTestMineruCredential() {
+    setIsTestingMineru(true);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    try {
+      const result = await requestJson<KnowledgeConnectionTestResult>(
+        "/api/backend/knowledge/credentials/mineru/test",
+        { method: "POST" }
+      );
+      setSettingsMessage(result.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setErrorMessage(`${text.settingsSaveFailed}${message}`);
+    } finally {
+      setIsTestingMineru(false);
     }
   }
 
@@ -968,6 +1172,321 @@ export function SettingsCenter({
                     >
                       {isTestingProvider ? text.testing : text.testProvider}
                     </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeTab === "knowledge" ? (
+                <div className="space-y-4">
+                  <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                    <p className="text-sm leading-7 text-[var(--ink-soft)]">{text.knowledgeSettingsHint}</p>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <label className="block text-sm">
+                      <span className="mb-2 block text-[var(--ink-soft)]">{text.parserProvider}</span>
+                      <select
+                        value={userSettings.knowledge_parser_provider}
+                        onChange={(event) =>
+                          setUserSettings((current) => ({
+                            ...current,
+                            knowledge_parser_provider: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                      >
+                        <option value="local_basic">local_basic</option>
+                        <option value="mineru">mineru</option>
+                      </select>
+                    </label>
+
+                    <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-4 py-3 text-sm">
+                      <p className="font-semibold text-[var(--ink-strong)]">{text.mineruCredentialEntry}</p>
+                      <p className="mt-1 text-xs leading-6 text-[var(--ink-soft)]">{text.mineruCredentialHint}</p>
+                      <div className="mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-muted)]">
+                        {mineruCredential?.has_api_key
+                          ? `${text.hasApiKey}${mineruCredential.api_key_masked ? ` · ${mineruCredential.api_key_masked}` : ""}`
+                          : text.noApiKey}
+                      </div>
+                      <input
+                        type="password"
+                        value={mineruTokenDraft}
+                        onChange={(event) => setMineruTokenDraft(event.target.value)}
+                        placeholder={mineruCredential?.api_key_masked ?? "MinerU token"}
+                        className="mt-3 w-full rounded-2xl border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-2 text-sm text-[var(--ink-strong)] outline-none focus:border-[var(--accent-strong)]"
+                      />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveMineruCredential()}
+                          disabled={isSavingMineru || !mineruTokenDraft.trim()}
+                          className="rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+                        >
+                          {isSavingMineru ? text.saving : text.saveMineruToken}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleTestMineruCredential()}
+                          disabled={isTestingMineru}
+                          className="rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+                        >
+                          {isTestingMineru ? text.testing : text.testMineruToken}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                    <div className="mb-4">
+                      <p className="text-sm font-semibold text-[var(--ink-strong)]">Embedding</p>
+                      <p className="mt-1 text-xs leading-6 text-[var(--ink-muted)]">
+                        {uiLanguage === "zh-CN"
+                          ? "用于文档向量化。新建知识库时默认带入，也可以在创建弹窗中覆盖。"
+                          : "Used for document vectorization. New knowledge bases use this as the default and can override it in the create dialog."}
+                      </p>
+                      <p className="mt-1 text-xs leading-6 text-[var(--ink-muted)]">{text.modelOptionsHint}</p>
+                    </div>
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <label className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.embeddingProvider}</span>
+                        <select
+                          value={userSettings.knowledge_embedding_provider}
+                          onChange={(event) =>
+                            setUserSettings((current) => ({
+                              ...current,
+                              knowledge_embedding_provider: event.target.value,
+                              knowledge_embedding_base_url: knowledgeProviderDefaultBaseUrl(event.target.value),
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                        >
+                          <option value="siliconflow">siliconflow</option>
+                          <option value="openai-compatible">openai-compatible</option>
+                          <option value="ollama">ollama</option>
+                        </select>
+                      </label>
+                      <label className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.embeddingBaseUrl}</span>
+                        <input
+                          value={userSettings.knowledge_embedding_base_url}
+                          onChange={(event) =>
+                            setUserSettings((current) => ({
+                              ...current,
+                              knowledge_embedding_base_url: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.embeddingModel}</span>
+                        <ModelPicker
+                          value={userSettings.knowledge_embedding_model}
+                          options={embeddingModelOptions}
+                          placeholder={uiLanguage === "zh-CN" ? "搜索或输入 Embedding 模型" : "Search or enter embedding model"}
+                          onChange={(model) =>
+                            setUserSettings((current) => ({
+                              ...current,
+                              knowledge_embedding_model: model,
+                              knowledge_embedding_dimensions: inferEmbeddingDimensions(
+                                model,
+                                current.knowledge_embedding_dimensions
+                              ),
+                            }))
+                          }
+                        />
+                      </label>
+                      <div className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.embeddingDimensions}</span>
+                        <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3">
+                          <p className="text-base font-semibold text-[var(--ink-strong)]">
+                            {userSettings.knowledge_embedding_dimensions}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">
+                            {uiLanguage === "zh-CN"
+                              ? "由当前 Embedding 模型自动确定。创建索引后如果更换模型或维度，需要重建索引。"
+                              : "Derived from the selected embedding model. Rebuild indexes after changing the model or dimension."}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] p-4 text-sm xl:col-span-2">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-[var(--ink-strong)]">{text.embeddingApiKey}</p>
+                            <p className="mt-1 text-xs leading-6 text-[var(--ink-soft)]">{text.knowledgeApiKeyHint}</p>
+                            <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                              {userSettings.knowledge_embedding_has_api_key ? text.hasApiKey : text.noApiKey}
+                              {userSettings.knowledge_embedding_api_key_masked
+                                ? ` · ${text.currentKey}: ${userSettings.knowledge_embedding_api_key_masked}`
+                                : ""}
+                            </p>
+                          </div>
+                          <label className="flex items-center gap-2 text-xs text-[var(--ink-soft)]">
+                            <input
+                              type="checkbox"
+                              checked={clearKnowledgeEmbeddingApiKey}
+                              onChange={(event) => {
+                                setClearKnowledgeEmbeddingApiKey(event.target.checked);
+                                if (event.target.checked) {
+                                  setKnowledgeEmbeddingApiKeyDraft("");
+                                }
+                              }}
+                            />
+                            {text.clearKey}
+                          </label>
+                        </div>
+                        <input
+                          type="password"
+                          value={knowledgeEmbeddingApiKeyDraft}
+                          onChange={(event) => {
+                            setKnowledgeEmbeddingApiKeyDraft(event.target.value);
+                            if (event.target.value.trim()) {
+                              setClearKnowledgeEmbeddingApiKey(false);
+                            }
+                          }}
+                          placeholder={userSettings.knowledge_embedding_api_key_masked ?? text.embeddingApiKey}
+                          className="mt-3 w-full rounded-2xl border border-[var(--control-border)] bg-[var(--soft-bg)] px-4 py-3 text-sm text-[var(--ink-strong)] outline-none focus:border-[var(--accent-strong)]"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-[var(--ink-muted)]">
+                        {text.modelOptionsSource}: {knowledgeModelOptionsSource}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void handleRefreshKnowledgeModels("embedding")}
+                        disabled={loadingKnowledgeModels === "embedding"}
+                        className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:opacity-55"
+                      >
+                        {loadingKnowledgeModels === "embedding" ? text.loading : text.refreshModelOptions}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--ink-strong)]">Rerank</p>
+                        <p className="mt-1 text-xs leading-6 text-[var(--ink-muted)]">
+                          {uiLanguage === "zh-CN"
+                            ? "用于对召回片段二次排序。关闭后会直接使用向量召回结果。"
+                            : "Used to re-rank retrieved chunks. If disabled, vector retrieval results are used directly."}
+                        </p>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs text-[var(--ink-soft)]">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(userSettings.knowledge_rerank_enabled)}
+                          onChange={(event) =>
+                            setUserSettings((current) => ({
+                              ...current,
+                              knowledge_rerank_enabled: event.target.checked,
+                            }))
+                          }
+                        />
+                        {text.rerankEnabled}
+                      </label>
+                    </div>
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <label className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.rerankProvider}</span>
+                        <select
+                          value={userSettings.knowledge_rerank_provider}
+                          onChange={(event) =>
+                            setUserSettings((current) => ({
+                              ...current,
+                              knowledge_rerank_provider: event.target.value,
+                              knowledge_rerank_base_url: knowledgeProviderDefaultBaseUrl(event.target.value),
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                        >
+                          <option value="siliconflow">siliconflow</option>
+                          <option value="openai-compatible">openai-compatible</option>
+                          <option value="ollama">ollama</option>
+                        </select>
+                      </label>
+                      <label className="block text-sm">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.rerankBaseUrl}</span>
+                        <input
+                          value={userSettings.knowledge_rerank_base_url}
+                          onChange={(event) =>
+                            setUserSettings((current) => ({
+                              ...current,
+                              knowledge_rerank_base_url: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                        />
+                      </label>
+                      <label className="block text-sm xl:col-span-2">
+                        <span className="mb-2 block text-[var(--ink-soft)]">{text.rerankModel}</span>
+                        <ModelPicker
+                          value={userSettings.knowledge_rerank_model}
+                          options={rerankModelOptions}
+                          placeholder={uiLanguage === "zh-CN" ? "搜索或输入 Rerank 模型" : "Search or enter rerank model"}
+                          onChange={(model) =>
+                            setUserSettings((current) => ({
+                              ...current,
+                              knowledge_rerank_model: model,
+                            }))
+                          }
+                        />
+                      </label>
+                      <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] p-4 text-sm xl:col-span-2">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-[var(--ink-strong)]">{text.rerankApiKey}</p>
+                            <p className="mt-1 text-xs leading-6 text-[var(--ink-soft)]">{text.knowledgeApiKeyHint}</p>
+                            <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                              {userSettings.knowledge_rerank_has_api_key ? text.hasApiKey : text.noApiKey}
+                              {userSettings.knowledge_rerank_api_key_masked
+                                ? ` · ${text.currentKey}: ${userSettings.knowledge_rerank_api_key_masked}`
+                                : ""}
+                            </p>
+                          </div>
+                          <label className="flex items-center gap-2 text-xs text-[var(--ink-soft)]">
+                            <input
+                              type="checkbox"
+                              checked={clearKnowledgeRerankApiKey}
+                              onChange={(event) => {
+                                setClearKnowledgeRerankApiKey(event.target.checked);
+                                if (event.target.checked) {
+                                  setKnowledgeRerankApiKeyDraft("");
+                                }
+                              }}
+                            />
+                            {text.clearKey}
+                          </label>
+                        </div>
+                        <input
+                          type="password"
+                          value={knowledgeRerankApiKeyDraft}
+                          onChange={(event) => {
+                            setKnowledgeRerankApiKeyDraft(event.target.value);
+                            if (event.target.value.trim()) {
+                              setClearKnowledgeRerankApiKey(false);
+                            }
+                          }}
+                          placeholder={userSettings.knowledge_rerank_api_key_masked ?? text.rerankApiKey}
+                          className="mt-3 w-full rounded-2xl border border-[var(--control-border)] bg-[var(--soft-bg)] px-4 py-3 text-sm text-[var(--ink-strong)] outline-none focus:border-[var(--accent-strong)]"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-[var(--ink-muted)]">
+                        {text.modelOptionsSource}: {knowledgeModelOptionsSource}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void handleRefreshKnowledgeModels("rerank")}
+                        disabled={loadingKnowledgeModels === "rerank"}
+                        className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] disabled:opacity-55"
+                      >
+                        {loadingKnowledgeModels === "rerank" ? text.loading : text.refreshModelOptions}
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}

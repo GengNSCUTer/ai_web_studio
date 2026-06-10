@@ -6,6 +6,7 @@ import { AUTH_COOKIE_NAME } from "@/lib/auth";
 import { fetchBackendJson, fetchBackendJsonOrNull } from "@/lib/server-backend";
 import type {
   Project,
+  KnowledgeCredential,
   PromptTemplate,
   ProviderInfo,
   ToolSettings,
@@ -31,13 +32,14 @@ export default async function SettingsPage() {
     return <AuthScreen initialError="登录状态已失效，请重新登录。" />;
   }
 
-  const [settings, providerInfo, projects, toolSettings, memories, promptTemplates] = await Promise.all([
+  const [settings, providerInfo, projects, toolSettings, memories, promptTemplates, mineruCredential] = await Promise.all([
     fetchBackendJsonOrNull<UserSettings>("/api/settings", token),
     fetchBackendJsonOrNull<ProviderInfo>("/api/models", token),
     fetchBackendJsonOrNull<Project[]>("/api/projects", token),
     fetchBackendJsonOrNull<ToolSettings>("/api/tools/settings", token),
     fetchBackendJsonOrNull<UserMemory[]>("/api/memories", token),
     fetchBackendJsonOrNull<PromptTemplate[]>("/api/prompt-templates", token),
+    fetchBackendJsonOrNull<KnowledgeCredential>("/api/knowledge/credentials/mineru", token),
   ]);
 
   if (!settings) {
@@ -53,6 +55,7 @@ export default async function SettingsPage() {
       initialToolSettings={toolSettings}
       initialMemories={memories ?? []}
       initialPromptTemplates={promptTemplates ?? []}
+      initialMineruCredential={mineruCredential}
     />
   );
 }

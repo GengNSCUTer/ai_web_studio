@@ -61,6 +61,36 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table user_settings add column ui_language varchar(16) default 'zh-CN'")
     if "theme_mode" not in columns:
         statements.append("alter table user_settings add column theme_mode varchar(16) default 'system'")
+    if "knowledge_parser_provider" not in columns:
+        statements.append("alter table user_settings add column knowledge_parser_provider varchar(32) default 'local_basic'")
+    if "knowledge_embedding_provider" not in columns:
+        statements.append("alter table user_settings add column knowledge_embedding_provider varchar(32) default 'siliconflow'")
+    if "knowledge_embedding_base_url" not in columns:
+        statements.append(
+            "alter table user_settings add column knowledge_embedding_base_url varchar(255) default 'https://api.siliconflow.cn/v1'"
+        )
+    if "knowledge_embedding_model" not in columns:
+        statements.append("alter table user_settings add column knowledge_embedding_model varchar(128) default 'BAAI/bge-m3'")
+    if "knowledge_embedding_dimensions" not in columns:
+        statements.append("alter table user_settings add column knowledge_embedding_dimensions integer default 1024")
+    if "knowledge_rerank_enabled" not in columns:
+        statements.append("alter table user_settings add column knowledge_rerank_enabled boolean default true")
+    if "knowledge_rerank_provider" not in columns:
+        statements.append("alter table user_settings add column knowledge_rerank_provider varchar(32) default 'siliconflow'")
+    if "knowledge_rerank_base_url" not in columns:
+        statements.append(
+            "alter table user_settings add column knowledge_rerank_base_url varchar(255) default 'https://api.siliconflow.cn/v1'"
+        )
+    if "knowledge_rerank_model" not in columns:
+        statements.append(
+            "alter table user_settings add column knowledge_rerank_model varchar(128) default 'BAAI/bge-reranker-v2-m3'"
+        )
+    if "knowledge_embedding_api_key" not in columns:
+        statements.append("alter table user_settings add column knowledge_embedding_api_key text")
+    if "knowledge_rerank_api_key" not in columns:
+        statements.append("alter table user_settings add column knowledge_rerank_api_key text")
+    if "knowledge_api_key" not in columns:
+        statements.append("alter table user_settings add column knowledge_api_key text")
 
     conversation_columns = _get_column_names("conversations")
     if "project_id" not in conversation_columns:

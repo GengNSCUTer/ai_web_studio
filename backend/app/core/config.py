@@ -40,6 +40,9 @@ class Settings:
 
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
     amap_api_key: str = os.getenv("AMAP_API_KEY", "")
+    mineru_api_token: str = os.getenv("MINERU_API_TOKEN", "")
+    mineru_poll_timeout_seconds: int = int(os.getenv("MINERU_POLL_TIMEOUT_SECONDS", "300"))
+    mineru_poll_interval_seconds: float = float(os.getenv("MINERU_POLL_INTERVAL_SECONDS", "3"))
     external_tool_timeout_seconds: int = int(os.getenv("EXTERNAL_TOOL_TIMEOUT_SECONDS", "8"))
     secret_encryption_key: str = os.getenv("SECRET_ENCRYPTION_KEY", "")
 

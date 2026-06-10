@@ -120,3 +120,37 @@ class KnowledgeJobResponse(BaseModel):
     finished_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None = None
+
+
+class KnowledgeCredentialResponse(BaseModel):
+    provider_key: str
+    credential_name: str
+    is_enabled: bool
+    has_api_key: bool
+    api_key_masked: str | None = None
+    source: str = "user"
+
+
+class KnowledgeCredentialUpdate(BaseModel):
+    credential_name: str | None = Field(default=None, max_length=128)
+    api_key: str | None = None
+    clear_api_key: bool | None = None
+    is_enabled: bool | None = None
+
+
+class KnowledgeConnectionTestResponse(BaseModel):
+    ok: bool
+    provider_key: str
+    message: str
+
+
+class KnowledgeDocumentParseResponse(BaseModel):
+    document: KnowledgeDocumentResponse
+    job: KnowledgeJobResponse
+    markdown_preview: str | None = None
+
+
+class KnowledgeMarkdownPreviewResponse(BaseModel):
+    document_id: str
+    file_name: str
+    markdown: str

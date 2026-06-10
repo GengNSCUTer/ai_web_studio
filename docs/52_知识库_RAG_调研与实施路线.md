@@ -977,3 +977,228 @@ RAG-1 知识库模型与页面骨架
 3. 再接 MinerU parser job。
 4. 详情页增加 Markdown 预览、失败原因和重试。
 5. 解析链路稳定后再进入 `RAG-3：Chunk、Embedding 与 FAISS`。
+
+---
+
+## 16. 2026-06-07 RAG-2 实现记录
+
+本轮完成 `RAG-2：文档解析与 MinerU 凭据` 第一版。
+
+### 16.1 已落地能力
+
+后端：
+
+- 新增 `KnowledgeParserService`，统一封装 `local_basic` 和 `mineru` 两类解析 provider。
+- 新增用户级 MinerU 凭据服务，复用已有 `UserToolCredential` 与 `SecretService` 做加密存储。
+- 新增 MinerU 环境变量 fallback：`MINERU_API_TOKEN`，仅用于没有用户级凭据时的开发环境兜底。
+- 新增解析 API：`POST /api/knowledge-bases/{knowledge_base_id}/documents/{document_id}/parse`。
+- 新增 Markdown 预览 API：`GET /api/knowledge-bases/{knowledge_base_id}/documents/{document_id}/markdown-preview`。
+- `local_basic` 可把已上传文件解析为 Markdown，并保存到用户隔离目录。
+- `mineru` 已接入 MinerU 精准 API：申请上传 URL、上传文件、轮询 batch、下载结果 zip、提取 `full.md`。
+- 解析成功时更新 `parse_status=parsed`、`index_status=pending`、`parsed_markdown_path` 和 job 状态。
+- 解析失败时更新 `parse_status=failed`、job 错误信息，并允许后续重新解析。
+
+前端：
+
+- 知识库页面和详情页会加载当前用户 MinerU 凭据状态。
+- 知识库详情页提供 MinerU token 保存、掩码展示和测试入口。
+- 文档卡片支持“解析 / 重新解析”。
+- 已解析文档支持 Markdown 预览弹层。
+- 任务列表支持显示 `running / succeeded / failed` 等状态。
+- 页面文案已从 RAG-1 骨架状态更新为 RAG-2 解析阶段。
+
+### 16.2 当前边界
+
+- MinerU token 不写入代码、文档或 Git；前端不回显明文。
+- MinerU “测试连接”当前只检查凭据存在和基础格式，不主动创建远程解析任务；真实远程调用发生在文档解析动作中。
+- 当前解析任务仍由页面同步触发，后续进入更大文件或批量入库时应迁移到后台 worker。
+- 当前只保存 Markdown，不生成 chunk、不调用 embedding、不写 FAISS。
+- 当前不会把知识库内容接入聊天；聊天集成放到 RAG-5。
+
+### 16.3 验证结果
+
+```text
+PYTHONPATH=backend /disk2/gengnan/conda_envs/ai_web_studio/bin/python -m unittest backend.tests.test_knowledge_service
+
+Ran 5 tests
+OK
+```
+
+测试覆盖：
+
+- 创建知识库并上传文档记录。
+- 非法 storage_key 拒绝。
+- `local_basic` 解析生成 Markdown 与预览。
+- MinerU 凭据加密和掩码展示。
+- MinerU 精准 API mock 解析：上传 URL、PUT 文件、轮询结果、下载 zip、提取 Markdown。
+
+### 16.4 下一步
+
+下一步进入 `RAG-3：Chunk、Embedding 与 FAISS`。
+
+建议实施顺序：
+
+1. 新增 `knowledge_chunks` 与 `knowledge_embeddings` 模型。
+2. 实现 Markdown chunker，先支持 general chunk，父子分块延后。
+3. 接入 SiliconFlow embedding，默认 `BAAI/bge-m3`。
+4. 实现本地 FAISS vector store 和 mapping 文件。
+5. 文档解析成功后可触发 index job，把 Markdown -> chunks -> embeddings -> FAISS 串起来。
+
+---
+
+## 17. 2026-06-09 知识库模型服务配置拆分记录
+
+本轮补齐 RAG-3 之前的关键前置配置：知识库模型服务与聊天问答模型服务分离。
+
+### 17.1 为什么要拆分
+
+聊天模型和知识库模型不是同一类配置：
+
+- 聊天模型服务负责最终回答生成。
+- 知识库模型服务负责文档入库、向量化、重排和检索质量。
+- 用户可能希望聊天用 Ollama，本地长上下文模型；知识库 embedding/rerank 用 SiliconFlow 免费模型。
+- 用户也可能希望 embedding/rerank 都走本地模型服务，减少 API 成本或保护隐私。
+
+因此知识库阶段不能继续复用聊天默认模型字段，否则后续 RAG-3 会出现两个问题：
+
+- 创建知识库时无法表达 embedding/rerank 的独立模型选择。
+- 索引执行时容易把 provider-specific 逻辑写死到 service 里，后续很难扩展。
+
+### 17.2 当前落地
+
+用户设置新增知识库默认配置：
+
+```text
+knowledge_parser_provider
+knowledge_embedding_provider
+knowledge_embedding_base_url
+knowledge_embedding_model
+knowledge_embedding_dimensions
+knowledge_rerank_enabled
+knowledge_rerank_provider
+knowledge_rerank_base_url
+knowledge_rerank_model
+```
+
+设置中心新增“知识库模型”页签：
+
+- 默认解析器。
+- Embedding Provider / Base URL / 模型 / 维度。
+- Rerank 开关 / Provider / Base URL / 模型。
+- MinerU 凭据已收敛到设置中心，真实 token 按用户加密保存，不回显明文。
+
+知识库创建弹窗已从用户设置带入默认值，并允许覆盖：
+
+- parser_provider
+- embedding_provider
+- embedding_model
+- embedding_dimensions 只读展示，由 embedding_model 自动确定，创建时保存为索引元数据
+- rerank_enabled
+- rerank_provider
+- rerank_model
+
+后端知识库创建已允许：
+
+```text
+embedding_provider: siliconflow | openai-compatible | ollama
+rerank_provider: siliconflow | openai-compatible | ollama
+```
+
+### 17.3 当前边界
+
+- Base URL 当前保存在用户设置，不保存在知识库表。
+- 知识库表保存的是“索引用的 provider/model/dimensions 等语义配置”。
+- `embedding_dimensions` 不是用户可调参数；它由 Embedding 模型输出维度决定，前端只读展示，后端按已知模型自动修正错误传入值。
+- RAG-3 执行 embedding/rerank 时需要读取用户设置中的 Base URL 与凭据。
+- 目前还没有真正生成 chunk、embedding 或 FAISS index。
+- 当前已有 embedding/rerank 候选模型刷新能力；未知自定义模型仍允许手动输入，但维度需在索引执行时通过实际 embedding 返回向量长度校验。
+
+### 17.4 对 RAG-3 的约束
+
+进入 RAG-3 时必须遵守：
+
+- 不再硬编码 SiliconFlow。
+- `EmbeddingService` 应通过 `KnowledgeBase.embedding_provider` 和用户设置选择 provider adapter。
+- `RerankService` 同理。
+- 向量维度必须与知识库创建时保存的 `embedding_dimensions` 一致。
+- 切换 embedding 模型导致维度变化后，必须提示重建索引。
+- 如果用户选择 `ollama`，需要明确本地 embedding 模型可用性和维度来源。
+
+验证：
+
+```text
+后端 compileall：通过
+后端知识库单测：Ran 8 tests, OK
+前端相关文件 ESLint：通过
+前端 npm run build：通过
+```
+
+---
+
+## 18. 2026-06-09 知识库模型设置增强记录
+
+本轮在第 17 节配置拆分基础上继续补齐实际可用性。
+
+### 18.1 MinerU 配置入口
+
+之前 MinerU token 只能在知识库详情页配置，设置中心只是提示和跳转。
+
+现在已调整为：
+
+- 设置中心“知识库模型”页签可直接保存 MinerU token。
+- token 仍复用用户级加密凭据能力。
+- 前端只显示是否已配置、掩码和测试结果，不回显明文。
+- 知识库详情页保留现有入口，后续可视情况简化。
+
+### 18.2 知识库模型 API Key 独立化
+
+新增 `knowledge_embedding_api_key` 与 `knowledge_rerank_api_key`：
+
+- `knowledge_embedding_api_key` 用于 Embedding provider。
+- `knowledge_rerank_api_key` 用于 Rerank provider。
+- 独立于聊天问答模型的 API Key。
+- Embedding 与 Rerank 之间也互相独立，支持不同 provider、不同账号或本地/云端混用。
+- 后端加密保存。
+- 前端支持保存、清空、掩码展示。
+- 历史 `knowledge_api_key` 仅保留为旧数据兼容回退，不再作为新 UI 主入口。
+
+设计原因：
+
+- 聊天模型 provider 和知识库模型 provider 经常不同。
+- RAG-3 索引阶段不应复用聊天模型凭据。
+- 后续不同用户配置自己的知识库模型服务时，边界更清晰。
+
+### 18.3 模型候选动态发现
+
+新增接口：
+
+```text
+POST /api/settings/knowledge-model-options
+```
+
+支持：
+
+- `provider=ollama` 时读取本地 Ollama 模型列表。
+- `provider=siliconflow/openai-compatible` 时调用 OpenAI-compatible `/models`。
+- 根据 `model_kind=embedding/rerank` 做名称关键词过滤。
+- 不再合并项目内置候选；候选来源以远程 provider 返回为准。
+- 前端仍支持手动输入模型名。
+- 手动按钮已从“刷新模型列表”改为“测试连接”：
+  - 用户点击时 `strict=true`，连接失败直接提示。
+  - 自动静默刷新时 `strict=false`，失败不报错，但返回空候选和 `remote-unavailable`。
+
+当前远程候选策略：
+
+- 如果远程模型列表中能通过关键词识别 Embedding/Rerank，则优先展示过滤后的列表。
+- 如果过滤结果为空，则展示远程全量模型，避免误删 provider 返回的可用模型。
+- 如果远程服务不可用，不再用内置候选“假装可用”，用户需要先修复 Base URL / API Key / provider 连接。
+
+### 18.4 对 RAG-3 的要求
+
+RAG-3 进入索引实现时必须：
+
+- 从知识库配置读取 embedding/rerank provider、model、dimensions。
+- 从用户设置读取 provider base-url 和对应的 `knowledge_embedding_api_key` / `knowledge_rerank_api_key`。
+- 不硬编码 SiliconFlow。
+- 本地 Ollama provider 需要先验证模型是否存在。
+- embedding dimensions 必须和索引文件 metadata 一起保存；模型变更导致维度变化时提示重建索引。

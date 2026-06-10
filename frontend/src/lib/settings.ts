@@ -28,6 +28,28 @@ export function normalizeUserSettings(settings: UserSettings): UserSettings {
     memory_enabled: settings.memory_enabled ?? true,
     memory_max_chars: settings.memory_max_chars || 4000,
     theme_mode: settings.theme_mode || "system",
+    knowledge_parser_provider: settings.knowledge_parser_provider || "local_basic",
+    knowledge_embedding_provider: settings.knowledge_embedding_provider || "siliconflow",
+    knowledge_embedding_base_url: settings.knowledge_embedding_base_url || "https://api.siliconflow.cn/v1",
+    knowledge_embedding_model: settings.knowledge_embedding_model || "BAAI/bge-m3",
+    knowledge_embedding_dimensions: settings.knowledge_embedding_dimensions || 1024,
+    knowledge_rerank_enabled: settings.knowledge_rerank_enabled ?? true,
+    knowledge_rerank_provider: settings.knowledge_rerank_provider || "siliconflow",
+    knowledge_rerank_base_url: settings.knowledge_rerank_base_url || "https://api.siliconflow.cn/v1",
+    knowledge_rerank_model: settings.knowledge_rerank_model || "BAAI/bge-reranker-v2-m3",
+    knowledge_embedding_api_key: null,
+    knowledge_embedding_has_api_key:
+      settings.knowledge_embedding_has_api_key ?? settings.knowledge_has_api_key ?? false,
+    knowledge_embedding_api_key_masked:
+      settings.knowledge_embedding_api_key_masked ?? settings.knowledge_api_key_masked ?? null,
+    knowledge_rerank_api_key: null,
+    knowledge_rerank_has_api_key:
+      settings.knowledge_rerank_has_api_key ?? settings.knowledge_has_api_key ?? false,
+    knowledge_rerank_api_key_masked:
+      settings.knowledge_rerank_api_key_masked ?? settings.knowledge_api_key_masked ?? null,
+    knowledge_api_key: null,
+    knowledge_has_api_key: settings.knowledge_has_api_key ?? false,
+    knowledge_api_key_masked: settings.knowledge_api_key_masked ?? null,
   };
 }
 
@@ -51,5 +73,17 @@ export function buildSettingsPayload(settings: UserSettings) {
     memory_max_chars: settings.memory_max_chars,
     ui_language: settings.ui_language,
     theme_mode: settings.theme_mode,
+    knowledge_parser_provider: settings.knowledge_parser_provider,
+    knowledge_embedding_provider: settings.knowledge_embedding_provider,
+    knowledge_embedding_base_url: settings.knowledge_embedding_base_url,
+    knowledge_embedding_model: settings.knowledge_embedding_model,
+    knowledge_embedding_dimensions: settings.knowledge_embedding_dimensions,
+    knowledge_rerank_enabled: settings.knowledge_rerank_enabled,
+    knowledge_rerank_provider: settings.knowledge_rerank_provider,
+    knowledge_rerank_base_url: settings.knowledge_rerank_base_url,
+    knowledge_rerank_model: settings.knowledge_rerank_model,
+    knowledge_embedding_api_key: settings.knowledge_embedding_api_key,
+    knowledge_rerank_api_key: settings.knowledge_rerank_api_key,
+    knowledge_api_key: settings.knowledge_api_key,
   };
 }

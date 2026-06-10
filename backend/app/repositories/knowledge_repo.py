@@ -92,6 +92,25 @@ class KnowledgeJobRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+    def latest_by_document_type(
+        self,
+        *,
+        document_id: str,
+        user_id: str,
+        job_type: str,
+    ) -> KnowledgeJob | None:
+        stmt = (
+            select(KnowledgeJob)
+            .where(
+                KnowledgeJob.document_id == document_id,
+                KnowledgeJob.user_id == user_id,
+                KnowledgeJob.job_type == job_type,
+            )
+            .order_by(KnowledgeJob.created_at.desc())
+            .limit(1)
+        )
+        return self.db.scalars(stmt).first()
+
     def save(self, job: KnowledgeJob) -> KnowledgeJob:
         self.db.add(job)
         self.db.commit()

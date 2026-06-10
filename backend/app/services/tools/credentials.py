@@ -64,6 +64,8 @@ class ToolCredentialResolver:
             return settings.tavily_api_key.strip() or None
         if provider_key == "amap":
             return settings.amap_api_key.strip() or None
+        if provider_key == "mineru":
+            return settings.mineru_api_token.strip() or None
         return None
 
     def is_tool_enabled_for_workspace(self, *, project_id: str | None, tool_key: str) -> bool:

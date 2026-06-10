@@ -4,7 +4,21 @@ import Link from "next/link";
 import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { KnowledgeBase, KnowledgeDocument, KnowledgeJob, Project, UploadItem, User } from "@/lib/types";
+import { MessageMarkdown } from "@/components/message-markdown";
+import { inferEmbeddingDimensions } from "@/lib/knowledge-models";
+import type {
+  KnowledgeBase,
+  KnowledgeConnectionTestResult,
+  KnowledgeCredential,
+  KnowledgeDocument,
+  KnowledgeDocumentParseResult,
+  KnowledgeJob,
+  KnowledgeMarkdownPreview,
+  Project,
+  UploadItem,
+  User,
+  UserSettings,
+} from "@/lib/types";
 
 type KnowledgeWorkspaceProps = {
   currentUser: User;
@@ -13,6 +27,8 @@ type KnowledgeWorkspaceProps = {
   activeKnowledgeBase?: KnowledgeBase | null;
   initialDocuments?: KnowledgeDocument[];
   initialJobs?: KnowledgeJob[];
+  initialMineruCredential?: KnowledgeCredential | null;
+  initialSettings?: UserSettings | null;
 };
 
 type CreateFormState = {
@@ -20,10 +36,13 @@ type CreateFormState = {
   description: string;
   project_id: string;
   parser_provider: "local_basic" | "mineru";
+  embedding_provider: string;
   chunk_size: number;
   chunk_overlap: number;
   embedding_model: string;
+  embedding_dimensions: number;
   rerank_enabled: boolean;
+  rerank_provider: string;
   rerank_model: string;
   retrieval_top_k: number;
   rerank_top_n: number;
@@ -32,24 +51,42 @@ type CreateFormState = {
   max_context_chars: number;
 };
 
-const DEFAULT_CREATE_FORM: CreateFormState = {
-  name: "",
-  description: "",
-  project_id: "",
-  parser_provider: "local_basic",
-  chunk_size: 1000,
-  chunk_overlap: 150,
-  embedding_model: "BAAI/bge-m3",
-  rerank_enabled: true,
-  rerank_model: "BAAI/bge-reranker-v2-m3",
-  retrieval_top_k: 20,
-  rerank_top_n: 6,
-  score_threshold: 0.2,
-  max_context_chunks: 6,
-  max_context_chars: 12000,
-};
+function buildDefaultCreateForm(settings?: UserSettings | null): CreateFormState {
+  const embeddingModel = settings?.knowledge_embedding_model || "BAAI/bge-m3";
+  const embeddingDimensions = inferEmbeddingDimensions(
+    embeddingModel,
+    settings?.knowledge_embedding_dimensions || 1024
+  );
 
-const EMBEDDING_MODELS = ["BAAI/bge-m3", "Qwen/Qwen3-Embedding-0.6B"];
+  return {
+    name: "",
+    description: "",
+    project_id: "",
+    parser_provider:
+      settings?.knowledge_parser_provider === "mineru" ? "mineru" : "local_basic",
+    embedding_provider: settings?.knowledge_embedding_provider || "siliconflow",
+    chunk_size: 1000,
+    chunk_overlap: 150,
+    embedding_model: embeddingModel,
+    embedding_dimensions: embeddingDimensions,
+    rerank_enabled: settings?.knowledge_rerank_enabled ?? true,
+    rerank_provider: settings?.knowledge_rerank_provider || "siliconflow",
+    rerank_model: settings?.knowledge_rerank_model || "BAAI/bge-reranker-v2-m3",
+    retrieval_top_k: 20,
+    rerank_top_n: 6,
+    score_threshold: 0.2,
+    max_context_chunks: 6,
+    max_context_chars: 12000,
+  };
+}
+
+const PROVIDER_OPTIONS = ["siliconflow", "openai-compatible", "ollama"];
+const EMBEDDING_MODELS = [
+  "BAAI/bge-m3",
+  "Qwen/Qwen3-Embedding-0.6B",
+  "Qwen/Qwen3-Embedding-4B",
+  "Qwen/Qwen3-Embedding-8B",
+];
 const RERANK_MODELS = ["BAAI/bge-reranker-v2-m3"];
 
 async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -100,6 +137,8 @@ function projectName(projects: Project[], projectId: string | null) {
 function statusLabel(value: string) {
   const labels: Record<string, string> = {
     pending: "等待中",
+    running: "执行中",
+    succeeded: "成功",
     parsing: "解析中",
     parsed: "已解析",
     indexing: "索引中",
@@ -117,14 +156,25 @@ export function KnowledgeWorkspace({
   activeKnowledgeBase = null,
   initialDocuments = [],
   initialJobs = [],
+  initialMineruCredential = null,
+  initialSettings = null,
 }: KnowledgeWorkspaceProps) {
   const [knowledgeBases, setKnowledgeBases] = useState(initialKnowledgeBases);
   const [documents, setDocuments] = useState(initialDocuments);
   const [jobs, setJobs] = useState(initialJobs);
+  const [mineruCredential, setMineruCredential] = useState(initialMineruCredential);
+  const [mineruTokenDraft, setMineruTokenDraft] = useState("");
+  const [mineruMessage, setMineruMessage] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateFormState>(DEFAULT_CREATE_FORM);
+  const [createForm, setCreateForm] = useState<CreateFormState>(() =>
+    buildDefaultCreateForm(initialSettings)
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSavingMineru, setIsSavingMineru] = useState(false);
+  const [isTestingMineru, setIsTestingMineru] = useState(false);
+  const [parsingDocumentId, setParsingDocumentId] = useState<string | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<KnowledgeMarkdownPreview | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -170,11 +220,11 @@ export function KnowledgeWorkspace({
         chunk_size: createForm.chunk_size,
         chunk_overlap: createForm.chunk_overlap,
         chunk_delimiter: "\n\n",
-        embedding_provider: "siliconflow",
+        embedding_provider: createForm.embedding_provider,
         embedding_model: createForm.embedding_model,
-        embedding_dimensions: createForm.embedding_model === "BAAI/bge-m3" ? 1024 : 1024,
+        embedding_dimensions: createForm.embedding_dimensions,
         rerank_enabled: createForm.rerank_enabled,
-        rerank_provider: "siliconflow",
+        rerank_provider: createForm.rerank_provider,
         rerank_model: createForm.rerank_model,
         retrieval_mode: "vector",
         retrieval_top_k: createForm.retrieval_top_k,
@@ -192,7 +242,7 @@ export function KnowledgeWorkspace({
         body: JSON.stringify(payload),
       });
       setKnowledgeBases((current) => [created, ...current]);
-      setCreateForm(DEFAULT_CREATE_FORM);
+      setCreateForm(buildDefaultCreateForm(initialSettings));
       setIsCreateOpen(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "创建知识库失败。");
@@ -262,6 +312,92 @@ export function KnowledgeWorkspace({
     }
   }
 
+  async function handleSaveMineruCredential(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSavingMineru(true);
+    setMineruMessage(null);
+    setErrorMessage(null);
+    try {
+      const updated = await requestJson<KnowledgeCredential>("/api/backend/knowledge/credentials/mineru", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          api_key: mineruTokenDraft.trim() || undefined,
+          is_enabled: true,
+        }),
+      });
+      setMineruCredential(updated);
+      setMineruTokenDraft("");
+      setMineruMessage("MinerU token 已保存，页面不会回显明文。");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "保存 MinerU token 失败。");
+    } finally {
+      setIsSavingMineru(false);
+    }
+  }
+
+  async function handleTestMineruCredential() {
+    setIsTestingMineru(true);
+    setMineruMessage(null);
+    setErrorMessage(null);
+    try {
+      const result = await requestJson<KnowledgeConnectionTestResult>("/api/backend/knowledge/credentials/mineru/test", {
+        method: "POST",
+      });
+      setMineruMessage(result.message);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "测试 MinerU 连接失败。");
+    } finally {
+      setIsTestingMineru(false);
+    }
+  }
+
+  async function handleParseDocument(document: KnowledgeDocument) {
+    if (!visibleActiveKnowledgeBase) {
+      return;
+    }
+    setParsingDocumentId(document.id);
+    setErrorMessage(null);
+    try {
+      const result = await requestJson<KnowledgeDocumentParseResult>(
+        `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/documents/${document.id}/parse`,
+        { method: "POST" }
+      );
+      setDocuments((current) =>
+        current.map((item) => (item.id === result.document.id ? result.document : item))
+      );
+      setJobs((current) => [result.job, ...current.filter((item) => item.id !== result.job.id)]);
+      if (result.markdown_preview) {
+        setPreviewDocument({
+          document_id: result.document.id,
+          file_name: result.document.file_name,
+          markdown: result.markdown_preview,
+        });
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "解析文档失败。");
+    } finally {
+      setParsingDocumentId(null);
+    }
+  }
+
+  async function handlePreviewDocument(document: KnowledgeDocument) {
+    if (!visibleActiveKnowledgeBase) {
+      return;
+    }
+    setErrorMessage(null);
+    try {
+      const result = await requestJson<KnowledgeMarkdownPreview>(
+        `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/documents/${document.id}/markdown-preview`
+      );
+      setPreviewDocument(result);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "加载 Markdown 预览失败。");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[var(--app-bg)] px-4 py-5 text-[var(--ink-strong)] sm:px-6">
       <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] max-w-7xl flex-col gap-4">
@@ -271,7 +407,8 @@ export function KnowledgeWorkspace({
               <p className="text-xs uppercase tracking-[0.35em] text-[var(--ink-muted)]">Knowledge Base</p>
               <h1 className="mt-2 text-3xl font-semibold">个人知识库</h1>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--ink-soft)]">
-                当前阶段先搭建知识库骨架：创建配置、上传文档记录、任务状态。后续会接入 MinerU 解析、Embedding、FAISS 和聊天引用。
+                当前阶段已进入 RAG-2：支持知识库配置、文档上传记录、本地基础解析、用户级 MinerU 凭据和 Markdown 预览。
+                后续会继续接入分块、Embedding、FAISS 和聊天引用。
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -279,7 +416,13 @@ export function KnowledgeWorkspace({
                 href="/"
                 className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)]"
               >
-                返回聊天
+                工作台
+              </Link>
+              <Link
+                href="/chat"
+                className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)]"
+              >
+                智能问答
               </Link>
               <button
                 type="button"
@@ -368,8 +511,8 @@ export function KnowledgeWorkspace({
                   </div>
                 </div>
 
-                <div className="grid gap-4 py-4 xl:grid-cols-[1.2fr_0.8fr]">
-                  <Panel title="配置概览" subtitle="RAG-1 只展示配置，后续会增加可编辑和重建索引提示。">
+                <div className="grid gap-4 py-4 xl:grid-cols-[1.05fr_0.85fr_0.85fr]">
+                  <Panel title="配置概览" subtitle="RAG-2 已接入文档解析入口，后续会增加可编辑和重建索引提示。">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Info label="解析器" value={visibleActiveKnowledgeBase.parser_provider} />
                       <Info label="分块模式" value={visibleActiveKnowledgeBase.chunk_mode} />
@@ -380,19 +523,66 @@ export function KnowledgeWorkspace({
                     </div>
                   </Panel>
 
-                  <Panel title="阶段状态" subtitle="当前只完成知识库骨架，解析索引会在后续阶段补齐。">
+                  <Panel title="阶段状态" subtitle="当前阶段聚焦解析与预览，索引会在 RAG-3 补齐。">
                     <div className="space-y-2 text-sm text-[var(--ink-soft)]">
                       <StatusLine done label="知识库配置已持久化" />
                       <StatusLine done label="文档上传记录已接入" />
-                      <StatusLine label="MinerU 解析待接入" />
+                      <StatusLine done label="本地基础解析已接入" />
+                      <StatusLine done label="Markdown 预览已接入" />
+                      <StatusLine label="MinerU 真实远程解析待协议确认" />
                       <StatusLine label="Embedding / FAISS 待接入" />
                       <StatusLine label="聊天引用待接入" />
                     </div>
                   </Panel>
+
+                  <Panel title="MinerU 凭据" subtitle="Token 按用户加密保存，不会在页面回显明文。">
+                    <form onSubmit={handleSaveMineruCredential} className="space-y-3">
+                      <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3">
+                        <p className="text-xs text-[var(--ink-muted)]">当前状态</p>
+                        <p className="mt-1 text-sm font-semibold">
+                          {mineruCredential?.has_api_key
+                            ? `已配置：${mineruCredential.api_key_masked ?? "****"}`
+                            : "未配置"}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                          来源：{mineruCredential?.source ?? "missing"}
+                        </p>
+                      </div>
+                      <input
+                        type="password"
+                        value={mineruTokenDraft}
+                        onChange={(event) => setMineruTokenDraft(event.target.value)}
+                        className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-strong)]"
+                        placeholder="输入新的 MinerU token"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="submit"
+                          disabled={isSavingMineru || !mineruTokenDraft.trim()}
+                          className="primary-action rounded-full px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSavingMineru ? "保存中..." : "保存 Token"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleTestMineruCredential()}
+                          disabled={isTestingMineru}
+                          className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isTestingMineru ? "测试中..." : "测试连接"}
+                        </button>
+                      </div>
+                      {mineruMessage ? (
+                        <p className="rounded-2xl border border-[var(--success-border)] bg-[var(--success-bg)] px-3 py-2 text-xs text-[var(--success-text)]">
+                          {mineruMessage}
+                        </p>
+                      ) : null}
+                    </form>
+                  </Panel>
                 </div>
 
                 <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-                  <Panel title="文档" subtitle="上传后会创建文档记录和 pending 解析任务。">
+                  <Panel title="文档" subtitle="上传后可手动触发解析；local_basic 会直接生成 Markdown 预览。">
                     <div className="mb-4 flex flex-wrap items-center gap-2">
                       <input
                         ref={fileInputRef}
@@ -439,13 +629,35 @@ export function KnowledgeWorkspace({
                               <Badge label={`索引：${statusLabel(document.index_status)}`} />
                               <Badge label={formatDateTime(document.created_at)} />
                             </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleParseDocument(document)}
+                                disabled={parsingDocumentId === document.id}
+                                className="rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {parsingDocumentId === document.id
+                                  ? "解析中..."
+                                  : document.parse_status === "parsed"
+                                    ? "重新解析"
+                                    : "解析"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handlePreviewDocument(document)}
+                                disabled={!document.parsed_markdown_path}
+                                className="rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+                              >
+                                预览 Markdown
+                              </button>
+                            </div>
                           </div>
                         ))
                       )}
                     </div>
                   </Panel>
 
-                  <Panel title="任务" subtitle="RAG-1 只创建 pending job，后续 worker 会消费这些任务。">
+                  <Panel title="任务" subtitle="当前解析任务由页面同步触发；后续会迁移为后台 worker。">
                     <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
                       {jobs.length === 0 ? (
                         <EmptyBox text="暂无任务。上传文档后会生成 parse_document 任务。" />
@@ -475,10 +687,10 @@ export function KnowledgeWorkspace({
             ) : (
               <div className="flex h-full min-h-[520px] items-center justify-center rounded-[24px] border border-dashed border-[var(--control-border)] bg-[var(--soft-bg)] p-6 text-center">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.3em] text-[var(--ink-muted)]">RAG-1</p>
+                  <p className="text-xs uppercase tracking-[0.3em] text-[var(--ink-muted)]">RAG-2</p>
                   <h2 className="mt-3 text-3xl font-semibold">先创建一个知识库</h2>
                   <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[var(--ink-soft)]">
-                    知识库创建时会保存解析、分块、embedding、rerank 和检索配置。下一阶段再把文档解析和向量索引接上。
+                    知识库创建时会保存解析、分块、embedding、rerank 和检索配置。当前已经可以上传文档并触发本地解析。
                   </p>
                   <button
                     type="button"
@@ -494,6 +706,29 @@ export function KnowledgeWorkspace({
         </section>
       </div>
 
+      {previewDocument ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay-bg)] p-4 backdrop-blur-sm">
+          <section className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[30px] border border-[var(--panel-border)] bg-[var(--modal-bg)] shadow-[var(--panel-shadow)]">
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--hairline)] px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-[0.24em] text-[var(--ink-muted)]">Markdown Preview</p>
+                <h3 className="mt-1 truncate text-2xl font-semibold">{previewDocument.file_name}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewDocument(null)}
+                className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)]"
+              >
+                关闭
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <MessageMarkdown content={previewDocument.markdown} />
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {isCreateOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay-bg)] p-4 backdrop-blur-sm">
           <form
@@ -504,7 +739,7 @@ export function KnowledgeWorkspace({
               <p className="text-xs uppercase tracking-[0.28em] text-[var(--ink-muted)]">Create Knowledge Base</p>
               <h2 className="mt-2 text-3xl font-semibold">新建知识库</h2>
               <p className="mt-2 text-sm leading-7 text-[var(--ink-soft)]">
-                当前先保存知识库配置。创建后进入详情页上传文档，后续阶段会补解析、索引和检索测试。
+                创建时保存解析、分块、Embedding、Rerank 和检索配置。创建后进入详情页上传文档，并可先使用本地基础解析生成 Markdown 预览。
               </p>
             </div>
 
@@ -547,7 +782,7 @@ export function KnowledgeWorkspace({
                   onChange={(value) => updateCreateForm("parser_provider", value as "local_basic" | "mineru")}
                   options={[
                     { value: "local_basic", label: "本地基础解析" },
-                    { value: "mineru", label: "MinerU（后续接凭据）" },
+                    { value: "mineru", label: "MinerU（需先配置 token）" },
                   ]}
                 />
 
@@ -567,10 +802,45 @@ export function KnowledgeWorkspace({
                 />
 
                 <SelectField
+                  label="Embedding Provider"
+                  value={createForm.embedding_provider}
+                  onChange={(value) => updateCreateForm("embedding_provider", value)}
+                  options={PROVIDER_OPTIONS.map((provider) => ({ value: provider, label: provider }))}
+                />
+
+                <SelectField
                   label="Embedding 模型"
                   value={createForm.embedding_model}
-                  onChange={(value) => updateCreateForm("embedding_model", value)}
+                  onChange={(value) => {
+                    setCreateForm((current) => ({
+                      ...current,
+                      embedding_model: value,
+                      embedding_dimensions: inferEmbeddingDimensions(value, current.embedding_dimensions),
+                    }));
+                  }}
                   options={EMBEDDING_MODELS.map((model) => ({ value: model, label: model }))}
+                />
+
+                <ReadOnlyField
+                  label="Embedding 维度"
+                  value={`${createForm.embedding_dimensions}`}
+                  hint="由当前 Embedding 模型自动确定，保存为索引元数据。创建索引后如更换模型，需要重建索引。"
+                />
+
+                <label className="flex items-center gap-3 rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-sm text-[var(--ink-soft)]">
+                  <input
+                    type="checkbox"
+                    checked={createForm.rerank_enabled}
+                    onChange={(event) => updateCreateForm("rerank_enabled", event.target.checked)}
+                  />
+                  启用 Rerank
+                </label>
+
+                <SelectField
+                  label="Rerank Provider"
+                  value={createForm.rerank_provider}
+                  onChange={(value) => updateCreateForm("rerank_provider", value)}
+                  options={PROVIDER_OPTIONS.map((provider) => ({ value: provider, label: provider }))}
                 />
 
                 <SelectField
@@ -725,6 +995,26 @@ function SelectField({
         ))}
       </select>
     </label>
+  );
+}
+
+function ReadOnlyField({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="block">
+      <span className="mb-2 block text-sm text-[var(--ink-soft)]">{label}</span>
+      <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-sm">
+        <p className="font-semibold text-[var(--ink-strong)]">{value}</p>
+        {hint ? <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">{hint}</p> : null}
+      </div>
+    </div>
   );
 }
 

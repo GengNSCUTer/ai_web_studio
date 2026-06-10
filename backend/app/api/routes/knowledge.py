@@ -9,17 +9,29 @@ from app.repositories.knowledge_repo import (
     KnowledgeJobRepository,
 )
 from app.repositories.project_repo import ProjectRepository
+from app.repositories.tool_config_repo import ToolConfigRepository
 from app.schemas.knowledge import (
     KnowledgeBaseCreate,
     KnowledgeBaseResponse,
     KnowledgeBaseUpdate,
+    KnowledgeConnectionTestResponse,
+    KnowledgeCredentialResponse,
+    KnowledgeCredentialUpdate,
     KnowledgeDocumentCreate,
+    KnowledgeDocumentParseResponse,
     KnowledgeDocumentResponse,
     KnowledgeJobResponse,
+    KnowledgeMarkdownPreviewResponse,
 )
-from app.services.knowledge_service import KnowledgeBaseService, KnowledgeDocumentService, KnowledgeJobService
+from app.services.knowledge_service import (
+    KnowledgeBaseService,
+    KnowledgeCredentialService,
+    KnowledgeDocumentService,
+    KnowledgeJobService,
+)
 
 router = APIRouter(prefix="/knowledge-bases", tags=["knowledge"])
+credential_router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 
 def _base_service(db: Session) -> KnowledgeBaseService:
@@ -36,6 +48,10 @@ def _document_service(db: Session) -> KnowledgeDocumentService:
 
 def _job_service(db: Session) -> KnowledgeJobService:
     return KnowledgeJobService(KnowledgeJobRepository(db), KnowledgeBaseRepository(db))
+
+
+def _credential_service(db: Session) -> KnowledgeCredentialService:
+    return KnowledgeCredentialService(ToolConfigRepository(db))
 
 
 @router.get("", response_model=list[KnowledgeBaseResponse])
@@ -144,6 +160,40 @@ def delete_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge document not found")
 
 
+@router.post("/{knowledge_base_id}/documents/{document_id}/parse", response_model=KnowledgeDocumentParseResponse)
+def parse_document(
+    knowledge_base_id: str,
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeDocumentParseResponse:
+    result = _document_service(db).parse_document(knowledge_base_id, document_id, current_user.id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge document not found")
+    return result
+
+
+@router.get(
+    "/{knowledge_base_id}/documents/{document_id}/markdown-preview",
+    response_model=KnowledgeMarkdownPreviewResponse,
+)
+def preview_document_markdown(
+    knowledge_base_id: str,
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeMarkdownPreviewResponse:
+    try:
+        result = _document_service(db).preview_markdown(knowledge_base_id, document_id, current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge document not found")
+    return result
+
+
 @router.get("/{knowledge_base_id}/jobs", response_model=list[KnowledgeJobResponse])
 def list_jobs(
     knowledge_base_id: str,
@@ -154,3 +204,28 @@ def list_jobs(
     if items is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
     return items
+
+
+@credential_router.get("/credentials/mineru", response_model=KnowledgeCredentialResponse)
+def get_mineru_credential(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeCredentialResponse:
+    return _credential_service(db).get_mineru_credential(current_user.id)
+
+
+@credential_router.patch("/credentials/mineru", response_model=KnowledgeCredentialResponse)
+def update_mineru_credential(
+    payload: KnowledgeCredentialUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeCredentialResponse:
+    return _credential_service(db).update_mineru_credential(current_user.id, payload)
+
+
+@credential_router.post("/credentials/mineru/test", response_model=KnowledgeConnectionTestResponse)
+def test_mineru_credential(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeConnectionTestResponse:
+    return _credential_service(db).test_mineru_credential(current_user.id)

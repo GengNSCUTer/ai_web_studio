@@ -1,5 +1,7 @@
 import json
+from datetime import datetime, timezone
 
+from app.models.tool_config import UserToolCredential
 from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeJob
 from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
@@ -7,21 +9,31 @@ from app.repositories.knowledge_repo import (
     KnowledgeJobRepository,
 )
 from app.repositories.project_repo import ProjectRepository
+from app.repositories.tool_config_repo import ToolConfigRepository
 from app.schemas.knowledge import (
     KnowledgeBaseCreate,
     KnowledgeBaseResponse,
     KnowledgeBaseUpdate,
+    KnowledgeConnectionTestResponse,
+    KnowledgeCredentialResponse,
+    KnowledgeCredentialUpdate,
     KnowledgeDocumentCreate,
+    KnowledgeDocumentParseResponse,
     KnowledgeDocumentResponse,
     KnowledgeJobResponse,
+    KnowledgeMarkdownPreviewResponse,
 )
+from app.services.knowledge_parser_service import KnowledgeParserService
+from app.services.knowledge_model_metadata import infer_embedding_dimensions
+from app.services.secret_service import SecretService
+from app.services.tools.credentials import ToolCredentialResolver
 
 
 class KnowledgeBaseService:
     ALLOWED_PARSERS = {"local_basic", "mineru"}
     ALLOWED_CHUNK_MODES = {"general", "parent_child"}
-    ALLOWED_EMBEDDING_PROVIDERS = {"siliconflow"}
-    ALLOWED_RERANK_PROVIDERS = {"siliconflow"}
+    ALLOWED_EMBEDDING_PROVIDERS = {"siliconflow", "openai-compatible", "ollama"}
+    ALLOWED_RERANK_PROVIDERS = {"siliconflow", "openai-compatible", "ollama"}
     ALLOWED_RETRIEVAL_MODES = {"vector"}
 
     def __init__(self, repo: KnowledgeBaseRepository, project_repo: ProjectRepository):
@@ -87,7 +99,7 @@ class KnowledgeBaseService:
             chunk_delimiter=payload.chunk_delimiter,
             embedding_provider=payload.embedding_provider,
             embedding_model=payload.embedding_model.strip(),
-            embedding_dimensions=payload.embedding_dimensions,
+            embedding_dimensions=infer_embedding_dimensions(payload.embedding_model, payload.embedding_dimensions),
             rerank_enabled=payload.rerank_enabled,
             rerank_provider=payload.rerank_provider,
             rerank_model=payload.rerank_model.strip(),
@@ -205,6 +217,95 @@ class KnowledgeDocumentService:
         self.document_repo.delete(document)
         return True
 
+    def parse_document(
+        self,
+        knowledge_base_id: str,
+        document_id: str,
+        user_id: str,
+    ) -> KnowledgeDocumentParseResponse | None:
+        knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
+        document = self.document_repo.get_by_user(document_id, user_id)
+        if not knowledge_base or not document or document.knowledge_base_id != knowledge_base.id:
+            return None
+
+        job = self.job_repo.latest_by_document_type(
+            document_id=document.id,
+            user_id=user_id,
+            job_type="parse_document",
+        )
+        if not job or job.status not in {"pending", "failed"}:
+            job = KnowledgeJob(
+                user_id=user_id,
+                knowledge_base_id=knowledge_base.id,
+                document_id=document.id,
+                job_type="parse_document",
+                status="pending",
+                payload_json=json.dumps({"storage_key": document.storage_key}, ensure_ascii=False),
+            )
+            job = self.job_repo.save(job)
+
+        now = datetime.now(timezone.utc)
+        job.status = "running"
+        job.started_at = now
+        job.finished_at = None
+        job.error_message = None
+        document.parse_status = "parsing"
+        document.error_message = None
+        self.job_repo.save(job)
+        self.document_repo.save(document)
+
+        parser = KnowledgeParserService(credential_resolver=ToolCredentialResolver(self.document_repo.db))
+        try:
+            result = parser.parse(document=document, user_id=user_id)
+            document.parse_status = "parsed"
+            document.index_status = "pending"
+            document.parsed_markdown_path = result.markdown_path
+            document.error_message = None
+            saved_document = self.document_repo.save(document)
+            job.status = "succeeded"
+            job.finished_at = datetime.now(timezone.utc)
+            saved_job = self.job_repo.save(job)
+            return KnowledgeDocumentParseResponse(
+                document=KnowledgeDocumentResponse.model_validate(saved_document),
+                job=KnowledgeJobResponse.model_validate(saved_job),
+                markdown_preview=result.markdown_preview,
+            )
+        except Exception as exc:
+            document.parse_status = "failed"
+            document.error_message = str(exc)
+            saved_document = self.document_repo.save(document)
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.finished_at = datetime.now(timezone.utc)
+            saved_job = self.job_repo.save(job)
+            return KnowledgeDocumentParseResponse(
+                document=KnowledgeDocumentResponse.model_validate(saved_document),
+                job=KnowledgeJobResponse.model_validate(saved_job),
+                markdown_preview=None,
+            )
+
+    def preview_markdown(
+        self,
+        knowledge_base_id: str,
+        document_id: str,
+        user_id: str,
+    ) -> KnowledgeMarkdownPreviewResponse | None:
+        knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
+        document = self.document_repo.get_by_user(document_id, user_id)
+        if not knowledge_base or not document or document.knowledge_base_id != knowledge_base.id:
+            return None
+        if not document.parsed_markdown_path:
+            raise ValueError("文档尚未解析，暂无 Markdown 预览。")
+        markdown = KnowledgeParserService().preview_markdown(
+            markdown_path=document.parsed_markdown_path,
+            user_id=user_id,
+        )
+        return KnowledgeMarkdownPreviewResponse(
+            document_id=document.id,
+            file_name=document.file_name,
+            markdown=markdown,
+        )
+
 
 class KnowledgeJobService:
     def __init__(self, job_repo: KnowledgeJobRepository, base_repo: KnowledgeBaseRepository):
@@ -218,3 +319,70 @@ class KnowledgeJobService:
             KnowledgeJobResponse.model_validate(item)
             for item in self.job_repo.list_by_knowledge_base(knowledge_base_id, user_id)
         ]
+
+
+class KnowledgeCredentialService:
+    MINERU_PROVIDER_KEY = "mineru"
+
+    def __init__(self, repo: ToolConfigRepository):
+        self.repo = repo
+        self.secret_service = SecretService()
+
+    def get_mineru_credential(self, user_id: str) -> KnowledgeCredentialResponse:
+        credential = self.repo.get_credential(user_id, self.MINERU_PROVIDER_KEY)
+        resolved = ToolCredentialResolver(self.repo.db).resolve(user_id=user_id, provider_key=self.MINERU_PROVIDER_KEY)
+        if credential:
+            saved_key = self.secret_service.decrypt(credential.api_key)
+            return KnowledgeCredentialResponse(
+                provider_key=self.MINERU_PROVIDER_KEY,
+                credential_name=credential.credential_name,
+                is_enabled=credential.is_enabled,
+                has_api_key=bool(saved_key or resolved.api_key),
+                api_key_masked=self.secret_service.mask(saved_key or resolved.api_key),
+                source="user" if saved_key else resolved.source,
+            )
+        return KnowledgeCredentialResponse(
+            provider_key=self.MINERU_PROVIDER_KEY,
+            credential_name="MinerU 默认凭据",
+            is_enabled=resolved.is_enabled,
+            has_api_key=bool(resolved.api_key),
+            api_key_masked=self.secret_service.mask(resolved.api_key),
+            source=resolved.source,
+        )
+
+    def update_mineru_credential(
+        self,
+        user_id: str,
+        payload: KnowledgeCredentialUpdate,
+    ) -> KnowledgeCredentialResponse:
+        credential = self.repo.get_credential(user_id, self.MINERU_PROVIDER_KEY)
+        if not credential:
+            credential = UserToolCredential(
+                user_id=user_id,
+                provider_key=self.MINERU_PROVIDER_KEY,
+                credential_name="MinerU 默认凭据",
+                api_key=None,
+                is_enabled=True,
+            )
+
+        data = payload.model_dump(exclude_unset=True)
+        if "credential_name" in data and data["credential_name"] is not None:
+            credential.credential_name = data["credential_name"].strip() or "MinerU 默认凭据"
+        if data.get("clear_api_key"):
+            credential.api_key = None
+        elif "api_key" in data and data["api_key"] is not None:
+            credential.api_key = self.secret_service.encrypt(data["api_key"])
+        if "is_enabled" in data and data["is_enabled"] is not None:
+            credential.is_enabled = bool(data["is_enabled"])
+        self.repo.save_credential(credential)
+        return self.get_mineru_credential(user_id)
+
+    def test_mineru_credential(self, user_id: str) -> KnowledgeConnectionTestResponse:
+        ok, message = KnowledgeParserService(
+            credential_resolver=ToolCredentialResolver(self.repo.db),
+        ).test_mineru_connection(user_id=user_id)
+        return KnowledgeConnectionTestResponse(
+            ok=ok,
+            provider_key=self.MINERU_PROVIDER_KEY,
+            message=message,
+        )

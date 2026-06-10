@@ -6,12 +6,15 @@ from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.repositories.setting_repo import UserSettingRepository
 from app.schemas.setting import (
+    KnowledgeModelOptionsRequest,
+    KnowledgeModelOptionsResponse,
     ProviderConnectionTestRequest,
     ProviderConnectionTestResponse,
     UserSettingResponse,
     UserSettingUpdate,
 )
 from app.services.chat_provider_service import ChatProviderService, resolve_provider_base_url
+from app.services.knowledge_model_catalog_service import KnowledgeModelCatalogService
 from app.services.setting_service import SettingService
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -78,4 +81,42 @@ async def test_provider_connection(
         models=models,
         default_model=resolved_default_model,
         message=f"连接成功，获取到 {len(models)} 个模型",
+    )
+
+
+@router.post("/knowledge-model-options", response_model=KnowledgeModelOptionsResponse)
+async def get_knowledge_model_options(
+    payload: KnowledgeModelOptionsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeModelOptionsResponse:
+    service = SettingService(UserSettingRepository(db))
+    provider = service.normalize_knowledge_model_provider(payload.provider)
+    base_url = payload.base_url.strip()
+    normalized_kind = "rerank" if payload.model_kind == "rerank" else "embedding"
+    api_key = (
+        payload.api_key
+        if payload.api_key is not None
+        else service.resolve_knowledge_model_api_key(current_user.id, normalized_kind)
+    )
+    try:
+        models, source = await KnowledgeModelCatalogService().list_options(
+            provider=provider,
+            base_url=base_url,
+            api_key=api_key,
+            model_kind=normalized_kind,
+            strict=payload.strict,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"连接失败：{exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"连接失败：{exc}") from exc
+    return KnowledgeModelOptionsResponse(
+        ok=True,
+        provider=provider,
+        base_url=base_url,
+        model_kind=normalized_kind,
+        models=models,
+        source=source,
+        message=f"获取到 {len(models)} 个候选模型，来源：{source}",
     )

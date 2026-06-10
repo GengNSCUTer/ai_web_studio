@@ -202,6 +202,33 @@ export type KnowledgeJob = {
   updated_at: string | null;
 };
 
+export type KnowledgeCredential = {
+  provider_key: string;
+  credential_name: string;
+  is_enabled: boolean;
+  has_api_key: boolean;
+  api_key_masked: string | null;
+  source: string;
+};
+
+export type KnowledgeConnectionTestResult = {
+  ok: boolean;
+  provider_key: string;
+  message: string;
+};
+
+export type KnowledgeDocumentParseResult = {
+  document: KnowledgeDocument;
+  job: KnowledgeJob;
+  markdown_preview: string | null;
+};
+
+export type KnowledgeMarkdownPreview = {
+  document_id: string;
+  file_name: string;
+  markdown: string;
+};
+
 export type ContextAttachmentChunk = {
   attachment_id: string | null;
   file_name: string;
@@ -333,6 +360,16 @@ export type ProviderInfo = {
   models: string[];
 };
 
+export type KnowledgeModelOptions = {
+  ok: boolean;
+  provider: string;
+  base_url: string;
+  model_kind: "embedding" | "rerank" | string;
+  models: string[];
+  source: string;
+  message: string;
+};
+
 export type ChatBootstrap = {
   conversation_id: string;
   user_message_id: string;
@@ -366,6 +403,24 @@ export type UserSettings = {
   memory_max_chars: number;
   ui_language: string;
   theme_mode: string;
+  knowledge_parser_provider: string;
+  knowledge_embedding_provider: string;
+  knowledge_embedding_base_url: string;
+  knowledge_embedding_model: string;
+  knowledge_embedding_dimensions: number;
+  knowledge_rerank_enabled: boolean;
+  knowledge_rerank_provider: string;
+  knowledge_rerank_base_url: string;
+  knowledge_rerank_model: string;
+  knowledge_embedding_api_key: string | null;
+  knowledge_embedding_has_api_key?: boolean;
+  knowledge_embedding_api_key_masked?: string | null;
+  knowledge_rerank_api_key: string | null;
+  knowledge_rerank_has_api_key?: boolean;
+  knowledge_rerank_api_key_masked?: string | null;
+  knowledge_api_key: string | null;
+  knowledge_has_api_key?: boolean;
+  knowledge_api_key_masked?: string | null;
   updated_at: string | null;
 };
 

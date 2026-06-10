@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import type { Conversation, Project, ProviderInfo, User } from "@/lib/types";
 
 type SidebarText = {
@@ -8,6 +10,8 @@ type SidebarText = {
   newChat: string;
   unnamedUser: string;
   settings: string;
+  appHome: string;
+  knowledgeBase: string;
   logout: string;
   currentProvider: string;
   providerLoading: string;
@@ -261,7 +265,19 @@ export function ChatSidebar({
       <div className="sidebar-user-card rounded-2xl border p-3 text-sm">
         <p className="font-medium">{currentUser?.username ?? text.unnamedUser}</p>
         <p className="mt-1 break-all text-xs text-white/45">{currentUser?.email ?? "--"}</p>
-        <div className="mt-3 flex gap-2">
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <Link
+            href="/"
+            className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-center text-xs transition hover:bg-white/14"
+          >
+            {text.appHome}
+          </Link>
+          <Link
+            href="/knowledge"
+            className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-center text-xs transition hover:bg-white/14"
+          >
+            {text.knowledgeBase}
+          </Link>
           <button
             type="button"
             onClick={onOpenSettings}
@@ -269,10 +285,12 @@ export function ChatSidebar({
           >
             {text.settings}
           </button>
+        </div>
+        <div className="mt-2">
           <button
             type="button"
             onClick={() => void onLogout()}
-            className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-xs transition hover:bg-white/14"
+            className="w-full rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-xs transition hover:bg-white/14"
           >
             {text.logout}
           </button>
