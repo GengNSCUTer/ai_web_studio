@@ -46,6 +46,69 @@ function normalizeMathDelimiters(markdown: string) {
     .join("");
 }
 
+function decodeHtmlEntities(value: string) {
+  const namedEntities: Record<string, string> = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " ",
+  };
+
+  return value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity: string) => {
+    if (entity.startsWith("#x") || entity.startsWith("#X")) {
+      const codePoint = Number.parseInt(entity.slice(2), 16);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    if (entity.startsWith("#")) {
+      const codePoint = Number.parseInt(entity.slice(1), 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    return namedEntities[entity] ?? match;
+  });
+}
+
+function normalizeTableCell(value: string) {
+  return decodeHtmlEntities(
+    value
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  ).replace(/\|/g, "\\|");
+}
+
+function normalizeHtmlTables(markdown: string) {
+  return markdown.replace(/<table[\s\S]*?<\/table>/gi, (tableHtml) => {
+    const rows = Array.from(tableHtml.matchAll(/<tr[\s\S]*?<\/tr>/gi)).map((rowMatch) => {
+      const rowHtml = rowMatch[0];
+      return Array.from(rowHtml.matchAll(/<(td|th)(?:\s+[^>]*)?>([\s\S]*?)<\/\1>/gi)).flatMap((cellMatch) => {
+        const attributes = cellMatch[0].match(/^<(?:td|th)([^>]*)>/i)?.[1] ?? "";
+        const colspanMatch = attributes.match(/colspan=["']?(\d+)/i);
+        const colspan = Math.max(1, Number.parseInt(colspanMatch?.[1] ?? "1", 10) || 1);
+        const cell = normalizeTableCell(cellMatch[2]);
+        return Array.from({ length: colspan }, (_, index) => (index === 0 ? cell : ""));
+      });
+    }).filter((row) => row.length > 0);
+
+    if (rows.length === 0) {
+      return tableHtml;
+    }
+
+    const columnCount = Math.max(...rows.map((row) => row.length), 1);
+    const normalizedRows = rows.map((row) => [
+      ...row,
+      ...Array.from({ length: columnCount - row.length }, () => ""),
+    ]);
+    const [firstRow, ...bodyRows] = normalizedRows;
+    const header = `| ${firstRow.join(" | ")} |`;
+    const separator = `| ${Array.from({ length: columnCount }, () => "---").join(" | ")} |`;
+    const body = bodyRows.map((row) => `| ${row.join(" | ")} |`);
+    return `\n\n${[header, separator, ...body].join("\n")}\n\n`;
+  });
+}
+
 function CopyCodeButton({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -101,7 +164,7 @@ export function MessageMarkdown({
   content,
   isStreaming = false,
 }: MessageMarkdownProps) {
-  const normalizedContent = normalizeMathDelimiters(content);
+  const normalizedContent = normalizeHtmlTables(normalizeMathDelimiters(content));
 
   return (
     <div className="chat-markdown text-sm leading-7 sm:text-[15px]">

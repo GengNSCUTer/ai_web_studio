@@ -11,9 +11,11 @@ import type {
   KnowledgeConnectionTestResult,
   KnowledgeCredential,
   KnowledgeDocument,
+  KnowledgeDocumentIndexResult,
   KnowledgeDocumentParseResult,
   KnowledgeJob,
   KnowledgeMarkdownPreview,
+  KnowledgeRetrievalTestResult,
   Project,
   UploadItem,
   User,
@@ -149,6 +151,15 @@ function statusLabel(value: string) {
   return labels[value] ?? value;
 }
 
+function retrievalRankLabel(value: string) {
+  const labels: Record<string, string> = {
+    rerank: "Rerank",
+    vector_fallback: "向量回退",
+    vector: "向量召回",
+  };
+  return labels[value] ?? value;
+}
+
 export function KnowledgeWorkspace({
   currentUser,
   initialKnowledgeBases,
@@ -174,7 +185,11 @@ export function KnowledgeWorkspace({
   const [isSavingMineru, setIsSavingMineru] = useState(false);
   const [isTestingMineru, setIsTestingMineru] = useState(false);
   const [parsingDocumentId, setParsingDocumentId] = useState<string | null>(null);
+  const [indexingDocumentId, setIndexingDocumentId] = useState<string | null>(null);
   const [previewDocument, setPreviewDocument] = useState<KnowledgeMarkdownPreview | null>(null);
+  const [retrievalQuery, setRetrievalQuery] = useState("");
+  const [retrievalResult, setRetrievalResult] = useState<KnowledgeRetrievalTestResult | null>(null);
+  const [isTestingRetrieval, setIsTestingRetrieval] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -370,11 +385,18 @@ export function KnowledgeWorkspace({
       );
       setJobs((current) => [result.job, ...current.filter((item) => item.id !== result.job.id)]);
       if (result.markdown_preview) {
-        setPreviewDocument({
-          document_id: result.document.id,
-          file_name: result.document.file_name,
-          markdown: result.markdown_preview,
-        });
+        try {
+          const fullPreview = await requestJson<KnowledgeMarkdownPreview>(
+            `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/documents/${result.document.id}/markdown-preview`
+          );
+          setPreviewDocument(fullPreview);
+        } catch {
+          setPreviewDocument({
+            document_id: result.document.id,
+            file_name: result.document.file_name,
+            markdown: result.markdown_preview,
+          });
+        }
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "解析文档失败。");
@@ -398,6 +420,60 @@ export function KnowledgeWorkspace({
     }
   }
 
+  async function handleIndexDocument(document: KnowledgeDocument) {
+    if (!visibleActiveKnowledgeBase) {
+      return;
+    }
+    setIndexingDocumentId(document.id);
+    setErrorMessage(null);
+    try {
+      const result = await requestJson<KnowledgeDocumentIndexResult>(
+        `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/documents/${document.id}/index`,
+        { method: "POST" }
+      );
+      setDocuments((current) =>
+        current.map((item) => (item.id === result.document.id ? result.document : item))
+      );
+      setJobs((current) => [result.job, ...current.filter((item) => item.id !== result.job.id)]);
+      if (result.chunk_count === 0 && result.job.error_message) {
+        setErrorMessage(`索引失败：${result.job.error_message}`);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "生成索引失败。");
+    } finally {
+      setIndexingDocumentId(null);
+    }
+  }
+
+  async function handleTestRetrieval(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!visibleActiveKnowledgeBase || !retrievalQuery.trim()) {
+      return;
+    }
+    setIsTestingRetrieval(true);
+    setErrorMessage(null);
+    try {
+      const result = await requestJson<KnowledgeRetrievalTestResult>(
+        `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/retrieval-test`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            query: retrievalQuery.trim(),
+            top_k: visibleActiveKnowledgeBase.retrieval_top_k,
+          }),
+        }
+      );
+      setRetrievalResult(result);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "检索测试失败。");
+    } finally {
+      setIsTestingRetrieval(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[var(--app-bg)] px-4 py-5 text-[var(--ink-strong)] sm:px-6">
       <div className="mx-auto flex min-h-[calc(100vh-2.5rem)] max-w-7xl flex-col gap-4">
@@ -407,8 +483,8 @@ export function KnowledgeWorkspace({
               <p className="text-xs uppercase tracking-[0.35em] text-[var(--ink-muted)]">Knowledge Base</p>
               <h1 className="mt-2 text-3xl font-semibold">个人知识库</h1>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--ink-soft)]">
-                当前阶段已进入 RAG-2：支持知识库配置、文档上传记录、本地基础解析、用户级 MinerU 凭据和 Markdown 预览。
-                后续会继续接入分块、Embedding、FAISS 和聊天引用。
+                当前阶段已进入 RAG-3：支持文档解析、Markdown 预览、Chunk 分块、Embedding、FAISS 索引与检索测试。
+                本阶段先打通文本 RAG，PDF 内图片和复杂表格先保留解析资产扩展点，后续再做 OCR / caption / 多模态索引。
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -512,7 +588,7 @@ export function KnowledgeWorkspace({
                 </div>
 
                 <div className="grid gap-4 py-4 xl:grid-cols-[1.05fr_0.85fr_0.85fr]">
-                  <Panel title="配置概览" subtitle="RAG-2 已接入文档解析入口，后续会增加可编辑和重建索引提示。">
+                  <Panel title="配置概览" subtitle="RAG-3 已接入分块与向量索引；更换 Embedding 模型后需要重建索引。">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Info label="解析器" value={visibleActiveKnowledgeBase.parser_provider} />
                       <Info label="分块模式" value={visibleActiveKnowledgeBase.chunk_mode} />
@@ -523,14 +599,15 @@ export function KnowledgeWorkspace({
                     </div>
                   </Panel>
 
-                  <Panel title="阶段状态" subtitle="当前阶段聚焦解析与预览，索引会在 RAG-3 补齐。">
+                  <Panel title="阶段状态" subtitle="当前阶段聚焦文本索引和检索可观测；聊天引用会在 RAG-5 接入。">
                     <div className="space-y-2 text-sm text-[var(--ink-soft)]">
                       <StatusLine done label="知识库配置已持久化" />
                       <StatusLine done label="文档上传记录已接入" />
                       <StatusLine done label="本地基础解析已接入" />
                       <StatusLine done label="Markdown 预览已接入" />
-                      <StatusLine label="MinerU 真实远程解析待协议确认" />
-                      <StatusLine label="Embedding / FAISS 待接入" />
+                      <StatusLine done label="MinerU 凭据与远程解析已接入" />
+                      <StatusLine done label="Chunk / Embedding / FAISS 已接入" />
+                      <StatusLine done label="检索测试已接入" />
                       <StatusLine label="聊天引用待接入" />
                     </div>
                   </Panel>
@@ -582,7 +659,7 @@ export function KnowledgeWorkspace({
                 </div>
 
                 <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-                  <Panel title="文档" subtitle="上传后可手动触发解析；local_basic 会直接生成 Markdown 预览。">
+                  <Panel title="文档" subtitle="上传后依次触发解析与索引；索引成功后可在右侧做检索测试。">
                     <div className="mb-4 flex flex-wrap items-center gap-2">
                       <input
                         ref={fileInputRef}
@@ -650,47 +727,139 @@ export function KnowledgeWorkspace({
                               >
                                 预览 Markdown
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleIndexDocument(document)}
+                                disabled={indexingDocumentId === document.id || document.parse_status !== "parsed"}
+                                className="rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+                              >
+                                {indexingDocumentId === document.id
+                                  ? "索引中..."
+                                  : document.index_status === "indexed"
+                                    ? "重建索引"
+                                    : "生成索引"}
+                              </button>
                             </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </Panel>
-
-                  <Panel title="任务" subtitle="当前解析任务由页面同步触发；后续会迁移为后台 worker。">
-                    <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-                      {jobs.length === 0 ? (
-                        <EmptyBox text="暂无任务。上传文档后会生成 parse_document 任务。" />
-                      ) : (
-                        jobs.map((job) => (
-                          <div
-                            key={job.id}
-                            className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm font-semibold">{job.job_type}</p>
-                              <Badge label={statusLabel(job.status)} />
-                            </div>
-                            <p className="mt-2 text-xs text-[var(--ink-muted)]">
-                              {formatDateTime(job.created_at)}
-                            </p>
-                            {job.error_message ? (
-                              <p className="mt-2 text-xs text-[var(--danger-text)]">{job.error_message}</p>
+                            {document.error_message ? (
+                              <p className="mt-3 rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-xs leading-5 text-[var(--danger-text)]">
+                                {document.error_message}
+                              </p>
                             ) : null}
                           </div>
                         ))
                       )}
                     </div>
                   </Panel>
+
+                  <div className="space-y-4">
+                    <Panel title="检索测试" subtitle="用于定位解析、分块、Embedding 和召回质量问题；聊天接入前先在这里验证。">
+                      <form onSubmit={handleTestRetrieval} className="space-y-3">
+                        <textarea
+                          value={retrievalQuery}
+                          onChange={(event) => setRetrievalQuery(event.target.value)}
+                          className="min-h-24 w-full resize-none rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-strong)]"
+                          placeholder="输入要检索的问题，例如：这篇论文提出了什么方法？"
+                        />
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs text-[var(--ink-muted)]">
+                            Top K：{visibleActiveKnowledgeBase.retrieval_top_k}
+                          </span>
+                          <button
+                            type="submit"
+                            disabled={isTestingRetrieval || !retrievalQuery.trim()}
+                            className="primary-action rounded-full px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isTestingRetrieval ? "检索中..." : "测试检索"}
+                          </button>
+                        </div>
+                      </form>
+
+                      {retrievalResult ? (
+                        <div className="mt-4 space-y-2">
+                          <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-xs leading-6 text-[var(--ink-muted)]">
+                            <span>
+                              共 {retrievalResult.total_chunks} 个已索引片段，返回 {retrievalResult.results.length} 条结果。
+                            </span>
+                            <span className="ml-2">
+                              Rerank：
+                              {retrievalResult.rerank_enabled
+                                ? retrievalResult.rerank_model || "已启用"
+                                : "未启用"}
+                            </span>
+                          </div>
+                          {retrievalResult.results.length === 0 ? (
+                            <EmptyBox text="没有召回结果。请确认至少一个文档已索引，或调整查询和阈值。" />
+                          ) : (
+                            <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+                              {retrievalResult.results.map((result) => (
+                                <div
+                                  key={result.chunk_id}
+                                  className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold">{result.file_name}</p>
+                                      <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                        Chunk #{result.chunk_index} · 最终 {result.score.toFixed(4)} · 向量{" "}
+                                        {result.vector_score.toFixed(4)}
+                                        {result.rerank_score !== null
+                                          ? ` · Rerank ${result.rerank_score.toFixed(4)}`
+                                          : ""}
+                                      </p>
+                                    </div>
+                                    <Badge label={retrievalRankLabel(result.rank_source)} />
+                                  </div>
+                                  {typeof result.metadata?.rerank_error === "string" ? (
+                                    <p className="mt-2 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-bg)] px-3 py-2 text-xs leading-5 text-[var(--warning-text)]">
+                                      Rerank 失败，已回退到向量召回：{result.metadata.rerank_error}
+                                    </p>
+                                  ) : null}
+                                  <p className="mt-3 line-clamp-6 whitespace-pre-wrap text-xs leading-6 text-[var(--ink-soft)]">
+                                    {result.content}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </Panel>
+
+                    <Panel title="任务" subtitle="解析和索引当前同步触发；后续会迁移为后台 worker。">
+                      <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
+                        {jobs.length === 0 ? (
+                          <EmptyBox text="暂无任务。上传文档后会生成 parse_document 任务。" />
+                        ) : (
+                          jobs.map((job) => (
+                            <div
+                              key={job.id}
+                              className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-sm font-semibold">{job.job_type}</p>
+                                <Badge label={statusLabel(job.status)} />
+                              </div>
+                              <p className="mt-2 text-xs text-[var(--ink-muted)]">
+                                {formatDateTime(job.created_at)}
+                              </p>
+                              {job.error_message ? (
+                                <p className="mt-2 text-xs text-[var(--danger-text)]">{job.error_message}</p>
+                              ) : null}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </Panel>
+                  </div>
                 </div>
               </div>
             ) : (
               <div className="flex h-full min-h-[520px] items-center justify-center rounded-[24px] border border-dashed border-[var(--control-border)] bg-[var(--soft-bg)] p-6 text-center">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.3em] text-[var(--ink-muted)]">RAG-2</p>
+                  <p className="text-xs uppercase tracking-[0.3em] text-[var(--ink-muted)]">RAG-3</p>
                   <h2 className="mt-3 text-3xl font-semibold">先创建一个知识库</h2>
                   <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[var(--ink-soft)]">
-                    知识库创建时会保存解析、分块、embedding、rerank 和检索配置。当前已经可以上传文档并触发本地解析。
+                    知识库创建时会保存解析、分块、Embedding、Rerank 和检索配置。当前已经可以上传文档、解析、索引并测试检索。
                   </p>
                   <button
                     type="button"

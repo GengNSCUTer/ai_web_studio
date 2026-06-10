@@ -18,10 +18,13 @@ from app.schemas.knowledge import (
     KnowledgeCredentialResponse,
     KnowledgeCredentialUpdate,
     KnowledgeDocumentCreate,
+    KnowledgeDocumentIndexResponse,
     KnowledgeDocumentParseResponse,
     KnowledgeDocumentResponse,
     KnowledgeJobResponse,
     KnowledgeMarkdownPreviewResponse,
+    KnowledgeRetrievalTestRequest,
+    KnowledgeRetrievalTestResponse,
 )
 from app.services.knowledge_service import (
     KnowledgeBaseService,
@@ -173,6 +176,19 @@ def parse_document(
     return result
 
 
+@router.post("/{knowledge_base_id}/documents/{document_id}/index", response_model=KnowledgeDocumentIndexResponse)
+def index_document(
+    knowledge_base_id: str,
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeDocumentIndexResponse:
+    result = _document_service(db).index_document(knowledge_base_id, document_id, current_user.id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge document not found")
+    return result
+
+
 @router.get(
     "/{knowledge_base_id}/documents/{document_id}/markdown-preview",
     response_model=KnowledgeMarkdownPreviewResponse,
@@ -191,6 +207,27 @@ def preview_document_markdown(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge document not found")
+    return result
+
+
+@router.post("/{knowledge_base_id}/retrieval-test", response_model=KnowledgeRetrievalTestResponse)
+def test_retrieval(
+    knowledge_base_id: str,
+    payload: KnowledgeRetrievalTestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeRetrievalTestResponse:
+    try:
+        result = _document_service(db).test_retrieval(
+            knowledge_base_id=knowledge_base_id,
+            user_id=current_user.id,
+            query=payload.query,
+            top_k=payload.top_k,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
     return result
 
 

@@ -37,6 +37,8 @@ class Settings:
     )
 
     upload_dir: str = os.getenv("UPLOAD_DIR", str(ROOT_DIR / "uploads"))
+    knowledge_index_dir: str = os.getenv("KNOWLEDGE_INDEX_DIR", str(ROOT_DIR / "uploads" / "knowledge_indexes"))
+    knowledge_parse_max_chars: int = int(os.getenv("KNOWLEDGE_PARSE_MAX_CHARS", "500000"))
 
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
     amap_api_key: str = os.getenv("AMAP_API_KEY", "")

@@ -223,10 +223,39 @@ export type KnowledgeDocumentParseResult = {
   markdown_preview: string | null;
 };
 
+export type KnowledgeDocumentIndexResult = {
+  document: KnowledgeDocument;
+  job: KnowledgeJob;
+  chunk_count: number;
+  index_path: string | null;
+};
+
 export type KnowledgeMarkdownPreview = {
   document_id: string;
   file_name: string;
   markdown: string;
+};
+
+export type KnowledgeRetrievalChunk = {
+  chunk_id: string;
+  document_id: string;
+  file_name: string;
+  chunk_index: number;
+  score: number;
+  vector_score: number;
+  rerank_score: number | null;
+  rank_source: string;
+  content: string;
+  metadata: Record<string, unknown> | null;
+};
+
+export type KnowledgeRetrievalTestResult = {
+  query: string;
+  top_k: number;
+  total_chunks: number;
+  rerank_enabled: boolean;
+  rerank_model: string | null;
+  results: KnowledgeRetrievalChunk[];
 };
 
 export type ContextAttachmentChunk = {

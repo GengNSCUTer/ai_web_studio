@@ -1,7 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeJob
+from app.models.knowledge import KnowledgeBase, KnowledgeChunk, KnowledgeDocument, KnowledgeJob
 
 
 class KnowledgeBaseRepository:
@@ -78,6 +78,54 @@ class KnowledgeDocumentRepository:
     def delete(self, document: KnowledgeDocument) -> None:
         self.db.delete(document)
         self.db.commit()
+
+
+class KnowledgeChunkRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_by_document(self, document_id: str, user_id: str) -> list[KnowledgeChunk]:
+        stmt = (
+            select(KnowledgeChunk)
+            .where(KnowledgeChunk.document_id == document_id, KnowledgeChunk.user_id == user_id)
+            .order_by(KnowledgeChunk.chunk_index.asc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def list_by_knowledge_base(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeChunk]:
+        stmt = (
+            select(KnowledgeChunk)
+            .where(KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id)
+            .order_by(KnowledgeChunk.vector_id.asc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def count_by_knowledge_base(self, knowledge_base_id: str, user_id: str) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(KnowledgeChunk)
+            .where(KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id)
+        )
+        return int(self.db.scalar(stmt) or 0)
+
+    def max_vector_id(self, knowledge_base_id: str, user_id: str) -> int:
+        stmt = (
+            select(func.max(KnowledgeChunk.vector_id))
+            .where(KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id)
+        )
+        return int(self.db.scalar(stmt) or 0)
+
+    def replace_document_chunks(self, document_id: str, user_id: str, chunks: list[KnowledgeChunk]) -> list[KnowledgeChunk]:
+        stmt = select(KnowledgeChunk).where(KnowledgeChunk.document_id == document_id, KnowledgeChunk.user_id == user_id)
+        existing = list(self.db.scalars(stmt).all())
+        for item in existing:
+            self.db.delete(item)
+        for chunk in chunks:
+            self.db.add(chunk)
+        self.db.commit()
+        for chunk in chunks:
+            self.db.refresh(chunk)
+        return chunks
 
 
 class KnowledgeJobRepository:

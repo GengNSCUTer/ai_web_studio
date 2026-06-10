@@ -5,6 +5,7 @@ from app.models.tool_config import UserToolCredential
 from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeJob
 from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
+    KnowledgeChunkRepository,
     KnowledgeDocumentRepository,
     KnowledgeJobRepository,
 )
@@ -18,14 +19,20 @@ from app.schemas.knowledge import (
     KnowledgeCredentialResponse,
     KnowledgeCredentialUpdate,
     KnowledgeDocumentCreate,
+    KnowledgeDocumentIndexResponse,
     KnowledgeDocumentParseResponse,
     KnowledgeDocumentResponse,
     KnowledgeJobResponse,
     KnowledgeMarkdownPreviewResponse,
+    KnowledgeRetrievalChunkResponse,
+    KnowledgeRetrievalTestResponse,
 )
+from app.repositories.setting_repo import UserSettingRepository
+from app.services.knowledge_index_service import KnowledgeIndexService
 from app.services.knowledge_parser_service import KnowledgeParserService
 from app.services.knowledge_model_metadata import infer_embedding_dimensions
 from app.services.secret_service import SecretService
+from app.services.setting_service import SettingService
 from app.services.tools.credentials import ToolCredentialResolver
 
 
@@ -161,10 +168,14 @@ class KnowledgeDocumentService:
         document_repo: KnowledgeDocumentRepository,
         base_repo: KnowledgeBaseRepository,
         job_repo: KnowledgeJobRepository,
+        chunk_repo: KnowledgeChunkRepository | None = None,
+        setting_repo: UserSettingRepository | None = None,
     ):
         self.document_repo = document_repo
         self.base_repo = base_repo
         self.job_repo = job_repo
+        self.chunk_repo = chunk_repo or KnowledgeChunkRepository(document_repo.db)
+        self.setting_repo = setting_repo or UserSettingRepository(document_repo.db)
 
     def list_documents(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeDocumentResponse] | None:
         if not self.base_repo.get_by_user(knowledge_base_id, user_id):
@@ -260,6 +271,7 @@ class KnowledgeDocumentService:
             document.parse_status = "parsed"
             document.index_status = "pending"
             document.parsed_markdown_path = result.markdown_path
+            document.parsed_assets_json = result.assets_json
             document.error_message = None
             saved_document = self.document_repo.save(document)
             job.status = "succeeded"
@@ -304,6 +316,121 @@ class KnowledgeDocumentService:
             document_id=document.id,
             file_name=document.file_name,
             markdown=markdown,
+        )
+
+    def index_document(
+        self,
+        knowledge_base_id: str,
+        document_id: str,
+        user_id: str,
+    ) -> KnowledgeDocumentIndexResponse | None:
+        knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
+        document = self.document_repo.get_by_user(document_id, user_id)
+        if not knowledge_base or not document or document.knowledge_base_id != knowledge_base.id:
+            return None
+
+        job = KnowledgeJob(
+            user_id=user_id,
+            knowledge_base_id=knowledge_base.id,
+            document_id=document.id,
+            job_type="index_document",
+            status="running",
+            payload_json=json.dumps(
+                {
+                    "embedding_provider": knowledge_base.embedding_provider,
+                    "embedding_model": knowledge_base.embedding_model,
+                    "embedding_dimensions": knowledge_base.embedding_dimensions,
+                },
+                ensure_ascii=False,
+            ),
+            started_at=datetime.now(timezone.utc),
+        )
+        job = self.job_repo.save(job)
+        document.index_status = "indexing"
+        document.error_message = None
+        self.document_repo.save(document)
+
+        index_service = KnowledgeIndexService(
+            chunk_repo=self.chunk_repo,
+            document_repo=self.document_repo,
+            setting_service=SettingService(self.setting_repo),
+        )
+        try:
+            result = index_service.index_document(user_id=user_id, knowledge_base=knowledge_base, document=document)
+            saved_document = self.document_repo.get_by_user(document.id, user_id) or document
+            job.status = "succeeded"
+            job.finished_at = datetime.now(timezone.utc)
+            saved_job = self.job_repo.save(job)
+            return KnowledgeDocumentIndexResponse(
+                document=KnowledgeDocumentResponse.model_validate(saved_document),
+                job=KnowledgeJobResponse.model_validate(saved_job),
+                chunk_count=result.chunk_count,
+                index_path=result.index_path,
+            )
+        except Exception as exc:
+            document.index_status = "failed"
+            document.error_message = str(exc)
+            saved_document = self.document_repo.save(document)
+            job.status = "failed"
+            job.error_message = str(exc)
+            job.finished_at = datetime.now(timezone.utc)
+            saved_job = self.job_repo.save(job)
+            return KnowledgeDocumentIndexResponse(
+                document=KnowledgeDocumentResponse.model_validate(saved_document),
+                job=KnowledgeJobResponse.model_validate(saved_job),
+                chunk_count=0,
+                index_path=None,
+            )
+
+    def test_retrieval(
+        self,
+        knowledge_base_id: str,
+        user_id: str,
+        query: str,
+        top_k: int | None = None,
+    ) -> KnowledgeRetrievalTestResponse | None:
+        knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
+        if not knowledge_base:
+            return None
+        resolved_top_k = top_k or knowledge_base.retrieval_top_k
+        index_service = KnowledgeIndexService(
+            chunk_repo=self.chunk_repo,
+            document_repo=self.document_repo,
+            setting_service=SettingService(self.setting_repo),
+        )
+        results = index_service.retrieve(
+            user_id=user_id,
+            knowledge_base=knowledge_base,
+            query=query,
+            top_k=resolved_top_k,
+        )
+        documents = {
+            document.id: document
+            for document in self.document_repo.list_by_knowledge_base(knowledge_base_id, user_id)
+        }
+        return KnowledgeRetrievalTestResponse(
+            query=query,
+            top_k=resolved_top_k,
+            total_chunks=self.chunk_repo.count_by_knowledge_base(knowledge_base_id, user_id),
+            rerank_enabled=knowledge_base.rerank_enabled,
+            rerank_model=knowledge_base.rerank_model if knowledge_base.rerank_enabled else None,
+            results=[
+                KnowledgeRetrievalChunkResponse(
+                    chunk_id=result.chunk.id,
+                    document_id=result.chunk.document_id,
+                    file_name=documents.get(result.chunk.document_id).file_name
+                    if documents.get(result.chunk.document_id)
+                    else result.metadata.get("file_name", "unknown"),
+                    chunk_index=result.chunk.chunk_index,
+                    score=result.rerank_score if result.rerank_score is not None else result.score,
+                    vector_score=result.score,
+                    rerank_score=result.rerank_score,
+                    rank_source=result.rank_source,
+                    content=result.chunk.content,
+                    metadata=result.metadata,
+                )
+                for result in results
+            ],
         )
 
 

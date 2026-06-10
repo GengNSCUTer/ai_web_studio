@@ -19,6 +19,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
+    KnowledgeChunkRepository,
     KnowledgeDocumentRepository,
     KnowledgeJobRepository,
 )
@@ -33,8 +34,46 @@ from app.services.knowledge_service import (
     KnowledgeDocumentService,
     KnowledgeJobService,
 )
+from app.services.knowledge_index_service import (
+    KnowledgeEmbeddingService,
+    KnowledgeFaissStore,
+    KnowledgeIndexService,
+    KnowledgeRerankService,
+)
 from app.services.knowledge_model_catalog_service import KnowledgeModelCatalogService
 from app.services.setting_service import SettingService
+
+
+class FakeKnowledgeEmbeddingService(KnowledgeEmbeddingService):
+    async def embed_texts(self, *, user_id: str, knowledge_base, texts: list[str]) -> list[list[float]]:  # noqa: ANN001
+        return [self._embed(text) for text in texts]
+
+    @staticmethod
+    def _embed(text: str) -> list[float]:
+        lower = text.lower()
+        vector = [0.0] * 128
+        vector[0] = float(lower.count("adaptive") + lower.count("rag"))
+        vector[1] = float(lower.count("routing") + lower.count("router"))
+        vector[2] = float(lower.count("expert") + lower.count("moe"))
+        vector[3] = float(len(text) % 97) / 97.0
+        if not any(vector):
+            vector[-1] = 0.1
+        return vector
+
+
+class FakeKnowledgeRerankService(KnowledgeRerankService):
+    async def rerank(self, *, user_id: str, knowledge_base, query: str, documents: list[str], top_n: int) -> list[tuple[int, float]]:  # noqa: ANN001
+        ranked: list[tuple[int, float]] = []
+        for index, document in enumerate(documents):
+            lower = document.lower()
+            score = 0.95 if "expert" in lower or "moe" in lower else 0.4 - (index * 0.01)
+            ranked.append((index, score))
+        return sorted(ranked, key=lambda item: item[1], reverse=True)[:top_n]
+
+
+class FailingKnowledgeRerankService(KnowledgeRerankService):
+    async def rerank(self, *, user_id: str, knowledge_base, query: str, documents: list[str], top_n: int) -> list[tuple[int, float]]:  # noqa: ANN001
+        raise RuntimeError("fake rerank failure")
 
 
 class KnowledgeServiceTest(unittest.TestCase):
@@ -52,15 +91,20 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.db.commit()
         self.db.refresh(self.project)
         self._previous_upload_dir = settings.upload_dir
+        self._previous_index_dir = settings.knowledge_index_dir
         self.upload_tmp = tempfile.TemporaryDirectory()
+        self.index_tmp = tempfile.TemporaryDirectory()
         object.__setattr__(settings, "upload_dir", self.upload_tmp.name)
+        object.__setattr__(settings, "knowledge_index_dir", self.index_tmp.name)
 
     def tearDown(self) -> None:
         self.db.close()
         Base.metadata.drop_all(bind=self.engine)
         self.engine.dispose()
         object.__setattr__(settings, "upload_dir", self._previous_upload_dir)
+        object.__setattr__(settings, "knowledge_index_dir", self._previous_index_dir)
         self.upload_tmp.cleanup()
+        self.index_tmp.cleanup()
 
     def test_create_knowledge_base_and_add_document_creates_pending_job(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
@@ -303,6 +347,50 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertIn("# notes", preview.markdown)
         self.assertIn("Runnable", preview.markdown)
 
+    def test_markdown_preview_endpoint_returns_full_markdown(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            KnowledgeDocumentRepository(self.db),
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(name="完整预览测试", parser_provider="local_basic"),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        long_tail = "TAIL_MARKER_FOR_FULL_MARKDOWN_PREVIEW"
+        source_file = user_dir / "long.md"
+        source_file.write_text(
+            "A" * 26000 + "\n\n" + long_tail,
+            encoding="utf-8",
+        )
+
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="long.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/long.md",
+            ),
+        )
+        assert document is not None
+
+        parse_result = document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        self.assertIsNotNone(parse_result)
+        assert parse_result is not None
+        self.assertNotIn(long_tail, parse_result.markdown_preview or "")
+
+        preview = document_service.preview_markdown(knowledge_base.id, document.id, self.user.id)
+        self.assertIsNotNone(preview)
+        assert preview is not None
+        self.assertIn(long_tail, preview.markdown)
+
     def test_mineru_credential_is_encrypted_and_masked(self) -> None:
         service = KnowledgeCredentialService(ToolConfigRepository(self.db))
         fake_token = "mineru-test-token-1234567890"
@@ -360,7 +448,11 @@ class KnowledgeServiceTest(unittest.TestCase):
 
         zip_buffer = io.BytesIO()
         with ZipFile(zip_buffer, "w") as archive:
-            archive.writestr("mineru/full.md", "# MinerU Result\n\n这是 MinerU 返回的 Markdown。")
+            archive.writestr(
+                "mineru/full.md",
+                "# MinerU Result\n\n这是 MinerU 返回的 Markdown。\n\n![Figure 1](images/fig.png)",
+            )
+            archive.writestr("mineru/images/fig.png", b"fake-png-bytes")
 
         post_response = Mock(status_code=200)
         post_response.json.return_value = {
@@ -395,11 +487,346 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertEqual(result.document.parse_status, "parsed")
         self.assertEqual(result.job.status, "succeeded")
         self.assertIn("MinerU Result", result.markdown_preview or "")
+        self.assertIsNotNone(result.document.parsed_assets_json)
 
         preview = document_service.preview_markdown(knowledge_base.id, document.id, self.user.id)
         self.assertIsNotNone(preview)
         assert preview is not None
         self.assertIn("这是 MinerU 返回的 Markdown", preview.markdown)
+        self.assertIn("/api/backend/uploads/file?storage_key=", preview.markdown)
+
+        saved_document = KnowledgeDocumentRepository(self.db).get_by_user(document.id, self.user.id)
+        self.assertIsNotNone(saved_document)
+        assert saved_document is not None
+        self.assertIn("fig.png", saved_document.parsed_assets_json or "")
+        saved_asset = (
+            Path(settings.upload_dir)
+            / self.user.id
+            / "knowledge"
+            / knowledge_base.id
+            / "assets"
+            / document.id
+            / "images"
+            / "fig.png"
+        )
+        self.assertTrue(saved_asset.exists())
+
+    def test_index_document_and_retrieve_chunks_with_fake_embedding(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="索引测试",
+                parser_provider="local_basic",
+                chunk_size=120,
+                chunk_overlap=20,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "adaptive.md"
+        source_file.write_text(
+            "\n\n".join(
+                [
+                    "Adaptive RAG uses routing to select retrieval strategy.",
+                    "Mixture of experts and MoE routing can improve specialization.",
+                    "This unrelated paragraph discusses user interface details.",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="adaptive.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/adaptive.md",
+            ),
+        )
+        assert document is not None
+        parse_result = document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        self.assertIsNotNone(parse_result)
+        assert parse_result is not None
+
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=SettingService(UserSettingRepository(self.db)),
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        )
+        index_result = index_service.index_document(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            document=parsed_document,
+        )
+
+        self.assertGreater(index_result.chunk_count, 0)
+        self.assertTrue(Path(index_result.index_path).exists())
+        self.assertEqual(chunk_repo.count_by_knowledge_base(knowledge_base.id, self.user.id), index_result.chunk_count)
+
+        results = index_service.retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="adaptive rag routing",
+            top_k=3,
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertIn("Adaptive RAG", results[0].chunk.content)
+
+    def test_retrieve_uses_rerank_when_enabled(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="Rerank 测试",
+                parser_provider="local_basic",
+                chunk_size=100,
+                chunk_overlap=10,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=True,
+                rerank_provider="openai-compatible",
+                rerank_model="fake-rerank",
+                retrieval_top_k=3,
+                rerank_top_n=3,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "rerank.md"
+        source_file.write_text(
+            "\n\n".join(
+                [
+                    "Adaptive RAG uses routing to select retrieval strategy.",
+                    "This paragraph is about interface rendering and layout.",
+                    "Mixture of experts and MoE routing can improve specialization.",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="rerank.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/rerank.md",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+
+        index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=SettingService(UserSettingRepository(self.db)),
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            rerank_service=FakeKnowledgeRerankService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        )
+        index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+
+        results = index_service.retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="adaptive rag routing",
+            top_k=3,
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertEqual(results[0].rank_source, "rerank")
+        self.assertIsNotNone(results[0].rerank_score)
+        self.assertIn("experts", results[0].chunk.content.lower())
+
+    def test_retrieve_falls_back_to_vector_when_rerank_fails(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="Rerank 回退测试",
+                parser_provider="local_basic",
+                chunk_size=100,
+                chunk_overlap=10,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=True,
+                rerank_provider="openai-compatible",
+                rerank_model="fake-rerank",
+                retrieval_top_k=3,
+                rerank_top_n=3,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "fallback.md"
+        source_file.write_text(
+            "\n\n".join(
+                [
+                    "Adaptive RAG uses routing to select retrieval strategy.",
+                    "Mixture of experts and MoE routing can improve specialization.",
+                    "This unrelated paragraph discusses user interface details.",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="fallback.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/fallback.md",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+
+        index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=SettingService(UserSettingRepository(self.db)),
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            rerank_service=FailingKnowledgeRerankService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        )
+        index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+
+        results = index_service.retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="adaptive rag routing",
+            top_k=3,
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertEqual(results[0].rank_source, "vector_fallback")
+        self.assertTrue(results[0].metadata.get("rerank_fallback"))
+        self.assertIn("fake rerank failure", str(results[0].metadata.get("rerank_error")))
+
+    def test_parse_pdf_from_adaptive_rag_fixture_for_rag3_smoke(self) -> None:
+        pdf_path = Path("/disk2/gengnan/Adaptive-RAG/training_free_grpo/pdf/Adaptive_RAG.pdf")
+        if not pdf_path.exists():
+            self.skipTest("Adaptive-RAG PDF fixture not found")
+
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="PDF 冒烟测试",
+                parser_provider="local_basic",
+                chunk_size=900,
+                chunk_overlap=120,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        target_pdf = user_dir / pdf_path.name
+        target_pdf.write_bytes(pdf_path.read_bytes())
+
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name=pdf_path.name,
+                mime_type="application/pdf",
+                file_size=target_pdf.stat().st_size,
+                storage_key=f"{self.user.id}/{pdf_path.name}",
+            ),
+        )
+        assert document is not None
+
+        result = document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.document.parse_status, "parsed")
+        self.assertIn("Adaptive", result.markdown_preview or "")
+
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=SettingService(UserSettingRepository(self.db)),
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        )
+        index_result = index_service.index_document(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            document=parsed_document,
+        )
+        retrieval_results = index_service.retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="adaptive rag",
+            top_k=3,
+        )
+
+        self.assertGreater(index_result.chunk_count, 1)
+        self.assertGreaterEqual(len(retrieval_results), 1)
+        self.assertIn("Adaptive", retrieval_results[0].chunk.content)
 
 
 if __name__ == "__main__":

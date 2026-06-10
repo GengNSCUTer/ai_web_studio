@@ -154,3 +154,37 @@ class KnowledgeMarkdownPreviewResponse(BaseModel):
     document_id: str
     file_name: str
     markdown: str
+
+
+class KnowledgeDocumentIndexResponse(BaseModel):
+    document: KnowledgeDocumentResponse
+    job: KnowledgeJobResponse
+    chunk_count: int
+    index_path: str | None = None
+
+
+class KnowledgeRetrievalTestRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    top_k: int | None = Field(default=None, ge=1, le=50)
+
+
+class KnowledgeRetrievalChunkResponse(BaseModel):
+    chunk_id: str
+    document_id: str
+    file_name: str
+    chunk_index: int
+    score: float
+    vector_score: float
+    rerank_score: float | None = None
+    rank_source: str = "vector"
+    content: str
+    metadata: dict | None = None
+
+
+class KnowledgeRetrievalTestResponse(BaseModel):
+    query: str
+    top_k: int
+    total_chunks: int
+    rerank_enabled: bool = False
+    rerank_model: str | None = None
+    results: list[KnowledgeRetrievalChunkResponse]

@@ -72,6 +72,31 @@ class KnowledgeDocument(Base):
 
     knowledge_base = relationship("KnowledgeBase", back_populates="documents")
     jobs = relationship("KnowledgeJob", back_populates="document", cascade="all, delete-orphan")
+    chunks = relationship("KnowledgeChunk", back_populates="document", cascade="all, delete-orphan")
+
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    knowledge_base_id: Mapped[str] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("knowledge_documents.id"), index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    vector_id: Mapped[int] = mapped_column(Integer, index=True)
+    content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    char_count: Mapped[int] = mapped_column(Integer)
+    token_estimate: Mapped[int] = mapped_column(Integer)
+    source_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    document = relationship("KnowledgeDocument", back_populates="chunks")
 
 
 class KnowledgeJob(Base):

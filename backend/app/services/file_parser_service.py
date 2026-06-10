@@ -9,12 +9,12 @@ class FileParserService:
     SUPPORTED_PDF_EXTENSIONS = {".pdf"}
     MAX_PARSED_TEXT_CHARS = 24000
 
-    def parse_file(self, file_path: Path) -> str | None:
+    def parse_file(self, file_path: Path, max_chars: int | None = None) -> str | None:
         suffix = file_path.suffix.lower()
         if suffix in self.SUPPORTED_TEXT_EXTENSIONS:
-            return self._truncate(self._parse_text_file(file_path))
+            return self._truncate(self._parse_text_file(file_path), max_chars=max_chars)
         if suffix in self.SUPPORTED_PDF_EXTENSIONS:
-            return self._truncate(self._parse_pdf(file_path))
+            return self._truncate(self._parse_pdf(file_path), max_chars=max_chars)
         return None
 
     def _parse_text_file(self, file_path: Path) -> str:
@@ -36,8 +36,8 @@ class FileParserService:
                 parts.append(text.strip())
         return "\n\n".join(parts).strip()
 
-    def _truncate(self, content: str) -> str | None:
+    def _truncate(self, content: str, max_chars: int | None = None) -> str | None:
         normalized = content.strip()
         if not normalized:
             return None
-        return normalized[: self.MAX_PARSED_TEXT_CHARS]
+        return normalized[: (max_chars or self.MAX_PARSED_TEXT_CHARS)]

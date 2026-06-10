@@ -756,6 +756,43 @@ System Prompt
 - FAISS index 文件生成。
 - vector search 可以返回相关 chunks。
 
+当前实现状态：
+
+- RAG-3 第一版已完成。
+- 已新增 `knowledge_chunks` 表，保存 chunk metadata 和 FAISS vector id。
+- 已新增 `KnowledgeIndexService`，串联 `Markdown -> chunks -> embeddings -> FAISS`。
+- 已新增 `KnowledgeChunker`，采用段落优先 + 滑窗 fallback。
+- 已新增 `KnowledgeEmbeddingService`：
+  - OpenAI-compatible / SiliconFlow 走 `AsyncOpenAI.embeddings.create()`。
+  - Ollama 走 `/api/embed`。
+  - Base URL 与 API Key 读取用户级知识库模型设置。
+- 已新增 `KnowledgeFaissStore`：
+  - `IndexIDMap2(IndexFlatIP)`。
+  - 向量 normalize 后写入与检索，score 近似 cosine similarity。
+- 已新增索引接口和检索测试接口：
+
+```text
+POST /api/knowledge-bases/{knowledge_base_id}/documents/{document_id}/index
+POST /api/knowledge-bases/{knowledge_base_id}/retrieval-test
+```
+
+- 前端知识库详情页已加入：
+  - 文档索引按钮。
+  - 检索测试面板。
+  - 召回结果卡片。
+  - 解析 / 索引任务列表。
+- 本地 PDF 入库解析上限已提升到 `KNOWLEDGE_PARSE_MAX_CHARS=500000`，避免论文 PDF 只索引前 24000 字符。
+- 已使用 `Adaptive_RAG.pdf` 做真实 PDF 冒烟测试，覆盖解析、分块、FAISS 写入和检索召回。
+
+当前取舍：
+
+- 暂不新增 `knowledge_embeddings` 表，向量只保存在 FAISS 文件中，DB 保存 chunk metadata 和 vector id。
+- 索引单个文档后当前采用整库重建 FAISS，优先保证正确性和简单性。
+- 删除文档后的 FAISS stale vector 后续通过 rebuild 或增量删除策略处理。
+- 暂不处理 PDF 内图片语义索引；只保留 `parsed_assets_json` 等扩展点。
+- Rerank 已在 RAG-4 接入。
+- 聊天引用暂未接入，进入 RAG-5。
+
 ### RAG-4：检索测试与 Rerank
 
 目标：
@@ -775,6 +812,46 @@ System Prompt
 - 输入 query 能看到召回片段。
 - 能比较 rerank 前后排序。
 - 能看到 score、文档、页码和 chunk 内容。
+
+当前实现状态：
+
+- RAG-4 第一版已完成。
+- 当前检索模式为 `vector + optional rerank`：
+  - 第一阶段使用 query embedding + FAISS 向量召回。
+  - 第二阶段在知识库启用 Rerank 时调用 rerank 模型对候选 chunk 重排。
+  - 如果 Rerank 失败，自动回退向量召回。
+- 已新增 `KnowledgeRerankService`：
+  - `siliconflow / openai-compatible` 走 `/rerank`。
+  - 使用用户级 `knowledge_rerank_api_key`。
+  - Base URL 优先 `knowledge_rerank_base_url`，未配置时回退 `knowledge_embedding_base_url`。
+- 检索测试 API 已返回：
+  - `vector_score`
+  - `rerank_score`
+  - `rank_source`
+  - `rerank_enabled`
+  - `rerank_model`
+  - rerank fallback 错误信息。
+- 前端检索测试面板已显示：
+  - 当前 Rerank 状态和模型。
+  - 最终分数、向量分数、Rerank 分数。
+  - 向量召回 / Rerank / 向量回退标签。
+  - Rerank 失败原因。
+
+当前取舍：
+
+- 还不是 Dify 的完整多模式检索。
+- 暂未实现 BM25 / 全文检索。
+- 暂未实现 Hybrid Search / RRF。
+- 暂未实现 Parent-Child 分块检索。
+- 暂未实现检索日志持久化。
+- 暂未实现检索评测集。
+
+下一步进入 `RAG-5`：
+
+- 聊天页知识库选择器。
+- 检索结果进入上下文治理。
+- 回答引用知识库来源。
+- 点击来源查看原文 chunk。
 
 ### RAG-5：聊天集成与引用
 
