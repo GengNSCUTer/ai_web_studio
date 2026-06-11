@@ -32,6 +32,7 @@ class ContextPromptBuilder:
         external_context: str | None,
         attachment_context: str | None,
         provider_type: str,
+        knowledge_context: str | None = None,
         model_name: str | None = None,
     ) -> PromptBuildResult:
         prompt_messages: list[dict[str, Any]] = []
@@ -56,6 +57,10 @@ class ContextPromptBuilder:
         if external_context:
             system_sections.append(self._wrap_layer("外部信息源", external_context))
             layers.append("external_context")
+
+        if knowledge_context:
+            system_sections.append(self._wrap_layer("知识库片段", knowledge_context))
+            layers.append("knowledge_context")
 
         # Some OpenAI-compatible providers only accept one leading system message.
         prompt_messages.append(
@@ -121,6 +126,7 @@ class ContextPromptBuilder:
                 "prompt_history_messages": history_messages,
                 "prompt_attachment_context_injected": attachment_context_injected,
                 "prompt_external_context_injected": int(bool(external_context)),
+                "prompt_knowledge_context_injected": int(bool(knowledge_context)),
                 "prompt_image_messages": image_messages,
             },
             stable_prefix_messages=stable_prefix_messages,

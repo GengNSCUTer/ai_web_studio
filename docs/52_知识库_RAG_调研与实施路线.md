@@ -1279,3 +1279,81 @@ RAG-3 进入索引实现时必须：
 - 不硬编码 SiliconFlow。
 - 本地 Ollama provider 需要先验证模型是否存在。
 - embedding dimensions 必须和索引文件 metadata 一起保存；模型变更导致维度变化时提示重建索引。
+
+---
+
+## 19. 2026-06-10 RAG-5 聊天知识库接入记录
+
+本轮完成 `RAG-5` 最小可用闭环：知识库不再只停留在“创建、解析、索引、检索测试”，而是可以在智能问答台中作为可选上下文来源使用。
+
+### 19.1 当前链路
+
+```text
+用户在 /chat 选择一个知识库
+-> 发送问题
+-> 后端读取 knowledge_base_id
+-> KnowledgeContextService 校验知识库归属和索引状态
+-> KnowledgeIndexService.retrieve_async 执行 FAISS 向量召回和可选 rerank
+-> 格式化为知识库片段
+-> ContextPromptBuilder 注入独立【知识库片段】system layer
+-> 模型回答
+-> 回答下方展示 source_type=knowledge 的来源卡片
+```
+
+### 19.2 已实现能力
+
+- `/chat` 页面服务端并行加载用户知识库列表。
+- `ChatComposer` 新增知识库选择器。
+- `ChatApp` 持有当前 `selectedKnowledgeBaseId`。
+- 新发送、重新生成、编辑后重答都支持携带知识库 ID。
+- `KnowledgeContextService` 已负责知识库检索上下文构造。
+- `KnowledgeIndexService` 新增 async retrieval，避免在 async chat route 中嵌套 `asyncio.run()`。
+- `ContextPromptBuilder` 新增 `knowledge_context` 层。
+- `ExternalSourceCard` 支持知识库来源展示。
+- 上下文诊断面板展示知识库检索指标。
+
+### 19.3 故障与边界策略
+
+RAG-5 第一版采用“知识库失败不阻断聊天”的策略：
+
+- 未选择知识库：不检索。
+- 知识库不存在或无权访问：跳过检索，返回上下文 notice。
+- 知识库尚未索引：跳过检索，返回上下文 notice。
+- 检索或 rerank 异常：跳过知识库片段，普通聊天继续。
+
+这样设计的原因：
+
+- 用户普通聊天不应被知识库模块故障拖垮。
+- RAG 初期更需要可观测和可恢复，而不是强制失败。
+- 后续可以在“严格知识库回答模式”中调整为检索失败即阻断。
+
+### 19.4 当前边界
+
+- 单知识库选择，不支持多知识库。
+- 没有点击来源定位到 Markdown chunk。
+- 没有知识库检索日志持久化。
+- 没有 BM25 / Hybrid / RRF。
+- 没有 Parent-Child 分块检索。
+- 没有 metadata filter。
+- PDF 图片和图表仍不进入语义索引。
+
+### 19.5 下一步
+
+建议后续分三步收敛：
+
+1. `RAG-5.5`：来源定位。
+   - 点击知识库来源卡片打开文档预览。
+   - 定位到 chunk source_start/source_end 附近。
+   - 高亮命中片段。
+
+2. `RAG-5.6`：检索日志持久化。
+   - 保存 query、knowledge_base_id、召回 chunks、rerank 前后、最终注入片段。
+   - 回答来源和检索日志互相跳转。
+   - 为后续评测集和召回质量分析准备数据。
+
+3. `RAG-6`：检索质量增强。
+   - 多知识库检索。
+   - BM25 / Hybrid / RRF。
+   - Parent-Child chunk。
+   - Metadata Filter。
+   - 检索评测集。

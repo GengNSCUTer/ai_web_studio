@@ -13,6 +13,7 @@ import type {
   ContextAttachmentChunk,
   ContextGovernanceInfo,
   ExternalSource,
+  KnowledgeBase,
   Message,
   ToolTraceEvent,
   UploadItem,
@@ -30,8 +31,11 @@ type ChatThreadProps = {
   contextInfo: ContextGovernanceInfo | null;
   highlightedMessageId: string | null;
   uiLanguage: UILanguage;
+  knowledgeBases: KnowledgeBase[];
+  selectedKnowledgeBaseId: string;
   isDeepThinkingEnabled: boolean;
   isWebSearchEnabled: boolean;
+  onSelectedKnowledgeBaseIdChange: (knowledgeBaseId: string) => void;
   onDeepThinkingEnabledChange: (enabled: boolean) => void;
   onWebSearchEnabledChange: (enabled: boolean) => void;
   onContextInfoChange: (
@@ -76,9 +80,11 @@ const THREAD_TEXT = {
     streaming: "正在流式输出",
     deepThinking: "深度思考",
     webSearch: "联网搜索",
+    knowledgeBase: "知识库",
+    noKnowledgeBase: "不使用知识库",
     reasoningTitle: "思考过程",
     toolTraceTitle: "工具过程",
-    sourcesTitle: "外部来源",
+    sourcesTitle: "来源",
     replyFailed: "该条回答生成失败，请稍后重试。",
     replyModelFailed: "模型回答生成失败，请稍后重试。",
     replyStreamFailed: "流式连接中断，请重新生成。",
@@ -146,6 +152,17 @@ const THREAD_TEXT = {
     attachmentChunksSelected: "选中附件片段数",
     attachmentContextChars: "附件片段字符数",
     attachmentContextTokens: "附件片段 Token 数",
+    knowledgeRetrievalEnabled: "知识库检索已启用",
+    knowledgeBaseName: "知识库名称",
+    knowledgeChunksTotal: "知识库总 Chunk 数",
+    knowledgeChunksRetrieved: "知识库召回 Chunk 数",
+    knowledgeChunksInjected: "知识库注入 Chunk 数",
+    knowledgeContextChars: "知识库片段字符数",
+    knowledgeContextTokens: "知识库片段 Token 数",
+    knowledgeRerankEnabled: "知识库 Rerank 已启用",
+    knowledgeRerankUsed: "知识库 Rerank 已使用",
+    knowledgeRetrievalLatency: "知识库检索耗时",
+    promptKnowledgeContextInjected: "知识库片段已注入",
     attachmentTruncatedChunks: "未注入附件片段数",
     attachmentTruncatedChars: "未注入附件字符数",
     totalTokensEstimate: "本轮估算 Token 数",
@@ -184,6 +201,8 @@ const THREAD_TEXT = {
     streaming: "Streaming output",
     deepThinking: "Deep thinking",
     webSearch: "Web search",
+    knowledgeBase: "Knowledge",
+    noKnowledgeBase: "No knowledge base",
     reasoningTitle: "Reasoning",
     toolTraceTitle: "Tool trace",
     sourcesTitle: "Sources",
@@ -254,6 +273,17 @@ const THREAD_TEXT = {
     attachmentChunksSelected: "Attachment chunks selected",
     attachmentContextChars: "Attachment context chars",
     attachmentContextTokens: "Attachment context tokens",
+    knowledgeRetrievalEnabled: "Knowledge retrieval enabled",
+    knowledgeBaseName: "Knowledge base",
+    knowledgeChunksTotal: "Knowledge chunks total",
+    knowledgeChunksRetrieved: "Knowledge chunks retrieved",
+    knowledgeChunksInjected: "Knowledge chunks injected",
+    knowledgeContextChars: "Knowledge context chars",
+    knowledgeContextTokens: "Knowledge context tokens",
+    knowledgeRerankEnabled: "Knowledge rerank enabled",
+    knowledgeRerankUsed: "Knowledge rerank used",
+    knowledgeRetrievalLatency: "Knowledge retrieval latency",
+    promptKnowledgeContextInjected: "Knowledge context injected",
     attachmentTruncatedChunks: "Attachment chunks skipped",
     attachmentTruncatedChars: "Attachment chars skipped",
     totalTokensEstimate: "Estimated tokens this turn",
@@ -284,6 +314,20 @@ const THREAD_TEXT = {
 function parseContextStatsHeader(value: string | null): Record<string, string> {
   if (!value) {
     return {};
+  }
+
+  if (value.startsWith("json64:")) {
+    try {
+      const decoded = atob(value.slice("json64:".length));
+      const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+      const text = new TextDecoder().decode(bytes);
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.entries(parsed).map(([key, item]) => [key, item === null || item === undefined ? "" : String(item)])
+      );
+    } catch {
+      return {};
+    }
   }
 
   return value
@@ -495,8 +539,11 @@ export function ChatThread({
   contextInfo,
   highlightedMessageId,
   uiLanguage,
+  knowledgeBases,
+  selectedKnowledgeBaseId,
   isDeepThinkingEnabled,
   isWebSearchEnabled,
+  onSelectedKnowledgeBaseIdChange,
   onDeepThinkingEnabledChange,
   onWebSearchEnabledChange,
   onContextInfoChange,
@@ -636,6 +683,56 @@ export function ChatThread({
       label: text.attachmentContextTokens,
       value: statMap.attachment_context_tokens,
     },
+    {
+      key: "knowledge_retrieval_enabled",
+      label: text.knowledgeRetrievalEnabled,
+      value: formatBooleanStat(statMap.knowledge_retrieval_enabled),
+    },
+    {
+      key: "knowledge_base_name",
+      label: text.knowledgeBaseName,
+      value: statMap.knowledge_base_name,
+    },
+    {
+      key: "knowledge_chunks_total",
+      label: text.knowledgeChunksTotal,
+      value: statMap.knowledge_chunks_total,
+    },
+    {
+      key: "knowledge_chunks_retrieved",
+      label: text.knowledgeChunksRetrieved,
+      value: statMap.knowledge_chunks_retrieved,
+    },
+    {
+      key: "knowledge_chunks_injected",
+      label: text.knowledgeChunksInjected,
+      value: statMap.knowledge_chunks_injected,
+    },
+    {
+      key: "knowledge_context_chars",
+      label: text.knowledgeContextChars,
+      value: statMap.knowledge_context_chars,
+    },
+    {
+      key: "knowledge_context_tokens",
+      label: text.knowledgeContextTokens,
+      value: statMap.knowledge_context_tokens,
+    },
+    {
+      key: "knowledge_rerank_enabled",
+      label: text.knowledgeRerankEnabled,
+      value: formatBooleanStat(statMap.knowledge_rerank_enabled),
+    },
+    {
+      key: "knowledge_rerank_used",
+      label: text.knowledgeRerankUsed,
+      value: formatBooleanStat(statMap.knowledge_rerank_used),
+    },
+    {
+      key: "knowledge_retrieval_latency_ms",
+      label: text.knowledgeRetrievalLatency,
+      value: statMap.knowledge_retrieval_latency_ms ? `${statMap.knowledge_retrieval_latency_ms}ms` : undefined,
+    },
   ].filter((item) => typeof item.value === "string" && item.value.trim().length > 0);
   const advancedStatCards = [
     {
@@ -672,6 +769,11 @@ export function ChatThread({
       key: "prompt_attachment_context_injected",
       label: text.promptAttachmentContextInjected,
       value: formatBooleanStat(statMap.prompt_attachment_context_injected),
+    },
+    {
+      key: "prompt_knowledge_context_injected",
+      label: text.promptKnowledgeContextInjected,
+      value: formatBooleanStat(statMap.prompt_knowledge_context_injected),
     },
     {
       key: "prompt_prefix_hash",
@@ -1244,6 +1346,7 @@ export function ChatThread({
         systemPrompt,
         thinkingEnabled: isDeepThinkingEnabled,
         webSearchEnabled: isWebSearchEnabled,
+        knowledgeBaseId: selectedKnowledgeBaseId || null,
       }, assistantMessageId);
     } catch {
       // localError 已在 helper 中设置
@@ -1323,6 +1426,7 @@ export function ChatThread({
         systemPrompt,
         thinkingEnabled: isDeepThinkingEnabled,
         webSearchEnabled: isWebSearchEnabled,
+        knowledgeBaseId: selectedKnowledgeBaseId || null,
       }, latestAssistantMessageId);
     } catch {
       // 用户消息在后端已被更新，失败时保留编辑结果，只标记回答失败。
@@ -1415,6 +1519,7 @@ export function ChatThread({
           attachments: pendingUploads,
           thinkingEnabled: isDeepThinkingEnabled,
           webSearchEnabled: isWebSearchEnabled,
+          knowledgeBaseId: selectedKnowledgeBaseId || null,
           messages: [
             {
               role: "user",
@@ -1669,6 +1774,8 @@ export function ChatThread({
           isGenerating={isGenerating}
           isEditingUserMessage={Boolean(editingUserMessageId)}
           streamingStatusLabel={streamingStatusLabel}
+          knowledgeBases={knowledgeBases}
+          selectedKnowledgeBaseId={selectedKnowledgeBaseId}
           isWebSearchEnabled={isWebSearchEnabled}
           isDeepThinkingEnabled={isDeepThinkingEnabled}
           contextInfo={contextInfo}
@@ -1686,6 +1793,7 @@ export function ChatThread({
           onEditUpload={handleEditUpload}
           onPreviewAttachment={setPreviewItem}
           onRemoveUploadedItem={removeUploadedItem}
+          onSelectedKnowledgeBaseIdChange={onSelectedKnowledgeBaseIdChange}
           onWebSearchEnabledChange={onWebSearchEnabledChange}
           onDeepThinkingEnabledChange={onDeepThinkingEnabledChange}
           onToggleContextPanel={() => setIsContextPanelOpen((current) => !current)}

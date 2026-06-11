@@ -12,6 +12,9 @@ function sourceMeta(source: ExternalSource, key: string) {
 
 function sourceKindLabel(source: ExternalSource) {
   const tool = sourceMeta(source, "tool");
+  if (source.source_type === "knowledge") {
+    return "知识库";
+  }
   if (source.source_type === "weather") {
     return "天气";
   }
@@ -46,12 +49,28 @@ export function ExternalSourceCard({ source, index, sourceId }: { source: Extern
   const origin = sourceMeta(source, "origin");
   const destination = sourceMeta(source, "destination");
   const domain = sourceMeta(source, "domain");
+  const knowledgeBaseName = sourceMeta(source, "knowledge_base_name");
+  const fileName = sourceMeta(source, "file_name");
+  const chunkIndex = sourceMeta(source, "chunk_index");
+  const rankSource = sourceMeta(source, "rank_source");
+  const rerankScore = sourceMeta(source, "rerank_score");
+  const vectorScore = sourceMeta(source, "vector_score");
   const toolDisplayName = sourceMeta(source, "tool_display_name");
   const callId = sourceMeta(source, "call_id");
   const contentPreview = source.display_text;
 
   const cardBody =
-    source.source_type === "weather" ? (
+    source.source_type === "knowledge" ? (
+      <div className="mt-2 grid gap-1.5">
+        <div>知识库：{knowledgeBaseName || "未知"}</div>
+        {fileName ? <div>文档：{fileName}</div> : null}
+        <div>
+          Chunk：{chunkIndex || "--"}；排序：{rankSource || "--"}；分数：
+          {rerankScore && rerankScore !== "None" ? rerankScore : vectorScore || source.score?.toFixed(4) || "--"}
+        </div>
+        <div className="line-clamp-3 leading-5">{contentPreview}</div>
+      </div>
+    ) : source.source_type === "weather" ? (
       <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
         <div>天气：{weather || "未知"}</div>
         <div>气温：{temperature ? `${temperature}°C` : "未知"}</div>

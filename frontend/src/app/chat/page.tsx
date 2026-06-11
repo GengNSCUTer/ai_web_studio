@@ -6,6 +6,7 @@ import { AUTH_COOKIE_NAME } from "@/lib/auth";
 import { fetchBackendJson, fetchBackendJsonOrNull } from "@/lib/server-backend";
 import type {
   Conversation,
+  KnowledgeBase,
   Message,
   ProviderInfo,
   Project,
@@ -29,6 +30,7 @@ export default async function ChatPage() {
   let initialConversations: Conversation[] = [];
   let initialMessages: Message[] = [];
   let initialProjects: Project[] = [];
+  let initialKnowledgeBases: KnowledgeBase[] = [];
 
   try {
     currentUser = await fetchBackendJson<User>("/api/auth/me", token);
@@ -36,17 +38,19 @@ export default async function ChatPage() {
     return <AuthScreen initialError="登录状态已失效，请重新登录。" />;
   }
 
-  const [providerInfoResult, settingsResult, conversationsResult, projectsResult] = await Promise.all([
+  const [providerInfoResult, settingsResult, conversationsResult, projectsResult, knowledgeBasesResult] = await Promise.all([
     fetchBackendJsonOrNull<ProviderInfo>("/api/models", token),
     fetchBackendJsonOrNull<UserSettings>("/api/settings", token),
     fetchBackendJsonOrNull<Conversation[]>("/api/conversations", token),
     fetchBackendJsonOrNull<Project[]>("/api/projects", token),
+    fetchBackendJsonOrNull<KnowledgeBase[]>("/api/knowledge-bases", token),
   ]);
 
   initialProviderInfo = providerInfoResult;
   initialSettings = settingsResult;
   initialConversations = conversationsResult ?? [];
   initialProjects = projectsResult ?? [];
+  initialKnowledgeBases = knowledgeBasesResult ?? [];
   if (initialConversations[0]?.id) {
     initialMessages =
       (await fetchBackendJsonOrNull<Message[]>(
@@ -63,6 +67,7 @@ export default async function ChatPage() {
       initialProviderInfo={initialProviderInfo}
       initialSettings={initialSettings}
       initialProjects={initialProjects}
+      initialKnowledgeBases={initialKnowledgeBases}
     />
   );
 }

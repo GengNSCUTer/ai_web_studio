@@ -132,7 +132,11 @@ class KnowledgeEmbeddingService:
         setting = self.setting_service.get_or_create_user_settings(user_id)
         base_url = setting.knowledge_embedding_base_url
         api_key = self.setting_service.resolve_knowledge_model_api_key(user_id, "embedding")
-        client = AsyncOpenAI(api_key=api_key or "sk-placeholder", base_url=base_url)
+        client = AsyncOpenAI(
+            api_key=api_key or "sk-placeholder",
+            base_url=base_url,
+            timeout=settings.knowledge_model_request_timeout_seconds,
+        )
         response = await client.embeddings.create(model=knowledge_base.embedding_model, input=texts)
         return [list(item.embedding) for item in response.data]
 
@@ -141,7 +145,7 @@ class KnowledgeEmbeddingService:
             raise RuntimeError("知识库 Embedding 设置服务未初始化。")
         setting = self.setting_service.get_or_create_user_settings(user_id)
         base_url = (setting.knowledge_embedding_base_url or settings.ollama_base_url).rstrip("/")
-        async with httpx.AsyncClient(timeout=settings.ollama_request_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=settings.knowledge_model_request_timeout_seconds) as client:
             tasks = [
                 client.post(
                     f"{base_url}/api/embed",
@@ -210,7 +214,7 @@ class KnowledgeRerankService:
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        async with httpx.AsyncClient(timeout=settings.ollama_request_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=settings.knowledge_model_request_timeout_seconds) as client:
             response = await client.post(
                 f"{base_url}/rerank",
                 headers=headers,
@@ -373,8 +377,25 @@ class KnowledgeIndexService:
         query: str,
         top_k: int,
     ) -> list[RetrievalResult]:
-        query_vector = asyncio.run(
-            self.embedding_service.embed_texts(
+        return asyncio.run(
+            self.retrieve_async(
+                user_id=user_id,
+                knowledge_base=knowledge_base,
+                query=query,
+                top_k=top_k,
+            )
+        )
+
+    async def retrieve_async(
+        self,
+        *,
+        user_id: str,
+        knowledge_base: KnowledgeBase,
+        query: str,
+        top_k: int,
+    ) -> list[RetrievalResult]:
+        query_vector = (
+            await self.embedding_service.embed_texts(
                 user_id=user_id,
                 knowledge_base=knowledge_base,
                 texts=[query],
@@ -400,14 +421,12 @@ class KnowledgeIndexService:
             return self._apply_score_threshold(results, knowledge_base.score_threshold)
         rerank_top_n = min(knowledge_base.rerank_top_n, len(results))
         try:
-            reranked = asyncio.run(
-                self.rerank_service.rerank(
-                    user_id=user_id,
-                    knowledge_base=knowledge_base,
-                    query=query,
-                    documents=[result.chunk.content for result in results],
-                    top_n=rerank_top_n,
-                )
+            reranked = await self.rerank_service.rerank(
+                user_id=user_id,
+                knowledge_base=knowledge_base,
+                query=query,
+                documents=[result.chunk.content for result in results],
+                top_n=rerank_top_n,
             )
         except Exception as exc:
             return self._apply_score_threshold(

@@ -17,6 +17,7 @@ import type {
   Conversation,
   ConversationShare,
   ContextGovernanceInfo,
+  KnowledgeBase,
   Message,
   ProviderInfo,
   Project,
@@ -33,6 +34,7 @@ type ChatAppProps = {
   initialProviderInfo: ProviderInfo | null;
   initialSettings: UserSettings | null;
   initialProjects: Project[];
+  initialKnowledgeBases: KnowledgeBase[];
 };
 
 type WorkspaceModalMode = "create" | "edit" | "move" | null;
@@ -523,6 +525,7 @@ export function ChatApp({
   initialProviderInfo,
   initialSettings,
   initialProjects,
+  initialKnowledgeBases,
 }: ChatAppProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(initialUser);
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
@@ -532,6 +535,7 @@ export function ChatApp({
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(initialProviderInfo);
   const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [knowledgeBases] = useState<KnowledgeBase[]>(initialKnowledgeBases);
   const [selectedProjectScope, setSelectedProjectScope] = useState<string>("all");
   const [workspaceModalMode, setWorkspaceModalMode] = useState<WorkspaceModalMode>(null);
   const [workspaceDraft, setWorkspaceDraft] = useState({
@@ -559,6 +563,7 @@ export function ChatApp({
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isDeepThinkingEnabled, setIsDeepThinkingEnabled] = useState(false);
   const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
+  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareModalConversation, setShareModalConversation] = useState<Conversation | null>(null);
   const [conversationShare, setConversationShare] = useState<ConversationShare | null>(null);
@@ -1411,8 +1416,11 @@ export function ChatApp({
             contextInfo={contextInfo}
             highlightedMessageId={highlightedMessageId}
             uiLanguage={uiLanguage}
+            knowledgeBases={knowledgeBases}
+            selectedKnowledgeBaseId={selectedKnowledgeBaseId}
             isDeepThinkingEnabled={isDeepThinkingEnabled}
             isWebSearchEnabled={isWebSearchEnabled}
+            onSelectedKnowledgeBaseIdChange={setSelectedKnowledgeBaseId}
             onDeepThinkingEnabledChange={setIsDeepThinkingEnabled}
             onWebSearchEnabledChange={setIsWebSearchEnabled}
             onContextInfoChange={handleContextInfoChange}

@@ -12,6 +12,7 @@ type RegenerateRequestPayload = {
   systemPrompt?: string | null;
   thinkingEnabled?: boolean;
   webSearchEnabled?: boolean;
+  knowledgeBaseId?: string | null;
 };
 
 export async function POST(request: NextRequest) {
@@ -42,5 +43,6 @@ export async function POST(request: NextRequest) {
     system_prompt: payload.systemPrompt,
     thinking_enabled: Boolean(payload.thinkingEnabled),
     web_search_enabled: Boolean(payload.webSearchEnabled),
+    knowledge_base_id: payload.knowledgeBaseId || null,
   });
 }

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.api.routes.chat import _stringify_stats
 from app.core.config import settings
 from app.core.database import Base
 from app.models import *  # noqa: F403 - ensure all metadata is registered.
@@ -40,6 +41,7 @@ from app.services.knowledge_index_service import (
     KnowledgeIndexService,
     KnowledgeRerankService,
 )
+from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.knowledge_model_catalog_service import KnowledgeModelCatalogService
 from app.services.setting_service import SettingService
 
@@ -76,6 +78,12 @@ class FailingKnowledgeRerankService(KnowledgeRerankService):
         raise RuntimeError("fake rerank failure")
 
 
+class SlowKnowledgeIndexService:
+    async def retrieve_async(self, *, user_id: str, knowledge_base, query: str, top_k: int):  # noqa: ANN001, ARG002
+        await asyncio.sleep(0.2)
+        return []
+
+
 class KnowledgeServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
@@ -92,6 +100,7 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.db.refresh(self.project)
         self._previous_upload_dir = settings.upload_dir
         self._previous_index_dir = settings.knowledge_index_dir
+        self._previous_knowledge_context_timeout_seconds = settings.knowledge_context_timeout_seconds
         self.upload_tmp = tempfile.TemporaryDirectory()
         self.index_tmp = tempfile.TemporaryDirectory()
         object.__setattr__(settings, "upload_dir", self.upload_tmp.name)
@@ -103,6 +112,11 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.engine.dispose()
         object.__setattr__(settings, "upload_dir", self._previous_upload_dir)
         object.__setattr__(settings, "knowledge_index_dir", self._previous_index_dir)
+        object.__setattr__(
+            settings,
+            "knowledge_context_timeout_seconds",
+            self._previous_knowledge_context_timeout_seconds,
+        )
         self.upload_tmp.cleanup()
         self.index_tmp.cleanup()
 
@@ -827,6 +841,186 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertGreater(index_result.chunk_count, 1)
         self.assertGreaterEqual(len(retrieval_results), 1)
         self.assertIn("Adaptive", retrieval_results[0].chunk.content)
+
+    def test_knowledge_context_service_builds_prompt_context_and_sources(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="聊天接入测试",
+                parser_provider="local_basic",
+                chunk_size=120,
+                chunk_overlap=20,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+                max_context_chunks=2,
+                max_context_chars=1200,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "chat-rag.md"
+        source_file.write_text(
+            "\n\n".join(
+                [
+                    "Adaptive RAG uses routing to choose retrieval strategy.",
+                    "This paragraph explains unrelated rendering details.",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="chat-rag.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/chat-rag.md",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=SettingService(UserSettingRepository(self.db)),
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        )
+        index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+
+        result = asyncio.run(
+            KnowledgeContextService(db=self.db, user_id=self.user.id, index_service=index_service).build_context(
+                knowledge_base_id=knowledge_base.id,
+                query="adaptive rag routing",
+            )
+        )
+
+        self.assertIsNotNone(result.context_text)
+        self.assertIn("知识库：聊天接入测试", result.context_text or "")
+        self.assertIn("[KB1]", result.context_text or "")
+        self.assertEqual(result.diagnostics["knowledge_retrieval_enabled"], 1)
+        self.assertGreaterEqual(result.diagnostics["knowledge_chunks_injected"], 1)
+        self.assertGreaterEqual(len(result.sources), 1)
+        self.assertEqual(result.sources[0].source_type, "knowledge")
+        self.assertEqual(result.sources[0].metadata["knowledge_base_id"], knowledge_base.id)
+        self.assertIn("chat-rag.md", result.sources[0].title)
+
+    def test_knowledge_context_service_skips_unindexed_knowledge_base(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(name="未索引知识库", parser_provider="local_basic"),
+        )
+        assert knowledge_base is not None
+
+        result = asyncio.run(
+            KnowledgeContextService(db=self.db, user_id=self.user.id).build_context(
+                knowledge_base_id=knowledge_base.id,
+                query="adaptive rag",
+            )
+        )
+
+        self.assertIsNone(result.context_text)
+        self.assertEqual(result.sources, [])
+        self.assertEqual(result.diagnostics["knowledge_retrieval_enabled"], 1)
+        self.assertEqual(result.diagnostics["knowledge_chunks_injected"], 0)
+        self.assertIn("尚未生成索引", result.notices[0])
+
+    def test_knowledge_context_service_times_out_slow_retrieval(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="超时知识库",
+                parser_provider="local_basic",
+                chunk_size=120,
+                chunk_overlap=20,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "slow.md"
+        source_file.write_text("Adaptive RAG timeout test.", encoding="utf-8")
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="slow.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/slow.md",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=SettingService(UserSettingRepository(self.db)),
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+
+        object.__setattr__(settings, "knowledge_context_timeout_seconds", 0.01)
+        result = asyncio.run(
+            KnowledgeContextService(
+                db=self.db,
+                user_id=self.user.id,
+                index_service=SlowKnowledgeIndexService(),  # type: ignore[arg-type]
+            ).build_context(
+                knowledge_base_id=knowledge_base.id,
+                query="adaptive rag",
+            )
+        )
+
+        self.assertIsNone(result.context_text)
+        self.assertEqual(result.sources, [])
+        self.assertEqual(result.diagnostics["knowledge_retrieval_error"], 1)
+        self.assertGreaterEqual(result.diagnostics["knowledge_retrieval_latency_ms"], 1)
+        self.assertIn("检索超过", result.notices[0])
+
+    def test_context_stats_header_supports_unicode_values(self) -> None:
+        encoded = _stringify_stats(
+            {
+                "knowledge_retrieval_enabled": 1,
+                "knowledge_base_name": "中文知识库",
+                "knowledge_chunks_injected": 2,
+            }
+        )
+
+        self.assertTrue(encoded.startswith("json64:"))
+        encoded.encode("latin-1")
 
 
 if __name__ == "__main__":

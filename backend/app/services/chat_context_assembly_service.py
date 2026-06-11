@@ -17,6 +17,7 @@ from app.services.chat_execution_models import (
 )
 from app.services.chat_provider_service import ChatProviderService
 from app.services.external_context_service import ExternalContextService
+from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import ContextPromptBuilder
 from app.services.tools.planner import PlannerRuntime
@@ -116,6 +117,7 @@ class ChatContextAssemblyService:
         thinking_enabled: bool,
         thinking_budget: int | None,
         web_search_enabled: bool,
+        knowledge_base_id: str | None = None,
     ) -> ChatExecutionContext:
         memory_bundle = self.build_memory_context(runtime.settings)
         query = getattr(user_message, "content", "") or ""
@@ -135,6 +137,13 @@ class ChatContextAssemblyService:
             max_attachment_chars=runtime.budget.max_attachment_chars,
             runtime=runtime,
         )
+        knowledge_context_result = await KnowledgeContextService(
+            db=self.db,
+            user_id=self.user_id,
+        ).build_context(
+            knowledge_base_id=knowledge_base_id,
+            query=query,
+        )
         summary_bundle = await self._refresh_context_summary(
             conversation=conversation,
             history_rows=history_rows,
@@ -151,6 +160,7 @@ class ChatContextAssemblyService:
             or clean_optional_str(getattr(conversation, "context_summary_boundary_message_id", None)),
             external_context=external_context_result.context_text,
             attachment_context=attachment_context_result.context_text,
+            knowledge_context=knowledge_context_result.context_text,
             provider_type=runtime.provider_type,
             model_name=runtime.resolved_model,
         )
@@ -173,9 +183,13 @@ class ChatContextAssemblyService:
             round(summary_tokens / summary_source_tokens, 4) if summary_source_tokens > 0 else 0
         )
         attachment_context_tokens = runtime.tokenizer.estimate_text_tokens(attachment_context_result.context_text or "")
+        knowledge_context_tokens = runtime.tokenizer.estimate_text_tokens(knowledge_context_result.context_text or "")
+        combined_sources = [*external_context_result.sources, *knowledge_context_result.sources]
+        combined_public_sources = [source.to_public_dict() for source in combined_sources]
         context_details = {
             "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
-            "external_sources": external_context_result.details.get("external_sources", []),
+            "external_sources": combined_public_sources,
+            "knowledge_sources": knowledge_context_result.details.get("knowledge_sources", []),
             "tool_plan": external_context_result.details.get("tool_plan"),
             "tool_events": external_context_result.details.get("tool_events", []),
         }
@@ -194,7 +208,11 @@ class ChatContextAssemblyService:
             temperature=runtime.settings.temperature,
             top_p=runtime.settings.top_p,
             max_tokens=runtime.settings.max_tokens,
-            context_notices=[*external_context_result.notices, *governed_context.notices],
+            context_notices=[
+                *external_context_result.notices,
+                *knowledge_context_result.notices,
+                *governed_context.notices,
+            ],
             context_stats={
                 "context_mode": runtime.budget.context_mode,
                 "model_context_window": runtime.budget.model_context_window,
@@ -218,6 +236,7 @@ class ChatContextAssemblyService:
                 "summary_refresh_source_tokens": summary_source_tokens,
                 "summary_compression_ratio": summary_compression_ratio,
                 "attachment_context_tokens": attachment_context_tokens,
+                "knowledge_context_tokens": knowledge_context_tokens,
                 "memory_enabled": int(bool(getattr(runtime.settings, "memory_enabled", True))),
                 "memory_injected": int(bool(memory_bundle.context_text)),
                 "memory_count": memory_bundle.count,
@@ -231,6 +250,7 @@ class ChatContextAssemblyService:
                 "prompt_prefix_reused_last_turn": prompt_diagnostics.prompt_prefix_reused_last_turn,
                 **attachment_context_result.diagnostics,
                 **external_context_result.diagnostics,
+                **knowledge_context_result.diagnostics,
                 **prompt_result.diagnostics,
             },
             context_details=context_details,
@@ -238,7 +258,7 @@ class ChatContextAssemblyService:
             thinking_enabled=thinking_enabled,
             thinking_budget=thinking_budget,
             tool_events=[event.to_public_dict() for event in external_context_result.tool_events],
-            external_sources=[source.to_public_dict() for source in external_context_result.sources],
+            external_sources=combined_public_sources,
         )
 
     async def _build_external_context(

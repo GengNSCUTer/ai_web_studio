@@ -31,6 +31,7 @@ type ChatRequestPayload = {
   }>;
   thinkingEnabled?: boolean;
   webSearchEnabled?: boolean;
+  knowledgeBaseId?: string | null;
 };
 
 function extractMessageText(message: UIMessage | undefined) {
@@ -79,5 +80,6 @@ export async function POST(request: NextRequest) {
     attachments: payload.attachments ?? [],
     thinking_enabled: Boolean(payload.thinkingEnabled),
     web_search_enabled: Boolean(payload.webSearchEnabled),
+    knowledge_base_id: payload.knowledgeBaseId || null,
   });
 }

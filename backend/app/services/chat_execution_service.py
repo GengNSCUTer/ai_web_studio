@@ -69,6 +69,7 @@ class ChatExecutionService:
             thinking_enabled=payload.thinking_enabled,
             thinking_budget=payload.thinking_budget,
             web_search_enabled=payload.web_search_enabled,
+            knowledge_base_id=payload.knowledge_base_id,
         )
 
     async def prepare_existing_turn_execution(
@@ -91,6 +92,7 @@ class ChatExecutionService:
             thinking_enabled=execution_input.thinking_enabled,
             thinking_budget=execution_input.thinking_budget,
             web_search_enabled=execution_input.web_search_enabled,
+            knowledge_base_id=execution_input.knowledge_base_id,
         )
 
     def _build_runtime_config(self, conversation: object) -> ChatRuntimeConfig:

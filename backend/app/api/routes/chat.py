@@ -25,7 +25,11 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 def _stringify_stats(stats: dict[str, Any]) -> str:
-    return ";".join(f"{key}={value}" for key, value in stats.items())[:2048]
+    if not stats:
+        return ""
+    payload = json.dumps(stats, ensure_ascii=False, default=str).encode("utf-8")
+    value = f"json64:{base64.b64encode(payload).decode('ascii')}"
+    return value if len(value) <= 4096 else ""
 
 
 def _encode_context_notices(notices: list[str]) -> str:
@@ -277,6 +281,7 @@ async def regenerate_last_answer_stream(
             thinking_enabled=payload.thinking_enabled,
             thinking_budget=payload.thinking_budget,
             web_search_enabled=payload.web_search_enabled,
+            knowledge_base_id=payload.knowledge_base_id,
         )
     )
     return _build_streaming_response(context, provider_service, event_stream=True)
@@ -342,6 +347,7 @@ async def edit_last_user_stream(
             thinking_enabled=payload.thinking_enabled,
             thinking_budget=payload.thinking_budget,
             web_search_enabled=payload.web_search_enabled,
+            knowledge_base_id=payload.knowledge_base_id,
         )
     )
     return _build_streaming_response(context, provider_service, event_stream=True)

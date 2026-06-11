@@ -11,7 +11,12 @@ import {
   isImageAttachment,
 } from "@/lib/attachments";
 import type { UILanguage } from "@/lib/settings";
-import type { ContextAttachmentChunk, ContextGovernanceInfo, UploadItem } from "@/lib/types";
+import type {
+  ContextAttachmentChunk,
+  ContextGovernanceInfo,
+  KnowledgeBase,
+  UploadItem,
+} from "@/lib/types";
 
 type StatCard = {
   key: string;
@@ -25,6 +30,8 @@ type ChatComposerText = {
   uploading: string;
   webSearch: string;
   deepThinking: string;
+  knowledgeBase: string;
+  noKnowledgeBase: string;
   stopGenerating: string;
   sending: string;
   send: string;
@@ -49,6 +56,8 @@ type ChatComposerProps = {
   isGenerating: boolean;
   isEditingUserMessage: boolean;
   streamingStatusLabel: string | null;
+  knowledgeBases: KnowledgeBase[];
+  selectedKnowledgeBaseId: string;
   isWebSearchEnabled: boolean;
   isDeepThinkingEnabled: boolean;
   contextInfo: ContextGovernanceInfo | null;
@@ -66,6 +75,7 @@ type ChatComposerProps = {
   onEditUpload: (files: FileList | null) => void | Promise<void>;
   onPreviewAttachment: (item: UploadItem) => void;
   onRemoveUploadedItem: (itemId: string) => void;
+  onSelectedKnowledgeBaseIdChange: (knowledgeBaseId: string) => void;
   onWebSearchEnabledChange: (enabled: boolean) => void;
   onDeepThinkingEnabledChange: (enabled: boolean) => void;
   onToggleContextPanel: () => void;
@@ -85,6 +95,8 @@ export function ChatComposer({
   isGenerating,
   isEditingUserMessage,
   streamingStatusLabel,
+  knowledgeBases,
+  selectedKnowledgeBaseId,
   isWebSearchEnabled,
   isDeepThinkingEnabled,
   contextInfo,
@@ -102,6 +114,7 @@ export function ChatComposer({
   onEditUpload,
   onPreviewAttachment,
   onRemoveUploadedItem,
+  onSelectedKnowledgeBaseIdChange,
   onWebSearchEnabledChange,
   onDeepThinkingEnabledChange,
   onToggleContextPanel,
@@ -173,6 +186,20 @@ export function ChatComposer({
               >
                 {text.uploadAttachment}
               </button>
+              <select
+                value={selectedKnowledgeBaseId}
+                onChange={(event) => onSelectedKnowledgeBaseIdChange(event.target.value)}
+                disabled={isEditingUserMessage || isGenerating || knowledgeBases.length === 0}
+                aria-label={text.knowledgeBase}
+                className="tool-chip min-w-[9rem] rounded-full border px-3 py-1.5 text-xs outline-none transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                <option value="">{text.noKnowledgeBase}</option>
+                {knowledgeBases.map((knowledgeBase) => (
+                  <option key={knowledgeBase.id} value={knowledgeBase.id}>
+                    {knowledgeBase.name}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 onClick={() => onWebSearchEnabledChange(!isWebSearchEnabled)}

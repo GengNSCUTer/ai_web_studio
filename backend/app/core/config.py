@@ -39,6 +39,8 @@ class Settings:
     upload_dir: str = os.getenv("UPLOAD_DIR", str(ROOT_DIR / "uploads"))
     knowledge_index_dir: str = os.getenv("KNOWLEDGE_INDEX_DIR", str(ROOT_DIR / "uploads" / "knowledge_indexes"))
     knowledge_parse_max_chars: int = int(os.getenv("KNOWLEDGE_PARSE_MAX_CHARS", "500000"))
+    knowledge_model_request_timeout_seconds: int = int(os.getenv("KNOWLEDGE_MODEL_REQUEST_TIMEOUT_SECONDS", "60"))
+    knowledge_context_timeout_seconds: int = int(os.getenv("KNOWLEDGE_CONTEXT_TIMEOUT_SECONDS", "25"))
 
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
     amap_api_key: str = os.getenv("AMAP_API_KEY", "")
