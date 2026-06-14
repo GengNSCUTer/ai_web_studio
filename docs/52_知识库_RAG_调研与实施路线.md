@@ -1424,3 +1424,69 @@ RAG-5.6 已完成第一版：每次知识库检索成功后会落一条 `knowled
 - 失败 / 跳过场景暂未单独落日志。
 - 当前只展示日志摘要，尚无完整候选对比页。
 - 旧历史消息如果没有 `retrieval_log_id` metadata，不能回溯到新日志。
+
+---
+
+## 21. 2026-06-14 RAG-6 检索质量增强调研结论
+
+RAG-5 已经完成聊天接入、来源定位和检索日志持久化。下一阶段不建议直接开写 Hybrid Search，而应该先建立检索质量治理闭环。
+
+详细调研见：
+
+```text
+docs/70_RAG6检索质量增强调研与路线.md
+```
+
+### 21.1 主流平台共同路线
+
+对比 Dify、OpenAI File Search / Vector Stores、Anthropic Contextual Retrieval、LlamaIndex、RAGFlow、Ragas 等资料后，成熟 RAG 系统通常不是单一向量检索，而是组合式检索管线：
+
+```text
+文档解析质量
+-> metadata 结构化
+-> 多路召回
+-> 融合排序
+-> rerank 精排
+-> 上下文压缩 / 引用
+-> 检索日志与评测闭环
+```
+
+### 21.2 当前项目的优先级判断
+
+当前 AI Web Studio 最需要的不是马上堆更多检索算法，而是先解决：
+
+- 每次检索能不能完整回看。
+- 优化前后的效果能不能量化比较。
+- 用户能不能理解为什么召回这些片段。
+
+因此推荐先做：
+
+```text
+RAG-6.0：检索日志详情页 + 小型评测集
+```
+
+### 21.3 推荐实施顺序
+
+```text
+RAG-6.0 检索日志详情页 + 小型评测集
+RAG-6.1 Metadata schema + 过滤器
+RAG-6.2 多知识库检索
+RAG-6.3 BM25 / lexical retriever
+RAG-6.4 Hybrid Search + RRF
+RAG-6.5 Parent-Child retrieval
+RAG-6.6 Contextual Retrieval 实验
+```
+
+### 21.4 阶段性收尾目标
+
+第一轮 RAG-6 建议做到 `RAG-6.4` 即可阶段性收尾：
+
+- 有可重复跑的小型评测集。
+- 检索日志可以展示完整候选、分数和最终注入片段。
+- 支持 metadata filter。
+- 支持多知识库检索。
+- 支持 BM25 / Vector Hybrid。
+- 使用 RRF 做融合排序。
+- Rerank 继续作为精排层。
+
+`Parent-Child / Contextual Retrieval / 多模态图表索引` 建议作为后续高级优化继续探索。
