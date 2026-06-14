@@ -4,7 +4,17 @@ from typing import Any
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from app.models.knowledge import KnowledgeBase, KnowledgeChunk, KnowledgeDocument, KnowledgeJob, KnowledgeRetrievalLog
+from app.models.knowledge import (
+    KnowledgeBase,
+    KnowledgeChunk,
+    KnowledgeDocument,
+    KnowledgeEvalCase,
+    KnowledgeEvalResult,
+    KnowledgeEvalRun,
+    KnowledgeEvalSet,
+    KnowledgeJob,
+    KnowledgeRetrievalLog,
+)
 
 
 class KnowledgeBaseRepository:
@@ -360,3 +370,112 @@ class KnowledgeRetrievalLogRepository:
             "elapsed_ms": log.elapsed_ms,
             "created_at": log.created_at,
         }
+
+
+class KnowledgeEvalSetRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_by_knowledge_base(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeEvalSet]:
+        stmt = (
+            select(KnowledgeEvalSet)
+            .where(
+                KnowledgeEvalSet.knowledge_base_id == knowledge_base_id,
+                KnowledgeEvalSet.user_id == user_id,
+            )
+            .order_by(KnowledgeEvalSet.updated_at.desc(), KnowledgeEvalSet.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def get_by_user(self, eval_set_id: str, user_id: str) -> KnowledgeEvalSet | None:
+        stmt = (
+            select(KnowledgeEvalSet)
+            .where(KnowledgeEvalSet.id == eval_set_id, KnowledgeEvalSet.user_id == user_id)
+            .limit(1)
+        )
+        return self.db.scalars(stmt).first()
+
+    def save(self, eval_set: KnowledgeEvalSet) -> KnowledgeEvalSet:
+        self.db.add(eval_set)
+        self.db.commit()
+        self.db.refresh(eval_set)
+        return eval_set
+
+    def delete(self, eval_set: KnowledgeEvalSet) -> None:
+        self.db.delete(eval_set)
+        self.db.commit()
+
+
+class KnowledgeEvalCaseRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_by_eval_set(self, eval_set_id: str, user_id: str) -> list[KnowledgeEvalCase]:
+        stmt = (
+            select(KnowledgeEvalCase)
+            .where(
+                KnowledgeEvalCase.eval_set_id == eval_set_id,
+                KnowledgeEvalCase.user_id == user_id,
+            )
+            .order_by(KnowledgeEvalCase.created_at.asc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def save(self, eval_case: KnowledgeEvalCase) -> KnowledgeEvalCase:
+        self.db.add(eval_case)
+        self.db.commit()
+        self.db.refresh(eval_case)
+        return eval_case
+
+
+class KnowledgeEvalRunRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def save(self, run: KnowledgeEvalRun) -> KnowledgeEvalRun:
+        self.db.add(run)
+        self.db.commit()
+        self.db.refresh(run)
+        return run
+
+    def list_by_eval_set(self, eval_set_id: str, user_id: str) -> list[KnowledgeEvalRun]:
+        stmt = (
+            select(KnowledgeEvalRun)
+            .where(
+                KnowledgeEvalRun.eval_set_id == eval_set_id,
+                KnowledgeEvalRun.user_id == user_id,
+            )
+            .order_by(KnowledgeEvalRun.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def create_result(self, result: KnowledgeEvalResult) -> KnowledgeEvalResult:
+        self.db.add(result)
+        self.db.commit()
+        self.db.refresh(result)
+        return result
+
+
+class KnowledgeEvalResultRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def list_by_run(self, run_id: str, user_id: str) -> list[KnowledgeEvalResult]:
+        stmt = (
+            select(KnowledgeEvalResult)
+            .where(
+                KnowledgeEvalResult.run_id == run_id,
+                KnowledgeEvalResult.user_id == user_id,
+            )
+            .order_by(KnowledgeEvalResult.created_at.asc())
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def save(self, result: KnowledgeEvalResult) -> KnowledgeEvalResult:
+        self.db.add(result)
+        self.db.commit()
+        self.db.refresh(result)
+        return result
+
+    def create_result(self, result: KnowledgeEvalResult) -> KnowledgeEvalResult:
+        return self.save(result)

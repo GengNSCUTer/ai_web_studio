@@ -44,6 +44,7 @@ class KnowledgeBase(Base):
 
     documents = relationship("KnowledgeDocument", back_populates="knowledge_base", cascade="all, delete-orphan")
     jobs = relationship("KnowledgeJob", back_populates="knowledge_base", cascade="all, delete-orphan")
+    eval_sets = relationship("KnowledgeEvalSet", back_populates="knowledge_base", cascade="all, delete-orphan")
 
 
 class KnowledgeDocument(Base):
@@ -144,3 +145,84 @@ class KnowledgeRetrievalLog(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     elapsed_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class KnowledgeEvalSet(Base):
+    __tablename__ = "knowledge_eval_sets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    knowledge_base_id: Mapped[str] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    knowledge_base = relationship("KnowledgeBase", back_populates="eval_sets")
+    cases = relationship("KnowledgeEvalCase", back_populates="eval_set", cascade="all, delete-orphan")
+    runs = relationship("KnowledgeEvalRun", back_populates="eval_set", cascade="all, delete-orphan")
+
+
+class KnowledgeEvalCase(Base):
+    __tablename__ = "knowledge_eval_cases"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    knowledge_base_id: Mapped[str] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
+    eval_set_id: Mapped[str] = mapped_column(ForeignKey("knowledge_eval_sets.id"), index=True)
+    query: Mapped[str] = mapped_column(Text)
+    expected_document_id: Mapped[str | None] = mapped_column(ForeignKey("knowledge_documents.id"), nullable=True, index=True)
+    expected_chunk_id: Mapped[str | None] = mapped_column(ForeignKey("knowledge_chunks.id"), nullable=True, index=True)
+    expected_answer_keywords_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    difficulty: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    eval_set = relationship("KnowledgeEvalSet", back_populates="cases")
+
+
+class KnowledgeEvalRun(Base):
+    __tablename__ = "knowledge_eval_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    knowledge_base_id: Mapped[str] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
+    eval_set_id: Mapped[str] = mapped_column(ForeignKey("knowledge_eval_sets.id"), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending")
+    retrieval_mode: Mapped[str] = mapped_column(String(32), default="vector")
+    top_k: Mapped[int] = mapped_column(Integer, default=20)
+    rerank_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    metrics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    eval_set = relationship("KnowledgeEvalSet", back_populates="runs")
+    results = relationship("KnowledgeEvalResult", back_populates="run", cascade="all, delete-orphan")
+
+
+class KnowledgeEvalResult(Base):
+    __tablename__ = "knowledge_eval_results"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    knowledge_base_id: Mapped[str] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("knowledge_eval_runs.id"), index=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("knowledge_eval_cases.id"), index=True)
+    query: Mapped[str] = mapped_column(Text)
+    retrieved_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expected_document_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    expected_chunk_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    hit_at_k: Mapped[bool] = mapped_column(Boolean, default=False)
+    mrr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    context_precision: Mapped[float | None] = mapped_column(Float, nullable=True)
+    context_recall: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    run = relationship("KnowledgeEvalRun", back_populates="results")

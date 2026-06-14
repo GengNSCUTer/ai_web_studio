@@ -22,6 +22,10 @@ from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
     KnowledgeChunkRepository,
     KnowledgeDocumentRepository,
+    KnowledgeEvalCaseRepository,
+    KnowledgeEvalResultRepository,
+    KnowledgeEvalRunRepository,
+    KnowledgeEvalSetRepository,
     KnowledgeJobRepository,
     KnowledgeRetrievalLogRepository,
 )
@@ -30,7 +34,14 @@ from app.repositories.setting_repo import UserSettingRepository
 from app.repositories.tool_config_repo import ToolConfigRepository
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.message_repo import MessageRepository
-from app.schemas.knowledge import KnowledgeBaseCreate, KnowledgeCredentialUpdate, KnowledgeDocumentCreate
+from app.schemas.knowledge import (
+    KnowledgeBaseCreate,
+    KnowledgeCredentialUpdate,
+    KnowledgeDocumentCreate,
+    KnowledgeEvalCaseCreate,
+    KnowledgeEvalRunRequest,
+    KnowledgeEvalSetCreate,
+)
 from app.schemas.setting import UserSettingUpdate
 from app.services.knowledge_service import (
     KnowledgeBaseService,
@@ -47,7 +58,9 @@ from app.services.knowledge_index_service import (
     KnowledgeRerankService,
 )
 from app.services.knowledge_context_service import KnowledgeContextService
+from app.services.knowledge_evaluation_service import KnowledgeEvaluationService
 from app.services.knowledge_model_catalog_service import KnowledgeModelCatalogService
+from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
 from app.services.setting_service import SettingService
 
 
@@ -682,6 +695,120 @@ class KnowledgeServiceTest(unittest.TestCase):
 
         self.assertGreaterEqual(len(results), 1)
         self.assertIn("Adaptive RAG", results[0].chunk.content)
+
+    def test_rag6_eval_set_runs_retrieval_baseline(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        setting_service = SettingService(UserSettingRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="RAG6 评测测试",
+                parser_provider="local_basic",
+                chunk_size=120,
+                chunk_overlap=20,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+                retrieval_top_k=3,
+                rerank_top_n=3,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "rag6.md"
+        source_file.write_text(
+            "\n\n".join(
+                [
+                    "Adaptive RAG uses routing to select retrieval strategy.",
+                    "Mixture of experts and MoE routing can improve specialization.",
+                    "This unrelated paragraph discusses user interface details.",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="rag6.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/rag6.md",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+
+        expected_chunk = chunk_repo.list_by_knowledge_base(knowledge_base.id, self.user.id)[0]
+        service = KnowledgeEvaluationService(
+            base_repo=KnowledgeBaseRepository(self.db),
+            chunk_repo=chunk_repo,
+            eval_set_repo=KnowledgeEvalSetRepository(self.db),
+            eval_case_repo=KnowledgeEvalCaseRepository(self.db),
+            eval_run_repo=KnowledgeEvalRunRepository(self.db),
+            eval_result_repo=KnowledgeEvalResultRepository(self.db),
+            setting_service=setting_service,
+            retrieval_pipeline=KnowledgeRetrievalPipeline(
+                chunk_repo=chunk_repo,
+                setting_service=setting_service,
+                embedding_service=FakeKnowledgeEmbeddingService(),
+                faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            ),
+        )
+
+        eval_set = service.create_eval_set(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeEvalSetCreate(name="核心问题"),
+        )
+        self.assertIsNotNone(eval_set)
+        assert eval_set is not None
+        eval_case = service.add_eval_case(
+            knowledge_base.id,
+            eval_set.id,
+            self.user.id,
+            KnowledgeEvalCaseCreate(
+                query="adaptive rag routing",
+                expected_chunk_id=expected_chunk.id,
+            ),
+        )
+        self.assertIsNotNone(eval_case)
+
+        outcome = service.run_eval(
+            knowledge_base.id,
+            eval_set.id,
+            self.user.id,
+            KnowledgeEvalRunRequest(top_k=3),
+        )
+
+        self.assertIsNotNone(outcome)
+        assert outcome is not None
+        self.assertEqual(outcome.run.status, "succeeded")
+        self.assertEqual(outcome.run.metrics["case_count"], 1)
+        self.assertEqual(outcome.run.metrics["hit_at_k"], 1.0)
+        self.assertGreater(float(outcome.run.metrics["mrr"]), 0)
+        self.assertEqual(len(outcome.results), 1)
+        self.assertTrue(outcome.results[0].hit_at_k)
 
     def test_retrieve_uses_rerank_when_enabled(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))

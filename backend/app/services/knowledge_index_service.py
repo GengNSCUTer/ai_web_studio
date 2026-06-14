@@ -377,13 +377,11 @@ class KnowledgeIndexService:
         query: str,
         top_k: int,
     ) -> list[RetrievalResult]:
-        return asyncio.run(
-            self.retrieve_async(
-                user_id=user_id,
-                knowledge_base=knowledge_base,
-                query=query,
-                top_k=top_k,
-            )
+        return self._build_retrieval_pipeline().retrieve(
+            user_id=user_id,
+            knowledge_base=knowledge_base,
+            query=query,
+            top_k=top_k,
         )
 
     async def retrieve_async(
@@ -394,67 +392,23 @@ class KnowledgeIndexService:
         query: str,
         top_k: int,
     ) -> list[RetrievalResult]:
-        query_vector = (
-            await self.embedding_service.embed_texts(
-                user_id=user_id,
-                knowledge_base=knowledge_base,
-                texts=[query],
-            )
-        )[0]
-        self._validate_vectors(vectors=[query_vector], expected_count=1, dimensions=knowledge_base.embedding_dimensions)
-        hits = self.faiss_store.search(knowledge_base_id=knowledge_base.id, query_vector=query_vector, top_k=top_k)
-        if not hits:
-            return []
-        score_by_id = {vector_id: score for vector_id, score in hits}
-        chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
-        chunk_by_vector_id = {chunk.vector_id: chunk for chunk in chunks}
-        results: list[RetrievalResult] = []
-        for vector_id, score in hits:
-            chunk = chunk_by_vector_id.get(vector_id)
-            if not chunk:
-                continue
-            metadata = json.loads(chunk.metadata_json or "{}")
-            results.append(RetrievalResult(chunk=chunk, score=score_by_id[vector_id], metadata=metadata))
-        if not knowledge_base.rerank_enabled or len(results) <= 1:
-            return self._apply_score_threshold(results, knowledge_base.score_threshold)
-        if knowledge_base.rerank_top_n <= 0:
-            return self._apply_score_threshold(results, knowledge_base.score_threshold)
-        rerank_top_n = min(knowledge_base.rerank_top_n, len(results))
-        try:
-            reranked = await self.rerank_service.rerank(
-                user_id=user_id,
-                knowledge_base=knowledge_base,
-                query=query,
-                documents=[result.chunk.content for result in results],
-                top_n=rerank_top_n,
-            )
-        except Exception as exc:
-            return self._apply_score_threshold(
-                self._mark_rerank_fallback(results, str(exc)),
-                knowledge_base.score_threshold,
-            )
-        if not reranked:
-            return self._apply_score_threshold(results, knowledge_base.score_threshold)
-        result_by_index = {index: result for index, result in enumerate(results)}
-        reranked_results: list[RetrievalResult] = []
-        for index, rerank_score in reranked:
-            result = result_by_index.get(index)
-            if not result:
-                continue
-            reranked_results.append(
-                RetrievalResult(
-                    chunk=result.chunk,
-                    score=result.score,
-                    rerank_score=rerank_score,
-                    rank_source="rerank",
-                    metadata={
-                        **result.metadata,
-                        "vector_score": result.score,
-                        "rerank_model": knowledge_base.rerank_model,
-                    },
-                )
-            )
-        return self._apply_score_threshold(reranked_results, knowledge_base.score_threshold)
+        return await self._build_retrieval_pipeline().retrieve_async(
+            user_id=user_id,
+            knowledge_base=knowledge_base,
+            query=query,
+            top_k=top_k,
+        )
+
+    def _build_retrieval_pipeline(self):
+        from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
+
+        return KnowledgeRetrievalPipeline(
+            chunk_repo=self.chunk_repo,
+            setting_service=self.setting_service,
+            embedding_service=self.embedding_service,
+            rerank_service=self.rerank_service,
+            faiss_store=self.faiss_store,
+        )
 
     @staticmethod
     def _mark_rerank_fallback(results: list[RetrievalResult], reason: str) -> list[RetrievalResult]:

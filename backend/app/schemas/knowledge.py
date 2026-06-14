@@ -219,3 +219,90 @@ class KnowledgeRetrievalLogResponse(BaseModel):
     error_message: str | None = None
     elapsed_ms: int | None = None
     created_at: datetime
+
+
+class KnowledgeEvalSetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: str | None = None
+
+
+class KnowledgeEvalSetResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    user_id: str
+    knowledge_base_id: str
+    name: str
+    description: str | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class KnowledgeEvalCaseCreate(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    expected_document_id: str | None = Field(default=None, max_length=36)
+    expected_chunk_id: str | None = Field(default=None, max_length=36)
+    expected_answer_keywords: list[str] = Field(default_factory=list)
+    difficulty: str | None = Field(default=None, max_length=32)
+    tags: list[str] = Field(default_factory=list)
+
+
+class KnowledgeEvalCaseResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    user_id: str
+    knowledge_base_id: str
+    eval_set_id: str
+    query: str
+    expected_document_id: str | None = None
+    expected_chunk_id: str | None = None
+    expected_answer_keywords: list[str] = Field(default_factory=list)
+    difficulty: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class KnowledgeEvalRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    user_id: str
+    knowledge_base_id: str
+    eval_set_id: str
+    status: str
+    retrieval_mode: str
+    top_k: int
+    rerank_enabled: bool
+    metrics: dict = Field(default_factory=dict)
+    error_message: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime
+
+
+class KnowledgeEvalResultResponse(BaseModel):
+    id: str
+    user_id: str
+    knowledge_base_id: str
+    run_id: str
+    case_id: str
+    query: str
+    retrieved: list[dict] = Field(default_factory=list)
+    expected_document_id: str | None = None
+    expected_chunk_id: str | None = None
+    hit_at_k: bool
+    mrr: float | None = None
+    context_precision: float | None = None
+    context_recall: float | None = None
+    created_at: datetime
+
+
+class KnowledgeEvalOutcomeResponse(BaseModel):
+    run: KnowledgeEvalRunResponse
+    results: list[KnowledgeEvalResultResponse] = Field(default_factory=list)
+
+
+class KnowledgeEvalRunRequest(BaseModel):
+    top_k: int | None = Field(default=None, ge=1, le=50)

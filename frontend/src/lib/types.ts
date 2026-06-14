@@ -289,6 +289,69 @@ export type KnowledgeRetrievalLog = {
   created_at: string;
 };
 
+export type KnowledgeEvalSet = {
+  id: string;
+  user_id: string;
+  knowledge_base_id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type KnowledgeEvalCase = {
+  id: string;
+  user_id: string;
+  knowledge_base_id: string;
+  eval_set_id: string;
+  query: string;
+  expected_document_id: string | null;
+  expected_chunk_id: string | null;
+  expected_answer_keywords: string[];
+  difficulty: string | null;
+  tags: string[];
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type KnowledgeEvalRun = {
+  id: string;
+  user_id: string;
+  knowledge_base_id: string;
+  eval_set_id: string;
+  status: string;
+  retrieval_mode: string;
+  top_k: number;
+  rerank_enabled: boolean;
+  metrics: Record<string, number | string | boolean | null>;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+};
+
+export type KnowledgeEvalResult = {
+  id: string;
+  user_id: string;
+  knowledge_base_id: string;
+  run_id: string;
+  case_id: string;
+  query: string;
+  retrieved: Record<string, unknown>[];
+  expected_document_id: string | null;
+  expected_chunk_id: string | null;
+  hit_at_k: boolean;
+  mrr: number | null;
+  context_precision: number | null;
+  context_recall: number | null;
+  created_at: string;
+};
+
+export type KnowledgeEvalOutcome = {
+  run: KnowledgeEvalRun;
+  results: KnowledgeEvalResult[];
+};
+
 export type ContextAttachmentChunk = {
   attachment_id: string | null;
   file_name: string;

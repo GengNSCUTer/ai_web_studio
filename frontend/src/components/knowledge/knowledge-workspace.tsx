@@ -13,8 +13,13 @@ import type {
   KnowledgeDocument,
   KnowledgeDocumentIndexResult,
   KnowledgeDocumentParseResult,
+  KnowledgeEvalCase,
+  KnowledgeEvalOutcome,
+  KnowledgeEvalRun,
+  KnowledgeEvalSet,
   KnowledgeJob,
   KnowledgeMarkdownPreview,
+  KnowledgeRetrievalLog,
   KnowledgeRetrievalTestResult,
   Project,
   UploadItem,
@@ -160,6 +165,13 @@ function retrievalRankLabel(value: string) {
   return labels[value] ?? value;
 }
 
+function formatMetric(value: unknown) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "--";
+  }
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 export function KnowledgeWorkspace({
   currentUser,
   initialKnowledgeBases,
@@ -190,6 +202,20 @@ export function KnowledgeWorkspace({
   const [retrievalQuery, setRetrievalQuery] = useState("");
   const [retrievalResult, setRetrievalResult] = useState<KnowledgeRetrievalTestResult | null>(null);
   const [isTestingRetrieval, setIsTestingRetrieval] = useState(false);
+  const [retrievalLogs, setRetrievalLogs] = useState<KnowledgeRetrievalLog[]>([]);
+  const [isLoadingRetrievalLogs, setIsLoadingRetrievalLogs] = useState(false);
+  const [evalSets, setEvalSets] = useState<KnowledgeEvalSet[]>([]);
+  const [evalCases, setEvalCases] = useState<KnowledgeEvalCase[]>([]);
+  const [evalRuns, setEvalRuns] = useState<KnowledgeEvalRun[]>([]);
+  const [evalOutcome, setEvalOutcome] = useState<KnowledgeEvalOutcome | null>(null);
+  const [selectedEvalSetId, setSelectedEvalSetId] = useState("");
+  const [evalSetName, setEvalSetName] = useState("");
+  const [evalCaseQuery, setEvalCaseQuery] = useState("");
+  const [evalExpectedChunkId, setEvalExpectedChunkId] = useState("");
+  const [isLoadingEval, setIsLoadingEval] = useState(false);
+  const [isCreatingEvalSet, setIsCreatingEvalSet] = useState(false);
+  const [isAddingEvalCase, setIsAddingEvalCase] = useState(false);
+  const [isRunningEval, setIsRunningEval] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -218,6 +244,51 @@ export function KnowledgeWorkspace({
     ]);
     setDocuments(nextDocuments);
     setJobs(nextJobs);
+  }
+
+  async function refreshRetrievalLogs(knowledgeBaseId: string) {
+    setIsLoadingRetrievalLogs(true);
+    setErrorMessage(null);
+    try {
+      const logs = await requestJson<KnowledgeRetrievalLog[]>(
+        `/api/backend/knowledge-bases/${knowledgeBaseId}/retrieval-logs?limit=20`
+      );
+      setRetrievalLogs(logs);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "加载检索日志失败");
+    } finally {
+      setIsLoadingRetrievalLogs(false);
+    }
+  }
+
+  async function refreshEvalData(knowledgeBaseId: string, nextEvalSetId = selectedEvalSetId) {
+    setIsLoadingEval(true);
+    setErrorMessage(null);
+    try {
+      const sets = await requestJson<KnowledgeEvalSet[]>(`/api/backend/knowledge-bases/${knowledgeBaseId}/eval-sets`);
+      setEvalSets(sets);
+      const resolvedEvalSetId = nextEvalSetId || sets[0]?.id || "";
+      setSelectedEvalSetId(resolvedEvalSetId);
+      if (!resolvedEvalSetId) {
+        setEvalCases([]);
+        setEvalRuns([]);
+        return;
+      }
+      const [cases, runs] = await Promise.all([
+        requestJson<KnowledgeEvalCase[]>(
+          `/api/backend/knowledge-bases/${knowledgeBaseId}/eval-sets/${resolvedEvalSetId}/cases`
+        ),
+        requestJson<KnowledgeEvalRun[]>(
+          `/api/backend/knowledge-bases/${knowledgeBaseId}/eval-sets/${resolvedEvalSetId}/runs`
+        ),
+      ]);
+      setEvalCases(cases);
+      setEvalRuns(runs);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "加载评测集失败");
+    } finally {
+      setIsLoadingEval(false);
+    }
   }
 
   async function handleCreateKnowledgeBase(event: FormEvent<HTMLFormElement>) {
@@ -472,6 +543,95 @@ export function KnowledgeWorkspace({
       setErrorMessage(error instanceof Error ? error.message : "检索测试失败。");
     } finally {
       setIsTestingRetrieval(false);
+    }
+  }
+
+  async function handleCreateEvalSet(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!visibleActiveKnowledgeBase || !evalSetName.trim()) {
+      return;
+    }
+    setIsCreatingEvalSet(true);
+    setErrorMessage(null);
+    try {
+      const created = await requestJson<KnowledgeEvalSet>(
+        `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/eval-sets`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: evalSetName.trim() }),
+        }
+      );
+      setEvalSetName("");
+      await refreshEvalData(visibleActiveKnowledgeBase.id, created.id);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "创建评测集失败。");
+    } finally {
+      setIsCreatingEvalSet(false);
+    }
+  }
+
+  async function handleSelectEvalSet(knowledgeBaseId: string, evalSetId: string) {
+    setSelectedEvalSetId(evalSetId);
+    setEvalOutcome(null);
+    if (!evalSetId) {
+      setEvalCases([]);
+      setEvalRuns([]);
+      return;
+    }
+    await refreshEvalData(knowledgeBaseId, evalSetId);
+  }
+
+  async function handleAddEvalCase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!visibleActiveKnowledgeBase || !selectedEvalSetId || !evalCaseQuery.trim()) {
+      return;
+    }
+    setIsAddingEvalCase(true);
+    setErrorMessage(null);
+    try {
+      await requestJson<KnowledgeEvalCase>(
+        `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/eval-sets/${selectedEvalSetId}/cases`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            query: evalCaseQuery.trim(),
+            expected_chunk_id: evalExpectedChunkId.trim() || null,
+          }),
+        }
+      );
+      setEvalCaseQuery("");
+      setEvalExpectedChunkId("");
+      await refreshEvalData(visibleActiveKnowledgeBase.id, selectedEvalSetId);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "添加评测用例失败。");
+    } finally {
+      setIsAddingEvalCase(false);
+    }
+  }
+
+  async function handleRunEvalSet() {
+    if (!visibleActiveKnowledgeBase || !selectedEvalSetId) {
+      return;
+    }
+    setIsRunningEval(true);
+    setErrorMessage(null);
+    try {
+      const outcome = await requestJson<KnowledgeEvalOutcome>(
+        `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/eval-sets/${selectedEvalSetId}/runs`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ top_k: visibleActiveKnowledgeBase.retrieval_top_k }),
+        }
+      );
+      setEvalOutcome(outcome);
+      await refreshEvalData(visibleActiveKnowledgeBase.id, selectedEvalSetId);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "运行评测失败。");
+    } finally {
+      setIsRunningEval(false);
     }
   }
 
@@ -807,6 +967,9 @@ export function KnowledgeWorkspace({
                                           ? ` · Rerank ${result.rerank_score.toFixed(4)}`
                                           : ""}
                                       </p>
+                                      <p className="mt-1 break-all text-[11px] text-[var(--ink-muted)]">
+                                        chunk_id：{result.chunk_id}
+                                      </p>
                                     </div>
                                     <Badge label={retrievalRankLabel(result.rank_source)} />
                                   </div>
@@ -824,6 +987,195 @@ export function KnowledgeWorkspace({
                           )}
                         </div>
                       ) : null}
+                    </Panel>
+
+                    <Panel
+                      title="RAG-6.0 检索观测"
+                      subtitle="先把检索日志和小型评测集打通，为后续 Hybrid、Parent-Child、Contextual Retrieval 提供基线。"
+                    >
+                      <div className="space-y-5">
+                        <div>
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <div>
+                              <h4 className="text-sm font-semibold">最近检索日志</h4>
+                              <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                聊天使用知识库后会记录候选片段、注入片段和诊断信息。
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                visibleActiveKnowledgeBase
+                                  ? void refreshRetrievalLogs(visibleActiveKnowledgeBase.id)
+                                  : undefined
+                              }
+                              disabled={isLoadingRetrievalLogs}
+                              className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] disabled:opacity-60"
+                            >
+                              {isLoadingRetrievalLogs ? "刷新中..." : "刷新日志"}
+                            </button>
+                          </div>
+                          {retrievalLogs.length === 0 ? (
+                            <EmptyBox text="暂无日志。先在聊天里启用知识库问答，或点击刷新加载已有日志。" />
+                          ) : (
+                            <div className="max-h-[220px] space-y-2 overflow-y-auto pr-1">
+                              {retrievalLogs.map((log) => (
+                                <div
+                                  key={log.id}
+                                  className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-xs"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <p className="line-clamp-2 text-sm font-semibold">{log.query}</p>
+                                    <Badge label={log.status === "success" ? "成功" : log.status} />
+                                  </div>
+                                  <p className="mt-2 text-[var(--ink-muted)]">
+                                    {formatDateTime(log.created_at)} · 候选 {log.candidates.length} · 注入{" "}
+                                    {log.selected.length} · {log.elapsed_ms ?? 0}ms
+                                  </p>
+                                  {log.selected.length > 0 ? (
+                                    <div className="mt-2 rounded-xl bg-[var(--soft-bg)] px-3 py-2 text-[var(--ink-soft)]">
+                                      <p className="line-clamp-3">
+                                        {String(log.selected[0]?.preview || log.selected[0]?.content || "无预览")}
+                                      </p>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="border-t border-[var(--hairline)] pt-4">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <h4 className="text-sm font-semibold">小型评测集</h4>
+                              <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                手动维护关键问题与期望 chunk，用 Hit@K / MRR 观察检索质量。
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                visibleActiveKnowledgeBase
+                                  ? void refreshEvalData(visibleActiveKnowledgeBase.id)
+                                  : undefined
+                              }
+                              disabled={isLoadingEval}
+                              className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] disabled:opacity-60"
+                            >
+                              {isLoadingEval ? "加载中..." : "刷新评测"}
+                            </button>
+                          </div>
+
+                          <form onSubmit={handleCreateEvalSet} className="flex gap-2">
+                            <input
+                              value={evalSetName}
+                              onChange={(event) => setEvalSetName(event.target.value)}
+                              className="min-w-0 flex-1 rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)]"
+                              placeholder="新建评测集，例如：论文核心问题"
+                            />
+                            <button
+                              type="submit"
+                              disabled={isCreatingEvalSet || !evalSetName.trim()}
+                              className="primary-action rounded-full px-4 py-2 text-sm font-medium disabled:opacity-60"
+                            >
+                              {isCreatingEvalSet ? "创建中..." : "创建"}
+                            </button>
+                          </form>
+
+                          {evalSets.length > 0 ? (
+                            <div className="mt-3 space-y-3">
+                              <select
+                                value={selectedEvalSetId}
+                                onChange={(event) =>
+                                  visibleActiveKnowledgeBase
+                                    ? void handleSelectEvalSet(visibleActiveKnowledgeBase.id, event.target.value)
+                                    : undefined
+                                }
+                                className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm text-[var(--ink-strong)] outline-none focus:border-[var(--accent-strong)]"
+                              >
+                                {evalSets.map((item) => (
+                                  <option key={item.id} value={item.id}>
+                                    {item.name}
+                                  </option>
+                                ))}
+                              </select>
+
+                              <form onSubmit={handleAddEvalCase} className="space-y-2">
+                                <textarea
+                                  value={evalCaseQuery}
+                                  onChange={(event) => setEvalCaseQuery(event.target.value)}
+                                  className="min-h-20 w-full resize-none rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)]"
+                                  placeholder="评测问题，例如：这篇论文提出了什么 routing 方法？"
+                                />
+                                <input
+                                  value={evalExpectedChunkId}
+                                  onChange={(event) => setEvalExpectedChunkId(event.target.value)}
+                                  className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-xs outline-none focus:border-[var(--accent-strong)]"
+                                  placeholder="期望命中的 chunk_id，可先从检索测试结果复制"
+                                />
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs text-[var(--ink-muted)]">
+                                    当前 {evalCases.length} 条用例，{evalRuns.length} 次运行。
+                                  </span>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="submit"
+                                      disabled={isAddingEvalCase || !evalCaseQuery.trim() || !selectedEvalSetId}
+                                      className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-1.5 text-xs text-[var(--ink-soft)] disabled:opacity-60"
+                                    >
+                                      {isAddingEvalCase ? "添加中..." : "添加用例"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleRunEvalSet()}
+                                      disabled={isRunningEval || evalCases.length === 0}
+                                      className="primary-action rounded-full px-3 py-1.5 text-xs font-medium disabled:opacity-60"
+                                    >
+                                      {isRunningEval ? "运行中..." : "运行评测"}
+                                    </button>
+                                  </div>
+                                </div>
+                              </form>
+
+                              {evalOutcome ? (
+                                <div className="grid gap-2 sm:grid-cols-4">
+                                  <Metric label="Hit@K" value={formatMetric(evalOutcome.run.metrics.hit_at_k)} />
+                                  <Metric label="MRR" value={formatMetric(evalOutcome.run.metrics.mrr)} />
+                                  <Metric
+                                    label="Precision"
+                                    value={formatMetric(evalOutcome.run.metrics.context_precision)}
+                                  />
+                                  <Metric
+                                    label="Recall"
+                                    value={formatMetric(evalOutcome.run.metrics.context_recall)}
+                                  />
+                                </div>
+                              ) : null}
+
+                              {evalCases.length > 0 ? (
+                                <div className="max-h-[180px] space-y-2 overflow-y-auto pr-1">
+                                  {evalCases.map((item) => (
+                                    <div
+                                      key={item.id}
+                                      className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-xs"
+                                    >
+                                      <p className="line-clamp-2 text-sm font-medium">{item.query}</p>
+                                      <p className="mt-1 break-all text-[var(--ink-muted)]">
+                                        expected chunk：{item.expected_chunk_id || "未设置"}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-xs leading-6 text-[var(--ink-muted)]">
+                              还没有评测集。创建一个评测集后，可以添加关键问题并运行检索质量基线。
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </Panel>
 
                     <Panel title="任务" subtitle="解析和索引当前同步触发；后续会迁移为后台 worker。">

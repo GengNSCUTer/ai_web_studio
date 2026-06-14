@@ -16,7 +16,8 @@ from app.repositories.knowledge_repo import (
     KnowledgeRetrievalLogRepository,
 )
 from app.repositories.setting_repo import UserSettingRepository
-from app.services.knowledge_index_service import KnowledgeIndexService, RetrievalResult
+from app.services.knowledge_index_service import RetrievalResult
+from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
 from app.services.setting_service import SettingService
 from app.services.tools.schemas import ExternalSource
 
@@ -34,7 +35,7 @@ class KnowledgeContextResult:
 class KnowledgeContextService:
     """Retrieves indexed knowledge chunks and formats them for chat context."""
 
-    def __init__(self, *, db: Session, user_id: str, index_service: KnowledgeIndexService | None = None) -> None:
+    def __init__(self, *, db: Session, user_id: str, index_service: object | None = None) -> None:
         self.db = db
         self.user_id = user_id
         self.base_repo = KnowledgeBaseRepository(db)
@@ -80,9 +81,8 @@ class KnowledgeContextService:
 
         started_at = time.monotonic()
         try:
-            index_service = self.index_service or KnowledgeIndexService(
+            index_service = self.index_service or KnowledgeRetrievalPipeline(
                 chunk_repo=self.chunk_repo,
-                document_repo=self.document_repo,
                 setting_service=self.setting_service,
             )
             results = await asyncio.wait_for(

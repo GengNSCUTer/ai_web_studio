@@ -31,6 +31,7 @@ from app.schemas.knowledge import (
 )
 from app.repositories.setting_repo import UserSettingRepository
 from app.services.knowledge_index_service import KnowledgeIndexService
+from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
 from app.services.knowledge_parser_service import KnowledgeParserService
 from app.services.knowledge_model_metadata import infer_embedding_dimensions
 from app.services.secret_service import SecretService
@@ -410,12 +411,11 @@ class KnowledgeDocumentService:
         if not knowledge_base:
             return None
         resolved_top_k = top_k or knowledge_base.retrieval_top_k
-        index_service = KnowledgeIndexService(
+        retrieval_pipeline = KnowledgeRetrievalPipeline(
             chunk_repo=self.chunk_repo,
-            document_repo=self.document_repo,
             setting_service=SettingService(self.setting_repo),
         )
-        results = index_service.retrieve(
+        results = retrieval_pipeline.retrieve(
             user_id=user_id,
             knowledge_base=knowledge_base,
             query=query,

@@ -1490,3 +1490,35 @@ RAG-6.6 Contextual Retrieval 实验
 - Rerank 继续作为精排层。
 
 `Parent-Child / Contextual Retrieval / 多模态图表索引` 建议作为后续高级优化继续探索。
+
+## 22. 2026-06-14 RAG-6.0 实现进展
+
+本轮已完成 RAG-6.0 的第一版落地。
+
+核心变化：
+
+- 新增 `KnowledgeRetrievalPipeline`，把检索执行链路从 `KnowledgeIndexService` 中拆出。
+- 后续 RAG-6 新能力统一接 pipeline，不再继续往 `KnowledgeIndexService` 里堆检索质量治理逻辑。
+- 新增 `KnowledgeEvaluationService`，负责评测集、评测用例、评测运行和指标计算。
+- 新增评测数据表：
+  - `knowledge_eval_sets`
+  - `knowledge_eval_cases`
+  - `knowledge_eval_runs`
+  - `knowledge_eval_results`
+- 前端知识库详情页新增 `RAG-6.0 检索观测` 面板。
+
+当前可用能力：
+
+- 查看最近知识库检索日志摘要。
+- 创建小型评测集。
+- 手动添加评测用例。
+- 复制检索测试结果中的 `chunk_id` 作为 expected chunk。
+- 运行检索评测。
+- 查看 `hit_at_k`、`mrr`、`context_precision`、`context_recall`。
+
+下一步仍按原路线推进：
+
+1. `RAG-6.1`：metadata schema + metadata filter。
+2. `RAG-6.2`：多知识库检索。
+3. `RAG-6.3`：BM25 / lexical retriever。
+4. `RAG-6.4`：Hybrid Search + RRF。

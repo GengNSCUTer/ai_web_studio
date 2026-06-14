@@ -5,7 +5,12 @@ from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
+    KnowledgeChunkRepository,
     KnowledgeDocumentRepository,
+    KnowledgeEvalCaseRepository,
+    KnowledgeEvalResultRepository,
+    KnowledgeEvalRunRepository,
+    KnowledgeEvalSetRepository,
     KnowledgeJobRepository,
     KnowledgeRetrievalLogRepository,
 )
@@ -22,6 +27,13 @@ from app.schemas.knowledge import (
     KnowledgeDocumentIndexResponse,
     KnowledgeDocumentParseResponse,
     KnowledgeDocumentResponse,
+    KnowledgeEvalCaseCreate,
+    KnowledgeEvalCaseResponse,
+    KnowledgeEvalOutcomeResponse,
+    KnowledgeEvalRunRequest,
+    KnowledgeEvalRunResponse,
+    KnowledgeEvalSetCreate,
+    KnowledgeEvalSetResponse,
     KnowledgeJobResponse,
     KnowledgeMarkdownPreviewResponse,
     KnowledgeRetrievalLogResponse,
@@ -34,6 +46,9 @@ from app.services.knowledge_service import (
     KnowledgeDocumentService,
     KnowledgeJobService,
 )
+from app.repositories.setting_repo import UserSettingRepository
+from app.services.knowledge_evaluation_service import KnowledgeEvaluationService
+from app.services.setting_service import SettingService
 
 router = APIRouter(prefix="/knowledge-bases", tags=["knowledge"])
 credential_router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -61,6 +76,18 @@ def _credential_service(db: Session) -> KnowledgeCredentialService:
 
 def _retrieval_log_response(log: object) -> KnowledgeRetrievalLogResponse:
     return KnowledgeRetrievalLogResponse(**KnowledgeRetrievalLogRepository.to_public_dict(log))
+
+
+def _evaluation_service(db: Session) -> KnowledgeEvaluationService:
+    return KnowledgeEvaluationService(
+        base_repo=KnowledgeBaseRepository(db),
+        chunk_repo=KnowledgeChunkRepository(db),
+        eval_set_repo=KnowledgeEvalSetRepository(db),
+        eval_case_repo=KnowledgeEvalCaseRepository(db),
+        eval_run_repo=KnowledgeEvalRunRepository(db),
+        eval_result_repo=KnowledgeEvalResultRepository(db),
+        setting_service=SettingService(UserSettingRepository(db)),
+    )
 
 
 @router.get("", response_model=list[KnowledgeBaseResponse])
@@ -264,6 +291,93 @@ def get_retrieval_log(
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge retrieval log not found")
     return _retrieval_log_response(log)
+
+
+@router.get("/{knowledge_base_id}/eval-sets", response_model=list[KnowledgeEvalSetResponse])
+def list_eval_sets(
+    knowledge_base_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[KnowledgeEvalSetResponse]:
+    if not KnowledgeBaseRepository(db).get_by_user(knowledge_base_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
+    return _evaluation_service(db).list_eval_sets(knowledge_base_id, current_user.id)
+
+
+@router.post(
+    "/{knowledge_base_id}/eval-sets",
+    response_model=KnowledgeEvalSetResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_eval_set(
+    knowledge_base_id: str,
+    payload: KnowledgeEvalSetCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeEvalSetResponse:
+    result = _evaluation_service(db).create_eval_set(knowledge_base_id, current_user.id, payload)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
+    return result
+
+
+@router.get("/{knowledge_base_id}/eval-sets/{eval_set_id}/cases", response_model=list[KnowledgeEvalCaseResponse])
+def list_eval_cases(
+    knowledge_base_id: str,
+    eval_set_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[KnowledgeEvalCaseResponse]:
+    service = _evaluation_service(db)
+    eval_set = KnowledgeEvalSetRepository(db).get_by_user(eval_set_id, current_user.id)
+    if not eval_set or eval_set.knowledge_base_id != knowledge_base_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation set not found")
+    return service.list_eval_cases(eval_set_id, current_user.id)
+
+
+@router.post(
+    "/{knowledge_base_id}/eval-sets/{eval_set_id}/cases",
+    response_model=KnowledgeEvalCaseResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_eval_case(
+    knowledge_base_id: str,
+    eval_set_id: str,
+    payload: KnowledgeEvalCaseCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeEvalCaseResponse:
+    result = _evaluation_service(db).add_eval_case(knowledge_base_id, eval_set_id, current_user.id, payload)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation set not found")
+    return result
+
+
+@router.get("/{knowledge_base_id}/eval-sets/{eval_set_id}/runs", response_model=list[KnowledgeEvalRunResponse])
+def list_eval_runs(
+    knowledge_base_id: str,
+    eval_set_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[KnowledgeEvalRunResponse]:
+    eval_set = KnowledgeEvalSetRepository(db).get_by_user(eval_set_id, current_user.id)
+    if not eval_set or eval_set.knowledge_base_id != knowledge_base_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation set not found")
+    return _evaluation_service(db).list_eval_runs(knowledge_base_id, eval_set_id, current_user.id)
+
+
+@router.post("/{knowledge_base_id}/eval-sets/{eval_set_id}/runs", response_model=KnowledgeEvalOutcomeResponse)
+def run_eval_set(
+    knowledge_base_id: str,
+    eval_set_id: str,
+    payload: KnowledgeEvalRunRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeEvalOutcomeResponse:
+    outcome = _evaluation_service(db).run_eval(knowledge_base_id, eval_set_id, current_user.id, payload)
+    if not outcome:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation set not found")
+    return KnowledgeEvalOutcomeResponse(run=outcome.run, results=outcome.results)
 
 
 @router.get("/{knowledge_base_id}/jobs", response_model=list[KnowledgeJobResponse])

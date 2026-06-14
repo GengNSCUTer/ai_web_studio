@@ -1,7 +1,17 @@
 from app.models.attachment import Attachment
 from app.models.conversation import Conversation
 from app.models.conversation_share import ConversationShare
-from app.models.knowledge import KnowledgeBase, KnowledgeChunk, KnowledgeDocument, KnowledgeJob, KnowledgeRetrievalLog
+from app.models.knowledge import (
+    KnowledgeBase,
+    KnowledgeChunk,
+    KnowledgeDocument,
+    KnowledgeEvalCase,
+    KnowledgeEvalResult,
+    KnowledgeEvalRun,
+    KnowledgeEvalSet,
+    KnowledgeJob,
+    KnowledgeRetrievalLog,
+)
 from app.models.message import Message
 from app.models.project import Project
 from app.models.project_file import ProjectFile
@@ -19,6 +29,10 @@ __all__ = [
     "KnowledgeBase",
     "KnowledgeChunk",
     "KnowledgeDocument",
+    "KnowledgeEvalCase",
+    "KnowledgeEvalResult",
+    "KnowledgeEvalRun",
+    "KnowledgeEvalSet",
     "KnowledgeJob",
     "KnowledgeRetrievalLog",
     "Message",
