@@ -9,6 +9,7 @@ from app.models import (  # noqa: F401
     KnowledgeChunk,
     KnowledgeDocument,
     KnowledgeJob,
+    KnowledgeRetrievalLog,
     Message,
     Project,
     ProjectFile,

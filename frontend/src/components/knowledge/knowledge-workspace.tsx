@@ -395,6 +395,7 @@ export function KnowledgeWorkspace({
             document_id: result.document.id,
             file_name: result.document.file_name,
             markdown: result.markdown_preview,
+            chunks: [],
           });
         }
       }

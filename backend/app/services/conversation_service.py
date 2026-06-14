@@ -1,5 +1,6 @@
 from app.models.conversation import Conversation
 from app.repositories.conversation_repo import ConversationRepository
+from app.repositories.knowledge_repo import KnowledgeRetrievalLogRepository
 from app.schemas.conversation import (
     ConversationCreate,
     ConversationListItem,
@@ -60,5 +61,9 @@ class ConversationService:
         conversation = self.repo.get_by_user(conversation_id, user_id)
         if not conversation:
             return False
+        KnowledgeRetrievalLogRepository(self.repo.db).detach_conversation_links(
+            conversation_id=conversation.id,
+            user_id=user_id,
+        )
         self.repo.delete(conversation)
         return True

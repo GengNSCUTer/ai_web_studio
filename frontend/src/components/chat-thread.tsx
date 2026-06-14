@@ -6,6 +6,10 @@ import { AttachmentPreviewModal } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessageList } from "@/components/chat-message-list";
 import {
+  KnowledgeSourcePreviewDialog,
+  type KnowledgeSourcePreviewTarget,
+} from "@/components/knowledge-source-preview-dialog";
+import {
   classifyClientFile,
   cloneUploadItems,
 } from "@/lib/attachments";
@@ -14,6 +18,8 @@ import type {
   ContextGovernanceInfo,
   ExternalSource,
   KnowledgeBase,
+  KnowledgeMarkdownPreview,
+  KnowledgeRetrievalLog,
   Message,
   ToolTraceEvent,
   UploadItem,
@@ -485,6 +491,22 @@ function requestErrorMessage(error: unknown) {
   return "未知错误";
 }
 
+function externalSourceMeta(source: ExternalSource, key: string) {
+  const value = source.metadata?.[key];
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return String(value).trim();
+}
+
+function parseOptionalNumber(value: string) {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     ...init,
@@ -561,6 +583,11 @@ export function ChatThread({
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
   const [expandedChunkKeys, setExpandedChunkKeys] = useState<string[]>([]);
   const [previewItem, setPreviewItem] = useState<UploadItem | null>(null);
+  const [knowledgeSourceTarget, setKnowledgeSourceTarget] = useState<KnowledgeSourcePreviewTarget | null>(null);
+  const [knowledgeSourcePreview, setKnowledgeSourcePreview] = useState<KnowledgeMarkdownPreview | null>(null);
+  const [knowledgeSourceRetrievalLog, setKnowledgeSourceRetrievalLog] = useState<KnowledgeRetrievalLog | null>(null);
+  const [knowledgeSourcePreviewError, setKnowledgeSourcePreviewError] = useState<string | null>(null);
+  const [isKnowledgeSourcePreviewLoading, setIsKnowledgeSourcePreviewLoading] = useState(false);
   const [isDeleteMessagesDialogOpen, setIsDeleteMessagesDialogOpen] = useState(false);
   const [localConversationId, setLocalConversationId] = useState<string | null>(initialConversationId);
   const [streamingStartedAt, setStreamingStartedAt] = useState<number | null>(null);
@@ -1153,6 +1180,59 @@ export function ChatThread({
     }
   }
 
+  async function handleOpenKnowledgeSource(source: ExternalSource) {
+    const knowledgeBaseId = externalSourceMeta(source, "knowledge_base_id");
+    const documentId = externalSourceMeta(source, "document_id");
+    if (!knowledgeBaseId || !documentId) {
+      setLocalError("知识库来源缺少定位信息，无法打开文档片段。");
+      return;
+    }
+
+    const target: KnowledgeSourcePreviewTarget = {
+      knowledgeBaseId,
+      documentId,
+      chunkId: externalSourceMeta(source, "chunk_id") || undefined,
+      chunkIndex: parseOptionalNumber(externalSourceMeta(source, "chunk_index")),
+      title: source.title,
+    };
+    setKnowledgeSourceTarget(target);
+    setKnowledgeSourcePreview(null);
+    setKnowledgeSourceRetrievalLog(null);
+    setKnowledgeSourcePreviewError(null);
+    setIsKnowledgeSourcePreviewLoading(true);
+
+    try {
+      const response = await fetch(
+        `/api/backend/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}/documents/${encodeURIComponent(
+          documentId
+        )}/markdown-preview`,
+        { cache: "no-store" }
+      );
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Request failed: ${response.status}`);
+      }
+      const preview = (await response.json()) as KnowledgeMarkdownPreview;
+      setKnowledgeSourcePreview({
+        ...preview,
+        chunks: preview.chunks ?? [],
+      });
+      const retrievalLogId = externalSourceMeta(source, "retrieval_log_id");
+      if (retrievalLogId) {
+        const logResponse = await fetch(`/api/backend/knowledge/retrieval-logs/${encodeURIComponent(retrievalLogId)}`, {
+          cache: "no-store",
+        });
+        if (logResponse.ok) {
+          setKnowledgeSourceRetrievalLog((await logResponse.json()) as KnowledgeRetrievalLog);
+        }
+      }
+    } catch (error) {
+      setKnowledgeSourcePreviewError(`加载知识库来源失败：${requestErrorMessage(error)}`);
+    } finally {
+      setIsKnowledgeSourcePreviewLoading(false);
+    }
+  }
+
   async function streamIntoExistingAssistant(
     endpoint: string,
     payload: Record<string, unknown>,
@@ -1713,6 +1793,7 @@ export function ChatThread({
         onEditingContentChange={setEditingContent}
         onToggleSelectMessage={toggleSelectMessage}
         onPreviewAttachment={setPreviewItem}
+        onOpenKnowledgeSource={(source) => void handleOpenKnowledgeSource(source)}
         onRemoveEditingAttachment={removeEditingAttachment}
         onCancelEditLastUser={cancelEditLastUser}
         onSubmitEditLastUser={handleEditLastUserSubmit}
@@ -1854,6 +1935,21 @@ export function ChatThread({
         openOriginalText={text.openOriginal}
         closeText={text.closePreview}
         onClose={() => setPreviewItem(null)}
+      />
+      <KnowledgeSourcePreviewDialog
+        preview={knowledgeSourcePreview}
+        retrievalLog={knowledgeSourceRetrievalLog}
+        target={knowledgeSourceTarget}
+        isLoading={isKnowledgeSourcePreviewLoading}
+        error={knowledgeSourcePreviewError}
+        closeText={text.closePreview}
+        onClose={() => {
+          setKnowledgeSourceTarget(null);
+          setKnowledgeSourcePreview(null);
+          setKnowledgeSourceRetrievalLog(null);
+          setKnowledgeSourcePreviewError(null);
+          setIsKnowledgeSourcePreviewLoading(false);
+        }}
       />
     </>
   );

@@ -8,6 +8,7 @@ from app.repositories.knowledge_repo import (
     KnowledgeChunkRepository,
     KnowledgeDocumentRepository,
     KnowledgeJobRepository,
+    KnowledgeRetrievalLogRepository,
 )
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.tool_config_repo import ToolConfigRepository
@@ -24,6 +25,7 @@ from app.schemas.knowledge import (
     KnowledgeDocumentResponse,
     KnowledgeJobResponse,
     KnowledgeMarkdownPreviewResponse,
+    KnowledgeMarkdownChunkResponse,
     KnowledgeRetrievalChunkResponse,
     KnowledgeRetrievalTestResponse,
 )
@@ -158,6 +160,10 @@ class KnowledgeBaseService:
         item = self.repo.get_by_user(knowledge_base_id, user_id)
         if not item:
             return False
+        KnowledgeRetrievalLogRepository(self.repo.db).delete_by_knowledge_base(
+            knowledge_base_id=knowledge_base_id,
+            user_id=user_id,
+        )
         self.repo.delete(item)
         return True
 
@@ -312,10 +318,21 @@ class KnowledgeDocumentService:
             markdown_path=document.parsed_markdown_path,
             user_id=user_id,
         )
+        chunks = self.chunk_repo.list_by_document(document.id, user_id)
         return KnowledgeMarkdownPreviewResponse(
             document_id=document.id,
             file_name=document.file_name,
             markdown=markdown,
+            chunks=[
+                KnowledgeMarkdownChunkResponse(
+                    chunk_id=chunk.id,
+                    chunk_index=chunk.chunk_index,
+                    source_start=chunk.source_start,
+                    source_end=chunk.source_end,
+                    content=chunk.content,
+                )
+                for chunk in chunks
+            ],
         )
 
     def index_document(

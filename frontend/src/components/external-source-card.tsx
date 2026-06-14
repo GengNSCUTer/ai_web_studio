@@ -33,7 +33,19 @@ function sourceKindLabel(source: ExternalSource) {
   return "网页";
 }
 
-export function ExternalSourceCard({ source, index, sourceId }: { source: ExternalSource; index: number; sourceId?: string }) {
+type ExternalSourceCardProps = {
+  source: ExternalSource;
+  index: number;
+  sourceId?: string;
+  onOpenKnowledgeSource?: (source: ExternalSource) => void;
+};
+
+export function ExternalSourceCard({
+  source,
+  index,
+  sourceId,
+  onOpenKnowledgeSource,
+}: ExternalSourceCardProps) {
   const label = source.citation_label ?? `[${index + 1}]`;
   const providerLabel = source.provider;
   const kindLabel = sourceKindLabel(source);
@@ -50,6 +62,8 @@ export function ExternalSourceCard({ source, index, sourceId }: { source: Extern
   const destination = sourceMeta(source, "destination");
   const domain = sourceMeta(source, "domain");
   const knowledgeBaseName = sourceMeta(source, "knowledge_base_name");
+  const knowledgeBaseId = sourceMeta(source, "knowledge_base_id");
+  const documentId = sourceMeta(source, "document_id");
   const fileName = sourceMeta(source, "file_name");
   const chunkIndex = sourceMeta(source, "chunk_index");
   const rankSource = sourceMeta(source, "rank_source");
@@ -131,6 +145,15 @@ export function ExternalSourceCard({ source, index, sourceId }: { source: Extern
           >
             跳到工具调用
           </a>
+        ) : null}
+        {source.source_type === "knowledge" && knowledgeBaseId && documentId && onOpenKnowledgeSource ? (
+          <button
+            type="button"
+            onClick={() => onOpenKnowledgeSource(source)}
+            className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-muted)] transition hover:text-[var(--accent-strong)]"
+          >
+            定位片段
+          </button>
         ) : null}
         {source.url ? (
           <a

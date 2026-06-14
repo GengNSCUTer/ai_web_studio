@@ -83,6 +83,7 @@ type ChatMessageListProps = {
   onEditingContentChange: (value: string) => void;
   onToggleSelectMessage: (messageId: string) => void;
   onPreviewAttachment: (attachment: UploadItem) => void;
+  onOpenKnowledgeSource: (source: ExternalSource) => void;
   onRemoveEditingAttachment: (attachmentId: string) => void;
   onCancelEditLastUser: () => void;
   onSubmitEditLastUser: (messageId: string) => void | Promise<void>;
@@ -118,6 +119,7 @@ export function ChatMessageList({
   onEditingContentChange,
   onToggleSelectMessage,
   onPreviewAttachment,
+  onOpenKnowledgeSource,
   onRemoveEditingAttachment,
   onCancelEditLastUser,
   onSubmitEditLastUser,
@@ -168,6 +170,7 @@ export function ChatMessageList({
             onEditingContentChange={onEditingContentChange}
             onToggleSelectMessage={onToggleSelectMessage}
             onPreviewAttachment={onPreviewAttachment}
+            onOpenKnowledgeSource={onOpenKnowledgeSource}
             onRemoveEditingAttachment={onRemoveEditingAttachment}
             onCancelEditLastUser={onCancelEditLastUser}
             onSubmitEditLastUser={onSubmitEditLastUser}
@@ -224,6 +227,7 @@ function MessageItem({
   onEditingContentChange,
   onToggleSelectMessage,
   onPreviewAttachment,
+  onOpenKnowledgeSource,
   onRemoveEditingAttachment,
   onCancelEditLastUser,
   onSubmitEditLastUser,
@@ -346,6 +350,7 @@ function MessageItem({
                     ? `source-call-${source.metadata.call_id}-${index + 1}`
                     : `source-${message.id}-${index + 1}`
                 }
+                onOpenKnowledgeSource={onOpenKnowledgeSource}
               />
             ))}
           </div>

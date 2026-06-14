@@ -1357,3 +1357,70 @@ RAG-5 第一版采用“知识库失败不阻断聊天”的策略：
    - Parent-Child chunk。
    - Metadata Filter。
    - 检索评测集。
+
+---
+
+## 20. 2026-06-14 RAG-5.5 知识库来源定位记录
+
+RAG-5.5 已完成第一版：回答下方的知识库来源不再只是静态摘要，而是可以点击定位到命中文档片段。
+
+### 20.1 当前链路
+
+```text
+回答来源卡片 source_type=knowledge
+-> 用户点击“定位片段”
+-> ChatThread 读取来源 metadata
+-> 请求 markdown-preview
+-> 后端返回文档 Markdown + chunks 定位信息
+-> 前端打开 KnowledgeSourcePreviewDialog
+-> 高亮命中 chunk，并展示前后上下文
+```
+
+### 20.2 已实现能力
+
+- `markdown-preview` 接口返回 chunk 定位列表。
+- `ExternalSourceCard` 对知识库来源展示“定位片段”按钮。
+- `ChatThread` 负责拉取预览数据和管理弹窗状态。
+- `KnowledgeSourcePreviewDialog` 负责高亮展示命中片段。
+- 定位策略具备容错：
+  - `chunk_id` 优先。
+  - `chunk_index` 兜底。
+  - `source_start/source_end` 需要校验内容一致。
+  - 偏移失效时回退到全文搜索。
+  - 仍失败时只展示 chunk 原文。
+
+### 20.3 当前边界
+
+- 当前展示的是命中片段局部上下文，不是完整文档内滚动锚点。
+- 当前没有页码、标题路径、PDF 坐标。
+- 当前没有把来源定位和检索日志联动。
+- 旧历史消息如果来源 metadata 不完整，无法定位。
+
+### 20.4 下一步
+
+下一步建议进入 `RAG-6`：
+
+- 多知识库检索。
+- BM25 / Hybrid / RRF。
+- Parent-Child chunk。
+- Metadata Filter。
+- 建立检索评测集和日志分析面板。
+
+### 20.5 2026-06-14 RAG-5.6 知识库检索日志持久化记录
+
+RAG-5.6 已完成第一版：每次知识库检索成功后会落一条 `knowledge_retrieval_logs`，记录 query、候选 chunks、最终注入 chunks、上下文诊断指标和回答来源快照。
+
+### 20.6 已实现能力
+
+- 后端新增 `knowledge_retrieval_logs` 表。
+- `KnowledgeContextService` 在检索成功后写入日志并生成 `retrieval_log_id`。
+- `ChatContextAssemblyService` 在消息创建后补齐会话和消息关联。
+- 来源卡片 metadata 中携带 `retrieval_log_id`。
+- 前端知识库来源预览弹窗会拉取并展示本轮检索日志摘要。
+
+### 20.7 当前边界
+
+- 当前主要记录成功检索日志。
+- 失败 / 跳过场景暂未单独落日志。
+- 当前只展示日志摘要，尚无完整候选对比页。
+- 旧历史消息如果没有 `retrieval_log_id` metadata，不能回溯到新日志。

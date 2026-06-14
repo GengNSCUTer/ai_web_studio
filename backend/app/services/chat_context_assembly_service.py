@@ -7,6 +7,7 @@ from typing import Any
 
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.tool_trace_repo import ToolTraceRepository
+from app.repositories.knowledge_repo import KnowledgeRetrievalLogRepository
 from app.services.attachment_context_service import AttachmentContextService
 from app.services.chat_execution_models import (
     ChatExecutionContext,
@@ -144,6 +145,15 @@ class ChatContextAssemblyService:
             knowledge_base_id=knowledge_base_id,
             query=query,
         )
+        if knowledge_context_result.retrieval_log_id:
+            KnowledgeRetrievalLogRepository(self.db).update_message_links(
+                log_id=knowledge_context_result.retrieval_log_id,
+                user_id=self.user_id,
+                conversation_id=getattr(conversation, "id", None),
+                user_message_id=getattr(user_message, "id", None),
+                assistant_message_id=getattr(assistant_message, "id", None),
+                sources=[source.to_public_dict() for source in knowledge_context_result.sources],
+            )
         summary_bundle = await self._refresh_context_summary(
             conversation=conversation,
             history_rows=history_rows,

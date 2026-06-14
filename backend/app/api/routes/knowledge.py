@@ -7,6 +7,7 @@ from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
     KnowledgeDocumentRepository,
     KnowledgeJobRepository,
+    KnowledgeRetrievalLogRepository,
 )
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.tool_config_repo import ToolConfigRepository
@@ -23,6 +24,7 @@ from app.schemas.knowledge import (
     KnowledgeDocumentResponse,
     KnowledgeJobResponse,
     KnowledgeMarkdownPreviewResponse,
+    KnowledgeRetrievalLogResponse,
     KnowledgeRetrievalTestRequest,
     KnowledgeRetrievalTestResponse,
 )
@@ -55,6 +57,10 @@ def _job_service(db: Session) -> KnowledgeJobService:
 
 def _credential_service(db: Session) -> KnowledgeCredentialService:
     return KnowledgeCredentialService(ToolConfigRepository(db))
+
+
+def _retrieval_log_response(log: object) -> KnowledgeRetrievalLogResponse:
+    return KnowledgeRetrievalLogResponse(**KnowledgeRetrievalLogRepository.to_public_dict(log))
 
 
 @router.get("", response_model=list[KnowledgeBaseResponse])
@@ -229,6 +235,35 @@ def test_retrieval(
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
     return result
+
+
+@router.get("/{knowledge_base_id}/retrieval-logs", response_model=list[KnowledgeRetrievalLogResponse])
+def list_retrieval_logs(
+    knowledge_base_id: str,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[KnowledgeRetrievalLogResponse]:
+    if not KnowledgeBaseRepository(db).get_by_user(knowledge_base_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
+    logs = KnowledgeRetrievalLogRepository(db).list_by_knowledge_base(
+        knowledge_base_id=knowledge_base_id,
+        user_id=current_user.id,
+        limit=limit,
+    )
+    return [_retrieval_log_response(log) for log in logs]
+
+
+@credential_router.get("/retrieval-logs/{log_id}", response_model=KnowledgeRetrievalLogResponse)
+def get_retrieval_log(
+    log_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeRetrievalLogResponse:
+    log = KnowledgeRetrievalLogRepository(db).get_by_user(log_id, current_user.id)
+    if not log:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge retrieval log not found")
+    return _retrieval_log_response(log)
 
 
 @router.get("/{knowledge_base_id}/jobs", response_model=list[KnowledgeJobResponse])

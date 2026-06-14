@@ -150,10 +150,19 @@ class KnowledgeDocumentParseResponse(BaseModel):
     markdown_preview: str | None = None
 
 
+class KnowledgeMarkdownChunkResponse(BaseModel):
+    chunk_id: str
+    chunk_index: int
+    source_start: int | None = None
+    source_end: int | None = None
+    content: str
+
+
 class KnowledgeMarkdownPreviewResponse(BaseModel):
     document_id: str
     file_name: str
     markdown: str
+    chunks: list[KnowledgeMarkdownChunkResponse] = Field(default_factory=list)
 
 
 class KnowledgeDocumentIndexResponse(BaseModel):
@@ -188,3 +197,25 @@ class KnowledgeRetrievalTestResponse(BaseModel):
     rerank_enabled: bool = False
     rerank_model: str | None = None
     results: list[KnowledgeRetrievalChunkResponse]
+
+
+class KnowledgeRetrievalLogResponse(BaseModel):
+    id: str
+    user_id: str
+    conversation_id: str | None = None
+    user_message_id: str | None = None
+    assistant_message_id: str | None = None
+    knowledge_base_id: str
+    query: str
+    retrieval_mode: str
+    top_k: int
+    rerank_enabled: bool
+    rerank_model: str | None = None
+    candidates: list[dict] = Field(default_factory=list)
+    selected: list[dict] = Field(default_factory=list)
+    diagnostics: dict = Field(default_factory=dict)
+    sources: list[dict] = Field(default_factory=list)
+    status: str
+    error_message: str | None = None
+    elapsed_ms: int | None = None
+    created_at: datetime

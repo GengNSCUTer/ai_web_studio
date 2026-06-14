@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.models.attachment import Attachment
 from app.models.message import Message
 from app.repositories.attachment_repo import AttachmentRepository
+from app.repositories.knowledge_repo import KnowledgeRetrievalLogRepository
 from app.repositories.message_repo import MessageRepository
 from app.schemas.message import MessageCreate, MessageResponse
 from app.schemas.upload import UploadItemReference
@@ -100,10 +101,15 @@ class MessageService:
         if not message:
             return False
 
+        KnowledgeRetrievalLogRepository(self.repo.db).detach_message_links(
+            message_ids=[message.id],
+        )
         self.repo.delete(message)
         return True
 
     def bulk_delete_messages(self, conversation_id: str, message_ids: list[str]) -> int:
+        if message_ids:
+            KnowledgeRetrievalLogRepository(self.repo.db).detach_message_links(message_ids=message_ids)
         return self.repo.bulk_delete(conversation_id, message_ids)
 
     def _serialize_message(self, message: Message) -> MessageResponse:

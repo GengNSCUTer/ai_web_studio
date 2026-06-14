@@ -234,6 +234,15 @@ export type KnowledgeMarkdownPreview = {
   document_id: string;
   file_name: string;
   markdown: string;
+  chunks: KnowledgeMarkdownChunk[];
+};
+
+export type KnowledgeMarkdownChunk = {
+  chunk_id: string;
+  chunk_index: number;
+  source_start: number | null;
+  source_end: number | null;
+  content: string;
 };
 
 export type KnowledgeRetrievalChunk = {
@@ -256,6 +265,28 @@ export type KnowledgeRetrievalTestResult = {
   rerank_enabled: boolean;
   rerank_model: string | null;
   results: KnowledgeRetrievalChunk[];
+};
+
+export type KnowledgeRetrievalLog = {
+  id: string;
+  user_id: string;
+  conversation_id: string | null;
+  user_message_id: string | null;
+  assistant_message_id: string | null;
+  knowledge_base_id: string;
+  query: string;
+  retrieval_mode: string;
+  top_k: number;
+  rerank_enabled: boolean;
+  rerank_model: string | null;
+  candidates: Record<string, unknown>[];
+  selected: Record<string, unknown>[];
+  diagnostics: Record<string, unknown>;
+  sources: Record<string, unknown>[];
+  status: string;
+  error_message: string | null;
+  elapsed_ms: number | null;
+  created_at: string;
 };
 
 export type ContextAttachmentChunk = {

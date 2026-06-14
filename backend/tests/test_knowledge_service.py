@@ -23,10 +23,13 @@ from app.repositories.knowledge_repo import (
     KnowledgeChunkRepository,
     KnowledgeDocumentRepository,
     KnowledgeJobRepository,
+    KnowledgeRetrievalLogRepository,
 )
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.setting_repo import UserSettingRepository
 from app.repositories.tool_config_repo import ToolConfigRepository
+from app.repositories.conversation_repo import ConversationRepository
+from app.repositories.message_repo import MessageRepository
 from app.schemas.knowledge import KnowledgeBaseCreate, KnowledgeCredentialUpdate, KnowledgeDocumentCreate
 from app.schemas.setting import UserSettingUpdate
 from app.services.knowledge_service import (
@@ -35,6 +38,8 @@ from app.services.knowledge_service import (
     KnowledgeDocumentService,
     KnowledgeJobService,
 )
+from app.services.conversation_service import ConversationService
+from app.services.message_service import MessageService
 from app.services.knowledge_index_service import (
     KnowledgeEmbeddingService,
     KnowledgeFaissStore,
@@ -404,6 +409,77 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertIsNotNone(preview)
         assert preview is not None
         self.assertIn(long_tail, preview.markdown)
+
+    def test_markdown_preview_returns_chunk_locations_after_indexing(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="来源定位测试",
+                parser_provider="local_basic",
+                chunk_size=120,
+                chunk_overlap=20,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "locate.md"
+        source_file.write_text(
+            "\n\n".join(
+                [
+                    "Adaptive RAG uses routing to choose retrieval strategy.",
+                    "Skill Router selects useful tools and routes requests.",
+                    "This paragraph is only filler text for chunking.",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="locate.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/locate.md",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=SettingService(UserSettingRepository(self.db)),
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+
+        preview = document_service.preview_markdown(knowledge_base.id, document.id, self.user.id)
+
+        self.assertIsNotNone(preview)
+        assert preview is not None
+        self.assertGreaterEqual(len(preview.chunks), 1)
+        located_chunk = preview.chunks[0]
+        self.assertIsNotNone(located_chunk.source_start)
+        self.assertIsNotNone(located_chunk.source_end)
+        assert located_chunk.source_start is not None
+        assert located_chunk.source_end is not None
+        self.assertEqual(preview.markdown[located_chunk.source_start : located_chunk.source_end], located_chunk.content)
 
     def test_mineru_credential_is_encrypted_and_masked(self) -> None:
         service = KnowledgeCredentialService(ToolConfigRepository(self.db))
@@ -919,7 +995,21 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertGreaterEqual(len(result.sources), 1)
         self.assertEqual(result.sources[0].source_type, "knowledge")
         self.assertEqual(result.sources[0].metadata["knowledge_base_id"], knowledge_base.id)
+        self.assertTrue(result.retrieval_log_id)
+        self.assertEqual(result.sources[0].metadata["retrieval_log_id"], result.retrieval_log_id)
         self.assertIn("chat-rag.md", result.sources[0].title)
+
+        assert result.retrieval_log_id is not None
+        retrieval_log = KnowledgeRetrievalLogRepository(self.db).get_by_user(result.retrieval_log_id, self.user.id)
+        self.assertIsNotNone(retrieval_log)
+        assert retrieval_log is not None
+        public_log = KnowledgeRetrievalLogRepository.to_public_dict(retrieval_log)
+        self.assertEqual(public_log["query"], "adaptive rag routing")
+        self.assertEqual(public_log["knowledge_base_id"], knowledge_base.id)
+        self.assertGreaterEqual(len(public_log["candidates"]), 1)
+        self.assertGreaterEqual(len(public_log["selected"]), 1)
+        self.assertEqual(public_log["selected"][0]["chunk_id"], result.sources[0].metadata["chunk_id"])
+        self.assertEqual(public_log["status"], "success")
 
     def test_knowledge_context_service_skips_unindexed_knowledge_base(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
@@ -1021,6 +1111,93 @@ class KnowledgeServiceTest(unittest.TestCase):
 
         self.assertTrue(encoded.startswith("json64:"))
         encoded.encode("latin-1")
+
+    def test_delete_conversation_detaches_knowledge_retrieval_logs(self) -> None:
+        conversation_repo = ConversationRepository(self.db)
+        message_repo = MessageRepository(self.db)
+        message_service = MessageService(message_repo)
+        conversation_service = ConversationService(conversation_repo)
+
+        conversation = conversation_repo.create(
+            self._create_conversation("日志解绑测试")
+        )
+        user_message = message_service.create_system_message(
+            conversation_id=conversation.id,
+            role="user",
+            content="test",
+            status="done",
+        )
+        assistant_message = message_service.create_system_message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="answer",
+            status="done",
+        )
+        kb = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db)).create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(name="日志解绑知识库", parser_provider="local_basic"),
+        )
+        assert kb is not None
+        log = KnowledgeRetrievalLogRepository(self.db).create(
+            user_id=self.user.id,
+            knowledge_base_id=kb.id,
+            query="what is test",
+            retrieval_mode="vector",
+            top_k=3,
+            rerank_enabled=False,
+            rerank_model=None,
+            candidates=[],
+            selected=[],
+            diagnostics={},
+            sources=[],
+            conversation_id=conversation.id,
+            user_message_id=user_message.id,
+            assistant_message_id=assistant_message.id,
+        )
+
+        deleted = conversation_service.delete_conversation(conversation.id, self.user.id)
+        self.assertTrue(deleted)
+        refreshed = KnowledgeRetrievalLogRepository(self.db).get_by_user(log.id, self.user.id)
+        self.assertIsNotNone(refreshed)
+        assert refreshed is not None
+        self.assertIsNone(refreshed.conversation_id)
+        self.assertIsNone(refreshed.user_message_id)
+        self.assertIsNone(refreshed.assistant_message_id)
+
+    def test_delete_knowledge_base_removes_retrieval_logs(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        kb = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(name="删除日志测试库", parser_provider="local_basic"),
+        )
+        assert kb is not None
+        log = KnowledgeRetrievalLogRepository(self.db).create(
+            user_id=self.user.id,
+            knowledge_base_id=kb.id,
+            query="delete me",
+            retrieval_mode="vector",
+            top_k=3,
+            rerank_enabled=False,
+            rerank_model=None,
+            candidates=[],
+            selected=[],
+            diagnostics={},
+            sources=[],
+        )
+
+        deleted = base_service.delete_knowledge_base(kb.id, self.user.id)
+        self.assertTrue(deleted)
+        self.assertIsNone(KnowledgeRetrievalLogRepository(self.db).get_by_user(log.id, self.user.id))
+
+    def _create_conversation(self, title: str):
+        from app.models.conversation import Conversation
+
+        return Conversation(
+            user_id=self.user.id,
+            title=title,
+            model_name="deepseek-ai/DeepSeek-V4-Flash",
+            system_prompt=None,
+        )
 
 
 if __name__ == "__main__":

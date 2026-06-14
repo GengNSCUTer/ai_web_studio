@@ -13,6 +13,7 @@ from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
     KnowledgeChunkRepository,
     KnowledgeDocumentRepository,
+    KnowledgeRetrievalLogRepository,
 )
 from app.repositories.setting_repo import UserSettingRepository
 from app.services.knowledge_index_service import KnowledgeIndexService, RetrievalResult
@@ -27,6 +28,7 @@ class KnowledgeContextResult:
     notices: list[str] = field(default_factory=list)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     details: dict[str, Any] = field(default_factory=dict)
+    retrieval_log_id: str | None = None
 
 
 class KnowledgeContextService:
@@ -38,6 +40,7 @@ class KnowledgeContextService:
         self.base_repo = KnowledgeBaseRepository(db)
         self.document_repo = KnowledgeDocumentRepository(db)
         self.chunk_repo = KnowledgeChunkRepository(db)
+        self.retrieval_log_repo = KnowledgeRetrievalLogRepository(db)
         self.setting_service = SettingService(UserSettingRepository(db))
         self.index_service = index_service
 
@@ -119,31 +122,49 @@ class KnowledgeContextService:
             results=selected,
             max_chars=knowledge_base.max_context_chars,
         )
+        base_diagnostics = {
+            "knowledge_retrieval_enabled": 1,
+            "knowledge_base_id": knowledge_base.id,
+            "knowledge_base_name": knowledge_base.name,
+            "knowledge_chunks_total": total_chunks,
+            "knowledge_chunks_retrieved": len(results),
+            "knowledge_chunks_injected": len(selected) if context_text else 0,
+            "knowledge_context_chars": len(context_text or ""),
+            "knowledge_rerank_enabled": int(bool(knowledge_base.rerank_enabled)),
+            "knowledge_rerank_used": int(any(result.rerank_score is not None for result in selected)),
+            "knowledge_retrieval_latency_ms": latency_ms,
+        }
+        retrieval_log = self.retrieval_log_repo.create(
+            user_id=self.user_id,
+            knowledge_base_id=knowledge_base.id,
+            query=query,
+            retrieval_mode=knowledge_base.retrieval_mode,
+            top_k=knowledge_base.retrieval_top_k,
+            rerank_enabled=bool(knowledge_base.rerank_enabled),
+            rerank_model=knowledge_base.rerank_model if knowledge_base.rerank_enabled else None,
+            candidates=self._serialize_results(results),
+            selected=self._serialize_results(selected),
+            diagnostics=base_diagnostics,
+            sources=[],
+            status="success",
+            elapsed_ms=latency_ms,
+        )
         sources = self._build_sources(
             knowledge_base_id=knowledge_base.id,
             knowledge_base_name=knowledge_base.name,
             results=selected,
+            retrieval_log_id=retrieval_log.id,
         )
-
         return KnowledgeContextResult(
             context_text=context_text,
             sources=sources,
             notices=[],
-            diagnostics={
-                "knowledge_retrieval_enabled": 1,
-                "knowledge_base_id": knowledge_base.id,
-                "knowledge_base_name": knowledge_base.name,
-                "knowledge_chunks_total": total_chunks,
-                "knowledge_chunks_retrieved": len(results),
-                "knowledge_chunks_injected": len(selected) if context_text else 0,
-                "knowledge_context_chars": len(context_text or ""),
-                "knowledge_rerank_enabled": int(bool(knowledge_base.rerank_enabled)),
-                "knowledge_rerank_used": int(any(result.rerank_score is not None for result in selected)),
-                "knowledge_retrieval_latency_ms": latency_ms,
-            },
+            diagnostics={**base_diagnostics, "knowledge_retrieval_log_id": retrieval_log.id},
             details={
                 "knowledge_sources": [source.to_public_dict() for source in sources],
+                "knowledge_retrieval_log_id": retrieval_log.id,
             },
+            retrieval_log_id=retrieval_log.id,
         )
 
     @staticmethod
@@ -197,11 +218,39 @@ class KnowledgeContextService:
         return "\n".join(lines).strip() if len(lines) > 2 else None
 
     @staticmethod
+    def _serialize_results(results: list[RetrievalResult]) -> list[dict[str, Any]]:
+        serialized: list[dict[str, Any]] = []
+        for rank, result in enumerate(results, start=1):
+            serialized.append(
+                {
+                    "rank": rank,
+                    "chunk_id": result.chunk.id,
+                    "knowledge_base_id": result.chunk.knowledge_base_id,
+                    "document_id": result.chunk.document_id,
+                    "file_name": result.metadata.get("file_name") or "unknown",
+                    "chunk_index": result.chunk.chunk_index,
+                    "vector_id": result.chunk.vector_id,
+                    "score": result.rerank_score if result.rerank_score is not None else result.score,
+                    "vector_score": result.score,
+                    "rerank_score": result.rerank_score,
+                    "rank_source": result.rank_source,
+                    "char_count": result.chunk.char_count,
+                    "token_estimate": result.chunk.token_estimate,
+                    "source_start": result.chunk.source_start,
+                    "source_end": result.chunk.source_end,
+                    "preview": result.chunk.content[:1200],
+                    "metadata": result.metadata,
+                }
+            )
+        return serialized
+
+    @staticmethod
     def _build_sources(
         *,
         knowledge_base_id: str,
         knowledge_base_name: str,
         results: list[RetrievalResult],
+        retrieval_log_id: str | None = None,
     ) -> list[ExternalSource]:
         sources: list[ExternalSource] = []
         for index, result in enumerate(results, start=1):
@@ -219,6 +268,7 @@ class KnowledgeContextService:
                 "rank_source": result.rank_source,
                 "source_start": result.chunk.source_start,
                 "source_end": result.chunk.source_end,
+                "retrieval_log_id": retrieval_log_id,
                 "tool": "knowledge_retrieval",
             }
             sources.append(

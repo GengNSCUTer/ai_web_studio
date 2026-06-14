@@ -120,3 +120,27 @@ class KnowledgeJob(Base):
 
     knowledge_base = relationship("KnowledgeBase", back_populates="jobs")
     document = relationship("KnowledgeDocument", back_populates="jobs")
+
+
+class KnowledgeRetrievalLog(Base):
+    __tablename__ = "knowledge_retrieval_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id"), nullable=True, index=True)
+    user_message_id: Mapped[str | None] = mapped_column(ForeignKey("messages.id"), nullable=True, index=True)
+    assistant_message_id: Mapped[str | None] = mapped_column(ForeignKey("messages.id"), nullable=True, index=True)
+    knowledge_base_id: Mapped[str] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
+    query: Mapped[str] = mapped_column(Text)
+    retrieval_mode: Mapped[str] = mapped_column(String(32), default="vector")
+    top_k: Mapped[int] = mapped_column(Integer, default=20)
+    rerank_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    rerank_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    candidates_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    selected_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sources_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="success")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    elapsed_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
