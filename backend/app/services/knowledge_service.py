@@ -31,7 +31,7 @@ from app.schemas.knowledge import (
 )
 from app.repositories.setting_repo import UserSettingRepository
 from app.services.knowledge_index_service import KnowledgeIndexService
-from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
+from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalFilter, KnowledgeRetrievalPipeline
 from app.services.knowledge_parser_service import KnowledgeParserService
 from app.services.knowledge_model_metadata import infer_embedding_dimensions
 from app.services.secret_service import SecretService
@@ -406,11 +406,29 @@ class KnowledgeDocumentService:
         user_id: str,
         query: str,
         top_k: int | None = None,
+        document_ids: list[str] | None = None,
+        file_types: list[str] | None = None,
+        page_start: int | None = None,
+        page_end: int | None = None,
+        section_query: str | None = None,
     ) -> KnowledgeRetrievalTestResponse | None:
         knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
         if not knowledge_base:
             return None
+        if page_start is not None and page_end is not None and page_start > page_end:
+            raise ValueError("页码范围不合法：起始页不能大于结束页。")
         resolved_top_k = top_k or knowledge_base.retrieval_top_k
+        filters = KnowledgeRetrievalFilter(
+            document_ids=self._valid_document_filter_ids(
+                knowledge_base_id=knowledge_base_id,
+                user_id=user_id,
+                document_ids=document_ids or [],
+            ),
+            file_types=self._normalize_file_types(file_types or []),
+            page_start=page_start,
+            page_end=page_end,
+            section_query=self._normalize_optional_text(section_query),
+        )
         retrieval_pipeline = KnowledgeRetrievalPipeline(
             chunk_repo=self.chunk_repo,
             setting_service=SettingService(self.setting_repo),
@@ -420,6 +438,7 @@ class KnowledgeDocumentService:
             knowledge_base=knowledge_base,
             query=query,
             top_k=resolved_top_k,
+            filters=filters,
         )
         documents = {
             document.id: document
@@ -431,6 +450,7 @@ class KnowledgeDocumentService:
             total_chunks=self.chunk_repo.count_by_knowledge_base(knowledge_base_id, user_id),
             rerank_enabled=knowledge_base.rerank_enabled,
             rerank_model=knowledge_base.rerank_model if knowledge_base.rerank_enabled else None,
+            filters=filters.to_public_dict(),
             results=[
                 KnowledgeRetrievalChunkResponse(
                     chunk_id=result.chunk.id,
@@ -449,6 +469,51 @@ class KnowledgeDocumentService:
                 for result in results
             ],
         )
+
+    @staticmethod
+    def _normalize_file_types(file_types: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for item in file_types:
+            value = item.strip().lower()
+            if not value:
+                continue
+            if value in {"application/pdf", "pdf"}:
+                value = "pdf"
+            elif value in {"text/markdown", "markdown", "md"}:
+                value = "markdown"
+            elif value in {"text/plain", "plain", "txt"}:
+                value = "text"
+            elif value in {"text/html", "html"}:
+                value = "html"
+            if value not in normalized:
+                normalized.append(value)
+        return normalized
+
+    def _valid_document_filter_ids(
+        self,
+        *,
+        knowledge_base_id: str,
+        user_id: str,
+        document_ids: list[str],
+    ) -> list[str]:
+        if not document_ids:
+            return []
+        valid_ids = {
+            document.id
+            for document in self.document_repo.list_by_knowledge_base(knowledge_base_id, user_id)
+        }
+        unique_ids = list(dict.fromkeys(document_ids))
+        invalid_ids = [document_id for document_id in unique_ids if document_id not in valid_ids]
+        if invalid_ids:
+            raise ValueError("检索过滤文档不存在或不属于当前知识库。")
+        return unique_ids
+
+    @staticmethod
+    def _normalize_optional_text(value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class KnowledgeJobService:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass, field
 
 from app.models.knowledge import KnowledgeBase
 from app.repositories.knowledge_repo import KnowledgeChunkRepository
@@ -12,6 +13,35 @@ from app.services.knowledge_index_service import (
     RetrievalResult,
 )
 from app.services.setting_service import SettingService
+
+
+@dataclass(frozen=True)
+class KnowledgeRetrievalFilter:
+    document_ids: list[str] = field(default_factory=list)
+    file_types: list[str] = field(default_factory=list)
+    page_start: int | None = None
+    page_end: int | None = None
+    section_query: str | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return bool(
+            self.document_ids
+            or self.file_types
+            or self.page_start is not None
+            or self.page_end is not None
+            or self.section_query
+        )
+
+    def to_public_dict(self) -> dict[str, object]:
+        return {
+            "document_ids": self.document_ids,
+            "file_types": self.file_types,
+            "page_start": self.page_start,
+            "page_end": self.page_end,
+            "section_query": self.section_query,
+            "enabled": self.enabled,
+        }
 
 
 class KnowledgeRetrievalPipeline:
@@ -43,6 +73,7 @@ class KnowledgeRetrievalPipeline:
         knowledge_base: KnowledgeBase,
         query: str,
         top_k: int,
+        filters: KnowledgeRetrievalFilter | None = None,
     ) -> list[RetrievalResult]:
         return asyncio.run(
             self.retrieve_async(
@@ -50,6 +81,7 @@ class KnowledgeRetrievalPipeline:
                 knowledge_base=knowledge_base,
                 query=query,
                 top_k=top_k,
+                filters=filters,
             )
         )
 
@@ -60,7 +92,9 @@ class KnowledgeRetrievalPipeline:
         knowledge_base: KnowledgeBase,
         query: str,
         top_k: int,
+        filters: KnowledgeRetrievalFilter | None = None,
     ) -> list[RetrievalResult]:
+        filters = filters or KnowledgeRetrievalFilter()
         query_vector = (
             await self.embedding_service.embed_texts(
                 user_id=user_id,
@@ -69,7 +103,8 @@ class KnowledgeRetrievalPipeline:
             )
         )[0]
         self._validate_vectors(vectors=[query_vector], expected_count=1, dimensions=knowledge_base.embedding_dimensions)
-        hits = self.faiss_store.search(knowledge_base_id=knowledge_base.id, query_vector=query_vector, top_k=top_k)
+        candidate_top_k = self._candidate_top_k(top_k=top_k, filters=filters)
+        hits = self.faiss_store.search(knowledge_base_id=knowledge_base.id, query_vector=query_vector, top_k=candidate_top_k)
         if not hits:
             return []
 
@@ -83,6 +118,12 @@ class KnowledgeRetrievalPipeline:
                 continue
             metadata = json.loads(chunk.metadata_json or "{}")
             results.append(RetrievalResult(chunk=chunk, score=score_by_id[vector_id], metadata=metadata))
+        if filters.enabled:
+            results = self._apply_filters(results, filters)[:top_k]
+        else:
+            results = results[:top_k]
+        if not results:
+            return []
 
         if not knowledge_base.rerank_enabled or len(results) <= 1:
             return self._apply_score_threshold(results, knowledge_base.score_threshold)
@@ -126,6 +167,62 @@ class KnowledgeRetrievalPipeline:
                 )
             )
         return self._apply_score_threshold(reranked_results, knowledge_base.score_threshold)
+
+    @staticmethod
+    def _candidate_top_k(*, top_k: int, filters: KnowledgeRetrievalFilter) -> int:
+        if not filters.enabled:
+            return top_k
+        return min(max(top_k * 5, top_k + 20), 200)
+
+    @staticmethod
+    def _apply_filters(results: list[RetrievalResult], filters: KnowledgeRetrievalFilter) -> list[RetrievalResult]:
+        return [result for result in results if KnowledgeRetrievalPipeline._matches_filters(result, filters)]
+
+    @staticmethod
+    def _matches_filters(result: RetrievalResult, filters: KnowledgeRetrievalFilter) -> bool:
+        chunk = result.chunk
+        metadata = result.metadata or {}
+        if filters.document_ids and chunk.document_id not in filters.document_ids:
+            return False
+        if filters.file_types:
+            file_type = KnowledgeRetrievalPipeline._normalize_file_type(
+                str(metadata.get("file_type") or metadata.get("mime_type") or "")
+            )
+            if file_type not in filters.file_types:
+                return False
+        page_number = KnowledgeRetrievalPipeline._extract_page_number(metadata)
+        if filters.page_start is not None and (page_number is None or page_number < filters.page_start):
+            return False
+        if filters.page_end is not None and (page_number is None or page_number > filters.page_end):
+            return False
+        if filters.section_query:
+            section = str(metadata.get("section_title") or metadata.get("heading") or "").lower()
+            if filters.section_query.lower() not in section:
+                return False
+        return True
+
+    @staticmethod
+    def _normalize_file_type(value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized in {"application/pdf", "pdf"}:
+            return "pdf"
+        if normalized in {"text/markdown", "markdown", "md"}:
+            return "markdown"
+        if normalized in {"text/plain", "txt", "plain"}:
+            return "text"
+        if normalized in {"text/html", "html"}:
+            return "html"
+        return normalized
+
+    @staticmethod
+    def _extract_page_number(metadata: dict) -> int | None:
+        for key in ("page_number", "page", "source_page"):
+            value = metadata.get(key)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.strip().isdigit():
+                return int(value.strip())
+        return None
 
     @staticmethod
     def _mark_rerank_fallback(results: list[RetrievalResult], reason: str) -> list[RetrievalResult]:

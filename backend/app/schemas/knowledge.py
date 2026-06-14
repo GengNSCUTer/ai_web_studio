@@ -175,6 +175,11 @@ class KnowledgeDocumentIndexResponse(BaseModel):
 class KnowledgeRetrievalTestRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     top_k: int | None = Field(default=None, ge=1, le=50)
+    document_ids: list[str] = Field(default_factory=list)
+    file_types: list[str] = Field(default_factory=list)
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    section_query: str | None = Field(default=None, max_length=128)
 
 
 class KnowledgeRetrievalChunkResponse(BaseModel):
@@ -196,6 +201,7 @@ class KnowledgeRetrievalTestResponse(BaseModel):
     total_chunks: int
     rerank_enabled: bool = False
     rerank_model: str | None = None
+    filters: dict = Field(default_factory=dict)
     results: list[KnowledgeRetrievalChunkResponse]
 
 

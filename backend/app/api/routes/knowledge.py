@@ -256,6 +256,11 @@ def test_retrieval(
             user_id=current_user.id,
             query=payload.query,
             top_k=payload.top_k,
+            document_ids=payload.document_ids,
+            file_types=payload.file_types,
+            page_start=payload.page_start,
+            page_end=payload.page_end,
+            section_query=payload.section_query,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

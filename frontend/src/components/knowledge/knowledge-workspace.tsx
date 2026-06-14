@@ -20,6 +20,7 @@ import type {
   KnowledgeJob,
   KnowledgeMarkdownPreview,
   KnowledgeRetrievalLog,
+  KnowledgeRetrievalTestRequest,
   KnowledgeRetrievalTestResult,
   Project,
   UploadItem,
@@ -172,6 +173,37 @@ function formatMetric(value: unknown) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function parseOptionalPositiveInt(value: string) {
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+  const parsed = Number(normalized);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function formatRetrievalFilters(filters: Record<string, unknown> | null | undefined) {
+  if (!filters?.enabled) {
+    return "未启用过滤";
+  }
+  const parts: string[] = [];
+  const documentIds = Array.isArray(filters.document_ids) ? filters.document_ids : [];
+  const fileTypes = Array.isArray(filters.file_types) ? filters.file_types : [];
+  if (documentIds.length > 0) {
+    parts.push(`文档 ${documentIds.length} 个`);
+  }
+  if (fileTypes.length > 0) {
+    parts.push(`类型 ${fileTypes.map(String).join("/")}`);
+  }
+  if (typeof filters.page_start === "number" || typeof filters.page_end === "number") {
+    parts.push(`页码 ${filters.page_start ?? "?"}-${filters.page_end ?? "?"}`);
+  }
+  if (typeof filters.section_query === "string" && filters.section_query.trim()) {
+    parts.push(`章节 ${filters.section_query.trim()}`);
+  }
+  return parts.length > 0 ? `过滤条件：${parts.join(" · ")}` : "已启用过滤";
+}
+
 export function KnowledgeWorkspace({
   currentUser,
   initialKnowledgeBases,
@@ -202,6 +234,11 @@ export function KnowledgeWorkspace({
   const [retrievalQuery, setRetrievalQuery] = useState("");
   const [retrievalResult, setRetrievalResult] = useState<KnowledgeRetrievalTestResult | null>(null);
   const [isTestingRetrieval, setIsTestingRetrieval] = useState(false);
+  const [retrievalDocumentIds, setRetrievalDocumentIds] = useState<string[]>([]);
+  const [retrievalFileTypes, setRetrievalFileTypes] = useState<string[]>([]);
+  const [retrievalPageStart, setRetrievalPageStart] = useState("");
+  const [retrievalPageEnd, setRetrievalPageEnd] = useState("");
+  const [retrievalSectionQuery, setRetrievalSectionQuery] = useState("");
   const [retrievalLogs, setRetrievalLogs] = useState<KnowledgeRetrievalLog[]>([]);
   const [isLoadingRetrievalLogs, setIsLoadingRetrievalLogs] = useState(false);
   const [evalSets, setEvalSets] = useState<KnowledgeEvalSet[]>([]);
@@ -525,6 +562,15 @@ export function KnowledgeWorkspace({
     setIsTestingRetrieval(true);
     setErrorMessage(null);
     try {
+      const requestBody: KnowledgeRetrievalTestRequest = {
+        query: retrievalQuery.trim(),
+        top_k: visibleActiveKnowledgeBase.retrieval_top_k,
+        document_ids: retrievalDocumentIds,
+        file_types: retrievalFileTypes,
+        page_start: parseOptionalPositiveInt(retrievalPageStart),
+        page_end: parseOptionalPositiveInt(retrievalPageEnd),
+        section_query: retrievalSectionQuery.trim() || null,
+      };
       const result = await requestJson<KnowledgeRetrievalTestResult>(
         `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/retrieval-test`,
         {
@@ -532,10 +578,7 @@ export function KnowledgeWorkspace({
           headers: {
             "content-type": "application/json",
           },
-          body: JSON.stringify({
-            query: retrievalQuery.trim(),
-            top_k: visibleActiveKnowledgeBase.retrieval_top_k,
-          }),
+          body: JSON.stringify(requestBody),
         }
       );
       setRetrievalResult(result);
@@ -544,6 +587,18 @@ export function KnowledgeWorkspace({
     } finally {
       setIsTestingRetrieval(false);
     }
+  }
+
+  function toggleRetrievalDocumentId(documentId: string) {
+    setRetrievalDocumentIds((current) =>
+      current.includes(documentId) ? current.filter((item) => item !== documentId) : [...current, documentId]
+    );
+  }
+
+  function toggleRetrievalFileType(fileType: string) {
+    setRetrievalFileTypes((current) =>
+      current.includes(fileType) ? current.filter((item) => item !== fileType) : [...current, fileType]
+    );
   }
 
   async function handleCreateEvalSet(event: FormEvent<HTMLFormElement>) {
@@ -921,6 +976,95 @@ export function KnowledgeWorkspace({
                           className="min-h-24 w-full resize-none rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-strong)]"
                           placeholder="输入要检索的问题，例如：这篇论文提出了什么方法？"
                         />
+                        <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--soft-bg)] p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-medium text-[var(--ink-soft)]">过滤条件</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRetrievalDocumentIds([]);
+                                setRetrievalFileTypes([]);
+                                setRetrievalPageStart("");
+                                setRetrievalPageEnd("");
+                                setRetrievalSectionQuery("");
+                              }}
+                              className="text-xs text-[var(--ink-muted)] underline-offset-2 hover:underline"
+                            >
+                              清空
+                            </button>
+                          </div>
+                          <div className="mt-3 space-y-3">
+                            <div>
+                              <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-[var(--ink-muted)]">
+                                文档
+                              </p>
+                              <div className="max-h-28 space-y-2 overflow-y-auto pr-1">
+                                {documents.length === 0 ? (
+                                  <p className="text-xs text-[var(--ink-muted)]">暂无文档可选。</p>
+                                ) : (
+                                  documents.map((document) => (
+                                    <label
+                                      key={document.id}
+                                      className="flex cursor-pointer items-center gap-2 rounded-xl border border-transparent px-2 py-1.5 text-xs text-[var(--ink-soft)] hover:border-[var(--control-border)]"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={retrievalDocumentIds.includes(document.id)}
+                                        onChange={() => toggleRetrievalDocumentId(document.id)}
+                                      />
+                                      <span className="truncate">
+                                        {document.file_name} · {document.mime_type || "unknown"}
+                                      </span>
+                                    </label>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-[var(--ink-muted)]">
+                                文件类型
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {["pdf", "markdown", "text", "html"].map((fileType) => (
+                                  <button
+                                    key={fileType}
+                                    type="button"
+                                    onClick={() => toggleRetrievalFileType(fileType)}
+                                    className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                                      retrievalFileTypes.includes(fileType)
+                                        ? "border-[var(--accent-strong)] bg-[var(--accent-soft)] text-[var(--ink-strong)]"
+                                        : "border-[var(--control-border)] bg-[var(--control-bg)] text-[var(--ink-soft)]"
+                                    }`}
+                                  >
+                                    {fileType}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-3">
+                              <input
+                                value={retrievalPageStart}
+                                onChange={(event) => setRetrievalPageStart(event.target.value)}
+                                inputMode="numeric"
+                                className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)]"
+                                placeholder="起始页"
+                              />
+                              <input
+                                value={retrievalPageEnd}
+                                onChange={(event) => setRetrievalPageEnd(event.target.value)}
+                                inputMode="numeric"
+                                className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)]"
+                                placeholder="结束页"
+                              />
+                              <input
+                                value={retrievalSectionQuery}
+                                onChange={(event) => setRetrievalSectionQuery(event.target.value)}
+                                className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent-strong)]"
+                                placeholder="章节关键词"
+                              />
+                            </div>
+                          </div>
+                        </div>
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="text-xs text-[var(--ink-muted)]">
                             Top K：{visibleActiveKnowledgeBase.retrieval_top_k}
@@ -947,6 +1091,7 @@ export function KnowledgeWorkspace({
                                 ? retrievalResult.rerank_model || "已启用"
                                 : "未启用"}
                             </span>
+                            <span className="ml-2">{formatRetrievalFilters(retrievalResult.filters)}</span>
                           </div>
                           {retrievalResult.results.length === 0 ? (
                             <EmptyBox text="没有召回结果。请确认至少一个文档已索引，或调整查询和阈值。" />

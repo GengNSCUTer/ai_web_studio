@@ -264,7 +264,18 @@ export type KnowledgeRetrievalTestResult = {
   total_chunks: number;
   rerank_enabled: boolean;
   rerank_model: string | null;
+  filters: Record<string, unknown>;
   results: KnowledgeRetrievalChunk[];
+};
+
+export type KnowledgeRetrievalTestRequest = {
+  query: string;
+  top_k?: number | null;
+  document_ids?: string[];
+  file_types?: string[];
+  page_start?: number | null;
+  page_end?: number | null;
+  section_query?: string | null;
 };
 
 export type KnowledgeRetrievalLog = {

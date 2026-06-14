@@ -336,6 +336,12 @@ class KnowledgeIndexService:
                 metadata_json=json.dumps(
                     {
                         "file_name": document.file_name,
+                        "mime_type": document.mime_type,
+                        "file_type": self._normalize_file_type(document.file_name, document.mime_type),
+                        "document_id": document.id,
+                        "chunk_index": chunk.chunk_index,
+                        "source_start": chunk.source_start,
+                        "source_end": chunk.source_end,
                         "document_version": document.document_version,
                         "parser_provider": document.parser_provider,
                     },
@@ -446,3 +452,17 @@ class KnowledgeIndexService:
         for vector in vectors:
             if len(vector) != dimensions:
                 raise RuntimeError(f"Embedding 维度不一致：知识库维度 {dimensions}，实际返回 {len(vector)}。")
+
+    @staticmethod
+    def _normalize_file_type(file_name: str, mime_type: str | None) -> str:
+        mime = (mime_type or "").strip().lower()
+        suffix = Path(file_name).suffix.lower().lstrip(".")
+        if mime == "application/pdf" or suffix == "pdf":
+            return "pdf"
+        if mime == "text/markdown" or suffix in {"md", "markdown"}:
+            return "markdown"
+        if mime == "text/plain" or suffix == "txt":
+            return "text"
+        if mime == "text/html" or suffix in {"html", "htm"}:
+            return "html"
+        return suffix or mime or "unknown"

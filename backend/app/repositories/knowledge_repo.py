@@ -402,6 +402,25 @@ class KnowledgeEvalSetRepository:
         return eval_set
 
     def delete(self, eval_set: KnowledgeEvalSet) -> None:
+        run_ids = [
+            row[0]
+            for row in self.db.execute(
+                select(KnowledgeEvalRun.id).where(KnowledgeEvalRun.eval_set_id == eval_set.id)
+            ).all()
+        ]
+        case_ids = [
+            row[0]
+            for row in self.db.execute(
+                select(KnowledgeEvalCase.id).where(KnowledgeEvalCase.eval_set_id == eval_set.id)
+            ).all()
+        ]
+        if run_ids:
+            self.db.execute(delete(KnowledgeEvalResult).where(KnowledgeEvalResult.run_id.in_(run_ids)))
+        if case_ids:
+            self.db.execute(delete(KnowledgeEvalResult).where(KnowledgeEvalResult.case_id.in_(case_ids)))
+            self.db.execute(delete(KnowledgeEvalCase).where(KnowledgeEvalCase.id.in_(case_ids)))
+        if run_ids:
+            self.db.execute(delete(KnowledgeEvalRun).where(KnowledgeEvalRun.id.in_(run_ids)))
         self.db.delete(eval_set)
         self.db.commit()
 

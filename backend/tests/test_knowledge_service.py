@@ -60,7 +60,7 @@ from app.services.knowledge_index_service import (
 from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.knowledge_evaluation_service import KnowledgeEvaluationService
 from app.services.knowledge_model_catalog_service import KnowledgeModelCatalogService
-from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
+from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalFilter, KnowledgeRetrievalPipeline
 from app.services.setting_service import SettingService
 
 
@@ -809,6 +809,125 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertGreater(float(outcome.run.metrics["mrr"]), 0)
         self.assertEqual(len(outcome.results), 1)
         self.assertTrue(outcome.results[0].hit_at_k)
+        saved_eval_set = KnowledgeEvalSetRepository(self.db).get_by_user(eval_set.id, self.user.id)
+        assert saved_eval_set is not None
+        KnowledgeEvalSetRepository(self.db).delete(saved_eval_set)
+        self.assertEqual(len(KnowledgeEvalCaseRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)), 0)
+        self.assertEqual(len(KnowledgeEvalRunRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)), 0)
+
+    def test_rag61_retrieval_test_supports_metadata_filters(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        setting_service = SettingService(UserSettingRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="RAG6.1 过滤测试",
+                parser_provider="local_basic",
+                chunk_size=120,
+                chunk_overlap=10,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+                retrieval_top_k=5,
+                rerank_top_n=3,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        adaptive_file = user_dir / "adaptive.md"
+        expert_file = user_dir / "expert.txt"
+        adaptive_file.write_text("Adaptive RAG uses routing to select retrieval strategy.", encoding="utf-8")
+        expert_file.write_text("Mixture of experts and MoE routing can improve specialization.", encoding="utf-8")
+
+        adaptive_document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="adaptive.md",
+                mime_type="text/markdown",
+                file_size=adaptive_file.stat().st_size,
+                storage_key=f"{self.user.id}/adaptive.md",
+            ),
+        )
+        expert_document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="expert.txt",
+                mime_type="text/plain",
+                file_size=expert_file.stat().st_size,
+                storage_key=f"{self.user.id}/expert.txt",
+            ),
+        )
+        assert adaptive_document is not None
+        assert expert_document is not None
+        document_service.parse_document(knowledge_base.id, adaptive_document.id, self.user.id)
+        document_service.parse_document(knowledge_base.id, expert_document.id, self.user.id)
+
+        index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        )
+        parsed_adaptive = document_repo.get_by_user(adaptive_document.id, self.user.id)
+        parsed_expert = document_repo.get_by_user(expert_document.id, self.user.id)
+        assert parsed_adaptive is not None
+        assert parsed_expert is not None
+        index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_adaptive)
+        index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_expert)
+
+        filtered_by_document = KnowledgeRetrievalPipeline(
+            chunk_repo=chunk_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="adaptive rag routing",
+            top_k=5,
+            filters=KnowledgeRetrievalFilter(document_ids=[expert_document.id]),
+        )
+
+        self.assertGreaterEqual(len(filtered_by_document), 1)
+        self.assertTrue(all(result.chunk.document_id == expert_document.id for result in filtered_by_document))
+
+        filtered_by_type = KnowledgeRetrievalPipeline(
+            chunk_repo=chunk_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="adaptive rag routing",
+            top_k=5,
+            filters=KnowledgeRetrievalFilter(file_types=["markdown"]),
+        )
+
+        self.assertGreaterEqual(len(filtered_by_type), 1)
+        self.assertTrue(all(result.chunk.document_id == adaptive_document.id for result in filtered_by_type))
+
+        with self.assertRaises(ValueError):
+            document_service.test_retrieval(
+                knowledge_base.id,
+                self.user.id,
+                query="adaptive rag routing",
+                document_ids=[str(uuid4())],
+            )
 
     def test_retrieve_uses_rerank_when_enabled(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))

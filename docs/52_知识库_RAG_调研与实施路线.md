@@ -1522,3 +1522,43 @@ RAG-6.6 Contextual Retrieval 实验
 2. `RAG-6.2`：多知识库检索。
 3. `RAG-6.3`：BM25 / lexical retriever。
 4. `RAG-6.4`：Hybrid Search + RRF。
+
+## 23. 2026-06-14 RAG-6.1 实现进展
+
+本轮已完成 RAG-6.1 第一版落地。
+
+核心变化：
+
+- 在 `KnowledgeRetrievalPipeline` 中新增 metadata filter 能力。
+- 新增 `KnowledgeRetrievalFilter`，承载检索过滤参数。
+- 检索测试 API 和前端检索测试面板均已接入过滤条件。
+- 新索引写入更完整的 chunk metadata，后续可继续扩展页码、章节、标题路径、表格/图片 caption。
+
+当前支持的过滤条件：
+
+- 文档 ID。
+- 文件类型。
+- 页码范围。
+- 章节关键词。
+
+当前实现策略：
+
+- 先 FAISS 向量召回。
+- 启用过滤时放大候选数。
+- 读取数据库 chunk 并合并 `metadata_json`。
+- 执行过滤。
+- 再进入 rerank / score threshold。
+
+边界：
+
+- 本阶段不新增数据库列，不做迁移。
+- 历史 chunk 需要重建索引才会获得新的 `file_type/source_start/source_end` 等 metadata。
+- 页码和章节过滤依赖 MinerU 或后续解析器提供对应 metadata；当前本地基础解析不保证有页码和章节。
+- 大规模知识库下，后置过滤会有性能和召回边界，后续需要升级为 JSONB 索引或向量库级 metadata filter。
+
+下一步：
+
+1. `RAG-6.2`：多知识库检索。
+2. RAG-6.0 易用性增强：检索结果一键加入评测集、评测 run 详情。
+3. `RAG-6.3`：BM25 / lexical retriever。
+4. `RAG-6.4`：Hybrid Search + RRF。
