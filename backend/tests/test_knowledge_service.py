@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import asyncio
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +57,7 @@ from app.services.knowledge_index_service import (
     KnowledgeFaissStore,
     KnowledgeIndexService,
     KnowledgeRerankService,
+    RetrievalResult,
 )
 from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.knowledge_evaluation_service import KnowledgeEvaluationService
@@ -100,6 +102,26 @@ class SlowKnowledgeIndexService:
     async def retrieve_async(self, *, user_id: str, knowledge_base, query: str, top_k: int):  # noqa: ANN001, ARG002
         await asyncio.sleep(0.2)
         return []
+
+
+class StaticMultiKnowledgeIndexService:
+    async def retrieve_async(self, *, user_id: str, knowledge_base, query: str, top_k: int):  # noqa: ANN001, ARG002
+        chunks = KnowledgeChunkRepository(self.db).list_by_knowledge_base(knowledge_base.id, user_id)
+        return [
+            RetrievalResult(
+                chunk=chunk,
+                score=0.9 - (index * 0.05),
+                metadata={
+                    "file_name": f"{knowledge_base.name}.md",
+                    "knowledge_base_id": knowledge_base.id,
+                    "query": query,
+                },
+            )
+            for index, chunk in enumerate(chunks[:top_k])
+        ]
+
+    def __init__(self, db):
+        self.db = db
 
 
 class KnowledgeServiceTest(unittest.TestCase):
@@ -1434,6 +1456,96 @@ class KnowledgeServiceTest(unittest.TestCase):
         deleted = base_service.delete_knowledge_base(kb.id, self.user.id)
         self.assertTrue(deleted)
         self.assertIsNone(KnowledgeRetrievalLogRepository(self.db).get_by_user(log.id, self.user.id))
+
+    def test_build_context_merges_multiple_knowledge_bases(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        kb_a = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="Skill Router",
+                parser_provider="local_basic",
+                retrieval_top_k=3,
+                rerank_top_n=3,
+                max_context_chunks=2,
+                max_context_chars=4000,
+                rerank_enabled=False,
+            ),
+        )
+        kb_b = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="Adaptive RAG",
+                parser_provider="local_basic",
+                retrieval_top_k=3,
+                rerank_top_n=3,
+                max_context_chunks=2,
+                max_context_chars=4000,
+                rerank_enabled=False,
+            ),
+        )
+        assert kb_a is not None
+        assert kb_b is not None
+        for index, (kb, file_name, content) in enumerate(
+            [
+                (kb_a, "skill-router.md", "Skill Router learns to route user requests to suitable tools."),
+                (kb_b, "adaptive-rag.md", "Adaptive RAG adjusts retrieval strategy according to query difficulty."),
+            ],
+            start=1,
+        ):
+            document = KnowledgeDocument(
+                knowledge_base_id=kb.id,
+                user_id=self.user.id,
+                project_id=self.project.id,
+                file_name=file_name,
+                mime_type="text/markdown",
+                file_size=len(content),
+                storage_key=f"{self.user.id}/{file_name}",
+                parser_provider="local_basic",
+                parse_status="done",
+                index_status="done",
+            )
+            self.db.add(document)
+            self.db.flush()
+            self.db.add(
+                KnowledgeChunk(
+                    user_id=self.user.id,
+                    knowledge_base_id=kb.id,
+                    document_id=document.id,
+                    chunk_index=0,
+                    vector_id=index,
+                    content=content,
+                    content_hash=f"hash-{index}",
+                    char_count=len(content),
+                    token_estimate=max(1, len(content) // 4),
+                    metadata_json=json.dumps({"file_name": file_name}, ensure_ascii=False),
+                )
+            )
+        self.db.commit()
+
+        result = asyncio.run(
+            KnowledgeContextService(
+                db=self.db,
+                user_id=self.user.id,
+                index_service=StaticMultiKnowledgeIndexService(self.db),
+            ).build_context(
+                knowledge_base_id=None,
+                knowledge_base_ids=[kb_a.id, kb_b.id],
+                query="介绍一下 routing 和 adaptive rag",
+            )
+        )
+
+        self.assertIsNotNone(result.context_text)
+        assert result.context_text is not None
+        self.assertIn("多知识库检索", result.context_text)
+        self.assertIn("Skill Router", result.context_text)
+        self.assertIn("Adaptive RAG", result.context_text)
+        self.assertEqual(result.diagnostics["knowledge_base_count"], 2)
+        self.assertEqual(result.diagnostics["knowledge_chunks_injected"], 2)
+        self.assertEqual(len(result.sources), 2)
+        self.assertEqual(len(result.retrieval_log_ids), 2)
+        self.assertEqual(len(result.details["knowledge_retrieval_log_ids"]), 2)
+        self.assertEqual(result.sources[0].citation_label, "[KB1]")
+        self.assertEqual(result.sources[1].citation_label, "[KB2]")
 
     def _create_conversation(self, title: str):
         from app.models.conversation import Conversation

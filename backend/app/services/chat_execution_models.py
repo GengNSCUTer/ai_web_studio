@@ -46,6 +46,7 @@ class ExistingTurnExecutionInput:
     thinking_budget: int | None
     web_search_enabled: bool
     knowledge_base_id: str | None = None
+    knowledge_base_ids: list[str] | None = None
 
 
 @dataclass

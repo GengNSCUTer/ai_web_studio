@@ -38,10 +38,10 @@ type ChatThreadProps = {
   highlightedMessageId: string | null;
   uiLanguage: UILanguage;
   knowledgeBases: KnowledgeBase[];
-  selectedKnowledgeBaseId: string;
+  selectedKnowledgeBaseIds: string[];
   isDeepThinkingEnabled: boolean;
   isWebSearchEnabled: boolean;
-  onSelectedKnowledgeBaseIdChange: (knowledgeBaseId: string) => void;
+  onSelectedKnowledgeBaseIdsChange: (knowledgeBaseIds: string[]) => void;
   onDeepThinkingEnabledChange: (enabled: boolean) => void;
   onWebSearchEnabledChange: (enabled: boolean) => void;
   onContextInfoChange: (
@@ -562,10 +562,10 @@ export function ChatThread({
   highlightedMessageId,
   uiLanguage,
   knowledgeBases,
-  selectedKnowledgeBaseId,
+  selectedKnowledgeBaseIds,
   isDeepThinkingEnabled,
   isWebSearchEnabled,
-  onSelectedKnowledgeBaseIdChange,
+  onSelectedKnowledgeBaseIdsChange,
   onDeepThinkingEnabledChange,
   onWebSearchEnabledChange,
   onContextInfoChange,
@@ -1426,7 +1426,8 @@ export function ChatThread({
         systemPrompt,
         thinkingEnabled: isDeepThinkingEnabled,
         webSearchEnabled: isWebSearchEnabled,
-        knowledgeBaseId: selectedKnowledgeBaseId || null,
+        knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
+        knowledgeBaseIds: selectedKnowledgeBaseIds,
       }, assistantMessageId);
     } catch {
       // localError 已在 helper 中设置
@@ -1506,7 +1507,8 @@ export function ChatThread({
         systemPrompt,
         thinkingEnabled: isDeepThinkingEnabled,
         webSearchEnabled: isWebSearchEnabled,
-        knowledgeBaseId: selectedKnowledgeBaseId || null,
+        knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
+        knowledgeBaseIds: selectedKnowledgeBaseIds,
       }, latestAssistantMessageId);
     } catch {
       // 用户消息在后端已被更新，失败时保留编辑结果，只标记回答失败。
@@ -1599,7 +1601,8 @@ export function ChatThread({
           attachments: pendingUploads,
           thinkingEnabled: isDeepThinkingEnabled,
           webSearchEnabled: isWebSearchEnabled,
-          knowledgeBaseId: selectedKnowledgeBaseId || null,
+          knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
+          knowledgeBaseIds: selectedKnowledgeBaseIds,
           messages: [
             {
               role: "user",
@@ -1856,7 +1859,7 @@ export function ChatThread({
           isEditingUserMessage={Boolean(editingUserMessageId)}
           streamingStatusLabel={streamingStatusLabel}
           knowledgeBases={knowledgeBases}
-          selectedKnowledgeBaseId={selectedKnowledgeBaseId}
+          selectedKnowledgeBaseIds={selectedKnowledgeBaseIds}
           isWebSearchEnabled={isWebSearchEnabled}
           isDeepThinkingEnabled={isDeepThinkingEnabled}
           contextInfo={contextInfo}
@@ -1874,7 +1877,7 @@ export function ChatThread({
           onEditUpload={handleEditUpload}
           onPreviewAttachment={setPreviewItem}
           onRemoveUploadedItem={removeUploadedItem}
-          onSelectedKnowledgeBaseIdChange={onSelectedKnowledgeBaseIdChange}
+          onSelectedKnowledgeBaseIdsChange={onSelectedKnowledgeBaseIdsChange}
           onWebSearchEnabledChange={onWebSearchEnabledChange}
           onDeepThinkingEnabledChange={onDeepThinkingEnabledChange}
           onToggleContextPanel={() => setIsContextPanelOpen((current) => !current)}

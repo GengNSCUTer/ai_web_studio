@@ -30,6 +30,7 @@ class KnowledgeContextResult:
     diagnostics: dict[str, Any] = field(default_factory=dict)
     details: dict[str, Any] = field(default_factory=dict)
     retrieval_log_id: str | None = None
+    retrieval_log_ids: list[str] = field(default_factory=list)
 
 
 class KnowledgeContextService:
@@ -49,11 +50,67 @@ class KnowledgeContextService:
         self,
         *,
         knowledge_base_id: str | None,
+        knowledge_base_ids: list[str] | None = None,
         query: str,
     ) -> KnowledgeContextResult:
-        if not knowledge_base_id:
+        resolved_ids = self._normalize_knowledge_base_ids(knowledge_base_id, knowledge_base_ids)
+        if not resolved_ids:
             return self._empty(enabled=False)
+        if len(resolved_ids) == 1:
+            return await self._build_single_context(knowledge_base_id=resolved_ids[0], query=query)
 
+        if not query.strip():
+            return self._empty(
+                enabled=True,
+                knowledge_base_ids=resolved_ids,
+                notices=["当前问题为空，已跳过知识库检索。"],
+            )
+
+        started_at = time.monotonic()
+        partials = await asyncio.gather(
+            *[self._build_single_context(knowledge_base_id=base_id, query=query) for base_id in resolved_ids],
+        )
+        latency_ms = int((time.monotonic() - started_at) * 1000)
+        notices = [notice for partial in partials for notice in partial.notices]
+        all_sources = [source for partial in partials for source in partial.sources]
+        ranked_sources = sorted(
+            all_sources,
+            key=lambda source: float(source.score or 0),
+            reverse=True,
+        )
+        all_results = self._relabel_sources(ranked_sources)
+        max_context_chars = self._multi_context_char_budget(resolved_ids)
+        context_text = self._format_multi_context(results=all_results, max_chars=max_context_chars)
+        injected_sources = all_results[: len(self._extract_context_labels(context_text))]
+        retrieval_log_ids = [partial.retrieval_log_id for partial in partials if partial.retrieval_log_id]
+        diagnostics = self._merge_multi_diagnostics(
+            partials=partials,
+            knowledge_base_ids=resolved_ids,
+            latency_ms=latency_ms,
+            context_text=context_text,
+            injected_count=len(injected_sources),
+            retrieval_log_ids=retrieval_log_ids,
+        )
+        return KnowledgeContextResult(
+            context_text=context_text,
+            sources=injected_sources,
+            notices=notices,
+            diagnostics=diagnostics,
+            details={
+                "knowledge_sources": [source.to_public_dict() for source in injected_sources],
+                "knowledge_retrieval_log_ids": retrieval_log_ids,
+                "knowledge_base_ids": resolved_ids,
+            },
+            retrieval_log_id=retrieval_log_ids[0] if retrieval_log_ids else None,
+            retrieval_log_ids=retrieval_log_ids,
+        )
+
+    async def _build_single_context(
+        self,
+        *,
+        knowledge_base_id: str,
+        query: str,
+    ) -> KnowledgeContextResult:
         knowledge_base = self.base_repo.get_by_user(knowledge_base_id, self.user_id)
         if not knowledge_base:
             return self._empty(
@@ -163,8 +220,10 @@ class KnowledgeContextService:
             details={
                 "knowledge_sources": [source.to_public_dict() for source in sources],
                 "knowledge_retrieval_log_id": retrieval_log.id,
+                "knowledge_retrieval_log_ids": [retrieval_log.id],
             },
             retrieval_log_id=retrieval_log.id,
+            retrieval_log_ids=[retrieval_log.id],
         )
 
     @staticmethod
@@ -173,10 +232,12 @@ class KnowledgeContextService:
         enabled: bool,
         error: int = 0,
         knowledge_base_id: str | None = None,
+        knowledge_base_ids: list[str] | None = None,
         knowledge_base_name: str | None = None,
         notices: list[str] | None = None,
         latency_ms: int = 0,
     ) -> KnowledgeContextResult:
+        resolved_ids = knowledge_base_ids or ([knowledge_base_id] if knowledge_base_id else [])
         return KnowledgeContextResult(
             context_text=None,
             sources=[],
@@ -184,6 +245,8 @@ class KnowledgeContextService:
             diagnostics={
                 "knowledge_retrieval_enabled": int(enabled),
                 "knowledge_base_id": knowledge_base_id or "",
+                "knowledge_base_ids": ",".join(resolved_ids),
+                "knowledge_base_count": len(resolved_ids),
                 "knowledge_base_name": knowledge_base_name or "",
                 "knowledge_chunks_total": 0,
                 "knowledge_chunks_retrieved": 0,
@@ -196,6 +259,16 @@ class KnowledgeContextService:
             },
             details={"knowledge_sources": []},
         )
+
+    @staticmethod
+    def _normalize_knowledge_base_ids(
+        knowledge_base_id: str | None,
+        knowledge_base_ids: list[str] | None,
+    ) -> list[str]:
+        values = [item.strip() for item in (knowledge_base_ids or []) if item and item.strip()]
+        if knowledge_base_id and knowledge_base_id.strip():
+            values.insert(0, knowledge_base_id.strip())
+        return list(dict.fromkeys(values))[:10]
 
     @staticmethod
     def _format_context(*, knowledge_base_name: str, results: list[RetrievalResult], max_chars: int) -> str | None:
@@ -216,6 +289,104 @@ class KnowledgeContextService:
             lines.append(f"{header}\n{content}")
             used_chars += len(header) + len(content)
         return "\n".join(lines).strip() if len(lines) > 2 else None
+
+    @staticmethod
+    def _format_multi_context(*, results: list[ExternalSource], max_chars: int) -> str | None:
+        if not results:
+            return None
+        lines = ["知识库：多知识库检索", "请优先依据以下知识库片段回答；若片段不足以回答，请明确说明不确定。"]
+        used_chars = sum(len(line) for line in lines)
+        for index, source in enumerate(results, start=1):
+            metadata = source.metadata or {}
+            knowledge_base_name = str(metadata.get("knowledge_base_name") or "unknown")
+            file_name = str(metadata.get("file_name") or "unknown")
+            chunk_index = str(metadata.get("chunk_index") or "")
+            score = float(source.score or 0)
+            header = f"\n[KB{index}] 知识库：{knowledge_base_name}；文件：{file_name}；chunk：{chunk_index}；score：{score:.4f}"
+            content = source.display_text.strip()
+            remaining = max_chars - used_chars - len(header)
+            if remaining <= 120:
+                break
+            if len(content) > remaining:
+                content = content[:remaining].rstrip() + "..."
+            lines.append(f"{header}\n{content}")
+            used_chars += len(header) + len(content)
+        return "\n".join(lines).strip() if len(lines) > 2 else None
+
+    @staticmethod
+    def _extract_context_labels(context_text: str | None) -> list[str]:
+        if not context_text:
+            return []
+        return [line for line in context_text.splitlines() if line.startswith("[KB")]
+
+    def _multi_context_char_budget(self, knowledge_base_ids: list[str]) -> int:
+        budgets: list[int] = []
+        for base_id in knowledge_base_ids:
+            knowledge_base = self.base_repo.get_by_user(base_id, self.user_id)
+            if knowledge_base:
+                budgets.append(max(1000, int(knowledge_base.max_context_chars or 12000)))
+        if not budgets:
+            return 12000
+        return min(sum(budgets), 30000)
+
+    @staticmethod
+    def _merge_multi_diagnostics(
+        *,
+        partials: list[KnowledgeContextResult],
+        knowledge_base_ids: list[str],
+        latency_ms: int,
+        context_text: str | None,
+        injected_count: int,
+        retrieval_log_ids: list[str],
+    ) -> dict[str, Any]:
+        total_chunks = sum(int(partial.diagnostics.get("knowledge_chunks_total", 0) or 0) for partial in partials)
+        retrieved = sum(int(partial.diagnostics.get("knowledge_chunks_retrieved", 0) or 0) for partial in partials)
+        errors = sum(int(partial.diagnostics.get("knowledge_retrieval_error", 0) or 0) for partial in partials)
+        rerank_enabled = int(any(int(partial.diagnostics.get("knowledge_rerank_enabled", 0) or 0) for partial in partials))
+        rerank_used = int(any(int(partial.diagnostics.get("knowledge_rerank_used", 0) or 0) for partial in partials))
+        names = [
+            str(partial.diagnostics.get("knowledge_base_name") or "")
+            for partial in partials
+            if str(partial.diagnostics.get("knowledge_base_name") or "").strip()
+        ]
+        return {
+            "knowledge_retrieval_enabled": 1,
+            "knowledge_base_id": knowledge_base_ids[0] if knowledge_base_ids else "",
+            "knowledge_base_ids": ",".join(knowledge_base_ids),
+            "knowledge_base_count": len(knowledge_base_ids),
+            "knowledge_base_name": "、".join(names) if names else "多知识库",
+            "knowledge_chunks_total": total_chunks,
+            "knowledge_chunks_retrieved": retrieved,
+            "knowledge_chunks_injected": injected_count,
+            "knowledge_context_chars": len(context_text or ""),
+            "knowledge_rerank_enabled": rerank_enabled,
+            "knowledge_rerank_used": rerank_used,
+            "knowledge_retrieval_error": int(errors > 0),
+            "knowledge_retrieval_latency_ms": latency_ms,
+            "knowledge_retrieval_log_id": retrieval_log_ids[0] if retrieval_log_ids else "",
+            "knowledge_retrieval_log_ids": ",".join(retrieval_log_ids),
+        }
+
+    @staticmethod
+    def _relabel_sources(sources: list[ExternalSource]) -> list[ExternalSource]:
+        relabeled: list[ExternalSource] = []
+        for index, source in enumerate(sources, start=1):
+            metadata = {**(source.metadata or {}), "citation_label": f"[KB{index}]"}
+            relabeled.append(
+                ExternalSource(
+                    source_type=source.source_type,
+                    provider=source.provider,
+                    title=source.title,
+                    url=source.url,
+                    display_text=source.display_text,
+                    rank=index,
+                    score=source.score,
+                    used_in_prompt=source.used_in_prompt,
+                    citation_label=f"[KB{index}]",
+                    metadata=json.loads(json.dumps(metadata, ensure_ascii=False, default=str)),
+                )
+            )
+        return relabeled
 
     @staticmethod
     def _serialize_results(results: list[RetrievalResult]) -> list[dict[str, Any]]:

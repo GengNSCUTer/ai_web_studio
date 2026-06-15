@@ -1562,3 +1562,50 @@ RAG-6.6 Contextual Retrieval 实验
 2. RAG-6.0 易用性增强：检索结果一键加入评测集、评测 run 详情。
 3. `RAG-6.3`：BM25 / lexical retriever。
 4. `RAG-6.4`：Hybrid Search + RRF。
+
+## 24. 2026-06-15 RAG-6.2 实现进展
+
+本轮已完成 RAG-6.2 多知识库检索第一版。
+
+核心变化：
+
+- 聊天页知识库选择从单选升级为多选。
+- 后端聊天链路新增 `knowledge_base_ids`，并保留 `knowledge_base_id` 兼容旧调用。
+- `KnowledgeContextService` 支持多知识库上下文：
+  - 归一化多库 ID。
+  - 单库走原路径。
+  - 多库并行独立检索。
+  - 全局按最终分数合并。
+  - 重新生成全局 `[KBn]` citation label。
+- 检索日志从单值兼容升级到多值：
+  - `retrieval_log_id` 保留。
+  - `retrieval_log_ids` 记录本轮涉及的全部知识库检索日志。
+  - 消息关联会回写到全部 retrieval logs。
+- 来源卡片继续使用 `retrieval_log_id` 做来源定位，不破坏 RAG-5.5 / RAG-5.6 的引用链路。
+
+当前实现策略：
+
+```text
+chat request
+-> normalize knowledge_base_id + knowledge_base_ids
+-> for each knowledge base:
+     KnowledgeRetrievalPipeline.retrieve_async()
+     single-kb context sources + retrieval log
+-> merge sources by final score
+-> relabel [KB1..KBn]
+-> inject combined knowledge context
+-> update all retrieval logs with message ids
+```
+
+当前边界：
+
+- 当前不是跨库统一索引。
+- 当前不是跨库统一 rerank。
+- 当前没有 BM25 / Hybrid / RRF。
+- 当前多库预算是字符级粗预算，后续需要 token 级预算和每库配额。
+
+下一步：
+
+1. `RAG-6.3`：BM25 / lexical retriever。
+2. `RAG-6.4`：Hybrid Search + RRF。
+3. 检索观测增强：展示多库贡献分布和跨库合并排序过程。

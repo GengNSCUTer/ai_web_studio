@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import type { FormEvent, KeyboardEvent, RefObject } from "react";
+import { useMemo, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
 
 import { ContextDiagnosticsPopover } from "@/components/context-diagnostics-popover";
 import {
@@ -57,7 +57,7 @@ type ChatComposerProps = {
   isEditingUserMessage: boolean;
   streamingStatusLabel: string | null;
   knowledgeBases: KnowledgeBase[];
-  selectedKnowledgeBaseId: string;
+  selectedKnowledgeBaseIds: string[];
   isWebSearchEnabled: boolean;
   isDeepThinkingEnabled: boolean;
   contextInfo: ContextGovernanceInfo | null;
@@ -75,7 +75,7 @@ type ChatComposerProps = {
   onEditUpload: (files: FileList | null) => void | Promise<void>;
   onPreviewAttachment: (item: UploadItem) => void;
   onRemoveUploadedItem: (itemId: string) => void;
-  onSelectedKnowledgeBaseIdChange: (knowledgeBaseId: string) => void;
+  onSelectedKnowledgeBaseIdsChange: (knowledgeBaseIds: string[]) => void;
   onWebSearchEnabledChange: (enabled: boolean) => void;
   onDeepThinkingEnabledChange: (enabled: boolean) => void;
   onToggleContextPanel: () => void;
@@ -96,7 +96,7 @@ export function ChatComposer({
   isEditingUserMessage,
   streamingStatusLabel,
   knowledgeBases,
-  selectedKnowledgeBaseId,
+  selectedKnowledgeBaseIds,
   isWebSearchEnabled,
   isDeepThinkingEnabled,
   contextInfo,
@@ -114,7 +114,7 @@ export function ChatComposer({
   onEditUpload,
   onPreviewAttachment,
   onRemoveUploadedItem,
-  onSelectedKnowledgeBaseIdChange,
+  onSelectedKnowledgeBaseIdsChange,
   onWebSearchEnabledChange,
   onDeepThinkingEnabledChange,
   onToggleContextPanel,
@@ -124,6 +124,29 @@ export function ChatComposer({
   onSubmit,
   onStopGenerating,
 }: ChatComposerProps) {
+  const [isKnowledgePickerOpen, setIsKnowledgePickerOpen] = useState(false);
+  const selectedKnowledgeBaseSet = useMemo(() => new Set(selectedKnowledgeBaseIds), [selectedKnowledgeBaseIds]);
+  const selectedKnowledgeBaseNames = knowledgeBases
+    .filter((knowledgeBase) => selectedKnowledgeBaseSet.has(knowledgeBase.id))
+    .map((knowledgeBase) => knowledgeBase.name);
+  const knowledgePickerLabel =
+    selectedKnowledgeBaseNames.length === 0
+      ? text.noKnowledgeBase
+      : selectedKnowledgeBaseNames.length === 1
+        ? selectedKnowledgeBaseNames[0]
+        : `已选 ${selectedKnowledgeBaseNames.length} 个知识库`;
+  const canPickKnowledgeBase = !isEditingUserMessage && !isGenerating && knowledgeBases.length > 0;
+
+  function toggleKnowledgeBase(knowledgeBaseId: string) {
+    if (!canPickKnowledgeBase) {
+      return;
+    }
+    const nextIds = selectedKnowledgeBaseSet.has(knowledgeBaseId)
+      ? selectedKnowledgeBaseIds.filter((item) => item !== knowledgeBaseId)
+      : [...selectedKnowledgeBaseIds, knowledgeBaseId];
+    onSelectedKnowledgeBaseIdsChange(nextIds);
+  }
+
   return (
     <form onSubmit={(event) => void onSubmit(event)} className="mx-auto w-full max-w-[74rem]">
       <input
@@ -186,20 +209,54 @@ export function ChatComposer({
               >
                 {text.uploadAttachment}
               </button>
-              <select
-                value={selectedKnowledgeBaseId}
-                onChange={(event) => onSelectedKnowledgeBaseIdChange(event.target.value)}
-                disabled={isEditingUserMessage || isGenerating || knowledgeBases.length === 0}
-                aria-label={text.knowledgeBase}
-                className="tool-chip min-w-[9rem] rounded-full border px-3 py-1.5 text-xs outline-none transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
-              >
-                <option value="">{text.noKnowledgeBase}</option>
-                {knowledgeBases.map((knowledgeBase) => (
-                  <option key={knowledgeBase.id} value={knowledgeBase.id}>
-                    {knowledgeBase.name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => canPickKnowledgeBase && setIsKnowledgePickerOpen((current) => !current)}
+                  disabled={!canPickKnowledgeBase}
+                  aria-label={text.knowledgeBase}
+                  className={`tool-chip max-w-[14rem] truncate rounded-full border px-3 py-1.5 text-xs transition ${
+                    selectedKnowledgeBaseIds.length > 0 ? "is-active" : "hover:border-[var(--accent-strong)]"
+                  } disabled:cursor-not-allowed disabled:opacity-55`}
+                >
+                  {knowledgePickerLabel}
+                </button>
+                {isKnowledgePickerOpen && canPickKnowledgeBase ? (
+                  <div className="absolute bottom-full left-0 z-30 mb-2 w-72 rounded-2xl border border-[var(--hairline-strong)] bg-[var(--panel-bg)] p-2 shadow-[var(--shadow-float)]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectedKnowledgeBaseIdsChange([]);
+                        setIsKnowledgePickerOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-[var(--ink-soft)] transition hover:bg-[var(--soft-bg)]"
+                    >
+                      <span>{text.noKnowledgeBase}</span>
+                      {selectedKnowledgeBaseIds.length === 0 ? <span>✓</span> : null}
+                    </button>
+                    <div className="my-1 h-px bg-[var(--hairline)]" />
+                    <div className="max-h-64 overflow-y-auto pr-1">
+                      {knowledgeBases.map((knowledgeBase) => {
+                        const isSelected = selectedKnowledgeBaseSet.has(knowledgeBase.id);
+                        return (
+                          <label
+                            key={knowledgeBase.id}
+                            className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-xs text-[var(--ink)] transition hover:bg-[var(--soft-bg)]"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleKnowledgeBase(knowledgeBase.id)}
+                              className="h-3.5 w-3.5 accent-[var(--accent)]"
+                            />
+                            <span className="min-w-0 flex-1 truncate">{knowledgeBase.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
               <button
                 type="button"
                 onClick={() => onWebSearchEnabledChange(!isWebSearchEnabled)}

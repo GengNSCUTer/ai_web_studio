@@ -119,6 +119,7 @@ class ChatContextAssemblyService:
         thinking_budget: int | None,
         web_search_enabled: bool,
         knowledge_base_id: str | None = None,
+        knowledge_base_ids: list[str] | None = None,
     ) -> ChatExecutionContext:
         memory_bundle = self.build_memory_context(runtime.settings)
         query = getattr(user_message, "content", "") or ""
@@ -143,17 +144,29 @@ class ChatContextAssemblyService:
             user_id=self.user_id,
         ).build_context(
             knowledge_base_id=knowledge_base_id,
+            knowledge_base_ids=knowledge_base_ids,
             query=query,
         )
-        if knowledge_context_result.retrieval_log_id:
-            KnowledgeRetrievalLogRepository(self.db).update_message_links(
-                log_id=knowledge_context_result.retrieval_log_id,
-                user_id=self.user_id,
-                conversation_id=getattr(conversation, "id", None),
-                user_message_id=getattr(user_message, "id", None),
-                assistant_message_id=getattr(assistant_message, "id", None),
-                sources=[source.to_public_dict() for source in knowledge_context_result.sources],
-            )
+        retrieval_log_ids = knowledge_context_result.retrieval_log_ids or (
+            [knowledge_context_result.retrieval_log_id] if knowledge_context_result.retrieval_log_id else []
+        )
+        if retrieval_log_ids:
+            knowledge_log_repo = KnowledgeRetrievalLogRepository(self.db)
+            sources_by_log_id: dict[str, list[dict[str, Any]]] = {}
+            for source in knowledge_context_result.sources:
+                source_dict = source.to_public_dict()
+                log_id = str((source.metadata or {}).get("retrieval_log_id") or "")
+                if log_id:
+                    sources_by_log_id.setdefault(log_id, []).append(source_dict)
+            for log_id in retrieval_log_ids:
+                knowledge_log_repo.update_message_links(
+                    log_id=log_id,
+                    user_id=self.user_id,
+                    conversation_id=getattr(conversation, "id", None),
+                    user_message_id=getattr(user_message, "id", None),
+                    assistant_message_id=getattr(assistant_message, "id", None),
+                    sources=sources_by_log_id.get(log_id, []),
+                )
         summary_bundle = await self._refresh_context_summary(
             conversation=conversation,
             history_rows=history_rows,

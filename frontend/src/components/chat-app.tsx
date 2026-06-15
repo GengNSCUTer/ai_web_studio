@@ -563,7 +563,7 @@ export function ChatApp({
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isDeepThinkingEnabled, setIsDeepThinkingEnabled] = useState(false);
   const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
-  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState("");
+  const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareModalConversation, setShareModalConversation] = useState<Conversation | null>(null);
   const [conversationShare, setConversationShare] = useState<ConversationShare | null>(null);
@@ -1417,10 +1417,10 @@ export function ChatApp({
             highlightedMessageId={highlightedMessageId}
             uiLanguage={uiLanguage}
             knowledgeBases={knowledgeBases}
-            selectedKnowledgeBaseId={selectedKnowledgeBaseId}
+            selectedKnowledgeBaseIds={selectedKnowledgeBaseIds}
             isDeepThinkingEnabled={isDeepThinkingEnabled}
             isWebSearchEnabled={isWebSearchEnabled}
-            onSelectedKnowledgeBaseIdChange={setSelectedKnowledgeBaseId}
+            onSelectedKnowledgeBaseIdsChange={setSelectedKnowledgeBaseIds}
             onDeepThinkingEnabledChange={setIsDeepThinkingEnabled}
             onWebSearchEnabledChange={setIsWebSearchEnabled}
             onContextInfoChange={handleContextInfoChange}

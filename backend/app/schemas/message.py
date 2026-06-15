@@ -42,6 +42,7 @@ class ChatStreamRequest(BaseModel):
     thinking_budget: int | None = None
     web_search_enabled: bool = False
     knowledge_base_id: str | None = Field(default=None, max_length=36)
+    knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
 
 
 class ChatRegenerateRequest(BaseModel):
@@ -53,6 +54,7 @@ class ChatRegenerateRequest(BaseModel):
     thinking_budget: int | None = None
     web_search_enabled: bool = False
     knowledge_base_id: str | None = Field(default=None, max_length=36)
+    knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
 
 
 class ChatEditLastUserRequest(BaseModel):
@@ -67,3 +69,4 @@ class ChatEditLastUserRequest(BaseModel):
     thinking_budget: int | None = None
     web_search_enabled: bool = False
     knowledge_base_id: str | None = Field(default=None, max_length=36)
+    knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)

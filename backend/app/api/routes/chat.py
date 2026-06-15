@@ -282,6 +282,7 @@ async def regenerate_last_answer_stream(
             thinking_budget=payload.thinking_budget,
             web_search_enabled=payload.web_search_enabled,
             knowledge_base_id=payload.knowledge_base_id,
+            knowledge_base_ids=payload.knowledge_base_ids,
         )
     )
     return _build_streaming_response(context, provider_service, event_stream=True)
@@ -348,6 +349,7 @@ async def edit_last_user_stream(
             thinking_budget=payload.thinking_budget,
             web_search_enabled=payload.web_search_enabled,
             knowledge_base_id=payload.knowledge_base_id,
+            knowledge_base_ids=payload.knowledge_base_ids,
         )
     )
     return _build_streaming_response(context, provider_service, event_stream=True)

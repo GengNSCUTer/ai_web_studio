@@ -13,6 +13,7 @@ type RegenerateRequestPayload = {
   thinkingEnabled?: boolean;
   webSearchEnabled?: boolean;
   knowledgeBaseId?: string | null;
+  knowledgeBaseIds?: string[];
 };
 
 export async function POST(request: NextRequest) {
@@ -44,5 +45,6 @@ export async function POST(request: NextRequest) {
     thinking_enabled: Boolean(payload.thinkingEnabled),
     web_search_enabled: Boolean(payload.webSearchEnabled),
     knowledge_base_id: payload.knowledgeBaseId || null,
+    knowledge_base_ids: payload.knowledgeBaseIds ?? [],
   });
 }
