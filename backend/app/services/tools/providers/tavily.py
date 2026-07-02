@@ -10,9 +10,9 @@ from app.services.tools.schemas import ExternalSource
 
 class TavilySearchProvider:
     async def query(self, query: str, *, api_key: str | None = None) -> list[ExternalSource]:
-        api_key = (api_key or settings.tavily_api_key).strip()
+        api_key = (api_key or "").strip()
         if not api_key:
-            raise RuntimeError("未配置 TAVILY_API_KEY")
+            raise RuntimeError("未配置 Tavily API Key")
 
         payload = {
             "api_key": api_key,

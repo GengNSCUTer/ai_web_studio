@@ -23,8 +23,12 @@
 
 - 后端改动：至少执行相关后端单测；涉及 import / model / route / service 时额外执行 `compileall`
 - 前端改动：至少执行相关文件 ESLint；涉及页面、路由、类型或构建配置时额外执行 `npm run build`
+- 涉及前端页面、关键交互或全链路功能时，必须使用 Playwright 做至少一次浏览器冒烟测试，检查页面加载和 console error；如果无法执行，必须说明原因
 - 文档-only 改动：至少检查 `git diff` 和敏感信息，不要求跑完整构建
 - 全链路阶段性功能：尽量执行后端相关测试集合 + 前端 build
+- RAG / 知识库索引检索测试优先使用固定测试账号，不再随意注册临时账号；当前固定测试账号为 `1528713326@qq.com`
+- RAG embedding / rerank 测试优先使用 API Provider，不使用本地 Ollama 做索引检索压测；当前默认组合为 `siliconflow / BAAI/bge-m3` 与 `siliconflow / BAAI/bge-reranker-v2-m3`
+- 本地 Ollama 连接测试使用 `http://127.0.0.1:11435`；注意当前设置表中的 `ollama_base_url` 也是聊天 provider base_url，若账号当前为 `openai-compatible`，不要强行改成 Ollama 地址
 
 当前常用验证命令：
 
@@ -68,14 +72,15 @@ npm run build
 ```bash
 cd /disk2/gengnan/ai_web_studio
 lark-cli docs +update \
+  --api-version v2 \
   --doc https://my.feishu.cn/docx/Mx2KdT3FboSwn3xw6PucH0N2nOf \
-  --mode append \
-  --markdown @./docs/12_飞书同步更新_2026-05-10.md
+  --command append \
+  --content @./docs/12_飞书同步更新_2026-05-10.md
 ```
 
 注意：
 
-- `--markdown @文件路径` 必须使用当前目录下的相对路径
+- `--content @文件路径` 必须使用当前目录下的相对路径
 - 同步后需在回复中说明是否成功（包含成功/失败结论）
 
 ## 4. GitHub 同步要求

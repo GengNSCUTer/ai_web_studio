@@ -44,14 +44,19 @@ type CreateFormState = {
   description: string;
   project_id: string;
   parser_provider: "local_basic" | "mineru";
+  chunk_mode: "general" | "parent_child";
   embedding_provider: string;
   chunk_size: number;
   chunk_overlap: number;
+  parent_chunk_size: number;
+  child_chunk_size: number;
+  child_chunk_overlap: number;
   embedding_model: string;
   embedding_dimensions: number;
   rerank_enabled: boolean;
   rerank_provider: string;
   rerank_model: string;
+  retrieval_mode: "vector" | "lexical" | "hybrid";
   retrieval_top_k: number;
   rerank_top_n: number;
   score_threshold: number;
@@ -72,14 +77,19 @@ function buildDefaultCreateForm(settings?: UserSettings | null): CreateFormState
     project_id: "",
     parser_provider:
       settings?.knowledge_parser_provider === "mineru" ? "mineru" : "local_basic",
+    chunk_mode: "general",
     embedding_provider: settings?.knowledge_embedding_provider || "siliconflow",
     chunk_size: 1000,
     chunk_overlap: 150,
+    parent_chunk_size: 2000,
+    child_chunk_size: 500,
+    child_chunk_overlap: 80,
     embedding_model: embeddingModel,
     embedding_dimensions: embeddingDimensions,
     rerank_enabled: settings?.knowledge_rerank_enabled ?? true,
     rerank_provider: settings?.knowledge_rerank_provider || "siliconflow",
     rerank_model: settings?.knowledge_rerank_model || "BAAI/bge-reranker-v2-m3",
+    retrieval_mode: "hybrid",
     retrieval_top_k: 20,
     rerank_top_n: 6,
     score_threshold: 0.2,
@@ -96,6 +106,19 @@ const EMBEDDING_MODELS = [
   "Qwen/Qwen3-Embedding-8B",
 ];
 const RERANK_MODELS = ["BAAI/bge-reranker-v2-m3"];
+const RETRIEVAL_MODE_OPTIONS = [
+  { value: "hybrid", label: "混合检索（向量 + BM25 + RRF）" },
+  { value: "vector", label: "向量检索" },
+  { value: "lexical", label: "关键词检索（BM25）" },
+];
+const CHUNK_MODE_OPTIONS = [
+  { value: "general", label: "普通分块" },
+  { value: "parent_child", label: "Parent-Child 分块" },
+];
+
+function retrievalModeLabel(value: string) {
+  return RETRIEVAL_MODE_OPTIONS.find((item) => item.value === value)?.label ?? value;
+}
 
 async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -160,10 +183,16 @@ function statusLabel(value: string) {
 function retrievalRankLabel(value: string) {
   const labels: Record<string, string> = {
     rerank: "Rerank",
+    hybrid_rrf: "混合 RRF",
+    lexical: "BM25",
     vector_fallback: "向量回退",
     vector: "向量召回",
   };
   return labels[value] ?? value;
+}
+
+function optionalNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function formatMetric(value: unknown) {
@@ -227,6 +256,7 @@ export function KnowledgeWorkspace({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isSavingMineru, setIsSavingMineru] = useState(false);
+  const [isSavingRetrievalMode, setIsSavingRetrievalMode] = useState(false);
   const [isTestingMineru, setIsTestingMineru] = useState(false);
   const [parsingDocumentId, setParsingDocumentId] = useState<string | null>(null);
   const [indexingDocumentId, setIndexingDocumentId] = useState<string | null>(null);
@@ -339,17 +369,20 @@ export function KnowledgeWorkspace({
         description: createForm.description.trim() || null,
         project_id: createForm.project_id || null,
         parser_provider: createForm.parser_provider,
-        chunk_mode: "general",
+        chunk_mode: createForm.chunk_mode,
         chunk_size: createForm.chunk_size,
         chunk_overlap: createForm.chunk_overlap,
         chunk_delimiter: "\n\n",
+        parent_chunk_size: createForm.chunk_mode === "parent_child" ? createForm.parent_chunk_size : null,
+        child_chunk_size: createForm.chunk_mode === "parent_child" ? createForm.child_chunk_size : null,
+        child_chunk_overlap: createForm.chunk_mode === "parent_child" ? createForm.child_chunk_overlap : null,
         embedding_provider: createForm.embedding_provider,
         embedding_model: createForm.embedding_model,
         embedding_dimensions: createForm.embedding_dimensions,
         rerank_enabled: createForm.rerank_enabled,
         rerank_provider: createForm.rerank_provider,
         rerank_model: createForm.rerank_model,
-        retrieval_mode: "vector",
+        retrieval_mode: createForm.retrieval_mode,
         retrieval_top_k: createForm.retrieval_top_k,
         rerank_top_n: createForm.rerank_top_n,
         score_threshold: createForm.score_threshold,
@@ -371,6 +404,32 @@ export function KnowledgeWorkspace({
       setErrorMessage(error instanceof Error ? error.message : "创建知识库失败。");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleUpdateRetrievalMode(value: CreateFormState["retrieval_mode"]) {
+    if (!visibleActiveKnowledgeBase || value === visibleActiveKnowledgeBase.retrieval_mode) {
+      return;
+    }
+    setIsSavingRetrievalMode(true);
+    setErrorMessage(null);
+    try {
+      const updated = await requestJson<KnowledgeBase>(
+        `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ retrieval_mode: value }),
+        }
+      );
+      setKnowledgeBases((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setRetrievalResult(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "保存检索模式失败。");
+    } finally {
+      setIsSavingRetrievalMode(false);
     }
   }
 
@@ -807,11 +866,32 @@ export function KnowledgeWorkspace({
                   <Panel title="配置概览" subtitle="RAG-3 已接入分块与向量索引；更换 Embedding 模型后需要重建索引。">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Info label="解析器" value={visibleActiveKnowledgeBase.parser_provider} />
-                      <Info label="分块模式" value={visibleActiveKnowledgeBase.chunk_mode} />
+                      <Info
+                        label="分块模式"
+                        value={
+                          visibleActiveKnowledgeBase.chunk_mode === "parent_child"
+                            ? `Parent-Child ${visibleActiveKnowledgeBase.parent_chunk_size ?? "-"} / ${visibleActiveKnowledgeBase.child_chunk_size ?? "-"}`
+                            : "普通分块"
+                        }
+                      />
                       <Info label="Embedding" value={visibleActiveKnowledgeBase.embedding_model} />
                       <Info label="Rerank" value={visibleActiveKnowledgeBase.rerank_enabled ? visibleActiveKnowledgeBase.rerank_model : "未启用"} />
-                      <Info label="检索模式" value={visibleActiveKnowledgeBase.retrieval_mode} />
                       <Info label="分数阈值" value={`${visibleActiveKnowledgeBase.score_threshold}`} />
+                      <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 sm:col-span-2">
+                        <SelectField
+                          label="检索模式"
+                          value={visibleActiveKnowledgeBase.retrieval_mode}
+                          onChange={(value) =>
+                            handleUpdateRetrievalMode(value as CreateFormState["retrieval_mode"])
+                          }
+                          options={RETRIEVAL_MODE_OPTIONS}
+                        />
+                        <p className="mt-2 text-xs leading-5 text-[var(--ink-muted)]">
+                          {isSavingRetrievalMode
+                            ? "正在保存检索模式..."
+                            : "Hybrid 会同时走向量召回和 BM25 关键词召回，再用 RRF 融合候选。"}
+                        </p>
+                      </div>
                     </div>
                   </Panel>
 
@@ -1085,6 +1165,9 @@ export function KnowledgeWorkspace({
                             <span>
                               共 {retrievalResult.total_chunks} 个已索引片段，返回 {retrievalResult.results.length} 条结果。
                             </span>
+                            {visibleActiveKnowledgeBase ? (
+                              <span className="ml-2">模式：{retrievalModeLabel(visibleActiveKnowledgeBase.retrieval_mode)}</span>
+                            ) : null}
                             <span className="ml-2">
                               Rerank：
                               {retrievalResult.rerank_enabled
@@ -1106,14 +1189,25 @@ export function KnowledgeWorkspace({
                                     <div className="min-w-0">
                                       <p className="truncate text-sm font-semibold">{result.file_name}</p>
                                       <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                                        Chunk #{result.chunk_index} · 最终 {result.score.toFixed(4)} · 向量{" "}
-                                        {result.vector_score.toFixed(4)}
+                                        Chunk #{result.chunk_index} · 最终 {result.score.toFixed(4)}
+                                        {result.rank_source !== "lexical"
+                                          ? ` · 向量 ${result.vector_score.toFixed(4)}`
+                                          : ""}
+                                        {optionalNumber(result.metadata?.lexical_score) !== null
+                                          ? ` · BM25 ${optionalNumber(result.metadata?.lexical_score)?.toFixed(4)}`
+                                          : ""}
+                                        {optionalNumber(result.metadata?.rrf_score) !== null
+                                          ? ` · RRF ${optionalNumber(result.metadata?.rrf_score)?.toFixed(4)}`
+                                          : ""}
                                         {result.rerank_score !== null
                                           ? ` · Rerank ${result.rerank_score.toFixed(4)}`
                                           : ""}
                                       </p>
                                       <p className="mt-1 break-all text-[11px] text-[var(--ink-muted)]">
                                         chunk_id：{result.chunk_id}
+                                        {result.metadata?.chunk_mode === "parent_child"
+                                          ? ` · Parent #${String(result.metadata.parent_index ?? "-")} · child ${String(result.metadata.child_char_count ?? "-")} 字 / parent ${String(result.metadata.parent_char_count ?? "-")} 字`
+                                          : ""}
                                       </p>
                                     </div>
                                     <Badge label={retrievalRankLabel(result.rank_source)} />
@@ -1453,8 +1547,15 @@ export function KnowledgeWorkspace({
                   ]}
                 />
 
+                <SelectField
+                  label="分块模式"
+                  value={createForm.chunk_mode}
+                  onChange={(value) => updateCreateForm("chunk_mode", value as CreateFormState["chunk_mode"])}
+                  options={CHUNK_MODE_OPTIONS}
+                />
+
                 <NumberField
-                  label="Chunk Size"
+                  label={createForm.chunk_mode === "parent_child" ? "普通 Chunk Size（兼容）" : "Chunk Size"}
                   value={createForm.chunk_size}
                   min={100}
                   max={8000}
@@ -1467,6 +1568,35 @@ export function KnowledgeWorkspace({
                   max={2000}
                   onChange={(value) => updateCreateForm("chunk_overlap", value)}
                 />
+
+                {createForm.chunk_mode === "parent_child" ? (
+                  <>
+                    <NumberField
+                      label="Parent Chunk Size"
+                      value={createForm.parent_chunk_size}
+                      min={500}
+                      max={20000}
+                      onChange={(value) => updateCreateForm("parent_chunk_size", value)}
+                    />
+                    <NumberField
+                      label="Child Chunk Size"
+                      value={createForm.child_chunk_size}
+                      min={100}
+                      max={4000}
+                      onChange={(value) => updateCreateForm("child_chunk_size", value)}
+                    />
+                    <NumberField
+                      label="Child Overlap"
+                      value={createForm.child_chunk_overlap}
+                      min={0}
+                      max={2000}
+                      onChange={(value) => updateCreateForm("child_chunk_overlap", value)}
+                    />
+                    <p className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-xs leading-6 text-[var(--ink-muted)]">
+                      Parent-Child 会用较短 child 做召回，命中后把较长 parent 内容注入上下文，适合论文、长章节和表格附近说明。
+                    </p>
+                  </>
+                ) : null}
 
                 <SelectField
                   label="Embedding Provider"
@@ -1518,11 +1648,17 @@ export function KnowledgeWorkspace({
                 />
 
                 <NumberField
-                  label="Vector Top K"
+                  label="召回 Top K"
                   value={createForm.retrieval_top_k}
                   min={1}
                   max={100}
                   onChange={(value) => updateCreateForm("retrieval_top_k", value)}
+                />
+                <SelectField
+                  label="检索模式"
+                  value={createForm.retrieval_mode}
+                  onChange={(value) => updateCreateForm("retrieval_mode", value as CreateFormState["retrieval_mode"])}
+                  options={RETRIEVAL_MODE_OPTIONS}
                 />
                 <NumberField
                   label="Rerank Top N"

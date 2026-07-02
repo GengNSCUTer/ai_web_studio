@@ -524,6 +524,7 @@ export type UserSettings = {
   provider_type: string;
   default_model: string;
   ollama_base_url: string;
+  api_base_url: string;
   api_key: string | null;
   has_api_key?: boolean;
   api_key_masked?: string | null;

@@ -18,10 +18,15 @@ class ToolCredential:
 
 
 class ToolCredentialResolver:
-    def __init__(self, db: Session | None = None) -> None:
+    def __init__(self, db: Session | None = None, *, allow_env_fallback: bool | None = None) -> None:
         self.db = db
         self.repo = ToolConfigRepository(db) if db else None
         self.secrets = SecretService()
+        self.allow_env_fallback = (
+            settings.allow_env_tool_credential_fallback
+            if allow_env_fallback is None
+            else allow_env_fallback
+        )
 
     def resolve(self, *, user_id: str | None, provider_key: str) -> ToolCredential:
         if self.repo and user_id:
@@ -40,7 +45,7 @@ class ToolCredentialResolver:
                     return ToolCredential(
                         provider_key=provider_key,
                         api_key=env_key,
-                        source="env" if env_key else "missing",
+                        source=self._env_source(provider_key, env_key),
                         is_enabled=bool(env_key),
                     )
                 return ToolCredential(
@@ -54,12 +59,24 @@ class ToolCredentialResolver:
         return ToolCredential(
             provider_key=provider_key,
             api_key=env_key,
-            source="env" if env_key else "missing",
+            source=self._env_source(provider_key, env_key),
             is_enabled=bool(env_key),
         )
 
+    def _env_api_key(self, provider_key: str) -> str | None:
+        if not self.allow_env_fallback:
+            return None
+        return self._raw_env_api_key(provider_key)
+
+    def _env_source(self, provider_key: str, env_key: str | None) -> str:
+        if env_key:
+            return "env"
+        if not self.allow_env_fallback and self._raw_env_api_key(provider_key):
+            return "env_fallback_disabled"
+        return "missing"
+
     @staticmethod
-    def _env_api_key(provider_key: str) -> str | None:
+    def _raw_env_api_key(provider_key: str) -> str | None:
         if provider_key == "tavily":
             return settings.tavily_api_key.strip() or None
         if provider_key == "amap":

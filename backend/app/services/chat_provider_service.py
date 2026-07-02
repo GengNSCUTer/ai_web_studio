@@ -215,12 +215,11 @@ class ChatProviderService:
 def resolve_provider_base_url(
     *,
     provider_type: str,
-    configured_base_url: str | None,
+    configured_base_url: str | None = None,
+    configured_api_base_url: str | None = None,
+    configured_ollama_base_url: str | None = None,
 ) -> str:
-    if configured_base_url:
-        return configured_base_url
-
     if provider_type == "ollama":
-        return settings.ollama_base_url
+        return configured_ollama_base_url or configured_base_url or settings.ollama_base_url
 
-    return ""
+    return configured_api_base_url or configured_base_url or ""

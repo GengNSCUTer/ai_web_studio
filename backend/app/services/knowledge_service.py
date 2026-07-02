@@ -1,6 +1,9 @@
 import json
+import shutil
 from datetime import datetime, timezone
+from pathlib import Path
 
+from app.core.config import settings
 from app.models.tool_config import UserToolCredential
 from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeJob
 from app.repositories.knowledge_repo import (
@@ -44,7 +47,7 @@ class KnowledgeBaseService:
     ALLOWED_CHUNK_MODES = {"general", "parent_child"}
     ALLOWED_EMBEDDING_PROVIDERS = {"siliconflow", "openai-compatible", "ollama"}
     ALLOWED_RERANK_PROVIDERS = {"siliconflow", "openai-compatible", "ollama"}
-    ALLOWED_RETRIEVAL_MODES = {"vector"}
+    ALLOWED_RETRIEVAL_MODES = {"vector", "lexical", "hybrid"}
 
     def __init__(self, repo: KnowledgeBaseRepository, project_repo: ProjectRepository):
         self.repo = repo
@@ -93,6 +96,14 @@ class KnowledgeBaseService:
             raise ValueError("Unsupported retrieval mode")
         if payload.chunk_overlap >= payload.chunk_size:
             raise ValueError("Chunk overlap must be smaller than chunk size")
+        if payload.chunk_mode == "parent_child":
+            parent_chunk_size = payload.parent_chunk_size or 2000
+            child_chunk_size = payload.child_chunk_size or 500
+            child_chunk_overlap = payload.child_chunk_overlap or 80
+            if child_chunk_size >= parent_chunk_size:
+                raise ValueError("Child chunk size must be smaller than parent chunk size")
+            if child_chunk_overlap >= child_chunk_size:
+                raise ValueError("Child chunk overlap must be smaller than child chunk size")
         if payload.rerank_top_n > payload.retrieval_top_k:
             raise ValueError("Rerank top N cannot exceed retrieval top K")
 
@@ -107,6 +118,9 @@ class KnowledgeBaseService:
             chunk_size=payload.chunk_size,
             chunk_overlap=payload.chunk_overlap,
             chunk_delimiter=payload.chunk_delimiter,
+            parent_chunk_size=payload.parent_chunk_size,
+            child_chunk_size=payload.child_chunk_size,
+            child_chunk_overlap=payload.child_chunk_overlap,
             embedding_provider=payload.embedding_provider,
             embedding_model=payload.embedding_model.strip(),
             embedding_dimensions=infer_embedding_dimensions(payload.embedding_model, payload.embedding_dimensions),
@@ -141,6 +155,10 @@ class KnowledgeBaseService:
             item.description = self._normalize_optional_text(data["description"])
         if "project_id" in data:
             item.project_id = data["project_id"]
+        if "retrieval_mode" in data and data["retrieval_mode"] is not None:
+            if data["retrieval_mode"] not in self.ALLOWED_RETRIEVAL_MODES:
+                raise ValueError("Unsupported retrieval mode")
+            item.retrieval_mode = data["retrieval_mode"]
         if "retrieval_top_k" in data and data["retrieval_top_k"] is not None:
             item.retrieval_top_k = data["retrieval_top_k"]
         if "rerank_top_n" in data and data["rerank_top_n"] is not None:
@@ -166,6 +184,7 @@ class KnowledgeBaseService:
             user_id=user_id,
         )
         self.repo.delete(item)
+        shutil.rmtree(Path(settings.knowledge_index_dir) / knowledge_base_id, ignore_errors=True)
         return True
 
 
@@ -460,15 +479,24 @@ class KnowledgeDocumentService:
                     else result.metadata.get("file_name", "unknown"),
                     chunk_index=result.chunk.chunk_index,
                     score=result.rerank_score if result.rerank_score is not None else result.score,
-                    vector_score=result.score,
+                    vector_score=result.metadata.get("vector_score")
+                    if isinstance(result.metadata.get("vector_score"), (int, float))
+                    else result.score,
                     rerank_score=result.rerank_score,
                     rank_source=result.rank_source,
-                    content=result.chunk.content,
+                    content=self._retrieval_display_text(result),
                     metadata=result.metadata,
                 )
                 for result in results
             ],
         )
+
+    @staticmethod
+    def _retrieval_display_text(result) -> str:  # noqa: ANN001
+        parent_content = result.metadata.get("parent_content") if result.metadata else None
+        if isinstance(parent_content, str) and parent_content.strip():
+            return parent_content
+        return result.chunk.content
 
     @staticmethod
     def _normalize_file_types(file_types: list[str]) -> list[str]:

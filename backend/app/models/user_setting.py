@@ -16,6 +16,7 @@ class UserSetting(Base):
     provider_type: Mapped[str] = mapped_column(String(32), default="ollama")
     default_model: Mapped[str] = mapped_column(String(128), default=app_settings.ollama_default_model)
     ollama_base_url: Mapped[str] = mapped_column(String(255), default=app_settings.ollama_base_url)
+    api_base_url: Mapped[str] = mapped_column(String(255), default="https://api.siliconflow.cn/v1")
     api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     temperature: Mapped[float] = mapped_column(Float, default=0.7)
     top_p: Mapped[float] = mapped_column(Float, default=0.9)

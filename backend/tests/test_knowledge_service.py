@@ -56,6 +56,7 @@ from app.services.knowledge_index_service import (
     KnowledgeEmbeddingService,
     KnowledgeFaissStore,
     KnowledgeIndexService,
+    KnowledgeLexicalStore,
     KnowledgeRerankService,
     RetrievalResult,
 )
@@ -159,6 +160,73 @@ class KnowledgeServiceTest(unittest.TestCase):
         )
         self.upload_tmp.cleanup()
         self.index_tmp.cleanup()
+
+    def _create_indexed_markdown_knowledge_base(
+        self,
+        *,
+        name: str,
+        file_name: str,
+        content: str,
+        retrieval_mode: str = "vector",
+        chunk_size: int = 120,
+        chunk_overlap: int = 10,
+    ):
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        setting_service = SettingService(UserSettingRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name=name,
+                parser_provider="local_basic",
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+                retrieval_mode=retrieval_mode,
+                retrieval_top_k=5,
+                rerank_top_n=3,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / file_name
+        source_file.write_text(content, encoding="utf-8")
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name=file_name,
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/{file_name}",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
+        )
+        index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+        return knowledge_base, parsed_document, chunk_repo, setting_service
 
     def test_create_knowledge_base_and_add_document_creates_pending_job(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
@@ -951,6 +1019,398 @@ class KnowledgeServiceTest(unittest.TestCase):
                 document_ids=[str(uuid4())],
             )
 
+    def test_rag63_lexical_retrieval_uses_bm25(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        setting_service = SettingService(UserSettingRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="RAG6.3 BM25 测试",
+                parser_provider="local_basic",
+                chunk_size=120,
+                chunk_overlap=10,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+                retrieval_mode="lexical",
+                retrieval_top_k=5,
+                rerank_top_n=3,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "lexical.md"
+        source_file.write_text(
+            "\n\n".join(
+                [
+                    "This paragraph describes generic adaptive retrieval.",
+                    "The exact internal code ZXQ-42 appears only in this paragraph.",
+                    "This paragraph discusses user interface rendering.",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="lexical.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/lexical.md",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+
+        results = KnowledgeRetrievalPipeline(
+            chunk_repo=chunk_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="ZXQ-42",
+            top_k=5,
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertEqual(results[0].rank_source, "lexical")
+        self.assertIn("ZXQ-42", results[0].chunk.content)
+        self.assertIn("lexical_score", results[0].metadata)
+
+    def test_rag64_hybrid_retrieval_uses_rrf_fusion(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        setting_service = SettingService(UserSettingRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="RAG6.4 Hybrid 测试",
+                parser_provider="local_basic",
+                chunk_size=120,
+                chunk_overlap=10,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+                retrieval_mode="hybrid",
+                retrieval_top_k=5,
+                rerank_top_n=3,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "hybrid.md"
+        source_file.write_text(
+            "\n\n".join(
+                [
+                    "Adaptive RAG uses routing to select retrieval strategy.",
+                    "The exact internal code ZXQ-42 appears only in this paragraph.",
+                    "Mixture of experts and MoE routing can improve specialization.",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="hybrid.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/hybrid.md",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+
+        results = KnowledgeRetrievalPipeline(
+            chunk_repo=chunk_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="adaptive ZXQ-42",
+            top_k=5,
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertTrue(all(result.rank_source == "hybrid_rrf" for result in results))
+        self.assertIn("rrf_score", results[0].metadata)
+        self.assertTrue(
+            any(result.metadata.get("vector_rank") is not None for result in results)
+            and any(result.metadata.get("lexical_rank") is not None for result in results)
+        )
+
+    def test_rag66_index_document_persists_bm25_inverted_index(self) -> None:
+        knowledge_base, _document, _chunk_repo, _setting_service = self._create_indexed_markdown_knowledge_base(
+            name="RAG6.6 BM25 持久化索引",
+            file_name="persistent-bm25.md",
+            retrieval_mode="lexical",
+            content="\n\n".join(
+                [
+                    "Adaptive RAG uses semantic routing.",
+                    "The unique marker PERSISTENT-BM25-42 is stored in the lexical index.",
+                    "A different paragraph talks about frontend styling.",
+                ]
+            ),
+        )
+
+        lexical_store = KnowledgeLexicalStore(index_root=settings.knowledge_index_dir)
+        index_path = lexical_store.index_path(knowledge_base.id)
+        self.assertTrue(index_path.exists())
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload.get("version"), KnowledgeLexicalStore.VERSION)
+        self.assertEqual(payload.get("knowledge_base_id"), knowledge_base.id)
+        self.assertGreater(int(payload.get("doc_count") or 0), 0)
+        self.assertIn("persistent-bm25-42", payload.get("postings") or {})
+
+    def test_rag66_lexical_retrieval_reads_persistent_bm25_index(self) -> None:
+        knowledge_base, _document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="RAG6.6 BM25 持久化检索",
+            file_name="persistent-search.md",
+            retrieval_mode="lexical",
+            content="\n\n".join(
+                [
+                    "General retrieval discussion appears here.",
+                    "The exact identifier LEXICAL-PERSIST-99 should be the top lexical hit.",
+                    "Model settings and layout are unrelated.",
+                ]
+            ),
+        )
+
+        results = KnowledgeRetrievalPipeline(
+            chunk_repo=chunk_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="LEXICAL-PERSIST-99",
+            top_k=5,
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertEqual(results[0].rank_source, "lexical")
+        self.assertIn("LEXICAL-PERSIST-99", results[0].chunk.content)
+        self.assertEqual(results[0].metadata.get("lexical_index"), "persistent")
+        self.assertIn("lexical_score", results[0].metadata)
+
+    def test_rag66_lexical_retrieval_lazy_rebuilds_missing_index(self) -> None:
+        knowledge_base, _document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="RAG6.6 BM25 懒重建",
+            file_name="lazy-bm25.md",
+            retrieval_mode="lexical",
+            content="\n\n".join(
+                [
+                    "This paragraph is not important.",
+                    "The token LAZY-BM25-REBUILD appears after the original index is deleted.",
+                    "Other content is used as noise.",
+                ]
+            ),
+        )
+        lexical_store = KnowledgeLexicalStore(index_root=settings.knowledge_index_dir)
+        index_path = lexical_store.index_path(knowledge_base.id)
+        self.assertTrue(index_path.exists())
+        index_path.unlink()
+        self.assertFalse(index_path.exists())
+
+        results = KnowledgeRetrievalPipeline(
+            chunk_repo=chunk_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            lexical_store=lexical_store,
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="LAZY-BM25-REBUILD",
+            top_k=5,
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertTrue(index_path.exists())
+        self.assertEqual(results[0].metadata.get("lexical_index"), "persistent")
+        self.assertIn("LAZY-BM25-REBUILD", results[0].chunk.content)
+
+    def test_rag66_hybrid_retrieval_preserves_persistent_bm25_metadata(self) -> None:
+        knowledge_base, _document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="RAG6.6 Hybrid BM25 持久化",
+            file_name="hybrid-persistent.md",
+            retrieval_mode="hybrid",
+            content="\n\n".join(
+                [
+                    "Adaptive RAG routing provides the vector-side signal.",
+                    "The unique lexical marker HYBRID-PERSIST-77 appears only here.",
+                    "Other paragraphs discuss unrelated UI polish.",
+                ]
+            ),
+        )
+
+        results = KnowledgeRetrievalPipeline(
+            chunk_repo=chunk_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="adaptive HYBRID-PERSIST-77",
+            top_k=5,
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertTrue(all(result.rank_source == "hybrid_rrf" for result in results))
+        self.assertTrue(any(result.metadata.get("lexical_index") == "persistent" for result in results))
+        self.assertTrue(any(result.metadata.get("lexical_rank") is not None for result in results))
+
+    def test_rag65_parent_child_retrieval_expands_context_window(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        chunk_repo = KnowledgeChunkRepository(self.db)
+        setting_service = SettingService(UserSettingRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="RAG6.5 Parent Child 测试",
+                parser_provider="local_basic",
+                chunk_mode="parent_child",
+                chunk_size=500,
+                chunk_overlap=50,
+                parent_chunk_size=500,
+                child_chunk_size=100,
+                child_chunk_overlap=0,
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+                retrieval_mode="vector",
+                retrieval_top_k=5,
+                rerank_top_n=3,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+
+        user_dir = Path(settings.upload_dir) / self.user.id
+        user_dir.mkdir(parents=True, exist_ok=True)
+        source_file = user_dir / "parent-child.md"
+        parent_context_marker = "PARENT_CONTEXT_ONLY: this surrounding paragraph explains why the route matters."
+        source_file.write_text(
+            "\n\n".join(
+                [
+                    "Adaptive RAG uses routing to choose retrieval strategy for each request.",
+                    parent_context_marker,
+                    "Additional details describe evaluation signals and failure analysis.",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="parent-child.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/parent-child.md",
+            ),
+        )
+        assert document is not None
+        document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+        KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=document_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
+
+        chunks = chunk_repo.list_by_knowledge_base(knowledge_base.id, self.user.id)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(json.loads(chunk.metadata_json or "{}").get("chunk_mode") == "parent_child" for chunk in chunks))
+
+        results = KnowledgeRetrievalPipeline(
+            chunk_repo=chunk_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="adaptive routing",
+            top_k=3,
+        )
+
+        self.assertGreaterEqual(len(results), 1)
+        hit = results[0]
+        self.assertEqual(hit.metadata.get("chunk_mode"), "parent_child")
+        self.assertEqual(hit.metadata.get("retrieval_unit"), "child")
+        self.assertLess(len(hit.chunk.content), int(hit.metadata.get("parent_char_count") or 0))
+        self.assertIn(parent_context_marker, str(hit.metadata.get("parent_content") or ""))
+
+        context_text = KnowledgeContextService._format_context(
+            knowledge_base_name=knowledge_base.name,
+            results=[hit],
+            max_chars=2000,
+        )
+        self.assertIsNotNone(context_text)
+        assert context_text is not None
+        self.assertIn(parent_context_marker, context_text)
+        self.assertIn("parent-child：已扩展", context_text)
+
     def test_retrieve_uses_rerank_when_enabled(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
         document_repo = KnowledgeDocumentRepository(self.db)
@@ -1456,6 +1916,23 @@ class KnowledgeServiceTest(unittest.TestCase):
         deleted = base_service.delete_knowledge_base(kb.id, self.user.id)
         self.assertTrue(deleted)
         self.assertIsNone(KnowledgeRetrievalLogRepository(self.db).get_by_user(log.id, self.user.id))
+
+    def test_delete_knowledge_base_removes_index_directory(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        kb = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(name="删除索引目录测试库", parser_provider="local_basic"),
+        )
+        assert kb is not None
+        index_dir = Path(settings.knowledge_index_dir) / kb.id
+        index_dir.mkdir(parents=True, exist_ok=True)
+        (index_dir / "index.faiss").write_text("fake", encoding="utf-8")
+        (index_dir / "lexical_index.json").write_text("{}", encoding="utf-8")
+
+        deleted = base_service.delete_knowledge_base(kb.id, self.user.id)
+
+        self.assertTrue(deleted)
+        self.assertFalse(index_dir.exists())
 
     def test_build_context_merges_multiple_knowledge_bases(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))

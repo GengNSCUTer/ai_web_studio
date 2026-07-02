@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import re
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +27,7 @@ class PreparedChunk:
     chunk_index: int
     source_start: int
     source_end: int
+    metadata: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,12 @@ class RetrievalResult:
     metadata: dict
     rerank_score: float | None = None
     rank_source: str = "vector"
+
+
+@dataclass(frozen=True)
+class LexicalSearchHit:
+    vector_id: int
+    score: float
 
 
 class KnowledgeChunker:
@@ -77,6 +86,50 @@ class KnowledgeChunker:
             chunks.extend(self._window_chunk(buffer, buffer_start, chunk_size, chunk_overlap, len(chunks)))
         return chunks
 
+    def split_parent_child(
+        self,
+        *,
+        markdown: str,
+        parent_chunk_size: int,
+        child_chunk_size: int,
+        child_chunk_overlap: int,
+    ) -> list[PreparedChunk]:
+        normalized = self._normalize_markdown(markdown)
+        if not normalized:
+            return []
+        parents = self.split(markdown=normalized, chunk_size=parent_chunk_size, chunk_overlap=0)
+        children: list[PreparedChunk] = []
+        for parent_index, parent in enumerate(parents):
+            parent_children = self._window_chunk(
+                parent.content,
+                parent.source_start,
+                child_chunk_size,
+                child_chunk_overlap,
+                len(children),
+            )
+            for child in parent_children:
+                children.append(
+                    PreparedChunk(
+                        content=child.content,
+                        chunk_index=len(children),
+                        source_start=child.source_start,
+                        source_end=child.source_end,
+                        metadata={
+                            "chunk_mode": "parent_child",
+                            "retrieval_unit": "child",
+                            "parent_index": parent_index,
+                            "parent_content": parent.content,
+                            "parent_source_start": parent.source_start,
+                            "parent_source_end": parent.source_end,
+                            "parent_char_count": len(parent.content),
+                            "child_source_start": child.source_start,
+                            "child_source_end": child.source_end,
+                            "child_char_count": len(child.content),
+                        },
+                    )
+                )
+        return children
+
     @staticmethod
     def _normalize_markdown(markdown: str) -> str:
         normalized = markdown.replace("\r\n", "\n").replace("\r", "\n")
@@ -106,6 +159,7 @@ class KnowledgeChunker:
                         chunk_index=base_index + len(chunks),
                         source_start=start_offset + local_start,
                         source_end=start_offset + local_end,
+                        metadata=None,
                     )
                 )
             if local_end >= len(text):
@@ -288,6 +342,123 @@ class KnowledgeFaissStore:
         return matrix / norms
 
 
+class KnowledgeLexicalStore:
+    INDEX_FILE_NAME = "lexical_index.json"
+    VERSION = 1
+    BM25_K1 = 1.5
+    BM25_B = 0.75
+
+    def __init__(self, index_root: str | None = None):
+        self.index_root = Path(index_root or settings.knowledge_index_dir)
+
+    def index_path(self, knowledge_base_id: str) -> Path:
+        return self.index_root / knowledge_base_id / self.INDEX_FILE_NAME
+
+    def exists(self, *, knowledge_base_id: str) -> bool:
+        return self.index_path(knowledge_base_id).exists()
+
+    def rebuild(self, *, knowledge_base_id: str, chunks: list[KnowledgeChunk]) -> str:
+        target_dir = self.index_root / knowledge_base_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        index_path = target_dir / self.INDEX_FILE_NAME
+
+        postings: dict[str, list[list[int]]] = defaultdict(list)
+        document_frequency: Counter[str] = Counter()
+        document_lengths: dict[str, int] = {}
+        chunk_refs: dict[str, dict[str, int | str]] = {}
+        total_length = 0
+
+        for chunk in chunks:
+            terms = self.tokenize(chunk.content)
+            counts = Counter(terms)
+            doc_len = sum(counts.values())
+            if doc_len <= 0:
+                continue
+            vector_key = str(chunk.vector_id)
+            document_lengths[vector_key] = doc_len
+            chunk_refs[vector_key] = {
+                "chunk_id": chunk.id,
+                "document_id": chunk.document_id,
+                "chunk_index": chunk.chunk_index,
+            }
+            total_length += doc_len
+            for term, count in counts.items():
+                postings[term].append([chunk.vector_id, int(count)])
+                document_frequency[term] += 1
+
+        doc_count = len(document_lengths)
+        payload = {
+            "version": self.VERSION,
+            "knowledge_base_id": knowledge_base_id,
+            "doc_count": doc_count,
+            "avgdl": (total_length / doc_count) if doc_count else 1.0,
+            "document_lengths": document_lengths,
+            "document_frequency": dict(document_frequency),
+            "chunk_refs": chunk_refs,
+            "postings": dict(postings),
+        }
+        index_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        return str(index_path)
+
+    def search(self, *, knowledge_base_id: str, query: str, top_k: int) -> list[LexicalSearchHit]:
+        payload = self._load(knowledge_base_id=knowledge_base_id)
+        query_terms = self.tokenize(query)
+        if not query_terms:
+            return []
+        query_counts = Counter(query_terms)
+        doc_count = int(payload.get("doc_count") or 0)
+        if doc_count <= 0:
+            return []
+        avgdl = max(1.0, float(payload.get("avgdl") or 1.0))
+        document_lengths = payload.get("document_lengths")
+        document_frequency = payload.get("document_frequency")
+        postings = payload.get("postings")
+        if not isinstance(document_lengths, dict) or not isinstance(document_frequency, dict) or not isinstance(postings, dict):
+            raise RuntimeError("知识库 BM25 索引文件格式不合法，请重建索引。")
+
+        scores: dict[int, float] = defaultdict(float)
+        for term, query_weight in query_counts.items():
+            term_postings = postings.get(term)
+            if not isinstance(term_postings, list):
+                continue
+            df = int(document_frequency.get(term) or 0)
+            if df <= 0:
+                continue
+            idf = math.log(1 + (doc_count - df + 0.5) / (df + 0.5))
+            for posting in term_postings:
+                if not isinstance(posting, list) or len(posting) != 2:
+                    continue
+                vector_id, tf = posting
+                if not isinstance(vector_id, int) or not isinstance(tf, int) or tf <= 0:
+                    continue
+                doc_len = max(1, int(document_lengths.get(str(vector_id)) or 0))
+                denom = tf + self.BM25_K1 * (1 - self.BM25_B + self.BM25_B * doc_len / avgdl)
+                scores[vector_id] += float(query_weight) * idf * (tf * (self.BM25_K1 + 1) / denom)
+
+        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        return [LexicalSearchHit(vector_id=vector_id, score=score) for vector_id, score in ranked[: max(1, top_k)] if score > 0]
+
+    def _load(self, *, knowledge_base_id: str) -> dict:
+        index_path = self.index_path(knowledge_base_id)
+        if not index_path.exists():
+            raise RuntimeError("知识库尚未生成 BM25 索引，请先索引文档。")
+        try:
+            payload = json.loads(index_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("知识库 BM25 索引文件损坏，请重建索引。") from exc
+        if not isinstance(payload, dict) or payload.get("version") != self.VERSION:
+            raise RuntimeError("知识库 BM25 索引版本不兼容，请重建索引。")
+        return payload
+
+    @staticmethod
+    def tokenize(text: str) -> list[str]:
+        normalized = text.lower()
+        latin_terms = re.findall(r"[a-z0-9][a-z0-9_\-]{1,}|[a-z0-9]", normalized)
+        cjk_chars = re.findall(r"[\u4e00-\u9fff]", normalized)
+        cjk_bigrams = [f"{cjk_chars[index]}{cjk_chars[index + 1]}" for index in range(len(cjk_chars) - 1)]
+        return latin_terms + cjk_chars + cjk_bigrams
+
+
 class KnowledgeIndexService:
     def __init__(
         self,
@@ -298,6 +469,7 @@ class KnowledgeIndexService:
         embedding_service: KnowledgeEmbeddingService | None = None,
         rerank_service: KnowledgeRerankService | None = None,
         faiss_store: KnowledgeFaissStore | None = None,
+        lexical_store: KnowledgeLexicalStore | None = None,
     ):
         self.chunk_repo = chunk_repo
         self.document_repo = document_repo
@@ -305,17 +477,29 @@ class KnowledgeIndexService:
         self.embedding_service = embedding_service or KnowledgeEmbeddingService(setting_service)
         self.rerank_service = rerank_service or KnowledgeRerankService(setting_service)
         self.faiss_store = faiss_store or KnowledgeFaissStore()
+        self.lexical_store = lexical_store or KnowledgeLexicalStore()
         self.chunker = KnowledgeChunker()
 
     def index_document(self, *, user_id: str, knowledge_base: KnowledgeBase, document: KnowledgeDocument) -> IndexResult:
         if document.parse_status != "parsed" or not document.parsed_markdown_path:
             raise RuntimeError("文档尚未解析，不能生成索引。")
         markdown = KnowledgeParserService().read_markdown(markdown_path=document.parsed_markdown_path, user_id=user_id)
-        prepared_chunks = self.chunker.split(
-            markdown=markdown,
-            chunk_size=knowledge_base.chunk_size,
-            chunk_overlap=knowledge_base.chunk_overlap,
-        )
+        if knowledge_base.chunk_mode == "parent_child":
+            parent_chunk_size = knowledge_base.parent_chunk_size or max(knowledge_base.chunk_size, 2000)
+            child_chunk_size = knowledge_base.child_chunk_size or max(100, min(knowledge_base.chunk_size, 500))
+            child_chunk_overlap = knowledge_base.child_chunk_overlap or min(80, child_chunk_size - 1)
+            prepared_chunks = self.chunker.split_parent_child(
+                markdown=markdown,
+                parent_chunk_size=parent_chunk_size,
+                child_chunk_size=child_chunk_size,
+                child_chunk_overlap=child_chunk_overlap,
+            )
+        else:
+            prepared_chunks = self.chunker.split(
+                markdown=markdown,
+                chunk_size=knowledge_base.chunk_size,
+                chunk_overlap=knowledge_base.chunk_overlap,
+            )
         if not prepared_chunks:
             raise RuntimeError("文档解析结果为空，不能生成索引。")
 
@@ -344,6 +528,7 @@ class KnowledgeIndexService:
                         "source_end": chunk.source_end,
                         "document_version": document.document_version,
                         "parser_provider": document.parser_provider,
+                        **(chunk.metadata or {}),
                     },
                     ensure_ascii=False,
                 ),
@@ -370,6 +555,7 @@ class KnowledgeIndexService:
             vectors=all_vectors,
             dimensions=knowledge_base.embedding_dimensions,
         )
+        self.lexical_store.rebuild(knowledge_base_id=knowledge_base.id, chunks=all_chunks)
         document.index_status = "indexed"
         document.error_message = None
         self.document_repo.save(document)
@@ -414,6 +600,7 @@ class KnowledgeIndexService:
             embedding_service=self.embedding_service,
             rerank_service=self.rerank_service,
             faiss_store=self.faiss_store,
+            lexical_store=self.lexical_store,
         )
 
     @staticmethod

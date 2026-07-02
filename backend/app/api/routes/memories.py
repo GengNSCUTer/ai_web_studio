@@ -125,7 +125,8 @@ async def suggest_memories(
     provider_type = settings.provider_type or "ollama"
     base_url = resolve_provider_base_url(
         provider_type=provider_type,
-        configured_base_url=settings.ollama_base_url,
+        configured_ollama_base_url=settings.ollama_base_url,
+        configured_api_base_url=getattr(settings, "api_base_url", None),
     )
 
     try:

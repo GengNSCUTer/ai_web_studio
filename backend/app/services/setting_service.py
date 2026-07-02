@@ -38,6 +38,13 @@ class SettingService:
         normalized = value.strip()
         return normalized or None
 
+    @classmethod
+    def _looks_like_api_base_url(cls, value: str | None) -> bool:
+        normalized = (value or "").strip().lower()
+        if not normalized:
+            return False
+        return normalized.endswith("/v1") or "api." in normalized or "siliconflow" in normalized
+
     @staticmethod
     def normalize_context_mode(value: str | None) -> str:
         normalized = (value or "").strip() or "balanced"
@@ -96,7 +103,8 @@ class SettingService:
             user_id=user_id,
             provider_type="openai-compatible",
             default_model=cls.DEFAULT_OPENAI_MODEL,
-            ollama_base_url=cls.DEFAULT_OPENAI_BASE_URL,
+            ollama_base_url=app_settings.ollama_base_url,
+            api_base_url=cls.DEFAULT_OPENAI_BASE_URL,
             api_key=cls.DEFAULT_OPENAI_API_KEY,
             temperature=0.7,
             top_p=0.9,
@@ -132,13 +140,25 @@ class SettingService:
             if not getattr(setting, "provider_type", None):
                 setting.provider_type = "openai-compatible"
                 should_save = True
+            if not getattr(setting, "api_base_url", None):
+                if setting.provider_type == "openai-compatible" and self._looks_like_api_base_url(
+                    getattr(setting, "ollama_base_url", None)
+                ):
+                    setting.api_base_url = setting.ollama_base_url
+                else:
+                    setting.api_base_url = self.DEFAULT_OPENAI_BASE_URL
+                should_save = True
             if setting.provider_type == "openai-compatible":
                 if setting.default_model == app_settings.ollama_default_model:
                     setting.default_model = self.DEFAULT_OPENAI_MODEL
                     should_save = True
-                if setting.ollama_base_url == app_settings.ollama_base_url:
-                    setting.ollama_base_url = self.DEFAULT_OPENAI_BASE_URL
+                if self._looks_like_api_base_url(getattr(setting, "ollama_base_url", None)):
+                    setting.api_base_url = setting.ollama_base_url
+                    setting.ollama_base_url = app_settings.ollama_base_url
                     should_save = True
+            if not getattr(setting, "ollama_base_url", None):
+                setting.ollama_base_url = app_settings.ollama_base_url
+                should_save = True
             if not getattr(setting, "model_context_window", None):
                 setting.model_context_window = self.normalize_context_window(
                     getattr(setting, "model_context_window", None),
@@ -224,7 +244,7 @@ class SettingService:
             setting = self._build_default_setting(user_id)
 
         data = payload.model_dump(exclude_unset=True)
-        for key in ("provider_type", "default_model", "ollama_base_url", "system_prompt"):
+        for key in ("provider_type", "default_model", "ollama_base_url", "api_base_url", "system_prompt"):
             if key in data:
                 data[key] = self._normalize_optional_str(data[key])
         for key in (
@@ -274,6 +294,16 @@ class SettingService:
 
         if "provider_type" in data and "model_context_window" not in data:
             setting.model_context_window = self.default_context_window_for_provider(setting.provider_type)
+        if not getattr(setting, "ollama_base_url", None):
+            setting.ollama_base_url = app_settings.ollama_base_url
+        if not getattr(setting, "api_base_url", None):
+            setting.api_base_url = self.DEFAULT_OPENAI_BASE_URL
+        if setting.provider_type == "openai-compatible" and self._looks_like_api_base_url(
+            getattr(setting, "ollama_base_url", None)
+        ):
+            if "api_base_url" not in data or not data.get("api_base_url"):
+                setting.api_base_url = setting.ollama_base_url
+            setting.ollama_base_url = app_settings.ollama_base_url
         setting.context_mode = self.normalize_context_mode(getattr(setting, "context_mode", None))
         setting.model_context_window = self.normalize_context_window(
             getattr(setting, "model_context_window", None),
@@ -355,6 +385,7 @@ class SettingService:
                 "provider_type": setting.provider_type,
                 "default_model": setting.default_model,
                 "ollama_base_url": setting.ollama_base_url,
+                "api_base_url": getattr(setting, "api_base_url", self.DEFAULT_OPENAI_BASE_URL),
                 "api_key": None,
                 "has_api_key": bool(raw_api_key),
                 "api_key_masked": self.secrets.mask(raw_api_key),

@@ -55,6 +55,30 @@ def ensure_runtime_schema() -> None:
         )
     if "api_key" not in columns:
         statements.append("alter table user_settings add column api_key text")
+    if "api_base_url" not in columns:
+        statements.append(
+            "alter table user_settings add column api_base_url varchar(255) default 'https://api.siliconflow.cn/v1'"
+        )
+        statements.append(
+            """
+            update user_settings
+            set api_base_url = ollama_base_url
+            where provider_type = 'openai-compatible'
+              and ollama_base_url is not null
+              and ollama_base_url <> ''
+              and ollama_base_url <> 'http://127.0.0.1:11435'
+            """
+        )
+        statements.append(
+            """
+            update user_settings
+            set ollama_base_url = 'http://127.0.0.1:11435'
+            where provider_type = 'openai-compatible'
+              and ollama_base_url is not null
+              and ollama_base_url <> ''
+              and ollama_base_url <> 'http://127.0.0.1:11435'
+            """
+        )
     if "model_context_window" not in columns:
         statements.append("alter table user_settings add column model_context_window integer default 128000")
     if "context_mode" not in columns:

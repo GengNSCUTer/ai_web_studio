@@ -51,7 +51,8 @@ async def test_provider_connection(
     provider_type = payload.provider_type
     base_url = resolve_provider_base_url(
         provider_type=provider_type,
-        configured_base_url=payload.ollama_base_url,
+        configured_ollama_base_url=payload.ollama_base_url,
+        configured_api_base_url=payload.api_base_url,
     )
     api_key = None
     if provider_type == "openai-compatible":

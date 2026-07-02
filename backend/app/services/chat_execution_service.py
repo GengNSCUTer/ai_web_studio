@@ -104,7 +104,8 @@ class ChatExecutionService:
         provider_type = clean_optional_str(getattr(settings, "provider_type", "ollama")) or "ollama"
         base_url = resolve_provider_base_url(
             provider_type=provider_type,
-            configured_base_url=clean_optional_str(settings.ollama_base_url),
+            configured_ollama_base_url=clean_optional_str(settings.ollama_base_url),
+            configured_api_base_url=clean_optional_str(getattr(settings, "api_base_url", None)),
         )
         budget = ContextBudgetPlanner.build(
             model_context_window=max(8192, int(getattr(settings, "model_context_window", 128000) or 128000)),

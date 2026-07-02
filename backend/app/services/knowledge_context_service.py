@@ -279,8 +279,9 @@ class KnowledgeContextService:
         for index, result in enumerate(results, start=1):
             file_name = str(result.metadata.get("file_name") or "unknown")
             score = result.rerank_score if result.rerank_score is not None else result.score
-            header = f"\n[KB{index}] 文件：{file_name}；chunk：{result.chunk.chunk_index}；score：{score:.4f}"
-            content = result.chunk.content.strip()
+            expansion = "；parent-child：已扩展" if KnowledgeContextService._is_parent_child_result(result) else ""
+            header = f"\n[KB{index}] 文件：{file_name}；chunk：{result.chunk.chunk_index}；score：{score:.4f}{expansion}"
+            content = KnowledgeContextService._result_display_text(result).strip()
             remaining = max_chars - used_chars - len(header)
             if remaining <= 120:
                 break
@@ -402,14 +403,16 @@ class KnowledgeContextService:
                     "chunk_index": result.chunk.chunk_index,
                     "vector_id": result.chunk.vector_id,
                     "score": result.rerank_score if result.rerank_score is not None else result.score,
-                    "vector_score": result.score,
+                    "vector_score": result.metadata.get("vector_score")
+                    if isinstance(result.metadata.get("vector_score"), (int, float))
+                    else result.score,
                     "rerank_score": result.rerank_score,
                     "rank_source": result.rank_source,
                     "char_count": result.chunk.char_count,
                     "token_estimate": result.chunk.token_estimate,
                     "source_start": result.chunk.source_start,
                     "source_end": result.chunk.source_end,
-                    "preview": result.chunk.content[:1200],
+                    "preview": KnowledgeContextService._result_display_text(result)[:1200],
                     "metadata": result.metadata,
                 }
             )
@@ -434,7 +437,9 @@ class KnowledgeContextService:
                 "document_id": result.chunk.document_id,
                 "chunk_id": result.chunk.id,
                 "chunk_index": result.chunk.chunk_index,
-                "vector_score": result.score,
+                "vector_score": result.metadata.get("vector_score")
+                if isinstance(result.metadata.get("vector_score"), (int, float))
+                else result.score,
                 "rerank_score": result.rerank_score,
                 "rank_source": result.rank_source,
                 "source_start": result.chunk.source_start,
@@ -442,12 +447,13 @@ class KnowledgeContextService:
                 "retrieval_log_id": retrieval_log_id,
                 "tool": "knowledge_retrieval",
             }
+            display_text = KnowledgeContextService._result_display_text(result)
             sources.append(
                 ExternalSource(
                     source_type="knowledge",
                     provider="knowledge_base",
                     title=f"{knowledge_base_name} / {file_name}",
-                    display_text=result.chunk.content[:1200],
+                    display_text=display_text[:1200],
                     rank=index,
                     score=score,
                     used_in_prompt=True,
@@ -456,3 +462,16 @@ class KnowledgeContextService:
                 )
             )
         return sources
+
+    @staticmethod
+    def _is_parent_child_result(result: RetrievalResult) -> bool:
+        return str(result.metadata.get("chunk_mode") or "") == "parent_child" and isinstance(
+            result.metadata.get("parent_content"), str
+        )
+
+    @staticmethod
+    def _result_display_text(result: RetrievalResult) -> str:
+        parent_content = result.metadata.get("parent_content")
+        if isinstance(parent_content, str) and parent_content.strip():
+            return parent_content
+        return result.chunk.content

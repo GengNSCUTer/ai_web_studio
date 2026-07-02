@@ -14,14 +14,14 @@ class AmapToolProvider:
         self.api_key = api_key
 
     def _api_key(self) -> str:
-        return (self.api_key or settings.amap_api_key).strip()
+        return (self.api_key or "").strip()
 
     async def query_map(self, query: str, *, api_key: str | None = None) -> list[ExternalSource]:
         if api_key is not None:
             self.api_key = api_key
         api_key = self._api_key()
         if not api_key:
-            raise RuntimeError("未配置 AMAP_API_KEY")
+            raise RuntimeError("未配置高德地图 API Key")
 
         district_keyword = self._extract_district_keyword(query)
         if district_keyword:
@@ -76,7 +76,7 @@ class AmapToolProvider:
             self.api_key = api_key
         api_key = self._api_key()
         if not api_key:
-            raise RuntimeError("未配置 AMAP_API_KEY")
+            raise RuntimeError("未配置高德地图 API Key")
 
         requested_location = self._extract_city(query)
         tried_cities: list[str] = []

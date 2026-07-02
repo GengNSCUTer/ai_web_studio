@@ -22,7 +22,8 @@ async def get_provider_defaults(
     provider_type = user_settings.provider_type or "ollama"
     base_url = resolve_provider_base_url(
         provider_type=provider_type,
-        configured_base_url=user_settings.ollama_base_url,
+        configured_ollama_base_url=user_settings.ollama_base_url,
+        configured_api_base_url=getattr(user_settings, "api_base_url", None),
     )
     models: list[str] = []
     try:

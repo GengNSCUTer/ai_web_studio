@@ -12,6 +12,9 @@ class KnowledgeBaseCreate(BaseModel):
     chunk_size: int = Field(default=1000, ge=100, le=8000)
     chunk_overlap: int = Field(default=150, ge=0, le=2000)
     chunk_delimiter: str = Field(default="\n\n", max_length=64)
+    parent_chunk_size: int | None = Field(default=None, ge=500, le=20000)
+    child_chunk_size: int | None = Field(default=None, ge=100, le=4000)
+    child_chunk_overlap: int | None = Field(default=None, ge=0, le=2000)
     embedding_provider: str = Field(default="siliconflow", max_length=32)
     embedding_model: str = Field(default="BAAI/bge-m3", max_length=128)
     embedding_dimensions: int = Field(default=1024, ge=128, le=4096)
@@ -31,6 +34,7 @@ class KnowledgeBaseUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = None
     project_id: str | None = Field(default=None, max_length=36)
+    retrieval_mode: str | None = Field(default=None, max_length=32)
     retrieval_top_k: int | None = Field(default=None, ge=1, le=100)
     rerank_top_n: int | None = Field(default=None, ge=1, le=50)
     score_threshold: float | None = Field(default=None, ge=0, le=1)

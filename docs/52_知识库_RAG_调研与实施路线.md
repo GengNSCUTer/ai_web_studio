@@ -1474,7 +1474,7 @@ RAG-6.2 多知识库检索
 RAG-6.3 BM25 / lexical retriever
 RAG-6.4 Hybrid Search + RRF
 RAG-6.5 Parent-Child retrieval
-RAG-6.6 Contextual Retrieval 实验
+RAG-6.7 Contextual Retrieval 实验
 ```
 
 ### 21.4 阶段性收尾目标
@@ -1609,3 +1609,248 @@ chat request
 1. `RAG-6.3`：BM25 / lexical retriever。
 2. `RAG-6.4`：Hybrid Search + RRF。
 3. 检索观测增强：展示多库贡献分布和跨库合并排序过程。
+
+## 25. 2026-06-15 RAG-6.3 / RAG-6.4 实现进展
+
+本轮已完成 BM25 / lexical retriever 和 Hybrid Search + RRF 第一版。
+
+### 25.1 已完成
+
+- 知识库支持三种检索模式：
+  - `vector`：向量召回。
+  - `lexical`：BM25 关键词召回。
+  - `hybrid`：向量召回 + BM25 + RRF。
+- BM25 第一版内置在 `KnowledgeRetrievalPipeline`：
+  - 不新增外部搜索服务。
+  - 直接基于当前知识库 chunk 做查询时计算。
+  - 支持英文、数字、短横线、下划线、中文单字和中文 bigram。
+- Hybrid 第一版：
+  - FAISS 召回一批候选。
+  - BM25 召回一批候选。
+  - 使用 RRF 进行排名融合。
+  - 最后继续进入 optional rerank。
+- 检索日志、来源 metadata 和前端检索测试结果保留召回解释：
+  - 向量排名。
+  - BM25 排名。
+  - RRF 分数。
+  - Rerank 分数。
+- 前端知识库新建和已有知识库详情页均可选择检索模式。
+
+### 25.2 为什么第一版不引入 Elasticsearch
+
+当前项目仍处于个人知识库和本地验证阶段，马上引入 Elasticsearch / OpenSearch 会增加：
+
+- 部署复杂度。
+- 数据一致性维护成本。
+- 索引重建流程复杂度。
+- 本地开发和简历展示的环境门槛。
+
+因此本轮先做 pipeline 级 BM25 和 RRF，把检索策略跑通。后续如果数据规模扩大，再把 lexical retriever 的底层实现替换为持久化倒排索引。
+
+### 25.3 当前边界
+
+- BM25 是查询时内存计算，不适合百万级 chunk。
+- 多知识库之间还没有统一 RRF。
+- 没有 Parent-Child retrieval。
+- 没有 Contextual Retrieval。
+- 没有 query rewrite / multi-query retrieval。
+
+### 25.4 验证结果
+
+```text
+compileall backend/app backend/tests
+通过
+
+backend.tests.test_knowledge_service
+Ran 26 tests
+OK
+
+frontend eslint knowledge-workspace.tsx / types.ts
+通过
+
+frontend npm run build
+通过
+
+Playwright 已登录态冒烟
+通过，无 console error / request failure
+```
+
+### 25.5 下一步
+
+推荐进入 `RAG-6.5`：
+
+```text
+Parent-Child / Recursive Retrieval
+```
+
+原因：
+
+- BM25 和 Hybrid 已经补上“召回更多候选”的能力。
+- 下一步最明显的问题会变成“命中的 child chunk 太短，回答缺少上下文”。
+- Parent-Child 能让检索用短 chunk 保持精准，注入时扩展到父 chunk 或相邻窗口，提高回答完整性。
+
+## 26. 2026-06-22 RAG-6.5 实现进展
+
+本轮已完成 Parent-Child / Recursive Retrieval 第一版。
+
+### 26.1 已完成
+
+- 知识库创建支持普通分块和 Parent-Child 分块。
+- Parent-Child 参数：
+  - `parent_chunk_size`
+  - `child_chunk_size`
+  - `child_chunk_overlap`
+- 索引时：
+  - child chunk 做 embedding。
+  - child chunk 进入 FAISS 和 BM25 召回。
+  - parent window 写入 child metadata。
+- 检索时：
+  - 根据 child 内容排序。
+  - 注入上下文时使用 parent 内容。
+  - 来源追踪仍保留 child chunk id。
+- 前端检索测试可看到 child/parent 字符数，确认扩展生效。
+
+### 26.2 技术取舍
+
+第一版没有新增 parent chunk 表，而是复用 `knowledge_chunks.metadata_json` 保存 parent window。
+
+原因：
+
+- 不需要数据库迁移。
+- 和现有 FAISS / BM25 / RRF pipeline 兼容。
+- 便于快速验证 Parent-Child 对回答上下文完整性的收益。
+
+后续如果知识库规模变大，应改为：
+
+```text
+parent_chunks table
+child_chunks table
+child.parent_id -> parent.id
+```
+
+或至少在 `knowledge_chunks` 中增加 `parent_chunk_id / chunk_role` 等字段。
+
+### 26.3 验证结果
+
+```text
+compileall backend/app backend/tests
+通过
+
+backend.tests.test_knowledge_service
+Ran 27 tests
+OK
+
+frontend eslint
+通过
+
+frontend tsc --noEmit
+通过
+```
+
+浏览器测试已补充完成：
+
+- 用户态 PostgreSQL 已启动在 `127.0.0.1:35432`。
+- 后端已在 screen `aiws-backend` 中运行，端口 `32007`。
+- 前端已在 screen `aiws-frontend` 中运行，端口 `32008`。
+- Playwright 已完成 RAG-6.5 完整流程验证。
+- 测试使用 API Provider：
+  - `siliconflow`
+  - `BAAI/bge-m3`
+  - `BAAI/bge-reranker-v2-m3`
+- 测试不使用本地 Ollama。
+- 结果确认：
+  - Parent-Child 知识库创建成功。
+  - Markdown 上传、解析、索引成功。
+  - API embedding 调用成功。
+  - API rerank 调用成功。
+  - Hybrid 检索返回 parent-child metadata，首条结果 `rank_source=rerank`。
+  - 前端检索测试显示 parent 扩展内容和 Rerank 分数。
+  - console error 与 request failure 均为空。
+- 账号与环境确认：
+  - 使用固定测试账号 `1528713326@qq.com`。
+  - 本地 Ollama provider 连接测试使用 `http://127.0.0.1:11435` 并成功返回模型列表。
+  - 测试完成后删除临时知识库；此前临时账号已清理。
+
+### 26.4 下一步
+
+下一步建议做 BM25 持久化倒排索引。
+
+目标：
+
+- 避免当前 query-time BM25 每次扫描全部 chunks。
+- 为 Hybrid Search 提供更稳定、更快的 lexical candidate source。
+- 后续配合 Parent-Child 时，让 BM25 继续检索 child，但可快速返回候选。
+
+## 27. 2026-06-22 RAG-6.6 实现进展：BM25 持久化倒排索引
+
+本轮已完成 BM25 持久化倒排索引第一版。
+
+### 27.1 已完成
+
+- 新增 `KnowledgeLexicalStore`。
+- `KnowledgeIndexService.index_document()` 索引文档时同时重建：
+  - `index.faiss`
+  - `lexical_index.json`
+- `lexical_index.json` 保存：
+  - postings
+  - document frequency
+  - document length
+  - avgdl
+  - chunk refs
+- `KnowledgeRetrievalPipeline` 的 lexical 分支改为读取持久化索引。
+- Hybrid Search 的 BM25 分支也复用持久化索引。
+- 缺失或损坏索引会在检索时自动懒重建。
+- Hybrid / RRF metadata 保留 `lexical_index=persistent`。
+- 删除知识库时清理索引目录。
+
+### 27.2 价值
+
+相比上一版 query-time BM25：
+
+- 查询时不再遍历所有 chunk 内容。
+- 关键词召回只访问 query terms 对应 postings。
+- Hybrid 检索的 lexical 分支更稳定。
+- 后续可基于索引版本升级 tokenizer、BM25 参数和增量索引。
+
+### 27.3 当前边界
+
+- 第一版仍是本地 JSON 索引，不适合百万级 chunk。
+- 目前是文档索引时全库重建，不是增量 postings 更新。
+- 中文分词仍是轻量策略。
+- 没有引入外部 search engine，部署复杂度保持较低。
+
+### 27.4 验证
+
+```text
+backend compileall
+通过
+
+backend.tests.test_knowledge_service
+Ran 32 tests
+OK
+
+API smoke
+通过，实际调用 siliconflow / BAAI/bge-m3 生成 embedding
+
+Playwright knowledge smoke
+通过，无 console error / request failure
+```
+
+### 27.5 下一步
+
+建议先基于当前 RAG 栈做真实资料测试：
+
+```text
+FAISS vector
++ persistent BM25
++ Hybrid RRF
++ optional rerank
++ Parent-Child context expansion
+```
+
+如果继续优化，优先级建议：
+
+1. Contextual Retrieval 小规模实验。
+2. 检索日志详情增强，展示 vector/BM25/RRF 过程。
+3. 单文档删除后的索引重建任务。
+4. 大规模场景再考虑 SQLite FTS / Tantivy / Elasticsearch / OpenSearch。

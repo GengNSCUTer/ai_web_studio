@@ -77,7 +77,8 @@ const TEXT = {
     workspace: "工作区默认设置",
     defaultModel: "默认模型",
     providerType: "Provider 类型",
-    baseUrl: "Base URL",
+    apiBaseUrl: "API Base URL",
+    ollamaBaseUrl: "Ollama Base URL",
     apiKey: "API Key",
     currentKey: "当前 Key",
     clearKey: "清空当前 Key",
@@ -190,7 +191,8 @@ const TEXT = {
     workspace: "Workspace Defaults",
     defaultModel: "Default Model",
     providerType: "Provider Type",
-    baseUrl: "Base URL",
+    apiBaseUrl: "API Base URL",
+    ollamaBaseUrl: "Ollama Base URL",
     apiKey: "API Key",
     currentKey: "Current key",
     clearKey: "Clear current key",
@@ -605,7 +607,7 @@ export function SettingsCenter({
         ? current
         : {
             provider: providerType,
-            base_url: defaults.baseUrl,
+            base_url: providerType === "ollama" ? defaults.ollamaBaseUrl : defaults.apiBaseUrl,
             default_model: defaults.model,
             models: current?.provider === providerType ? current.models : [],
           }
@@ -613,7 +615,8 @@ export function SettingsCenter({
     setUserSettings((current) => ({
       ...current,
       provider_type: providerType,
-      ollama_base_url: defaults.baseUrl,
+      ollama_base_url: current.ollama_base_url || defaults.ollamaBaseUrl,
+      api_base_url: current.api_base_url || defaults.apiBaseUrl,
       default_model: defaults.model,
       model_context_window: defaults.modelContextWindow,
     }));
@@ -673,6 +676,7 @@ export function SettingsCenter({
           body: JSON.stringify({
             provider_type: userSettings.provider_type,
             ollama_base_url: userSettings.ollama_base_url,
+            api_base_url: userSettings.api_base_url,
             api_key:
               userSettings.provider_type === "openai-compatible" && providerApiKeyDraft.trim()
                 ? providerApiKeyDraft.trim()
@@ -1099,7 +1103,20 @@ export function SettingsCenter({
                     </select>
                   </label>
                   <label className="block text-sm">
-                    <span className="mb-2 block text-[var(--ink-soft)]">{text.baseUrl}</span>
+                    <span className="mb-2 block text-[var(--ink-soft)]">{text.apiBaseUrl}</span>
+                    <input
+                      value={userSettings.api_base_url}
+                      onChange={(event) =>
+                        setUserSettings((current) => ({
+                          ...current,
+                          api_base_url: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="mb-2 block text-[var(--ink-soft)]">{text.ollamaBaseUrl}</span>
                     <input
                       value={userSettings.ollama_base_url}
                       onChange={(event) =>
