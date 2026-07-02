@@ -43,12 +43,31 @@ def _get_column_names(table_name: str) -> set[str]:
         return {row[0] for row in result}
 
 
+def _get_index_names(table_name: str) -> set[str]:
+    query = text(
+        """
+        select indexname
+        from pg_indexes
+        where schemaname = 'public' and tablename = :table_name
+        """
+    )
+    with engine.begin() as connection:
+        result = connection.execute(query, {"table_name": table_name})
+        return {row[0] for row in result}
+
+
 def ensure_runtime_schema() -> None:
     Base.metadata.create_all(bind=engine)
 
     columns = _get_column_names("user_settings")
+    user_indexes = _get_index_names("users")
 
     statements: list[str] = []
+    if "ux_users_email_lower" not in user_indexes:
+        statements.append("create unique index if not exists ux_users_email_lower on users (lower(email))")
+    if "ux_users_username_lower" not in user_indexes:
+        statements.append("create unique index if not exists ux_users_username_lower on users (lower(username))")
+
     if "provider_type" not in columns:
         statements.append(
             "alter table user_settings add column provider_type varchar(32) default 'ollama'"
