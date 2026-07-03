@@ -553,9 +553,6 @@ export type UserSettings = {
   knowledge_rerank_api_key: string | null;
   knowledge_rerank_has_api_key?: boolean;
   knowledge_rerank_api_key_masked?: string | null;
-  knowledge_api_key: string | null;
-  knowledge_has_api_key?: boolean;
-  knowledge_api_key_masked?: string | null;
   updated_at: string | null;
 };
 

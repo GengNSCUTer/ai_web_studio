@@ -138,8 +138,6 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table user_settings add column knowledge_embedding_api_key text")
     if "knowledge_rerank_api_key" not in columns:
         statements.append("alter table user_settings add column knowledge_rerank_api_key text")
-    if "knowledge_api_key" not in columns:
-        statements.append("alter table user_settings add column knowledge_api_key text")
 
     knowledge_chunk_columns = _get_column_names("knowledge_chunks")
     if knowledge_chunk_columns and "metadata_json" not in knowledge_chunk_columns:

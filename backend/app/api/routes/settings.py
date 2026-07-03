@@ -17,6 +17,7 @@ from app.services.chat_provider_service import ChatProviderService, resolve_prov
 from app.services.knowledge_model_catalog_service import KnowledgeModelCatalogService
 from app.services.setting_service import SettingService
 
+# Settings Router 只负责用户级配置的 HTTP 入口；默认值、加密、脱敏都交给 SettingService。
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
@@ -25,6 +26,7 @@ def get_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserSettingResponse:
+    # 所有设置都绑定 current_user.id，避免用户读取或修改别人的模型/知识库配置。
     service = SettingService(UserSettingRepository(db))
     return service.get_or_create_user_settings(current_user.id)
 
@@ -35,6 +37,7 @@ def update_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserSettingResponse:
+    # PATCH 只更新显式传入字段；敏感字段是否清空/加密由 service 统一处理。
     service = SettingService(UserSettingRepository(db))
     return service.update_user_settings(current_user.id, payload)
 
@@ -45,6 +48,7 @@ async def test_provider_connection(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ProviderConnectionTestResponse:
+    # 测试连接使用“前端临时输入 + 已保存密钥”的组合，不直接保存本次测试参数。
     service = SettingService(UserSettingRepository(db))
     current_settings = service.get_or_create_user_settings(current_user.id)
 
@@ -91,6 +95,7 @@ async def get_knowledge_model_options(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> KnowledgeModelOptionsResponse:
+    # 获取候选 embedding/rerank 模型时，优先使用本次请求里的 api_key，否则回退到已保存用户密钥。
     service = SettingService(UserSettingRepository(db))
     provider = service.normalize_knowledge_model_provider(payload.provider)
     base_url = payload.base_url.strip()

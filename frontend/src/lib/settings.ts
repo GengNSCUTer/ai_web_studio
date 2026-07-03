@@ -43,18 +43,11 @@ export function normalizeUserSettings(settings: UserSettings): UserSettings {
     knowledge_rerank_base_url: settings.knowledge_rerank_base_url || "https://api.siliconflow.cn/v1",
     knowledge_rerank_model: settings.knowledge_rerank_model || "BAAI/bge-reranker-v2-m3",
     knowledge_embedding_api_key: null,
-    knowledge_embedding_has_api_key:
-      settings.knowledge_embedding_has_api_key ?? settings.knowledge_has_api_key ?? false,
-    knowledge_embedding_api_key_masked:
-      settings.knowledge_embedding_api_key_masked ?? settings.knowledge_api_key_masked ?? null,
+    knowledge_embedding_has_api_key: settings.knowledge_embedding_has_api_key ?? false,
+    knowledge_embedding_api_key_masked: settings.knowledge_embedding_api_key_masked ?? null,
     knowledge_rerank_api_key: null,
-    knowledge_rerank_has_api_key:
-      settings.knowledge_rerank_has_api_key ?? settings.knowledge_has_api_key ?? false,
-    knowledge_rerank_api_key_masked:
-      settings.knowledge_rerank_api_key_masked ?? settings.knowledge_api_key_masked ?? null,
-    knowledge_api_key: null,
-    knowledge_has_api_key: settings.knowledge_has_api_key ?? false,
-    knowledge_api_key_masked: settings.knowledge_api_key_masked ?? null,
+    knowledge_rerank_has_api_key: settings.knowledge_rerank_has_api_key ?? false,
+    knowledge_rerank_api_key_masked: settings.knowledge_rerank_api_key_masked ?? null,
   };
 }
 
@@ -90,6 +83,5 @@ export function buildSettingsPayload(settings: UserSettings) {
     knowledge_rerank_model: settings.knowledge_rerank_model,
     knowledge_embedding_api_key: settings.knowledge_embedding_api_key,
     knowledge_rerank_api_key: settings.knowledge_rerank_api_key,
-    knowledge_api_key: settings.knowledge_api_key,
   };
 }

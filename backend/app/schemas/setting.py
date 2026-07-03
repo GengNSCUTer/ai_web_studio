@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserSettingResponse(BaseModel):
+    # 响应模型永远不回显密钥明文，只返回 has_* 和 masked 字段给前端展示状态。
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -40,13 +41,11 @@ class UserSettingResponse(BaseModel):
     knowledge_rerank_api_key: str | None = None
     knowledge_rerank_has_api_key: bool = False
     knowledge_rerank_api_key_masked: str | None = None
-    knowledge_api_key: str | None = None
-    knowledge_has_api_key: bool = False
-    knowledge_api_key_masked: str | None = None
     updated_at: datetime | None = None
 
 
 class UserSettingUpdate(BaseModel):
+    # Update Schema 表示“局部更新”；None 和未传字段在 service 中有不同语义。
     provider_type: str | None = Field(default=None, max_length=32)
     default_model: str | None = Field(default=None, max_length=128)
     ollama_base_url: str | None = Field(default=None, max_length=255)
@@ -76,11 +75,10 @@ class UserSettingUpdate(BaseModel):
     clear_knowledge_embedding_api_key: bool | None = None
     knowledge_rerank_api_key: str | None = None
     clear_knowledge_rerank_api_key: bool | None = None
-    knowledge_api_key: str | None = None
-    clear_knowledge_api_key: bool | None = None
 
 
 class ProviderConnectionTestRequest(BaseModel):
+    # 测试连接是临时动作，不等于保存设置；保存仍走 PATCH /settings。
     provider_type: str = Field(max_length=32)
     ollama_base_url: str = Field(max_length=255)
     api_base_url: str | None = Field(default=None, max_length=255)
@@ -97,6 +95,7 @@ class ProviderConnectionTestResponse(BaseModel):
 
 
 class KnowledgeModelOptionsRequest(BaseModel):
+    # 同一个接口服务 embedding/rerank 两类模型候选，model_kind 决定使用哪类用户密钥。
     provider: str = Field(max_length=32)
     base_url: str = Field(max_length=255)
     api_key: str | None = None

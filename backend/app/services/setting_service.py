@@ -5,9 +5,12 @@ from app.schemas.setting import UserSettingResponse, UserSettingUpdate
 from app.services.context_governance_service import ContextBudgetPlanner
 from app.services.knowledge_model_metadata import infer_embedding_dimensions
 from app.services.secret_service import SecretService
+from sqlalchemy.exc import IntegrityError
 
 
 class SettingService:
+    """用户设置业务层：负责默认值、归一化、密钥加密、响应脱敏。"""
+
     DEFAULT_OPENAI_BASE_URL = "https://api.siliconflow.cn/v1"
     DEFAULT_OPENAI_MODEL = "Qwen/Qwen3.5-35B-A3B"
     DEFAULT_OPENAI_API_KEY = None
@@ -99,6 +102,7 @@ class SettingService:
 
     @classmethod
     def _build_default_setting(cls, user_id: str) -> UserSetting:
+        # 新用户首次进入系统时生成一份完整默认配置，后续聊天/RAG都依赖这份设置。
         return UserSetting(
             user_id=user_id,
             provider_type="openai-compatible",
@@ -127,15 +131,32 @@ class SettingService:
             knowledge_rerank_model=cls.DEFAULT_KNOWLEDGE_RERANK_MODEL,
             knowledge_embedding_api_key=None,
             knowledge_rerank_api_key=None,
-            knowledge_api_key=None,
         )
+
+    def _save_setting(self, setting: UserSetting) -> UserSetting:
+        try:
+            saved = self.repo.save(setting)
+            self.repo.db.commit()
+            self.repo.db.refresh(saved)
+            return saved
+        except IntegrityError:
+            self.repo.db.rollback()
+            raise
 
     def get_or_create_user_settings(self, user_id: str) -> UserSettingResponse:
         setting = self.repo.get_by_user(user_id)
         if not setting:
             setting = self._build_default_setting(user_id)
-            setting = self.repo.save(setting)
-        else:
+            try:
+                setting = self._save_setting(setting)
+            except IntegrityError:
+                # 并发首次访问时，另一个请求可能已插入 user_id 唯一记录；回滚后重新读取即可。
+                setting = self.repo.get_by_user(user_id)
+                if not setting:
+                    raise
+
+        if setting:
+            # 这里兼容历史版本字段缺失或旧默认值，读取时顺手修正并持久化。
             should_save = False
             if not getattr(setting, "provider_type", None):
                 setting.provider_type = "openai-compatible"
@@ -235,7 +256,7 @@ class SettingService:
                 setting.theme_mode = normalized_theme
                 should_save = True
             if should_save:
-                setting = self.repo.save(setting)
+                setting = self._save_setting(setting)
         return self._to_response(setting)
 
     def update_user_settings(self, user_id: str, payload: UserSettingUpdate) -> UserSettingResponse:
@@ -244,6 +265,7 @@ class SettingService:
             setting = self._build_default_setting(user_id)
 
         data = payload.model_dump(exclude_unset=True)
+        # 普通字符串先做 trim；空字符串归一为 None，避免把无意义空值写进配置。
         for key in ("provider_type", "default_model", "ollama_base_url", "api_base_url", "system_prompt"):
             if key in data:
                 data[key] = self._normalize_optional_str(data[key])
@@ -259,11 +281,10 @@ class SettingService:
             if key in data:
                 data[key] = self._normalize_optional_str(data[key])
         for key, value in data.items():
+            # 密钥字段不能走普通 setattr，否则会把明文直接写进数据库。
             if key in {
                 "api_key",
                 "clear_api_key",
-                "knowledge_api_key",
-                "clear_knowledge_api_key",
                 "knowledge_embedding_api_key",
                 "clear_knowledge_embedding_api_key",
                 "knowledge_rerank_api_key",
@@ -275,12 +296,8 @@ class SettingService:
         if data.get("clear_api_key"):
             setting.api_key = None
         elif "api_key" in data and data["api_key"] is not None:
+            # 用户级模型 API Key 只加密保存；响应阶段不会回显明文。
             setting.api_key = self.secrets.encrypt(data["api_key"])
-
-        if data.get("clear_knowledge_api_key"):
-            setting.knowledge_api_key = None
-        elif "knowledge_api_key" in data and data["knowledge_api_key"] is not None:
-            setting.knowledge_api_key = self.secrets.encrypt(data["knowledge_api_key"])
 
         if data.get("clear_knowledge_embedding_api_key"):
             setting.knowledge_embedding_api_key = None
@@ -344,7 +361,7 @@ class SettingService:
         if not getattr(setting, "knowledge_rerank_model", None):
             setting.knowledge_rerank_model = self.DEFAULT_KNOWLEDGE_RERANK_MODEL
 
-        saved = self.repo.save(setting)
+        saved = self._save_setting(setting)
         return self._to_response(saved)
 
     def resolve_provider_api_key(self, user_id: str) -> str | None:
@@ -353,23 +370,16 @@ class SettingService:
             return None
         return self.secrets.decrypt(getattr(setting, "api_key", None))
 
-    def resolve_knowledge_api_key(self, user_id: str) -> str | None:
-        setting = self.repo.get_by_user(user_id)
-        if not setting:
-            return None
-        return self.secrets.decrypt(getattr(setting, "knowledge_api_key", None))
-
     def resolve_knowledge_model_api_key(self, user_id: str, model_kind: str) -> str | None:
         setting = self.repo.get_by_user(user_id)
         if not setting:
             return None
         if model_kind == "rerank":
-            dedicated = self.secrets.decrypt(getattr(setting, "knowledge_rerank_api_key", None))
-        else:
-            dedicated = self.secrets.decrypt(getattr(setting, "knowledge_embedding_api_key", None))
-        return dedicated or self.secrets.decrypt(getattr(setting, "knowledge_api_key", None))
+            return self.secrets.decrypt(getattr(setting, "knowledge_rerank_api_key", None))
+        return self.secrets.decrypt(getattr(setting, "knowledge_embedding_api_key", None))
 
     def _to_response(self, setting: UserSetting) -> UserSettingResponse:
+        # 出站前只解密用于判断/掩码，绝不把密钥明文放进响应。
         raw_api_key = self.secrets.decrypt(getattr(setting, "api_key", None))
         raw_knowledge_embedding_api_key = self.secrets.decrypt(
             getattr(setting, "knowledge_embedding_api_key", None)
@@ -377,7 +387,6 @@ class SettingService:
         raw_knowledge_rerank_api_key = self.secrets.decrypt(
             getattr(setting, "knowledge_rerank_api_key", None)
         )
-        raw_knowledge_api_key = self.secrets.decrypt(getattr(setting, "knowledge_api_key", None))
         return UserSettingResponse.model_validate(
             {
                 "id": setting.id,
@@ -427,18 +436,11 @@ class SettingService:
                     setting, "knowledge_rerank_model", self.DEFAULT_KNOWLEDGE_RERANK_MODEL
                 ),
                 "knowledge_embedding_api_key": None,
-                "knowledge_embedding_has_api_key": bool(raw_knowledge_embedding_api_key or raw_knowledge_api_key),
-                "knowledge_embedding_api_key_masked": self.secrets.mask(
-                    raw_knowledge_embedding_api_key or raw_knowledge_api_key
-                ),
+                "knowledge_embedding_has_api_key": bool(raw_knowledge_embedding_api_key),
+                "knowledge_embedding_api_key_masked": self.secrets.mask(raw_knowledge_embedding_api_key),
                 "knowledge_rerank_api_key": None,
-                "knowledge_rerank_has_api_key": bool(raw_knowledge_rerank_api_key or raw_knowledge_api_key),
-                "knowledge_rerank_api_key_masked": self.secrets.mask(
-                    raw_knowledge_rerank_api_key or raw_knowledge_api_key
-                ),
-                "knowledge_api_key": None,
-                "knowledge_has_api_key": bool(raw_knowledge_api_key),
-                "knowledge_api_key_masked": self.secrets.mask(raw_knowledge_api_key),
+                "knowledge_rerank_has_api_key": bool(raw_knowledge_rerank_api_key),
+                "knowledge_rerank_api_key_masked": self.secrets.mask(raw_knowledge_rerank_api_key),
                 "updated_at": setting.updated_at,
             }
         )
