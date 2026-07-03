@@ -399,6 +399,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 conversation_id=conversation.id,
                 role="assistant",
                 content="旧回答",
+                reasoning_content="旧思考",
+                external_sources='[{"title":"旧来源"}]',
                 status="done",
             )
             self.db.add(conversation)
@@ -435,6 +437,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
             refreshed = self.db.get(Message, assistant_message.id)
             self.assertEqual(refreshed.status, "streaming")
             self.assertEqual(refreshed.content, "")
+            self.assertIsNone(refreshed.reasoning_content)
+            self.assertIsNone(refreshed.external_sources)
 
         asyncio.run(run_test())
 
@@ -459,6 +463,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 conversation_id=conversation.id,
                 role="assistant",
                 content="旧回答",
+                reasoning_content="旧思考",
+                external_sources='[{"title":"旧来源"}]',
                 status="done",
             )
             self.db.add_all([user_message, assistant_message])
@@ -495,6 +501,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.assertEqual(refreshed_user.content, "新问题")
             self.assertEqual(refreshed_assistant.status, "streaming")
             self.assertEqual(refreshed_assistant.content, "")
+            self.assertIsNone(refreshed_assistant.reasoning_content)
+            self.assertIsNone(refreshed_assistant.external_sources)
 
         asyncio.run(run_test())
 

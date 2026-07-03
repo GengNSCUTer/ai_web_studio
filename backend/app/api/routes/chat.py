@@ -25,6 +25,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 def _stringify_stats(stats: dict[str, Any]) -> str:
+    # HTTP header 只能放短文本；复杂诊断信息用 JSON 后再 base64，避免中文/特殊字符破坏 header。
     if not stats:
         return ""
     payload = json.dumps(stats, ensure_ascii=False, default=str).encode("utf-8")
@@ -56,7 +57,11 @@ def _truncate_header_text(value: Any, max_chars: int) -> Any:
 
 
 def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, Any]:
-    """Keep diagnostic headers small; full sources are streamed in NDJSON body."""
+    """压缩上下文诊断头。
+
+    完整来源、工具 trace 会通过 NDJSON body 或消息接口读取；header 只保留少量摘要，
+    防止代理/浏览器因为 header 过大直接中断流式响应。
+    """
     compact: dict[str, Any] = {}
 
     attachment_chunks = details.get("attachment_chunks")
@@ -114,10 +119,12 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
 
 
 def _encode_stream_event(event_type: str, **payload: Any) -> str:
+    # 前端按行读取 NDJSON；每个事件必须以换行结束。
     return json.dumps({"type": event_type, **payload}, ensure_ascii=False) + "\n"
 
 
 def _find_latest_user_before(messages: list[object], *, assistant_index: int) -> object | None:
+    # 重生成/编辑重答只支持最后一轮：先定位最后 assistant 前面的最近 user 消息。
     for message in reversed(messages[:assistant_index]):
         if getattr(message, "role", None) == "user":
             return message
@@ -130,11 +137,18 @@ def _build_streaming_response(
     *,
     event_stream: bool = False,
 ) -> StreamingResponse:
+    """把已准备好的 ChatExecutionContext 转成真正的流式 HTTP 响应。
+
+    prepare 阶段已经完成会话、消息、上下文、工具和 RAG 来源准备；
+    这个函数只负责调用模型 provider，并把增量 token 写回前端，同时最终落库 assistant 消息。
+    """
+
     async def text_generator():
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         try:
             if event_stream:
+                # 工具事件先发给前端，让用户看到“为什么调用工具、调用了什么、是否成功”。
                 for tool_event in context.tool_events:
                     event_type = str(tool_event.get("type") or "")
                     payload = {key: value for key, value in tool_event.items() if key != "type"}
@@ -158,14 +172,17 @@ def _build_streaming_response(
                 thinking_budget=context.thinking_budget,
             ):
                 if event.type == "reasoning_delta":
+                    # reasoning_delta 是深度思考过程；单独存储，避免混入最终回答正文。
                     reasoning_parts.append(event.text)
                     if event_stream:
                         yield _encode_stream_event("reasoning_delta", text=event.text)
                     continue
                 if event.type == "answer_delta":
+                    # answer_delta 才是最终回答正文。
                     content_parts.append(event.text)
                     yield _encode_stream_event("answer_delta", text=event.text) if event_stream else event.text
 
+            # 模型正常结束后，一次性把完整 answer/reasoning/sources 写回 assistant 消息。
             context.assistant_message.content = "".join(content_parts)
             context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
             context.assistant_message.external_sources = (
@@ -177,16 +194,24 @@ def _build_streaming_response(
             if event_stream:
                 yield _encode_stream_event("done", assistant_message_id=context.assistant_message.id)
         except asyncio.CancelledError:
+            # 客户端主动停止或连接断开时，保存 partial content，前端用 cancelled 展示“已停止”。
             context.assistant_message.status = "cancelled"
             context.assistant_message.content = "".join(content_parts)
             context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
+            context.assistant_message.external_sources = (
+                json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
+            )
             context.message_service.save_message(context.assistant_message)
             context.conversation_repo.touch(context.conversation.id)
             raise
         except Exception as exc:
+            # 模型错误也要保存 partial content/reasoning/sources，否则刷新后会丢失已生成片段和诊断线索。
             context.assistant_message.status = "failed"
             context.assistant_message.content = "".join(content_parts)
             context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
+            context.assistant_message.external_sources = (
+                json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
+            )
             context.message_service.save_message(context.assistant_message)
             context.conversation_repo.touch(context.conversation.id)
             if event_stream:
@@ -220,6 +245,7 @@ async def chat_text_stream(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
+    # 旧文本流入口：只输出 answer 文本，不输出工具事件/思考事件。前端主路径通常使用 events-stream。
     provider_service = ChatProviderService()
     context = await ChatExecutionService(db=db, current_user=current_user).prepare_chat_execution(payload)
     return _build_streaming_response(context, provider_service)
@@ -231,6 +257,7 @@ async def chat_events_stream(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
+    # 新事件流入口：输出 NDJSON，包含工具 trace、来源、reasoning_delta、answer_delta、done/model_error。
     provider_service = ChatProviderService()
     context = await ChatExecutionService(db=db, current_user=current_user).prepare_chat_execution(payload)
     return _build_streaming_response(context, provider_service, event_stream=True)
@@ -242,6 +269,8 @@ async def regenerate_last_answer_stream(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
+    # 重生成只允许最后一条消息是指定 assistant 消息。
+    # 这样可以避免重写中间历史，降低上下文和消息顺序复杂度。
     provider_service = ChatProviderService()
     conversation_repo = ConversationRepository(db)
     message_repo = MessageRepository(db)
@@ -267,6 +296,8 @@ async def regenerate_last_answer_stream(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未找到对应的上一条用户消息")
 
     assistant_message.content = ""
+    assistant_message.reasoning_content = None
+    assistant_message.external_sources = None
     assistant_message.status = "streaming"
     message_repo.save(assistant_message)
 
@@ -294,6 +325,7 @@ async def edit_last_user_stream(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
+    # 编辑重答也只允许最后一轮：指定 user_message 必须是最后 assistant 前面的最近 user 消息。
     provider_service = ChatProviderService()
     conversation_repo = ConversationRepository(db)
     message_repo = MessageRepository(db)
@@ -334,6 +366,8 @@ async def edit_last_user_stream(
         )
 
     assistant_message.content = ""
+    assistant_message.reasoning_content = None
+    assistant_message.external_sources = None
     assistant_message.status = "streaming"
     message_repo.save(assistant_message)
 

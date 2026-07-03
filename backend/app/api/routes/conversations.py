@@ -1,8 +1,8 @@
 import json
 import re
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -128,10 +128,22 @@ def _build_markdown_export(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _filter_messages(messages: list[Any], message_ids: str | None) -> list[Any]:
+def _parse_requested_message_ids(message_ids: str | None) -> set[str] | None:
     if not message_ids:
-        return messages
+        return None
     requested = {item.strip() for item in message_ids.split(",") if item.strip()}
+    if not requested:
+        return None
+    if len(requested) > 200:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="最多只能导出 200 条指定消息")
+    invalid_ids = [item for item in requested if len(item) > 64]
+    if invalid_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="message_ids 包含非法消息 ID")
+    return requested
+
+
+def _filter_messages(messages: list[Any], message_ids: str | None) -> list[Any]:
+    requested = _parse_requested_message_ids(message_ids)
     if not requested:
         return messages
     return [message for message in messages if message.id in requested]
@@ -190,11 +202,13 @@ def _build_zip_export(
 
 @router.get("", response_model=list[ConversationListItem])
 def list_conversations(
+    limit: int | None = Query(default=None, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ConversationListItem]:
-    service = ConversationService(ConversationRepository(db))
-    return service.list_conversations(current_user.id)
+    service = ConversationService(ConversationRepository(db), ProjectRepository(db))
+    return service.list_conversations(current_user.id, limit=limit, offset=offset)
 
 
 @router.post("", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
@@ -203,10 +217,11 @@ def create_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ConversationResponse:
-    if payload.project_id and not ProjectRepository(db).get_by_user(payload.project_id, current_user.id):
+    service = ConversationService(ConversationRepository(db), ProjectRepository(db))
+    conversation = service.create_conversation(payload, current_user.id)
+    if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    service = ConversationService(ConversationRepository(db))
-    return service.create_conversation(payload, current_user.id)
+    return conversation
 
 
 @router.get("/{conversation_id}", response_model=ConversationResponse)
@@ -215,7 +230,7 @@ def get_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ConversationResponse:
-    service = ConversationService(ConversationRepository(db))
+    service = ConversationService(ConversationRepository(db), ProjectRepository(db))
     conversation = service.get_conversation(conversation_id, current_user.id)
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
@@ -226,7 +241,7 @@ def get_conversation(
 def export_conversation(
     conversation_id: str,
     export_format: str = Query(default="markdown", alias="format", pattern="^(markdown|json)$"),
-    message_ids: str | None = Query(default=None),
+    message_ids: str | None = Query(default=None, max_length=8000),
     include_attachments: bool = Query(default=True),
     include_attachment_files: bool = Query(default=True),
     include_context: bool = Query(default=False),
@@ -235,6 +250,7 @@ def export_conversation(
     current_user: User = Depends(get_current_user),
 ) -> Response:
     conversation_repo = ConversationRepository(db)
+    # 导出接口也必须先做会话归属校验；后面的 message 查询只按 conversation_id，不再带 user_id。
     conversation = conversation_repo.get_by_user(conversation_id, current_user.id)
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
@@ -288,10 +304,11 @@ def update_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ConversationResponse:
-    service = ConversationService(ConversationRepository(db))
+    # update 的业务权限在 ConversationService 内通过 get_by_user 收口。
+    service = ConversationService(ConversationRepository(db), ProjectRepository(db))
     conversation = service.update_conversation(conversation_id, payload, current_user.id)
     if not conversation:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation or project not found")
     return conversation
 
 
@@ -301,7 +318,8 @@ def delete_conversation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> None:
-    service = ConversationService(ConversationRepository(db))
+    # 删除会话是物理删除；service 会先断开 RAG 检索日志对会话/消息的引用。
+    service = ConversationService(ConversationRepository(db), ProjectRepository(db))
     deleted = service.delete_conversation(conversation_id, current_user.id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")

@@ -10,11 +10,23 @@ from app.core.config import settings
 
 @dataclass(frozen=True)
 class ChatStreamEvent:
+    """Provider 返回的统一流式事件。
+
+    不同供应商的字段不同，服务内统一成 reasoning_delta / answer_delta，
+    上层 route 就不用关心 Ollama 或 OpenAI-compatible 的差异。
+    """
+
     type: str
     text: str
 
 
 class ChatProviderService:
+    """模型供应商适配层。
+
+    这一层只负责和模型服务通信：列模型、流式聊天、一次性补全。
+    它不应该知道用户权限、会话归属、RAG、工具调用或上下文预算。
+    """
+
     async def list_models(
         self,
         *,
@@ -22,6 +34,7 @@ class ChatProviderService:
         base_url: str,
         api_key: str | None,
     ) -> list[str]:
+        # 设置页测试连接会调用这里。Ollama 和 OpenAI-compatible 的模型列表协议不同。
         if provider_type == "ollama":
             from app.services.ollama_service import OllamaService
 
@@ -49,6 +62,7 @@ class ChatProviderService:
         top_p: float,
         max_tokens: int | None,
     ) -> AsyncGenerator[str, None]:
+        # 兼容旧的纯文本流入口：只把 answer_delta 文本吐出去，忽略 reasoning_delta。
         async for event in self.stream_chat_events(
             provider_type=provider_type,
             base_url=base_url,
@@ -78,6 +92,7 @@ class ChatProviderService:
         thinking_enabled: bool = False,
         thinking_budget: int | None = None,
     ) -> AsyncGenerator[ChatStreamEvent, None]:
+        # 新主路径：保留 reasoning_delta，供前端展示“深度思考”折叠面板。
         if provider_type == "ollama":
             from app.services.ollama_service import OllamaService
 
@@ -115,6 +130,7 @@ class ChatProviderService:
 
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
+                # 兼容硅基流动/Qwen/DeepSeek-R1 等 OpenAI-compatible 扩展字段。
                 reasoning = self._extract_delta_attr(delta, "reasoning_content")
                 if reasoning:
                     yield ChatStreamEvent(type="reasoning_delta", text=reasoning)
@@ -136,6 +152,7 @@ class ChatProviderService:
         top_p: float = 0.9,
         max_tokens: int | None = None,
     ) -> str:
+        # 非流式补全当前主要用于滚动摘要刷新，不直接服务前端聊天输出。
         if provider_type == "ollama":
             from app.services.ollama_service import OllamaService
 
@@ -185,6 +202,8 @@ class ChatProviderService:
         thinking_enabled: bool,
         thinking_budget: int | None,
     ) -> dict[str, Any]:
+        # “深度思考”不是 OpenAI 标准字段，不同供应商字段不同。
+        # 当前只给已知兼容 enable_thinking/thinking_budget 的模型或服务附加 extra_body。
         normalized = f"{base_url} {model_name}".lower()
         supports_qwen_thinking = any(
             marker in normalized
@@ -200,6 +219,7 @@ class ChatProviderService:
 
     @staticmethod
     def _extract_delta_attr(delta: Any, name: str) -> str | None:
+        # OpenAI SDK 返回对象；部分兼容服务可能返回 dict-like delta。
         if delta is None:
             return None
         value = getattr(delta, name, None)
@@ -219,6 +239,7 @@ def resolve_provider_base_url(
     configured_api_base_url: str | None = None,
     configured_ollama_base_url: str | None = None,
 ) -> str:
+    # provider_type 决定 base_url 的语义：Ollama 用 ollama_base_url，在线兼容服务用 api_base_url。
     if provider_type == "ollama":
         return configured_ollama_base_url or configured_base_url or settings.ollama_base_url
 

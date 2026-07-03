@@ -7,6 +7,7 @@ from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.message_repo import MessageRepository
+from app.repositories.project_repo import ProjectRepository
 from app.repositories.setting_repo import UserSettingRepository
 from app.repositories.tool_trace_repo import ToolTraceRepository
 from app.schemas.message import ChatStreamRequest
@@ -26,12 +27,18 @@ from app.services.tokenizer_service import TokenizerEstimator
 
 
 class ChatExecutionService:
-    """Facade for chat turn bootstrapping and context assembly."""
+    """Chat 主链路门面。
+
+    这层不直接调用模型，也不直接拼 prompt；它负责把一次聊天请求拆成两个阶段：
+    1. ChatTurnBootstrapper：确认/创建会话，写入 user 消息和 assistant 占位消息。
+    2. ChatContextAssemblyService：把记忆、附件、工具、知识库、摘要和上下文预算组装成模型输入。
+    """
 
     def __init__(self, *, db: Session, current_user: User) -> None:
         self.db = db
         self.current_user = current_user
         self.conversation_repo = ConversationRepository(db)
+        self.project_repo = ProjectRepository(db)
         self.message_repo = MessageRepository(db)
         self.message_service = MessageService(self.message_repo, AttachmentRepository(db))
         self.setting_service = SettingService(UserSettingRepository(db))
@@ -39,6 +46,7 @@ class ChatExecutionService:
         self.tool_trace_repo = ToolTraceRepository(db)
         self.turn_bootstrapper = ChatTurnBootstrapper(
             conversation_repo=self.conversation_repo,
+            project_repo=self.project_repo,
             message_repo=self.message_repo,
             message_service=self.message_service,
             user_id=self.current_user.id,
@@ -57,6 +65,8 @@ class ChatExecutionService:
         ChatTurnBootstrapper.validate_attachment_context_inputs(attachments)
 
     async def prepare_chat_execution(self, payload: ChatStreamRequest) -> ChatExecutionContext:
+        # 新问题入口：先创建/复用会话并落库本轮消息，再组装上下文。
+        # 返回的 ChatExecutionContext 还没有真正调用模型；模型流式调用发生在 route 的 StreamingResponse 中。
         default_settings = self.setting_service.get_or_create_user_settings(self.current_user.id)
         turn = self.turn_bootstrapper.bootstrap_new_turn(payload=payload, default_settings=default_settings)
         runtime = self._build_runtime_config(turn.conversation)
@@ -77,6 +87,7 @@ class ChatExecutionService:
         self,
         execution_input: ExistingTurnExecutionInput,
     ) -> ChatExecutionContext:
+        # 重生成/编辑重答入口：复用已存在的 user/assistant 消息，只重新组装上下文和模型运行时配置。
         self.turn_bootstrapper.apply_turn_overrides(
             conversation=execution_input.conversation,
             model_name=execution_input.model_name,
@@ -98,6 +109,8 @@ class ChatExecutionService:
         )
 
     def _build_runtime_config(self, conversation: object) -> ChatRuntimeConfig:
+        # 运行时配置是“用户设置 + 会话覆盖”的合并结果。
+        # 会话上的 model_name 优先于用户默认模型；provider/base_url/api_key 来自用户设置。
         settings = self.setting_service.get_or_create_user_settings(self.current_user.id)
         provider_api_key = self.setting_service.resolve_provider_api_key(self.current_user.id)
         resolved_model = clean_optional_str(conversation.model_name) or clean_optional_str(settings.default_model)

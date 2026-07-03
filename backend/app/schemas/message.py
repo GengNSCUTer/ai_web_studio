@@ -1,14 +1,27 @@
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.upload import UploadItemReference
 
 
+MessageId = Annotated[str, Field(min_length=1, max_length=64)]
+MessageContent = Annotated[str, Field(min_length=1, max_length=200000)]
+
+
 class MessageCreate(BaseModel):
-    role: str = Field(max_length=32)
-    content: str
+    # 公开消息创建接口只允许创建用户消息；assistant/system 消息必须由聊天编排内部写入。
+    role: Literal["user"] = "user"
+    content: MessageContent
+
+    @field_validator("content")
+    @classmethod
+    def strip_non_empty_content(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("消息内容不能为空")
+        return normalized
 
 
 class MessageResponse(BaseModel):
@@ -28,13 +41,13 @@ class MessageResponse(BaseModel):
 
 
 class MessageBulkDeleteRequest(BaseModel):
-    message_ids: list[str] = Field(default_factory=list)
+    message_ids: list[MessageId] = Field(default_factory=list, max_length=200)
 
 
 class ChatStreamRequest(BaseModel):
     conversation_id: str | None = None
     title: str | None = Field(default=None, max_length=255)
-    content: str
+    content: MessageContent
     model_name: str | None = Field(default=None, max_length=128)
     system_prompt: str | None = None
     attachments: list[UploadItemReference] = Field(default_factory=list)
@@ -43,6 +56,14 @@ class ChatStreamRequest(BaseModel):
     web_search_enabled: bool = False
     knowledge_base_id: str | None = Field(default=None, max_length=36)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("content")
+    @classmethod
+    def strip_non_empty_content(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("消息内容不能为空")
+        return normalized
 
 
 class ChatRegenerateRequest(BaseModel):
@@ -61,7 +82,7 @@ class ChatEditLastUserRequest(BaseModel):
     conversation_id: str
     user_message_id: str
     assistant_message_id: str
-    content: str
+    content: MessageContent
     attachments: list[UploadItemReference] | None = None
     model_name: str | None = Field(default=None, max_length=128)
     system_prompt: str | None = None
@@ -70,3 +91,11 @@ class ChatEditLastUserRequest(BaseModel):
     web_search_enabled: bool = False
     knowledge_base_id: str | None = Field(default=None, max_length=36)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("content")
+    @classmethod
+    def strip_non_empty_content(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("消息内容不能为空")
+        return normalized

@@ -11,6 +11,13 @@ from app.services.tokenizer_service import TokenizerEstimator
 
 @dataclass
 class ChatExecutionContext:
+    """模型流式执行所需的完整上下文。
+
+    这是 prepare 阶段和 streaming 阶段之间的交接对象：
+    prepare 阶段负责填好 conversation/message/prompt/provider/diagnostics，
+    route 里的 StreamingResponse 只消费这个对象去调用模型并落库结果。
+    """
+
     conversation_repo: ConversationRepository
     message_service: MessageService
     conversation: object
@@ -36,6 +43,11 @@ class ChatExecutionContext:
 
 @dataclass
 class ExistingTurnExecutionInput:
+    """重生成/编辑重答的输入。
+
+    与新问题不同，这类请求不创建新的 user/assistant 消息，而是复用已有最后一轮消息。
+    """
+
     conversation: object
     history_rows: list[object]
     user_message: object
@@ -51,6 +63,11 @@ class ExistingTurnExecutionInput:
 
 @dataclass
 class ChatRuntimeConfig:
+    """一次模型调用的运行时配置。
+
+    它来自“用户设置 + 会话覆盖 + 上下文预算计算”，不包含具体消息内容。
+    """
+
     settings: object
     provider_api_key: str | None
     resolved_model: str
@@ -63,6 +80,8 @@ class ChatRuntimeConfig:
 
 @dataclass
 class MemoryContextBundle:
+    """长期记忆注入结果。"""
+
     context_text: str | None
     count: int
     chars: int
@@ -70,6 +89,8 @@ class MemoryContextBundle:
 
 @dataclass
 class SummaryRefreshBundle:
+    """滚动摘要刷新结果。"""
+
     summary: str | None
     boundary_message_id: str | None
     stats: dict[str, Any]
@@ -77,6 +98,8 @@ class SummaryRefreshBundle:
 
 @dataclass
 class PromptDiagnosticsBundle:
+    """prompt 观测数据，用于上下文面板和 prefix cache 命中分析。"""
+
     prompt_prefix_hash: str
     prompt_prefix_tokens: int
     prompt_total_tokens: int

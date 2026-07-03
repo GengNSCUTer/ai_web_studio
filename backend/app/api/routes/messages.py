@@ -19,6 +19,7 @@ def list_messages(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[MessageResponse]:
+    # Message 没有 user_id，因此每个消息接口的第一步都必须校验 conversation 属于 current_user。
     conversation = ConversationRepository(db).get_by_user(conversation_id, current_user.id)
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
@@ -44,6 +45,7 @@ def create_message(
     current_user: User = Depends(get_current_user),
 ) -> MessageResponse:
     conversation_repo = ConversationRepository(db)
+    # 公开创建消息入口只允许给自己的会话追加 user 消息；MessageCreate schema 会拒绝 assistant/system。
     conversation = conversation_repo.get_by_user(conversation_id, current_user.id)
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
@@ -62,6 +64,7 @@ def delete_message(
     current_user: User = Depends(get_current_user),
 ) -> None:
     conversation_repo = ConversationRepository(db)
+    # 先校验会话归属，再按 conversation_id + message_id 删除，形成双重边界。
     conversation = conversation_repo.get_by_user(conversation_id, current_user.id)
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
@@ -82,6 +85,7 @@ def bulk_delete_messages(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, int]:
     conversation_repo = ConversationRepository(db)
+    # 批量删除同样先收口到用户自己的会话；传入其他会话 message_id 会在 repo 层被过滤掉。
     conversation = conversation_repo.get_by_user(conversation_id, current_user.id)
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")

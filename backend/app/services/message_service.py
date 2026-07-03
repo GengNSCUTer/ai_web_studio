@@ -11,15 +11,23 @@ from app.schemas.upload import UploadItemReference
 
 
 class MessageService:
+    """消息业务层。
+
+    这个 service 默认调用者已经校验过 conversation 属于当前用户。
+    它负责消息创建/删除、附件挂载、RAG 日志断链和出站序列化。
+    """
+
     def __init__(self, repo: MessageRepository, attachment_repo: AttachmentRepository | None = None):
         self.repo = repo
         self.attachment_repo = attachment_repo
 
     def list_messages(self, conversation_id: str) -> list[MessageResponse]:
+        # 读取列表时修复过期 streaming 状态，是为了让服务重启/断流后的 UI 能恢复一致状态。
         self.repo.mark_stale_streaming_messages(conversation_id)
         return [self._serialize_message(item) for item in self.repo.list_by_conversation(conversation_id)]
 
     def create_message(self, conversation_id: str, payload: MessageCreate) -> MessageResponse:
+        # 公开创建入口只接受 user 消息；assistant/system 消息由 create_system_message 给内部编排链路使用。
         message = Message(
             conversation_id=conversation_id,
             role=payload.role,
@@ -36,6 +44,8 @@ class MessageService:
         content: str,
         status: str = "done",
     ) -> Message:
+        # 内部写消息入口。名字中的 system 不是指 role=system，而是“系统内部可信调用”。
+        # ChatTurnBootstrapper 会用它创建 user 和 assistant 两类消息。
         message = Message(
             conversation_id=conversation_id,
             role=role,
@@ -55,6 +65,7 @@ class MessageService:
         uploads: list[UploadItemReference],
         user_id: str,
     ) -> list[Attachment]:
+        # 上传文件必须位于当前用户目录下。storage_key 前缀校验是防止把别人的上传挂到自己的消息上。
         if not uploads:
             return []
         if not self.attachment_repo:
@@ -90,6 +101,8 @@ class MessageService:
         uploads: list[UploadItemReference],
         user_id: str,
     ) -> list[Attachment]:
+        # 编辑上一条用户消息时使用：先删除旧附件元数据，再挂载新上传项。
+        # 这里不负责删除物理文件，避免误删仍被其他引用使用的上传文件。
         if not self.attachment_repo:
             raise RuntimeError("Attachment repository is required for replacing uploads")
 
@@ -97,22 +110,44 @@ class MessageService:
         return self.attach_uploaded_items(message_id=message_id, uploads=uploads, user_id=user_id)
 
     def delete_message(self, message_id: str, conversation_id: str) -> bool:
+        # 删除消息前先解除 RAG 日志中的消息引用，避免来源定位指向不存在的 message_id。
         message = self.repo.get_by_id_and_conversation(message_id, conversation_id)
         if not message:
             return False
 
-        KnowledgeRetrievalLogRepository(self.repo.db).detach_message_links(
-            message_ids=[message.id],
-        )
-        self.repo.delete(message)
+        try:
+            KnowledgeRetrievalLogRepository(self.repo.db).detach_message_links(
+                message_ids=[message.id],
+                commit=False,
+            )
+            self.repo.delete(message, commit=False)
+            self.repo.db.commit()
+        except Exception:
+            self.repo.db.rollback()
+            raise
         return True
 
     def bulk_delete_messages(self, conversation_id: str, message_ids: list[str]) -> int:
-        if message_ids:
-            KnowledgeRetrievalLogRepository(self.repo.db).detach_message_links(message_ids=message_ids)
-        return self.repo.bulk_delete(conversation_id, message_ids)
+        # 批量删除的所有副作用都必须限定在当前 conversation_id 内。
+        # 不能把客户端原始 message_ids 直接交给 RAG 日志断链，否则夹带其他会话 ID 时，
+        # 虽然消息不会被删，但其他会话的来源定位会被误清空。
+        try:
+            messages = self.repo.list_by_ids_and_conversation(conversation_id, message_ids)
+            scoped_message_ids = [message.id for message in messages]
+            if scoped_message_ids:
+                KnowledgeRetrievalLogRepository(self.repo.db).detach_message_links(
+                    message_ids=scoped_message_ids,
+                    commit=False,
+                )
+            deleted_count = self.repo.bulk_delete(conversation_id, scoped_message_ids, commit=False)
+            self.repo.db.commit()
+            return deleted_count
+        except Exception:
+            self.repo.db.rollback()
+            raise
 
     def _serialize_message(self, message: Message) -> MessageResponse:
+        # 不直接使用 model_validate 的原因是附件需要转换成前端可再次引用的 UploadItemReference。
         return MessageResponse(
             id=message.id,
             conversation_id=message.conversation_id,
@@ -139,6 +174,7 @@ class MessageService:
 
     @staticmethod
     def _build_storage_key(storage_path: str) -> str:
+        # storage_key 是相对于 upload_dir 的安全路径；解析失败时返回空字符串，避免泄露任意本地路径。
         try:
             relative_path = Path(storage_path).resolve().relative_to(Path(settings.upload_dir).resolve())
         except Exception:

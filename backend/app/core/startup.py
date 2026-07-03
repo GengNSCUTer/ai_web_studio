@@ -164,6 +164,8 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table messages add column reasoning_content text")
     if "external_sources" not in message_columns:
         statements.append("alter table messages add column external_sources text")
+    if "sequence" not in message_columns:
+        statements.append("alter table messages add column sequence integer")
 
     memory_columns = _get_column_names("user_memories")
     if "source_conversation_id" not in memory_columns:

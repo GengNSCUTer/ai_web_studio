@@ -32,6 +32,7 @@ def clean_optional_str(value: str | None) -> str | None:
 
 
 def build_summary_source_text(source_messages: list[object]) -> str:
+    # 摘要模型不需要完整原文；这里先把候选历史压成 role + 前 1800 字，控制摘要成本。
     lines: list[str] = []
     for index, message in enumerate(source_messages, start=1):
         role = getattr(message, "role", "unknown")
@@ -48,6 +49,7 @@ def build_summary_prompt(
     source_messages: list[object],
     max_summary_chars: int,
 ) -> list[dict[str, str]]:
+    # 摘要本质是“压缩历史”，不是回答用户问题；system prompt 明确禁止新增事实。
     source_text = build_summary_source_text(source_messages)
     existing = (existing_summary or "").strip()
     target_chars = max(800, min(max_summary_chars, 6000))
@@ -78,7 +80,11 @@ def build_summary_prompt(
 
 
 class ChatContextAssemblyService:
-    """Assembles memory, attachments, tools, summaries and prompt diagnostics."""
+    """上下文组装层。
+
+    这一层不创建消息，也不调用最终回答模型。它负责把所有上下文来源合并成模型可消费的 messages：
+    长期记忆、当前轮附件、联网/工具结果、知识库片段、滚动摘要、最近历史、上下文预算治理。
+    """
 
     def __init__(
         self,
@@ -98,6 +104,7 @@ class ChatContextAssemblyService:
         self.memory_service = memory_service
 
     def build_memory_context(self, settings: object) -> MemoryContextBundle:
+        # 长期记忆是用户级上下文，不属于单个 conversation；是否注入由用户设置控制。
         if not getattr(settings, "memory_enabled", True):
             return MemoryContextBundle(context_text=None, count=0, chars=0)
 
@@ -121,14 +128,17 @@ class ChatContextAssemblyService:
         knowledge_base_id: str | None = None,
         knowledge_base_ids: list[str] | None = None,
     ) -> ChatExecutionContext:
+        # 这是 Chat prepare 阶段的核心方法：收集所有上下文来源，构造最终 prompt，并返回给流式执行层。
         memory_bundle = self.build_memory_context(runtime.settings)
         query = getattr(user_message, "content", "") or ""
 
+        # 当前轮附件上下文只围绕本轮 user_message 选择，不扫描全部历史附件。
         attachment_context_result = AttachmentContextService().build_context(
             attachments=list(getattr(user_message, "attachments", []) or []),
             query=query,
             max_chars=runtime.budget.max_attachment_chars,
         )
+        # 外部上下文包括联网搜索、地图、天气等工具。只有 web_search_enabled=True 时才会真正规划/调用工具。
         external_context_result = await self._build_external_context(
             conversation=conversation,
             assistant_message=assistant_message,
@@ -139,6 +149,7 @@ class ChatContextAssemblyService:
             max_attachment_chars=runtime.budget.max_attachment_chars,
             runtime=runtime,
         )
+        # 知识库上下文来自用户显式选择的知识库；检索日志会在后面绑定到本轮 user/assistant message。
         knowledge_context_result = await KnowledgeContextService(
             db=self.db,
             user_id=self.user_id,
@@ -151,6 +162,7 @@ class ChatContextAssemblyService:
             [knowledge_context_result.retrieval_log_id] if knowledge_context_result.retrieval_log_id else []
         )
         if retrieval_log_ids:
+            # RAG 来源定位需要把检索日志绑定到本轮消息，否则前端只能看到片段，不能跳回对应回答。
             knowledge_log_repo = KnowledgeRetrievalLogRepository(self.db)
             sources_by_log_id: dict[str, list[dict[str, Any]]] = {}
             for source in knowledge_context_result.sources:
@@ -173,6 +185,7 @@ class ChatContextAssemblyService:
             runtime=runtime,
         )
 
+        # PromptBuilder 负责把各层上下文转成 provider chat messages；Governance 再按预算做截断。
         prompt_result = ContextPromptBuilder().build_chat_messages(
             messages=history_rows,
             system_prompt=clean_optional_str(conversation.system_prompt)
@@ -197,6 +210,7 @@ class ChatContextAssemblyService:
 
         conversation.last_prompt_prefix_hash = prompt_diagnostics.prompt_prefix_hash or None
         conversation.last_prompt_prefix_token_count = prompt_diagnostics.prompt_prefix_tokens or None
+        # prefix hash 只是观测/缓存命中诊断字段，不影响业务权限。
         self.conversation_repo.save(conversation)
 
         summary_text = summary_bundle.summary or clean_optional_str(getattr(conversation, "context_summary", None)) or ""
@@ -296,6 +310,8 @@ class ChatContextAssemblyService:
         max_attachment_chars: int,
         runtime: ChatRuntimeConfig,
     ) -> object:
+        # 工具层的输入不只是当前 query，还包含 recent_messages 和 planner_runtime。
+        # 这让 LLM planner 可以根据上下文判断是否需要多工具调用，而不是纯正则匹配。
         external_context_result = await ExternalContextService(
             db=self.db,
             user_id=self.user_id,
@@ -329,6 +345,7 @@ class ChatContextAssemblyService:
         history_rows: list[object],
         runtime: ChatRuntimeConfig,
     ) -> SummaryRefreshBundle:
+        # 滚动摘要只在上下文治理判断需要时刷新；刷新失败时治理层会走 fallback，不应阻断普通聊天。
         async def summarize_with_model(
             *,
             existing_summary: str | None,
@@ -363,6 +380,7 @@ class ChatContextAssemblyService:
             summarizer=summarize_with_model,
         )
         if stats["summary_refresh_triggered"] and next_summary:
+            # 摘要和边界必须一起保存，否则后续 prompt 无法知道哪些历史已被摘要覆盖。
             conversation.context_summary = next_summary
             conversation.context_summary_boundary_message_id = boundary_message_id
             conversation.context_summary_updated_at = datetime.now(timezone.utc)
@@ -377,6 +395,8 @@ class ChatContextAssemblyService:
         governed_messages: list[dict[str, Any]],
         runtime: ChatRuntimeConfig,
     ) -> PromptDiagnosticsBundle:
+        # stable_prefix_messages 只包含系统层上下文，不包含最近用户历史。
+        # hash 相同表示 prefix 可能复用，有利于观察 prompt cache 命中潜力。
         stable_prefix_text = json.dumps(
             prompt_result.stable_prefix_messages,
             ensure_ascii=False,

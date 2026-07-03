@@ -271,7 +271,13 @@ class KnowledgeRetrievalLogRepository:
             log.sources_json = _json_dumps(sources)
         return self.save(log)
 
-    def detach_conversation_links(self, *, conversation_id: str, user_id: str | None = None) -> int:
+    def detach_conversation_links(
+        self,
+        *,
+        conversation_id: str,
+        user_id: str | None = None,
+        commit: bool = True,
+    ) -> int:
         conditions = [KnowledgeRetrievalLog.conversation_id == conversation_id]
         if user_id is not None:
             conditions.append(KnowledgeRetrievalLog.user_id == user_id)
@@ -284,28 +290,36 @@ class KnowledgeRetrievalLogRepository:
                 assistant_message_id=None,
             )
         )
-        self.db.commit()
+        if commit:
+            self.db.commit()
         return int(result.rowcount or 0)
 
-    def detach_message_links(self, *, message_ids: list[str], user_id: str | None = None) -> int:
+    def detach_message_links(
+        self,
+        *,
+        message_ids: list[str],
+        user_id: str | None = None,
+        commit: bool = True,
+    ) -> int:
         if not message_ids:
             return 0
+        target_ids = set(message_ids)
         conditions = [
-            (KnowledgeRetrievalLog.user_message_id.in_(message_ids))
-            | (KnowledgeRetrievalLog.assistant_message_id.in_(message_ids))
+            (KnowledgeRetrievalLog.user_message_id.in_(target_ids))
+            | (KnowledgeRetrievalLog.assistant_message_id.in_(target_ids))
         ]
         if user_id is not None:
             conditions.append(KnowledgeRetrievalLog.user_id == user_id)
-        result = self.db.execute(
-            update(KnowledgeRetrievalLog)
-            .where(*conditions)
-            .values(
-                user_message_id=None,
-                assistant_message_id=None,
-            )
-        )
-        self.db.commit()
-        return int(result.rowcount or 0)
+        logs = list(self.db.scalars(select(KnowledgeRetrievalLog).where(*conditions)).all())
+        for log in logs:
+            if log.user_message_id in target_ids:
+                log.user_message_id = None
+            if log.assistant_message_id in target_ids:
+                log.assistant_message_id = None
+            self.db.add(log)
+        if commit:
+            self.db.commit()
+        return len(logs)
 
     def delete_by_knowledge_base(self, *, knowledge_base_id: str, user_id: str | None = None) -> int:
         conditions = [KnowledgeRetrievalLog.knowledge_base_id == knowledge_base_id]
