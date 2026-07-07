@@ -5,6 +5,8 @@ from typing import Any
 
 from app.services.tokenizer_service import TokenizerEstimator
 
+REFERENCE_CONTEXT_LAYER = "reference_context_prefix"
+
 
 @dataclass
 class ContextLayerStats:
@@ -131,10 +133,14 @@ class ContextGovernanceService:
         stats = ContextLayerStats()
         notices: list[str] = []
 
-        system_prefix, history_messages = self._split_system_prefix(messages)
+        # 输入消息分三层：
+        # 1. leading system：真正的行为约束，默认不可删除。
+        # 2. reference context：RAG/工具/记忆等资料，优先级低于 system 和当前用户问题，可被预算治理截断。
+        # 3. recent history：真实对话历史，保留最近若干条。
+        system_prefix, reference_prefix, history_messages = self._split_prefix_messages(messages)
         history_slice = history_messages[-self.budget.max_history_messages :]
         stats.truncated_history_messages = max(0, len(history_messages) - len(history_slice))
-        selected_messages = [*system_prefix, *history_slice]
+        selected_messages = [*system_prefix, *reference_prefix, *history_slice]
 
         for message in selected_messages:
             estimated = self._estimate_message_chars(message)
@@ -148,7 +154,11 @@ class ContextGovernanceService:
         governed_messages, clipped_chars = self._fit_to_budget(selected_messages)
         stats.total_chars_estimate = self._estimate_messages_chars(governed_messages)
         stats.total_tokens_estimate = self._estimate_messages_tokens(governed_messages)
-        governed_history_count = sum(1 for message in governed_messages if message.get("role") != "system")
+        governed_history_count = sum(
+            1
+            for message in governed_messages
+            if message.get("role") != "system" and not self._is_reference_context_message(message)
+        )
         stats.truncated_history_messages += max(0, len(history_slice) - governed_history_count)
 
         summary = None
@@ -165,7 +175,7 @@ class ContextGovernanceService:
             notices.append("已生成会话摘要，作为压缩记忆保留")
 
         return GovernedContext(
-            messages=governed_messages,
+            messages=[self._strip_internal_fields(message) for message in governed_messages],
             stats=stats,
             notices=notices,
             summary=summary,
@@ -174,14 +184,27 @@ class ContextGovernanceService:
 
     @staticmethod
     def _split_system_prefix(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        prefix: list[dict[str, Any]] = []
+        system_prefix, reference_prefix, history_messages = ContextGovernanceService._split_prefix_messages(messages)
+        return [*system_prefix, *reference_prefix], history_messages
+
+    @staticmethod
+    def _split_prefix_messages(
+        messages: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        system_prefix: list[dict[str, Any]] = []
+        reference_prefix: list[dict[str, Any]] = []
         index = 0
         for message in messages:
             if message.get("role") != "system":
                 break
-            prefix.append(message)
+            system_prefix.append(message)
             index += 1
-        return prefix, messages[index:]
+        for message in messages[index:]:
+            if not ContextGovernanceService._is_reference_context_message(message):
+                break
+            reference_prefix.append(message)
+            index += 1
+        return system_prefix, reference_prefix, messages[index:]
 
     async def build_incremental_summary(
         self,
@@ -285,6 +308,11 @@ class ContextGovernanceService:
             removed = current.pop(removable_index)
             clipped_chars += self._estimate_message_chars(removed)
 
+        if self._exceeds_budget(current):
+            # 参考上下文是资料，不是当前用户问题。旧历史删完后仍超预算时，先裁剪 RAG/工具/记忆资料。
+            current, clipped_delta = self._truncate_reference_context_to_fit(current)
+            clipped_chars += clipped_delta
+
         if self._exceeds_budget(current) and current:
             # 最后兜底：截断最后一条用户消息
             last_message = current[-1]
@@ -304,9 +332,55 @@ class ContextGovernanceService:
     @staticmethod
     def _find_removable_history_index(messages: list[dict[str, Any]]) -> int | None:
         for index in range(1, len(messages) - 1):
+            if ContextGovernanceService._is_reference_context_message(messages[index]):
+                continue
             if messages[index].get("role") in {"assistant", "user"}:
                 return index
         return None
+
+    @staticmethod
+    def _is_reference_context_message(message: dict[str, Any]) -> bool:
+        return message.get("_context_layer") == REFERENCE_CONTEXT_LAYER
+
+    @staticmethod
+    def _strip_internal_fields(message: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in message.items() if not key.startswith("_")}
+
+    def _truncate_reference_context_to_fit(self, messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+        reference_index = next(
+            (index for index, message in enumerate(messages) if self._is_reference_context_message(message)),
+            None,
+        )
+        if reference_index is None:
+            return messages, 0
+
+        current = list(messages)
+        reference_message = current[reference_index]
+        original_content = reference_message.get("content")
+        flat_text = self._message_text(reference_message)
+        if not flat_text:
+            current.pop(reference_index)
+            return current, 0
+
+        low = 0
+        high = len(flat_text)
+        best = ""
+        while low <= high:
+            mid = (low + high) // 2
+            candidate = self._replace_user_text_content(reference_message, original_content, flat_text[:mid])
+            candidate_messages = [*current[:reference_index], candidate, *current[reference_index + 1 :]]
+            if self._exceeds_budget(candidate_messages):
+                high = mid - 1
+            else:
+                best = flat_text[:mid]
+                low = mid + 1
+
+        clipped_chars = max(0, len(flat_text) - len(best))
+        if not best.strip():
+            current.pop(reference_index)
+            return current, len(flat_text)
+        current[reference_index] = self._replace_user_text_content(reference_message, original_content, best)
+        return current, clipped_chars
 
     def _build_file_context(self, file_attachments: list[dict[str, Any]]) -> tuple[str | None, int, int]:
         chunks: list[str] = []

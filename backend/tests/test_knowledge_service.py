@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import asyncio
+import hashlib
 import json
 import tempfile
 import unittest
@@ -17,6 +18,7 @@ from app.api.routes.chat import _stringify_stats
 from app.core.config import settings
 from app.core.database import Base
 from app.models import *  # noqa: F403 - ensure all metadata is registered.
+from app.models.knowledge import KnowledgeChunk, KnowledgeDocument
 from app.models.project import Project
 from app.models.user import User
 from app.repositories.knowledge_repo import (
@@ -123,6 +125,19 @@ class StaticMultiKnowledgeIndexService:
 
     def __init__(self, db):
         self.db = db
+
+
+class GuardedKnowledgeChunkRepository(KnowledgeChunkRepository):
+    def list_by_knowledge_base(self, knowledge_base_id: str, user_id: str):  # noqa: ANN201
+        raise AssertionError("retrieval query path should not load all chunks")
+
+
+class StaticFaissStore:
+    def __init__(self, hits: list[tuple[int, float]]) -> None:
+        self.hits = hits
+
+    def search(self, *, knowledge_base_id: str, query_vector: list[float], top_k: int):  # noqa: ANN201, ARG002
+        return self.hits[:top_k]
 
 
 class KnowledgeServiceTest(unittest.TestCase):
@@ -1100,6 +1115,75 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertIn("ZXQ-42", results[0].chunk.content)
         self.assertIn("lexical_score", results[0].metadata)
 
+    def test_vector_retrieval_fetches_only_hit_chunks_by_vector_id(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="按命中向量取 chunk",
+                parser_provider="local_basic",
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                rerank_enabled=False,
+                retrieval_mode="vector",
+                retrieval_top_k=2,
+                rerank_top_n=2,
+                score_threshold=0,
+            ),
+        )
+        assert knowledge_base is not None
+        knowledge_base_model = KnowledgeBaseRepository(self.db).get_by_user(knowledge_base.id, self.user.id)
+        assert knowledge_base_model is not None
+        document = KnowledgeDocument(
+            knowledge_base_id=knowledge_base.id,
+            user_id=self.user.id,
+            file_name="vector-hit.md",
+            mime_type="text/markdown",
+            file_size=100,
+            storage_key=f"{self.user.id}/vector-hit.md",
+            parse_status="parsed",
+            index_status="indexed",
+        )
+        self.db.add(document)
+        self.db.commit()
+        self.db.refresh(document)
+        chunks = []
+        for vector_id in range(1, 5):
+            content = f"vector chunk {vector_id} adaptive rag routing"
+            chunks.append(
+                KnowledgeChunk(
+                    user_id=self.user.id,
+                    knowledge_base_id=knowledge_base.id,
+                    document_id=document.id,
+                    chunk_index=vector_id - 1,
+                    vector_id=vector_id,
+                    content=content,
+                    content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    char_count=len(content),
+                    token_estimate=max(1, len(content) // 2),
+                    source_start=vector_id * 10,
+                    source_end=vector_id * 10 + len(content),
+                    metadata_json=json.dumps({"file_name": "vector-hit.md"}, ensure_ascii=False),
+                )
+            )
+        self.db.add_all(chunks)
+        self.db.commit()
+
+        results = KnowledgeRetrievalPipeline(
+            chunk_repo=GuardedKnowledgeChunkRepository(self.db),
+            setting_service=SettingService(UserSettingRepository(self.db)),
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=StaticFaissStore(hits=[(3, 0.91), (1, 0.82)]),
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base_model,
+            query="adaptive rag routing",
+            top_k=2,
+        )
+
+        self.assertEqual([result.chunk.vector_id for result in results], [3, 1])
+
     def test_rag64_hybrid_retrieval_uses_rrf_fusion(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
         document_repo = KnowledgeDocumentRepository(self.db)
@@ -1738,6 +1822,101 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertGreaterEqual(len(public_log["selected"]), 1)
         self.assertEqual(public_log["selected"][0]["chunk_id"], result.sources[0].metadata["chunk_id"])
         self.assertEqual(public_log["status"], "success")
+
+    def test_knowledge_context_sources_match_chunks_injected_into_prompt(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="来源一致性测试",
+                parser_provider="local_basic",
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+                retrieval_top_k=3,
+                rerank_top_n=3,
+                max_context_chunks=3,
+                max_context_chars=1000,
+                score_threshold=0,
+                rerank_enabled=False,
+            ),
+        )
+        assert knowledge_base is not None
+        knowledge_base_model = KnowledgeBaseRepository(self.db).get_by_user(knowledge_base.id, self.user.id)
+        assert knowledge_base_model is not None
+        knowledge_base_model.max_context_chars = 260
+        self.db.add(knowledge_base_model)
+        self.db.commit()
+        self.db.refresh(knowledge_base_model)
+        document = KnowledgeDocument(
+            knowledge_base_id=knowledge_base.id,
+            user_id=self.user.id,
+            file_name="source-alignment.md",
+            mime_type="text/markdown",
+            file_size=100,
+            storage_key=f"{self.user.id}/source-alignment.md",
+            parse_status="parsed",
+            index_status="indexed",
+        )
+        self.db.add(document)
+        self.db.commit()
+        self.db.refresh(document)
+
+        chunks = []
+        for index in range(3):
+            content = f"chunk {index} adaptive rag routing " + ("details " * 30)
+            chunks.append(
+                KnowledgeChunk(
+                    user_id=self.user.id,
+                    knowledge_base_id=knowledge_base.id,
+                    document_id=document.id,
+                    chunk_index=index,
+                    vector_id=index + 1,
+                    content=content,
+                    content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    char_count=len(content),
+                    token_estimate=max(1, len(content) // 2),
+                    source_start=index * 100,
+                    source_end=(index + 1) * 100,
+                    metadata_json=json.dumps(
+                        {
+                            "file_name": "source-alignment.md",
+                            "file_type": "markdown",
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            )
+        self.db.add_all(chunks)
+        self.db.commit()
+
+        result = asyncio.run(
+            KnowledgeContextService(
+                db=self.db,
+                user_id=self.user.id,
+                index_service=StaticMultiKnowledgeIndexService(self.db),
+            ).build_context(
+                knowledge_base_id=knowledge_base.id,
+                query="adaptive rag routing",
+            )
+        )
+
+        injected_labels = [
+            line for line in (result.context_text or "").splitlines() if line.startswith("[KB")
+        ]
+        self.assertEqual(len(injected_labels), 1)
+        self.assertEqual(result.diagnostics["knowledge_chunks_retrieved"], 3)
+        self.assertEqual(result.diagnostics["knowledge_chunks_injected"], len(injected_labels))
+        self.assertEqual(len(result.sources), len(injected_labels))
+
+        assert result.retrieval_log_id is not None
+        retrieval_log = KnowledgeRetrievalLogRepository(self.db).get_by_user(result.retrieval_log_id, self.user.id)
+        self.assertIsNotNone(retrieval_log)
+        assert retrieval_log is not None
+        public_log = KnowledgeRetrievalLogRepository.to_public_dict(retrieval_log)
+        self.assertEqual(len(public_log["candidates"]), 3)
+        self.assertEqual(len(public_log["selected"]), len(injected_labels))
+        self.assertEqual(public_log["selected"][0]["chunk_id"], result.sources[0].metadata["chunk_id"])
 
     def test_knowledge_context_service_skips_unindexed_knowledge_base(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))

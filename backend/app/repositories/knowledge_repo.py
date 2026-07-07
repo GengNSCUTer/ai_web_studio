@@ -119,6 +119,28 @@ class KnowledgeChunkRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+    def list_by_vector_ids_and_knowledge_base(
+        self,
+        *,
+        knowledge_base_id: str,
+        user_id: str,
+        vector_ids: list[int],
+    ) -> list[KnowledgeChunk]:
+        # 查询期通常只需要 FAISS/BM25 命中的少量 vector_id，不应该每次把整个知识库 chunks 全量拉出。
+        unique_vector_ids = list(dict.fromkeys(vector_ids))
+        if not unique_vector_ids:
+            return []
+        stmt = (
+            select(KnowledgeChunk)
+            .where(
+                KnowledgeChunk.knowledge_base_id == knowledge_base_id,
+                KnowledgeChunk.user_id == user_id,
+                KnowledgeChunk.vector_id.in_(unique_vector_ids),
+            )
+            .order_by(KnowledgeChunk.vector_id.asc())
+        )
+        return list(self.db.scalars(stmt).all())
+
     def count_by_knowledge_base(self, knowledge_base_id: str, user_id: str) -> int:
         stmt = (
             select(func.count())

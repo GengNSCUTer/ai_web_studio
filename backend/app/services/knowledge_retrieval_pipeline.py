@@ -184,8 +184,13 @@ class KnowledgeRetrievalPipeline:
         if not hits:
             return []
 
+        hit_vector_ids = [vector_id for vector_id, _ in hits]
         score_by_id = {vector_id: score for vector_id, score in hits}
-        chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
+        chunks = self.chunk_repo.list_by_vector_ids_and_knowledge_base(
+            knowledge_base_id=knowledge_base.id,
+            user_id=user_id,
+            vector_ids=hit_vector_ids,
+        )
         chunk_by_vector_id = {chunk.vector_id: chunk for chunk in chunks}
         results: list[RetrievalResult] = []
         for vector_id, score in hits:
@@ -272,7 +277,12 @@ class KnowledgeRetrievalPipeline:
         )
         if not hits:
             return []
-        chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
+        hit_vector_ids = [hit.vector_id for hit in hits]
+        chunks = self.chunk_repo.list_by_vector_ids_and_knowledge_base(
+            knowledge_base_id=knowledge_base.id,
+            user_id=user_id,
+            vector_ids=hit_vector_ids,
+        )
         chunk_by_vector_id = {chunk.vector_id: chunk for chunk in chunks}
         max_score = max((hit.score for hit in hits), default=1.0) or 1.0
         scored: list[RetrievalResult] = []

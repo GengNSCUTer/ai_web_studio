@@ -179,16 +179,18 @@ class KnowledgeContextService:
             results=selected,
             max_chars=knowledge_base.max_context_chars,
         )
+        injected_count = len(self._extract_context_labels(context_text))
+        injected_results = selected[:injected_count]
         base_diagnostics = {
             "knowledge_retrieval_enabled": 1,
             "knowledge_base_id": knowledge_base.id,
             "knowledge_base_name": knowledge_base.name,
             "knowledge_chunks_total": total_chunks,
             "knowledge_chunks_retrieved": len(results),
-            "knowledge_chunks_injected": len(selected) if context_text else 0,
+            "knowledge_chunks_injected": len(injected_results),
             "knowledge_context_chars": len(context_text or ""),
             "knowledge_rerank_enabled": int(bool(knowledge_base.rerank_enabled)),
-            "knowledge_rerank_used": int(any(result.rerank_score is not None for result in selected)),
+            "knowledge_rerank_used": int(any(result.rerank_score is not None for result in injected_results)),
             "knowledge_retrieval_latency_ms": latency_ms,
         }
         retrieval_log = self.retrieval_log_repo.create(
@@ -200,7 +202,7 @@ class KnowledgeContextService:
             rerank_enabled=bool(knowledge_base.rerank_enabled),
             rerank_model=knowledge_base.rerank_model if knowledge_base.rerank_enabled else None,
             candidates=self._serialize_results(results),
-            selected=self._serialize_results(selected),
+            selected=self._serialize_results(injected_results),
             diagnostics=base_diagnostics,
             sources=[],
             status="success",
@@ -209,7 +211,7 @@ class KnowledgeContextService:
         sources = self._build_sources(
             knowledge_base_id=knowledge_base.id,
             knowledge_base_name=knowledge_base.name,
-            results=selected,
+            results=injected_results,
             retrieval_log_id=retrieval_log.id,
         )
         return KnowledgeContextResult(
