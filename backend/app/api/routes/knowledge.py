@@ -352,7 +352,10 @@ def add_eval_case(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> KnowledgeEvalCaseResponse:
-    result = _evaluation_service(db).add_eval_case(knowledge_base_id, eval_set_id, current_user.id, payload)
+    try:
+        result = _evaluation_service(db).add_eval_case(knowledge_base_id, eval_set_id, current_user.id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation set not found")
     return result

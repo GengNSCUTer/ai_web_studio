@@ -111,6 +111,14 @@ class KnowledgeChunkRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+    def get_by_user(self, chunk_id: str, user_id: str) -> KnowledgeChunk | None:
+        stmt = (
+            select(KnowledgeChunk)
+            .where(KnowledgeChunk.id == chunk_id, KnowledgeChunk.user_id == user_id)
+            .limit(1)
+        )
+        return self.db.scalars(stmt).first()
+
     def list_by_knowledge_base(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeChunk]:
         stmt = (
             select(KnowledgeChunk)

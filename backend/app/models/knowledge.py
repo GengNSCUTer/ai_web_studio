@@ -174,7 +174,12 @@ class KnowledgeEvalCase(Base):
     eval_set_id: Mapped[str] = mapped_column(ForeignKey("knowledge_eval_sets.id"), index=True)
     query: Mapped[str] = mapped_column(Text)
     expected_document_id: Mapped[str | None] = mapped_column(ForeignKey("knowledge_documents.id"), nullable=True, index=True)
-    expected_chunk_id: Mapped[str | None] = mapped_column(ForeignKey("knowledge_chunks.id"), nullable=True, index=True)
+    # Chunk 是可重建的派生数据；重索引删除旧 Chunk 时保留评测用例，只让精确 Chunk 标注失效。
+    expected_chunk_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_chunks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     expected_answer_keywords_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     difficulty: Mapped[str | None] = mapped_column(String(32), nullable=True)
     tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)

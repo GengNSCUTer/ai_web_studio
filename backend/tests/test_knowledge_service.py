@@ -11,7 +11,7 @@ from uuid import uuid4
 from zipfile import ZipFile
 from unittest.mock import AsyncMock, Mock, patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.chat import _stringify_stats
@@ -84,6 +84,11 @@ class FakeKnowledgeEmbeddingService(KnowledgeEmbeddingService):
         if not any(vector):
             vector[-1] = 0.1
         return vector
+
+
+class FailingKnowledgeEmbeddingService(KnowledgeEmbeddingService):
+    async def embed_texts(self, *, user_id: str, knowledge_base, texts: list[str]) -> list[list[float]]:  # noqa: ANN001, ARG002
+        raise RuntimeError("fake embedding failure")
 
 
 class FakeKnowledgeRerankService(KnowledgeRerankService):
@@ -801,6 +806,91 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertGreaterEqual(len(results), 1)
         self.assertIn("Adaptive RAG", results[0].chunk.content)
 
+    def test_reindex_embedding_failure_preserves_previous_chunks_and_indexes(self) -> None:
+        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="索引失败一致性测试",
+            file_name="stable-index.md",
+            content="The stable index contains the ORIGINAL-CONTENT marker.",
+            retrieval_mode="hybrid",
+        )
+        old_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
+        old_chunk_snapshot = [(chunk.id, chunk.vector_id, chunk.content) for chunk in old_chunks]
+        faiss_path = KnowledgeFaissStore(index_root=settings.knowledge_index_dir).index_path(knowledge_base.id)
+        lexical_path = KnowledgeLexicalStore(index_root=settings.knowledge_index_dir).index_path(knowledge_base.id)
+        old_faiss_bytes = faiss_path.read_bytes()
+        old_lexical_bytes = lexical_path.read_bytes()
+
+        assert parsed_document.parsed_markdown_path is not None
+        (Path(settings.upload_dir) / parsed_document.parsed_markdown_path).write_text(
+            "The replacement text contains a NEW-CONTENT marker.",
+            encoding="utf-8",
+        )
+        failing_index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=KnowledgeDocumentRepository(self.db),
+            setting_service=setting_service,
+            embedding_service=FailingKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "fake embedding failure"):
+            failing_index_service.index_document(
+                user_id=self.user.id,
+                knowledge_base=knowledge_base,
+                document=parsed_document,
+            )
+
+        preserved_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
+        self.assertEqual(
+            [(chunk.id, chunk.vector_id, chunk.content) for chunk in preserved_chunks],
+            old_chunk_snapshot,
+        )
+        self.assertEqual(faiss_path.read_bytes(), old_faiss_bytes)
+        self.assertEqual(lexical_path.read_bytes(), old_lexical_bytes)
+
+    def test_faiss_rebuild_failure_preserves_previous_index_file(self) -> None:
+        store = KnowledgeFaissStore(index_root=settings.knowledge_index_dir)
+        knowledge_base_id = str(uuid4())
+        chunks = [Mock(vector_id=1)]
+        vectors = [[1.0, 0.0]]
+        index_path = Path(
+            store.rebuild(
+                knowledge_base_id=knowledge_base_id,
+                chunks=chunks,
+                vectors=vectors,
+                dimensions=2,
+            )
+        )
+        old_index_bytes = index_path.read_bytes()
+
+        def write_partial_index_then_fail(index, path: str) -> None:  # noqa: ANN001, ARG001
+            Path(path).write_bytes(b"partial-corrupt-index")
+            raise RuntimeError("fake faiss write failure")
+
+        with patch(
+            "app.services.knowledge_index_service.faiss.write_index",
+            side_effect=write_partial_index_then_fail,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "fake faiss write failure"):
+                store.rebuild(
+                    knowledge_base_id=knowledge_base_id,
+                    chunks=chunks,
+                    vectors=vectors,
+                    dimensions=2,
+                )
+
+        self.assertEqual(index_path.read_bytes(), old_index_bytes)
+        self.assertEqual(list(index_path.parent.glob(".index.faiss.*.tmp")), [])
+
+    def test_embedding_validation_rejects_non_finite_values(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "非有限数值"):
+            KnowledgeIndexService._validate_vectors(
+                vectors=[[1.0, float("nan")]],
+                expected_count=1,
+                dimensions=2,
+            )
+
     def test_rag6_eval_set_runs_retrieval_baseline(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
         document_repo = KnowledgeDocumentRepository(self.db)
@@ -919,6 +1009,108 @@ class KnowledgeServiceTest(unittest.TestCase):
         KnowledgeEvalSetRepository(self.db).delete(saved_eval_set)
         self.assertEqual(len(KnowledgeEvalCaseRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)), 0)
         self.assertEqual(len(KnowledgeEvalRunRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)), 0)
+
+    def test_reindex_clears_stale_expected_chunk_but_preserves_eval_case_document_target(self) -> None:
+        self.db.execute(text("PRAGMA foreign_keys = ON"))
+        self.db.commit()
+        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="评测引用重索引测试",
+            file_name="eval-reference.md",
+            content="The ORIGINAL evaluation chunk describes adaptive retrieval.",
+        )
+        expected_chunk = chunk_repo.list_by_document(parsed_document.id, self.user.id)[0]
+        eval_service = KnowledgeEvaluationService(
+            base_repo=KnowledgeBaseRepository(self.db),
+            chunk_repo=chunk_repo,
+            eval_set_repo=KnowledgeEvalSetRepository(self.db),
+            eval_case_repo=KnowledgeEvalCaseRepository(self.db),
+            eval_run_repo=KnowledgeEvalRunRepository(self.db),
+            eval_result_repo=KnowledgeEvalResultRepository(self.db),
+            setting_service=setting_service,
+        )
+        eval_set = eval_service.create_eval_set(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeEvalSetCreate(name="重索引回归集"),
+        )
+        assert eval_set is not None
+        eval_case = eval_service.add_eval_case(
+            knowledge_base.id,
+            eval_set.id,
+            self.user.id,
+            KnowledgeEvalCaseCreate(
+                query="What is adaptive retrieval?",
+                expected_chunk_id=expected_chunk.id,
+            ),
+        )
+        assert eval_case is not None
+        self.assertEqual(eval_case.expected_document_id, parsed_document.id)
+
+        assert parsed_document.parsed_markdown_path is not None
+        (Path(settings.upload_dir) / parsed_document.parsed_markdown_path).write_text(
+            "The NEW evaluation chunk describes adaptive retrieval after an update.",
+            encoding="utf-8",
+        )
+        KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=KnowledgeDocumentRepository(self.db),
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
+        ).index_document(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            document=parsed_document,
+        )
+
+        self.db.expire_all()
+        preserved_case = KnowledgeEvalCaseRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)[0]
+        self.assertEqual(preserved_case.expected_document_id, parsed_document.id)
+        self.assertIsNone(preserved_case.expected_chunk_id)
+
+    def test_eval_case_rejects_expected_targets_from_another_knowledge_base(self) -> None:
+        knowledge_base, _, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="当前评测知识库",
+            file_name="current-eval.md",
+            content="Current knowledge base content.",
+        )
+        other_base, other_document, _, _ = self._create_indexed_markdown_knowledge_base(
+            name="其他评测知识库",
+            file_name="other-eval.md",
+            content="Other knowledge base content.",
+        )
+        other_chunk = chunk_repo.list_by_knowledge_base(other_base.id, self.user.id)[0]
+        eval_service = KnowledgeEvaluationService(
+            base_repo=KnowledgeBaseRepository(self.db),
+            chunk_repo=chunk_repo,
+            eval_set_repo=KnowledgeEvalSetRepository(self.db),
+            eval_case_repo=KnowledgeEvalCaseRepository(self.db),
+            eval_run_repo=KnowledgeEvalRunRepository(self.db),
+            eval_result_repo=KnowledgeEvalResultRepository(self.db),
+            setting_service=setting_service,
+        )
+        eval_set = eval_service.create_eval_set(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeEvalSetCreate(name="归属边界测试集"),
+        )
+        assert eval_set is not None
+
+        with self.assertRaisesRegex(ValueError, "期望 Chunk"):
+            eval_service.add_eval_case(
+                knowledge_base.id,
+                eval_set.id,
+                self.user.id,
+                KnowledgeEvalCaseCreate(query="invalid chunk", expected_chunk_id=other_chunk.id),
+            )
+        with self.assertRaisesRegex(ValueError, "期望文档"):
+            eval_service.add_eval_case(
+                knowledge_base.id,
+                eval_set.id,
+                self.user.id,
+                KnowledgeEvalCaseCreate(query="invalid document", expected_document_id=other_document.id),
+            )
 
     def test_rag61_retrieval_test_supports_metadata_filters(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))

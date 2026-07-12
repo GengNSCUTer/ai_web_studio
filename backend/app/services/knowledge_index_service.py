@@ -4,7 +4,9 @@ import asyncio
 import hashlib
 import json
 import math
+import os
 import re
+import tempfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -316,7 +318,22 @@ class KnowledgeFaissStore:
             matrix = self._normalize(np.array(vectors, dtype="float32"))
             ids = np.array([chunk.vector_id for chunk in chunks], dtype="int64")
             index.add_with_ids(matrix, ids)
-        faiss.write_index(index, str(index_path))
+        # 不能直接覆盖正式索引：进程中断或磁盘写失败会同时毁掉旧版本。
+        # 临时文件与目标文件放在同一目录，os.replace 才能提供同文件系统内的原子发布。
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=target_dir,
+                prefix=f".{self.INDEX_FILE_NAME}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+            faiss.write_index(index, str(temp_path))
+            os.replace(temp_path, index_path)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
         return str(index_path)
 
     def search(self, *, knowledge_base_id: str, query_vector: list[float], top_k: int) -> list[tuple[int, float]]:
@@ -397,7 +414,24 @@ class KnowledgeLexicalStore:
             "chunk_refs": chunk_refs,
             "postings": dict(postings),
         }
-        index_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=target_dir,
+                prefix=f".{self.INDEX_FILE_NAME}.",
+                suffix=".tmp",
+                mode="w",
+                encoding="utf-8",
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+                json.dump(payload, temp_file, ensure_ascii=False)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_path, index_path)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
         return str(index_path)
 
     def search(self, *, knowledge_base_id: str, query: str, top_k: int) -> list[LexicalSearchHit]:
@@ -481,6 +515,12 @@ class KnowledgeIndexService:
         self.chunker = KnowledgeChunker()
 
     def index_document(self, *, user_id: str, knowledge_base: KnowledgeBase, document: KnowledgeDocument) -> IndexResult:
+        """Build and publish one document's chunks as part of a knowledge-base-wide index.
+
+        The current storage format has one FAISS file and one BM25 file per knowledge base, so indexing one
+        document must rebuild both files from all chunks. Keep fallible external work before database mutation,
+        and keep the vector_id -> embedding association explicit when publishing the rebuilt files.
+        """
         if document.parse_status != "parsed" or not document.parsed_markdown_path:
             raise RuntimeError("文档尚未解析，不能生成索引。")
         markdown = KnowledgeParserService().read_markdown(markdown_path=document.parsed_markdown_path, user_id=user_id)
@@ -535,20 +575,33 @@ class KnowledgeIndexService:
             )
             for offset, chunk in enumerate(prepared_chunks)
         ]
-        saved_chunks = self.chunk_repo.replace_document_chunks(document.id, user_id, chunks)
-        all_chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
-        all_vectors = asyncio.run(
+        existing_chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
+        retained_chunks = [chunk for chunk in existing_chunks if chunk.document_id != document.id]
+        chunks_to_embed = [*retained_chunks, *chunks]
+
+        # Embedding 是最昂贵、最容易因网络或供应商失败的步骤。必须在替换数据库 chunks 之前完成，
+        # 否则重索引失败会留下“新数据库 chunks + 旧 FAISS/BM25 文件”的不可查询状态。
+        vectors_to_publish = asyncio.run(
             self.embedding_service.embed_texts(
                 user_id=user_id,
                 knowledge_base=knowledge_base,
-                texts=[chunk.content for chunk in all_chunks],
+                texts=[chunk.content for chunk in chunks_to_embed],
             )
         )
         self._validate_vectors(
-            vectors=all_vectors,
-            expected_count=len(all_chunks),
+            vectors=vectors_to_publish,
+            expected_count=len(chunks_to_embed),
             dimensions=knowledge_base.embedding_dimensions,
         )
+
+        # Repository 保存后会重新按 vector_id 查询；显式用 vector_id 绑定向量，避免依赖列表/数据库返回顺序。
+        vector_by_id = {
+            chunk.vector_id: vector
+            for chunk, vector in zip(chunks_to_embed, vectors_to_publish, strict=True)
+        }
+        saved_chunks = self.chunk_repo.replace_document_chunks(document.id, user_id, chunks)
+        all_chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
+        all_vectors = [vector_by_id[chunk.vector_id] for chunk in all_chunks]
         index_path = self.faiss_store.rebuild(
             knowledge_base_id=knowledge_base.id,
             chunks=all_chunks,
@@ -639,6 +692,8 @@ class KnowledgeIndexService:
         for vector in vectors:
             if len(vector) != dimensions:
                 raise RuntimeError(f"Embedding 维度不一致：知识库维度 {dimensions}，实际返回 {len(vector)}。")
+            if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in vector):
+                raise RuntimeError("Embedding 返回了非有限数值，已拒绝写入向量索引。")
 
     @staticmethod
     def _normalize_file_type(file_name: str, mime_type: str | None) -> str:

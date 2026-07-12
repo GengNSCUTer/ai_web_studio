@@ -56,6 +56,28 @@ def _get_index_names(table_name: str) -> set[str]:
         return {row[0] for row in result}
 
 
+def _get_foreign_key(table_name: str, column_name: str) -> tuple[str, str] | None:
+    query = text(
+        """
+        select kcu.constraint_name, rc.delete_rule
+        from information_schema.key_column_usage as kcu
+        join information_schema.referential_constraints as rc
+          on rc.constraint_schema = kcu.constraint_schema
+         and rc.constraint_name = kcu.constraint_name
+        where kcu.table_schema = 'public'
+          and kcu.table_name = :table_name
+          and kcu.column_name = :column_name
+        limit 1
+        """
+    )
+    with engine.begin() as connection:
+        row = connection.execute(
+            query,
+            {"table_name": table_name, "column_name": column_name},
+        ).first()
+        return (str(row[0]), str(row[1])) if row else None
+
+
 def ensure_runtime_schema() -> None:
     Base.metadata.create_all(bind=engine)
 
@@ -142,6 +164,33 @@ def ensure_runtime_schema() -> None:
     knowledge_chunk_columns = _get_column_names("knowledge_chunks")
     if knowledge_chunk_columns and "metadata_json" not in knowledge_chunk_columns:
         statements.append("alter table knowledge_chunks add column metadata_json text")
+
+    expected_chunk_fk = _get_foreign_key("knowledge_eval_cases", "expected_chunk_id")
+    if not expected_chunk_fk or expected_chunk_fk[1].upper() != "SET NULL":
+        # 历史评测用例可能只保存了 Chunk 目标；先回填所属文档，再允许重索引置空旧 Chunk 引用。
+        statements.append(
+            """
+            update knowledge_eval_cases as eval_case
+            set expected_document_id = chunk.document_id
+            from knowledge_chunks as chunk
+            where eval_case.expected_chunk_id = chunk.id
+              and eval_case.expected_document_id is null
+            """
+        )
+        if expected_chunk_fk:
+            # 约束名来自 PostgreSQL catalog；双引号转义后再用于 DDL 标识符。
+            constraint_name = expected_chunk_fk[0].replace('"', '""')
+            statements.append(
+                f'alter table knowledge_eval_cases drop constraint "{constraint_name}"'
+            )
+        statements.append(
+            """
+            alter table knowledge_eval_cases
+            add constraint knowledge_eval_cases_expected_chunk_id_fkey
+            foreign key (expected_chunk_id) references knowledge_chunks(id)
+            on delete set null
+            """
+        )
 
     conversation_columns = _get_column_names("conversations")
     if "project_id" not in conversation_columns:

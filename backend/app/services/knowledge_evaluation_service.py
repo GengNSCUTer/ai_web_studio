@@ -9,6 +9,7 @@ from app.models.knowledge import KnowledgeEvalCase, KnowledgeEvalResult, Knowled
 from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
     KnowledgeChunkRepository,
+    KnowledgeDocumentRepository,
     KnowledgeEvalCaseRepository,
     KnowledgeEvalResultRepository,
     KnowledgeEvalRunRepository,
@@ -44,6 +45,7 @@ class KnowledgeEvaluationService:
         eval_run_repo: KnowledgeEvalRunRepository,
         eval_result_repo: KnowledgeEvalResultRepository,
         setting_service: SettingService,
+        document_repo: KnowledgeDocumentRepository | None = None,
         retrieval_pipeline: KnowledgeRetrievalPipeline | None = None,
     ) -> None:
         self.base_repo = base_repo
@@ -53,6 +55,7 @@ class KnowledgeEvaluationService:
         self.eval_run_repo = eval_run_repo
         self.eval_result_repo = eval_result_repo
         self.setting_service = setting_service
+        self.document_repo = document_repo or KnowledgeDocumentRepository(chunk_repo.db)
         self.retrieval_pipeline = retrieval_pipeline
 
     def list_eval_sets(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeEvalSetResponse]:
@@ -92,12 +95,27 @@ class KnowledgeEvaluationService:
         eval_set = self.eval_set_repo.get_by_user(eval_set_id, user_id)
         if not eval_set or eval_set.knowledge_base_id != knowledge_base_id:
             return None
+
+        expected_document_id = payload.expected_document_id
+        if payload.expected_chunk_id:
+            expected_chunk = self.chunk_repo.get_by_user(payload.expected_chunk_id, user_id)
+            if not expected_chunk or expected_chunk.knowledge_base_id != knowledge_base_id:
+                raise ValueError("期望 Chunk 不存在或不属于当前知识库。")
+            if expected_document_id and expected_document_id != expected_chunk.document_id:
+                raise ValueError("期望 Chunk 与期望文档不属于同一份文档。")
+            # 精确 Chunk 会在重索引时失效；同时保存稳定一些的文档级目标，供 SET NULL 后继续评测。
+            expected_document_id = expected_chunk.document_id
+        elif expected_document_id:
+            expected_document = self.document_repo.get_by_user(expected_document_id, user_id)
+            if not expected_document or expected_document.knowledge_base_id != knowledge_base_id:
+                raise ValueError("期望文档不存在或不属于当前知识库。")
+
         item = KnowledgeEvalCase(
             user_id=user_id,
             knowledge_base_id=knowledge_base_id,
             eval_set_id=eval_set_id,
             query=payload.query.strip(),
-            expected_document_id=payload.expected_document_id,
+            expected_document_id=expected_document_id,
             expected_chunk_id=payload.expected_chunk_id,
             expected_answer_keywords_json=self._dump_list(payload.expected_answer_keywords),
             difficulty=payload.difficulty.strip() if payload.difficulty else None,
