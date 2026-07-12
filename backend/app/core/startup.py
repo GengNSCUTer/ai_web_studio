@@ -13,6 +13,7 @@ from app.models import (  # noqa: F401
     KnowledgeEvalRun,
     KnowledgeEvalSet,
     KnowledgeJob,
+    KnowledgeIndexGeneration,
     KnowledgeRetrievalLog,
     Message,
     Project,
@@ -161,9 +162,27 @@ def ensure_runtime_schema() -> None:
     if "knowledge_rerank_api_key" not in columns:
         statements.append("alter table user_settings add column knowledge_rerank_api_key text")
 
+    knowledge_base_columns = _get_column_names("knowledge_bases")
+    if knowledge_base_columns and "active_index_generation" not in knowledge_base_columns:
+        statements.append(
+            "alter table knowledge_bases add column active_index_generation varchar(64) not null default 'legacy'"
+        )
+
     knowledge_chunk_columns = _get_column_names("knowledge_chunks")
     if knowledge_chunk_columns and "metadata_json" not in knowledge_chunk_columns:
         statements.append("alter table knowledge_chunks add column metadata_json text")
+    if knowledge_chunk_columns and "index_generation" not in knowledge_chunk_columns:
+        statements.append(
+            "alter table knowledge_chunks add column index_generation varchar(64) not null default 'legacy'"
+        )
+    knowledge_chunk_indexes = _get_index_names("knowledge_chunks")
+    if "uq_knowledge_chunks_generation_vector" not in knowledge_chunk_indexes:
+        statements.append(
+            """
+            create unique index uq_knowledge_chunks_generation_vector
+            on knowledge_chunks (knowledge_base_id, index_generation, vector_id)
+            """
+        )
 
     expected_chunk_fk = _get_foreign_key("knowledge_eval_cases", "expected_chunk_id")
     if not expected_chunk_fk or expected_chunk_fk[1].upper() != "SET NULL":

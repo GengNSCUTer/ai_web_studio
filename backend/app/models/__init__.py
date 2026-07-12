@@ -9,6 +9,7 @@ from app.models.knowledge import (
     KnowledgeEvalResult,
     KnowledgeEvalRun,
     KnowledgeEvalSet,
+    KnowledgeIndexGeneration,
     KnowledgeJob,
     KnowledgeRetrievalLog,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "KnowledgeEvalResult",
     "KnowledgeEvalRun",
     "KnowledgeEvalSet",
+    "KnowledgeIndexGeneration",
     "KnowledgeJob",
     "KnowledgeRetrievalLog",
     "Message",

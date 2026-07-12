@@ -180,7 +180,13 @@ class KnowledgeRetrievalPipeline:
         )[0]
         self._validate_vectors(vectors=[query_vector], expected_count=1, dimensions=knowledge_base.embedding_dimensions)
         candidate_top_k = self._candidate_top_k(top_k=top_k, filters=filters)
-        hits = self.faiss_store.search(knowledge_base_id=knowledge_base.id, query_vector=query_vector, top_k=candidate_top_k)
+        index_generation = self._active_generation(knowledge_base)
+        hits = self.faiss_store.search(
+            knowledge_base_id=knowledge_base.id,
+            query_vector=query_vector,
+            top_k=candidate_top_k,
+            generation_id=index_generation,
+        )
         if not hits:
             return []
 
@@ -190,6 +196,7 @@ class KnowledgeRetrievalPipeline:
             knowledge_base_id=knowledge_base.id,
             user_id=user_id,
             vector_ids=hit_vector_ids,
+            index_generation=index_generation,
         )
         chunk_by_vector_id = {chunk.vector_id: chunk for chunk in chunks}
         results: list[RetrievalResult] = []
@@ -269,11 +276,13 @@ class KnowledgeRetrievalPipeline:
         filters: KnowledgeRetrievalFilter,
     ) -> list[RetrievalResult]:
         candidate_top_k = self._candidate_top_k(top_k=top_k, filters=filters)
+        index_generation = self._active_generation(knowledge_base)
         hits = self._search_lexical_index(
             knowledge_base=knowledge_base,
             user_id=user_id,
             query=query,
             top_k=candidate_top_k,
+            index_generation=index_generation,
         )
         if not hits:
             return []
@@ -282,6 +291,7 @@ class KnowledgeRetrievalPipeline:
             knowledge_base_id=knowledge_base.id,
             user_id=user_id,
             vector_ids=hit_vector_ids,
+            index_generation=index_generation,
         )
         chunk_by_vector_id = {chunk.vector_id: chunk for chunk in chunks}
         max_score = max((hit.score for hit in hits), default=1.0) or 1.0
@@ -318,23 +328,38 @@ class KnowledgeRetrievalPipeline:
         user_id: str,
         query: str,
         top_k: int,
+        index_generation: str,
     ) -> list[LexicalSearchHit]:
         try:
             return self.lexical_store.search(
                 knowledge_base_id=knowledge_base.id,
                 query=query,
                 top_k=top_k,
+                generation_id=index_generation,
             )
         except RuntimeError:
-            chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
+            chunks = self.chunk_repo.list_by_knowledge_base(
+                knowledge_base.id,
+                user_id,
+                index_generation=index_generation,
+            )
             if not chunks:
                 return []
-            self.lexical_store.rebuild(knowledge_base_id=knowledge_base.id, chunks=chunks)
+            self.lexical_store.rebuild(
+                knowledge_base_id=knowledge_base.id,
+                chunks=chunks,
+                generation_id=index_generation,
+            )
             return self.lexical_store.search(
                 knowledge_base_id=knowledge_base.id,
                 query=query,
                 top_k=top_k,
+                generation_id=index_generation,
             )
+
+    @staticmethod
+    def _active_generation(knowledge_base: KnowledgeBase) -> str:
+        return knowledge_base.active_index_generation or "legacy"
 
     def _retrieve_lexical_results_in_memory(
         self,
@@ -353,7 +378,11 @@ class KnowledgeRetrievalPipeline:
         import math
 
         query_counts = Counter(query_terms)
-        chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
+        chunks = self.chunk_repo.list_by_knowledge_base(
+            knowledge_base.id,
+            user_id,
+            index_generation=self._active_generation(knowledge_base),
+        )
         docs: list[tuple[object, dict, Counter[str]]] = []
         document_frequency: Counter[str] = Counter()
         total_length = 0

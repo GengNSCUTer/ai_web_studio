@@ -103,12 +103,17 @@ class KnowledgeChunkRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def list_by_document(self, document_id: str, user_id: str) -> list[KnowledgeChunk]:
-        stmt = (
-            select(KnowledgeChunk)
-            .where(KnowledgeChunk.document_id == document_id, KnowledgeChunk.user_id == user_id)
-            .order_by(KnowledgeChunk.chunk_index.asc())
-        )
+    def list_by_document(
+        self,
+        document_id: str,
+        user_id: str,
+        *,
+        index_generation: str | None = None,
+    ) -> list[KnowledgeChunk]:
+        conditions = [KnowledgeChunk.document_id == document_id, KnowledgeChunk.user_id == user_id]
+        if index_generation is not None:
+            conditions.append(KnowledgeChunk.index_generation == index_generation)
+        stmt = select(KnowledgeChunk).where(*conditions).order_by(KnowledgeChunk.chunk_index.asc())
         return list(self.db.scalars(stmt).all())
 
     def get_by_user(self, chunk_id: str, user_id: str) -> KnowledgeChunk | None:
@@ -119,12 +124,17 @@ class KnowledgeChunkRepository:
         )
         return self.db.scalars(stmt).first()
 
-    def list_by_knowledge_base(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeChunk]:
-        stmt = (
-            select(KnowledgeChunk)
-            .where(KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id)
-            .order_by(KnowledgeChunk.vector_id.asc())
-        )
+    def list_by_knowledge_base(
+        self,
+        knowledge_base_id: str,
+        user_id: str,
+        *,
+        index_generation: str | None = None,
+    ) -> list[KnowledgeChunk]:
+        conditions = [KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id]
+        if index_generation is not None:
+            conditions.append(KnowledgeChunk.index_generation == index_generation)
+        stmt = select(KnowledgeChunk).where(*conditions).order_by(KnowledgeChunk.vector_id.asc())
         return list(self.db.scalars(stmt).all())
 
     def list_by_vector_ids_and_knowledge_base(
@@ -133,39 +143,61 @@ class KnowledgeChunkRepository:
         knowledge_base_id: str,
         user_id: str,
         vector_ids: list[int],
+        index_generation: str | None = None,
     ) -> list[KnowledgeChunk]:
         # 查询期通常只需要 FAISS/BM25 命中的少量 vector_id，不应该每次把整个知识库 chunks 全量拉出。
         unique_vector_ids = list(dict.fromkeys(vector_ids))
         if not unique_vector_ids:
             return []
-        stmt = (
-            select(KnowledgeChunk)
-            .where(
-                KnowledgeChunk.knowledge_base_id == knowledge_base_id,
-                KnowledgeChunk.user_id == user_id,
-                KnowledgeChunk.vector_id.in_(unique_vector_ids),
-            )
-            .order_by(KnowledgeChunk.vector_id.asc())
-        )
+        conditions = [
+            KnowledgeChunk.knowledge_base_id == knowledge_base_id,
+            KnowledgeChunk.user_id == user_id,
+            KnowledgeChunk.vector_id.in_(unique_vector_ids),
+        ]
+        if index_generation is not None:
+            conditions.append(KnowledgeChunk.index_generation == index_generation)
+        stmt = select(KnowledgeChunk).where(*conditions).order_by(KnowledgeChunk.vector_id.asc())
         return list(self.db.scalars(stmt).all())
 
-    def count_by_knowledge_base(self, knowledge_base_id: str, user_id: str) -> int:
-        stmt = (
-            select(func.count())
-            .select_from(KnowledgeChunk)
-            .where(KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id)
-        )
+    def count_by_knowledge_base(
+        self,
+        knowledge_base_id: str,
+        user_id: str,
+        *,
+        index_generation: str | None = None,
+    ) -> int:
+        conditions = [KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id]
+        if index_generation is not None:
+            conditions.append(KnowledgeChunk.index_generation == index_generation)
+        stmt = select(func.count()).select_from(KnowledgeChunk).where(*conditions)
         return int(self.db.scalar(stmt) or 0)
 
-    def max_vector_id(self, knowledge_base_id: str, user_id: str) -> int:
-        stmt = (
-            select(func.max(KnowledgeChunk.vector_id))
-            .where(KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id)
-        )
+    def max_vector_id(
+        self,
+        knowledge_base_id: str,
+        user_id: str,
+        *,
+        index_generation: str | None = None,
+    ) -> int:
+        conditions = [KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id]
+        if index_generation is not None:
+            conditions.append(KnowledgeChunk.index_generation == index_generation)
+        stmt = select(func.max(KnowledgeChunk.vector_id)).where(*conditions)
         return int(self.db.scalar(stmt) or 0)
 
-    def replace_document_chunks(self, document_id: str, user_id: str, chunks: list[KnowledgeChunk]) -> list[KnowledgeChunk]:
-        stmt = select(KnowledgeChunk).where(KnowledgeChunk.document_id == document_id, KnowledgeChunk.user_id == user_id)
+    def replace_document_chunks(
+        self,
+        document_id: str,
+        user_id: str,
+        chunks: list[KnowledgeChunk],
+        *,
+        index_generation: str = "legacy",
+    ) -> list[KnowledgeChunk]:
+        stmt = select(KnowledgeChunk).where(
+            KnowledgeChunk.document_id == document_id,
+            KnowledgeChunk.user_id == user_id,
+            KnowledgeChunk.index_generation == index_generation,
+        )
         existing = list(self.db.scalars(stmt).all())
         for item in existing:
             self.db.delete(item)
@@ -483,6 +515,17 @@ class KnowledgeEvalCaseRepository:
             .order_by(KnowledgeEvalCase.created_at.asc())
         )
         return list(self.db.scalars(stmt).all())
+
+    def count_by_expected_document(self, document_id: str, user_id: str) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(KnowledgeEvalCase)
+            .where(
+                KnowledgeEvalCase.expected_document_id == document_id,
+                KnowledgeEvalCase.user_id == user_id,
+            )
+        )
+        return int(self.db.scalar(stmt) or 0)
 
     def save(self, eval_case: KnowledgeEvalCase) -> KnowledgeEvalCase:
         self.db.add(eval_case)

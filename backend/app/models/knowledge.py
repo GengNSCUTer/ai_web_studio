@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -37,6 +37,8 @@ class KnowledgeBase(Base):
     max_context_chunks: Mapped[int] = mapped_column(Integer, default=6)
     max_context_chars: Mapped[int] = mapped_column(Integer, default=12000)
     strict_knowledge_answer: Mapped[bool] = mapped_column(Boolean, default=False)
+    # "legacy" 兼容现有单文件索引；新发布器将切换为 UUID generation。
+    active_index_generation: Mapped[str] = mapped_column(String(64), default="legacy", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -45,6 +47,20 @@ class KnowledgeBase(Base):
     documents = relationship("KnowledgeDocument", back_populates="knowledge_base", cascade="all, delete-orphan")
     jobs = relationship("KnowledgeJob", back_populates="knowledge_base", cascade="all, delete-orphan")
     eval_sets = relationship("KnowledgeEvalSet", back_populates="knowledge_base", cascade="all, delete-orphan")
+
+
+class KnowledgeIndexGeneration(Base):
+    __tablename__ = "knowledge_index_generations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    knowledge_base_id: Mapped[str] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
+    base_generation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="building", index=True)
+    manifest_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class KnowledgeDocument(Base):
@@ -78,11 +94,20 @@ class KnowledgeDocument(Base):
 
 class KnowledgeChunk(Base):
     __tablename__ = "knowledge_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "knowledge_base_id",
+            "index_generation",
+            "vector_id",
+            name="uq_knowledge_chunks_generation_vector",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     knowledge_base_id: Mapped[str] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
     document_id: Mapped[str] = mapped_column(ForeignKey("knowledge_documents.id"), index=True)
+    index_generation: Mapped[str] = mapped_column(String(64), default="legacy", index=True)
     chunk_index: Mapped[int] = mapped_column(Integer)
     vector_id: Mapped[int] = mapped_column(Integer, index=True)
     content: Mapped[str] = mapped_column(Text)

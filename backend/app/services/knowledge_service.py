@@ -3,6 +3,8 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sqlalchemy.exc import IntegrityError
+
 from app.core.config import settings
 from app.models.tool_config import UserToolCredential
 from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeJob
@@ -10,6 +12,7 @@ from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
     KnowledgeChunkRepository,
     KnowledgeDocumentRepository,
+    KnowledgeEvalCaseRepository,
     KnowledgeJobRepository,
     KnowledgeRetrievalLogRepository,
 )
@@ -40,6 +43,10 @@ from app.services.knowledge_model_metadata import infer_embedding_dimensions
 from app.services.secret_service import SecretService
 from app.services.setting_service import SettingService
 from app.services.tools.credentials import ToolCredentialResolver
+
+
+class KnowledgeDocumentConflictError(RuntimeError):
+    """Raised when deleting a document would invalidate user-owned dependent data."""
 
 
 class KnowledgeBaseService:
@@ -196,12 +203,14 @@ class KnowledgeDocumentService:
         job_repo: KnowledgeJobRepository,
         chunk_repo: KnowledgeChunkRepository | None = None,
         setting_repo: UserSettingRepository | None = None,
+        eval_case_repo: KnowledgeEvalCaseRepository | None = None,
     ):
         self.document_repo = document_repo
         self.base_repo = base_repo
         self.job_repo = job_repo
         self.chunk_repo = chunk_repo or KnowledgeChunkRepository(document_repo.db)
         self.setting_repo = setting_repo or UserSettingRepository(document_repo.db)
+        self.eval_case_repo = eval_case_repo or KnowledgeEvalCaseRepository(document_repo.db)
 
     def list_documents(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeDocumentResponse] | None:
         if not self.base_repo.get_by_user(knowledge_base_id, user_id):
@@ -251,7 +260,18 @@ class KnowledgeDocumentService:
         document = self.document_repo.get_by_user(document_id, user_id)
         if not document or document.knowledge_base_id != knowledge_base_id:
             return False
-        self.document_repo.delete(document)
+        if self.eval_case_repo.count_by_expected_document(document.id, user_id) > 0:
+            raise KnowledgeDocumentConflictError(
+                "该文档仍被评测用例引用，请先删除或调整相关评测用例。"
+            )
+        try:
+            self.document_repo.delete(document)
+        except IntegrityError as exc:
+            # 应用层检查和 DELETE 之间仍可能并发写入引用；数据库外键是最终防线。
+            self.document_repo.db.rollback()
+            raise KnowledgeDocumentConflictError(
+                "该文档仍被关联数据引用，暂时无法删除。"
+            ) from exc
         return True
 
     def parse_document(
@@ -466,7 +486,11 @@ class KnowledgeDocumentService:
         return KnowledgeRetrievalTestResponse(
             query=query,
             top_k=resolved_top_k,
-            total_chunks=self.chunk_repo.count_by_knowledge_base(knowledge_base_id, user_id),
+            total_chunks=self.chunk_repo.count_by_knowledge_base(
+                knowledge_base_id,
+                user_id,
+                index_generation=knowledge_base.active_index_generation or "legacy",
+            ),
             rerank_enabled=knowledge_base.rerank_enabled,
             rerank_model=knowledge_base.rerank_model if knowledge_base.rerank_enabled else None,
             filters=filters.to_public_dict(),

@@ -127,7 +127,11 @@ class KnowledgeContextService:
                 notices=["当前问题为空，已跳过知识库检索。"],
             )
 
-        total_chunks = self.chunk_repo.count_by_knowledge_base(knowledge_base.id, self.user_id)
+        total_chunks = self.chunk_repo.count_by_knowledge_base(
+            knowledge_base.id,
+            self.user_id,
+            index_generation=knowledge_base.active_index_generation or "legacy",
+        )
         if total_chunks <= 0:
             return self._empty(
                 enabled=True,

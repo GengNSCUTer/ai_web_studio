@@ -73,6 +73,7 @@ class KnowledgeBaseResponse(BaseModel):
     max_context_chunks: int
     max_context_chars: int
     strict_knowledge_answer: bool
+    active_index_generation: str = "legacy"
     document_count: int = 0
     created_at: datetime
     updated_at: datetime | None = None

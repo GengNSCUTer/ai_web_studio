@@ -141,7 +141,14 @@ class StaticFaissStore:
     def __init__(self, hits: list[tuple[int, float]]) -> None:
         self.hits = hits
 
-    def search(self, *, knowledge_base_id: str, query_vector: list[float], top_k: int):  # noqa: ANN201, ARG002
+    def search(
+        self,
+        *,
+        knowledge_base_id: str,
+        query_vector: list[float],
+        top_k: int,
+        generation_id: str | None = None,
+    ):  # noqa: ANN201, ARG002
         return self.hits[:top_k]
 
 
@@ -247,6 +254,77 @@ class KnowledgeServiceTest(unittest.TestCase):
         )
         index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
         return knowledge_base, parsed_document, chunk_repo, setting_service
+
+    def test_legacy_generation_keeps_database_and_index_reads_on_the_same_version(self) -> None:
+        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="Legacy generation 兼容测试",
+            file_name="legacy-generation.md",
+            content="LEGACY-CONTENT describes stable retrieval behavior.",
+        )
+        legacy_chunks = chunk_repo.list_by_knowledge_base(
+            knowledge_base.id,
+            self.user.id,
+            index_generation="legacy",
+        )
+        self.assertGreaterEqual(len(legacy_chunks), 1)
+        self.assertEqual(knowledge_base.active_index_generation, "legacy")
+        self.assertTrue(all(chunk.index_generation == "legacy" for chunk in legacy_chunks))
+
+        future_chunk = KnowledgeChunk(
+            user_id=self.user.id,
+            knowledge_base_id=knowledge_base.id,
+            document_id=parsed_document.id,
+            index_generation="future-generation",
+            chunk_index=0,
+            vector_id=legacy_chunks[0].vector_id,
+            content="FUTURE-CONTENT must not leak into legacy retrieval.",
+            content_hash="future-generation-hash",
+            char_count=52,
+            token_estimate=13,
+        )
+        self.db.add(future_chunk)
+        self.db.commit()
+
+        matching_legacy_chunks = chunk_repo.list_by_vector_ids_and_knowledge_base(
+            knowledge_base_id=knowledge_base.id,
+            user_id=self.user.id,
+            vector_ids=[legacy_chunks[0].vector_id],
+            index_generation=knowledge_base.active_index_generation,
+        )
+        self.assertEqual([chunk.id for chunk in matching_legacy_chunks], [legacy_chunks[0].id])
+
+        faiss_store = KnowledgeFaissStore(index_root=settings.knowledge_index_dir)
+        lexical_store = KnowledgeLexicalStore(index_root=settings.knowledge_index_dir)
+        legacy_dir = Path(settings.knowledge_index_dir) / knowledge_base.id
+        future_dir = legacy_dir / "generations" / "future-generation"
+        self.assertEqual(
+            faiss_store.index_path(knowledge_base.id, generation_id="legacy"),
+            legacy_dir / "index.faiss",
+        )
+        self.assertEqual(
+            lexical_store.index_path(knowledge_base.id, generation_id="legacy"),
+            legacy_dir / "lexical_index.json",
+        )
+        self.assertEqual(
+            faiss_store.index_path(knowledge_base.id, generation_id="future-generation"),
+            future_dir / "index.faiss",
+        )
+
+        results = KnowledgeRetrievalPipeline(
+            chunk_repo=chunk_repo,
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            faiss_store=faiss_store,
+            lexical_store=lexical_store,
+        ).retrieve(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            query="stable retrieval behavior",
+            top_k=3,
+        )
+        self.assertGreaterEqual(len(results), 1)
+        self.assertTrue(all(result.chunk.index_generation == "legacy" for result in results))
+        self.assertTrue(all("FUTURE-CONTENT" not in result.chunk.content for result in results))
 
     def test_create_knowledge_base_and_add_document_creates_pending_job(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
@@ -1111,6 +1189,61 @@ class KnowledgeServiceTest(unittest.TestCase):
                 self.user.id,
                 KnowledgeEvalCaseCreate(query="invalid document", expected_document_id=other_document.id),
             )
+
+    def test_delete_document_reports_conflict_when_evaluation_case_still_references_it(self) -> None:
+        self.db.execute(text("PRAGMA foreign_keys = ON"))
+        self.db.commit()
+        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="文档删除冲突测试",
+            file_name="protected-eval.md",
+            content="This document is protected by an evaluation case.",
+        )
+        expected_chunk = chunk_repo.list_by_document(parsed_document.id, self.user.id)[0]
+        eval_service = KnowledgeEvaluationService(
+            base_repo=KnowledgeBaseRepository(self.db),
+            chunk_repo=chunk_repo,
+            eval_set_repo=KnowledgeEvalSetRepository(self.db),
+            eval_case_repo=KnowledgeEvalCaseRepository(self.db),
+            eval_run_repo=KnowledgeEvalRunRepository(self.db),
+            eval_result_repo=KnowledgeEvalResultRepository(self.db),
+            setting_service=setting_service,
+        )
+        eval_set = eval_service.create_eval_set(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeEvalSetCreate(name="保护文档的评测集"),
+        )
+        assert eval_set is not None
+        eval_case = eval_service.add_eval_case(
+            knowledge_base.id,
+            eval_set.id,
+            self.user.id,
+            KnowledgeEvalCaseCreate(
+                query="Why is this document protected?",
+                expected_chunk_id=expected_chunk.id,
+            ),
+        )
+        assert eval_case is not None
+        document_service = KnowledgeDocumentService(
+            KnowledgeDocumentRepository(self.db),
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "评测用例"):
+            document_service.delete_document(
+                knowledge_base.id,
+                parsed_document.id,
+                self.user.id,
+            )
+
+        self.assertIsNotNone(
+            KnowledgeDocumentRepository(self.db).get_by_user(parsed_document.id, self.user.id)
+        )
+        self.assertEqual(
+            len(KnowledgeEvalCaseRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)),
+            1,
+        )
 
     def test_rag61_retrieval_test_supports_metadata_filters(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))

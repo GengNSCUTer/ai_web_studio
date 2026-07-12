@@ -304,15 +304,26 @@ class KnowledgeFaissStore:
     def __init__(self, index_root: str | None = None):
         self.index_root = Path(index_root or settings.knowledge_index_dir)
 
-    def index_path(self, knowledge_base_id: str) -> Path:
-        return self.index_root / knowledge_base_id / self.INDEX_FILE_NAME
+    def index_path(self, knowledge_base_id: str, *, generation_id: str | None = None) -> Path:
+        base_dir = self.index_root / knowledge_base_id
+        if not generation_id or generation_id == "legacy":
+            return base_dir / self.INDEX_FILE_NAME
+        return base_dir / "generations" / generation_id / self.INDEX_FILE_NAME
 
-    def rebuild(self, *, knowledge_base_id: str, chunks: list[KnowledgeChunk], vectors: list[list[float]], dimensions: int) -> str:
+    def rebuild(
+        self,
+        *,
+        knowledge_base_id: str,
+        chunks: list[KnowledgeChunk],
+        vectors: list[list[float]],
+        dimensions: int,
+        generation_id: str | None = None,
+    ) -> str:
         if len(chunks) != len(vectors):
             raise RuntimeError("Chunk 数量和向量数量不一致。")
-        target_dir = self.index_root / knowledge_base_id
+        index_path = self.index_path(knowledge_base_id, generation_id=generation_id)
+        target_dir = index_path.parent
         target_dir.mkdir(parents=True, exist_ok=True)
-        index_path = target_dir / self.INDEX_FILE_NAME
         index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimensions))
         if vectors:
             matrix = self._normalize(np.array(vectors, dtype="float32"))
@@ -336,8 +347,15 @@ class KnowledgeFaissStore:
                 temp_path.unlink(missing_ok=True)
         return str(index_path)
 
-    def search(self, *, knowledge_base_id: str, query_vector: list[float], top_k: int) -> list[tuple[int, float]]:
-        index_path = self.index_path(knowledge_base_id)
+    def search(
+        self,
+        *,
+        knowledge_base_id: str,
+        query_vector: list[float],
+        top_k: int,
+        generation_id: str | None = None,
+    ) -> list[tuple[int, float]]:
+        index_path = self.index_path(knowledge_base_id, generation_id=generation_id)
         if not index_path.exists():
             raise RuntimeError("知识库尚未生成向量索引，请先索引文档。")
         index = faiss.read_index(str(index_path))
@@ -368,16 +386,25 @@ class KnowledgeLexicalStore:
     def __init__(self, index_root: str | None = None):
         self.index_root = Path(index_root or settings.knowledge_index_dir)
 
-    def index_path(self, knowledge_base_id: str) -> Path:
-        return self.index_root / knowledge_base_id / self.INDEX_FILE_NAME
+    def index_path(self, knowledge_base_id: str, *, generation_id: str | None = None) -> Path:
+        base_dir = self.index_root / knowledge_base_id
+        if not generation_id or generation_id == "legacy":
+            return base_dir / self.INDEX_FILE_NAME
+        return base_dir / "generations" / generation_id / self.INDEX_FILE_NAME
 
-    def exists(self, *, knowledge_base_id: str) -> bool:
-        return self.index_path(knowledge_base_id).exists()
+    def exists(self, *, knowledge_base_id: str, generation_id: str | None = None) -> bool:
+        return self.index_path(knowledge_base_id, generation_id=generation_id).exists()
 
-    def rebuild(self, *, knowledge_base_id: str, chunks: list[KnowledgeChunk]) -> str:
-        target_dir = self.index_root / knowledge_base_id
+    def rebuild(
+        self,
+        *,
+        knowledge_base_id: str,
+        chunks: list[KnowledgeChunk],
+        generation_id: str | None = None,
+    ) -> str:
+        index_path = self.index_path(knowledge_base_id, generation_id=generation_id)
+        target_dir = index_path.parent
         target_dir.mkdir(parents=True, exist_ok=True)
-        index_path = target_dir / self.INDEX_FILE_NAME
 
         postings: dict[str, list[list[int]]] = defaultdict(list)
         document_frequency: Counter[str] = Counter()
@@ -434,8 +461,15 @@ class KnowledgeLexicalStore:
                 temp_path.unlink(missing_ok=True)
         return str(index_path)
 
-    def search(self, *, knowledge_base_id: str, query: str, top_k: int) -> list[LexicalSearchHit]:
-        payload = self._load(knowledge_base_id=knowledge_base_id)
+    def search(
+        self,
+        *,
+        knowledge_base_id: str,
+        query: str,
+        top_k: int,
+        generation_id: str | None = None,
+    ) -> list[LexicalSearchHit]:
+        payload = self._load(knowledge_base_id=knowledge_base_id, generation_id=generation_id)
         query_terms = self.tokenize(query)
         if not query_terms:
             return []
@@ -472,8 +506,8 @@ class KnowledgeLexicalStore:
         ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
         return [LexicalSearchHit(vector_id=vector_id, score=score) for vector_id, score in ranked[: max(1, top_k)] if score > 0]
 
-    def _load(self, *, knowledge_base_id: str) -> dict:
-        index_path = self.index_path(knowledge_base_id)
+    def _load(self, *, knowledge_base_id: str, generation_id: str | None = None) -> dict:
+        index_path = self.index_path(knowledge_base_id, generation_id=generation_id)
         if not index_path.exists():
             raise RuntimeError("知识库尚未生成 BM25 索引，请先索引文档。")
         try:
@@ -543,12 +577,18 @@ class KnowledgeIndexService:
         if not prepared_chunks:
             raise RuntimeError("文档解析结果为空，不能生成索引。")
 
-        vector_start = self.chunk_repo.max_vector_id(knowledge_base.id, user_id) + 1
+        index_generation = knowledge_base.active_index_generation or "legacy"
+        vector_start = self.chunk_repo.max_vector_id(
+            knowledge_base.id,
+            user_id,
+            index_generation=index_generation,
+        ) + 1
         chunks = [
             KnowledgeChunk(
                 user_id=user_id,
                 knowledge_base_id=knowledge_base.id,
                 document_id=document.id,
+                index_generation=index_generation,
                 chunk_index=chunk.chunk_index,
                 vector_id=vector_start + offset,
                 content=chunk.content,
@@ -575,7 +615,11 @@ class KnowledgeIndexService:
             )
             for offset, chunk in enumerate(prepared_chunks)
         ]
-        existing_chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
+        existing_chunks = self.chunk_repo.list_by_knowledge_base(
+            knowledge_base.id,
+            user_id,
+            index_generation=index_generation,
+        )
         retained_chunks = [chunk for chunk in existing_chunks if chunk.document_id != document.id]
         chunks_to_embed = [*retained_chunks, *chunks]
 
@@ -599,16 +643,30 @@ class KnowledgeIndexService:
             chunk.vector_id: vector
             for chunk, vector in zip(chunks_to_embed, vectors_to_publish, strict=True)
         }
-        saved_chunks = self.chunk_repo.replace_document_chunks(document.id, user_id, chunks)
-        all_chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id)
+        saved_chunks = self.chunk_repo.replace_document_chunks(
+            document.id,
+            user_id,
+            chunks,
+            index_generation=index_generation,
+        )
+        all_chunks = self.chunk_repo.list_by_knowledge_base(
+            knowledge_base.id,
+            user_id,
+            index_generation=index_generation,
+        )
         all_vectors = [vector_by_id[chunk.vector_id] for chunk in all_chunks]
         index_path = self.faiss_store.rebuild(
             knowledge_base_id=knowledge_base.id,
             chunks=all_chunks,
             vectors=all_vectors,
             dimensions=knowledge_base.embedding_dimensions,
+            generation_id=index_generation,
         )
-        self.lexical_store.rebuild(knowledge_base_id=knowledge_base.id, chunks=all_chunks)
+        self.lexical_store.rebuild(
+            knowledge_base_id=knowledge_base.id,
+            chunks=all_chunks,
+            generation_id=index_generation,
+        )
         document.index_status = "indexed"
         document.error_message = None
         self.document_repo.save(document)

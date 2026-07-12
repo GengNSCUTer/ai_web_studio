@@ -43,6 +43,7 @@ from app.schemas.knowledge import (
 from app.services.knowledge_service import (
     KnowledgeBaseService,
     KnowledgeCredentialService,
+    KnowledgeDocumentConflictError,
     KnowledgeDocumentService,
     KnowledgeJobService,
 )
@@ -191,7 +192,10 @@ def delete_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> None:
-    deleted = _document_service(db).delete_document(knowledge_base_id, document_id, current_user.id)
+    try:
+        deleted = _document_service(db).delete_document(knowledge_base_id, document_id, current_user.id)
+    except KnowledgeDocumentConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge document not found")
 
