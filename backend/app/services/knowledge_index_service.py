@@ -11,9 +11,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-import faiss
 import httpx
-import numpy as np
 from openai import AsyncOpenAI
 
 from app.core.config import settings
@@ -21,6 +19,7 @@ from app.models.knowledge import KnowledgeBase, KnowledgeChunk, KnowledgeDocumen
 from app.repositories.knowledge_repo import KnowledgeChunkRepository, KnowledgeDocumentRepository
 from app.services.knowledge_parser_service import KnowledgeParserService
 from app.services.setting_service import SettingService
+from app.services.knowledge_vector_search import CURRENT_EMBEDDING_VERSION, KnowledgeVectorSearch
 
 
 @dataclass(frozen=True)
@@ -35,7 +34,7 @@ class PreparedChunk:
 @dataclass(frozen=True)
 class IndexResult:
     chunk_count: int
-    index_path: str
+    index_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -298,85 +297,6 @@ class KnowledgeRerankService:
         return ranked
 
 
-class KnowledgeFaissStore:
-    INDEX_FILE_NAME = "index.faiss"
-
-    def __init__(self, index_root: str | None = None):
-        self.index_root = Path(index_root or settings.knowledge_index_dir)
-
-    def index_path(self, knowledge_base_id: str, *, generation_id: str | None = None) -> Path:
-        base_dir = self.index_root / knowledge_base_id
-        if not generation_id or generation_id == "legacy":
-            return base_dir / self.INDEX_FILE_NAME
-        return base_dir / "generations" / generation_id / self.INDEX_FILE_NAME
-
-    def rebuild(
-        self,
-        *,
-        knowledge_base_id: str,
-        chunks: list[KnowledgeChunk],
-        vectors: list[list[float]],
-        dimensions: int,
-        generation_id: str | None = None,
-    ) -> str:
-        if len(chunks) != len(vectors):
-            raise RuntimeError("Chunk 数量和向量数量不一致。")
-        index_path = self.index_path(knowledge_base_id, generation_id=generation_id)
-        target_dir = index_path.parent
-        target_dir.mkdir(parents=True, exist_ok=True)
-        index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimensions))
-        if vectors:
-            matrix = self._normalize(np.array(vectors, dtype="float32"))
-            ids = np.array([chunk.vector_id for chunk in chunks], dtype="int64")
-            index.add_with_ids(matrix, ids)
-        # 不能直接覆盖正式索引：进程中断或磁盘写失败会同时毁掉旧版本。
-        # 临时文件与目标文件放在同一目录，os.replace 才能提供同文件系统内的原子发布。
-        temp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                dir=target_dir,
-                prefix=f".{self.INDEX_FILE_NAME}.",
-                suffix=".tmp",
-                delete=False,
-            ) as temp_file:
-                temp_path = Path(temp_file.name)
-            faiss.write_index(index, str(temp_path))
-            os.replace(temp_path, index_path)
-        finally:
-            if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
-        return str(index_path)
-
-    def search(
-        self,
-        *,
-        knowledge_base_id: str,
-        query_vector: list[float],
-        top_k: int,
-        generation_id: str | None = None,
-    ) -> list[tuple[int, float]]:
-        index_path = self.index_path(knowledge_base_id, generation_id=generation_id)
-        if not index_path.exists():
-            raise RuntimeError("知识库尚未生成向量索引，请先索引文档。")
-        index = faiss.read_index(str(index_path))
-        if index.ntotal == 0:
-            return []
-        matrix = self._normalize(np.array([query_vector], dtype="float32"))
-        scores, ids = index.search(matrix, min(top_k, int(index.ntotal)))
-        results: list[tuple[int, float]] = []
-        for vector_id, score in zip(ids[0].tolist(), scores[0].tolist(), strict=False):
-            if vector_id < 0:
-                continue
-            results.append((int(vector_id), float(score)))
-        return results
-
-    @staticmethod
-    def _normalize(matrix: np.ndarray) -> np.ndarray:
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-        norms[norms == 0] = 1
-        return matrix / norms
-
-
 class KnowledgeLexicalStore:
     INDEX_FILE_NAME = "lexical_index.json"
     VERSION = 1
@@ -528,7 +448,8 @@ class KnowledgeLexicalStore:
 
 
 class KnowledgeIndexService:
-    EMBEDDING_VERSION = "l2-normalized-v1"
+    # 保留类属性供现有调用方使用，真正权威值只在 Vector Search 契约模块中定义一次。
+    EMBEDDING_VERSION = CURRENT_EMBEDDING_VERSION
 
     def __init__(
         self,
@@ -538,7 +459,7 @@ class KnowledgeIndexService:
         setting_service: SettingService,
         embedding_service: KnowledgeEmbeddingService | None = None,
         rerank_service: KnowledgeRerankService | None = None,
-        faiss_store: KnowledgeFaissStore | None = None,
+        vector_search: KnowledgeVectorSearch | None = None,
         lexical_store: KnowledgeLexicalStore | None = None,
     ):
         self.chunk_repo = chunk_repo
@@ -546,8 +467,7 @@ class KnowledgeIndexService:
         self.setting_service = setting_service
         self.embedding_service = embedding_service or KnowledgeEmbeddingService(setting_service)
         self.rerank_service = rerank_service or KnowledgeRerankService(setting_service)
-        self.faiss_store = faiss_store or KnowledgeFaissStore()
-        self._faiss_store_was_injected = faiss_store is not None
+        self.vector_search = vector_search
         self.lexical_store = lexical_store or KnowledgeLexicalStore()
         self.chunker = KnowledgeChunker()
 
@@ -594,78 +514,12 @@ class KnowledgeIndexService:
         self.chunk_repo.save_embeddings(pending_chunks)
         return len(pending_chunks)
 
-    def import_active_generation_embeddings_from_faiss(
-        self,
-        *,
-        user_id: str,
-        knowledge_base: KnowledgeBase,
-    ) -> int:
-        """Migrate the normalized vectors already serving legacy FAISS queries into pgvector."""
-        index_generation = knowledge_base.active_index_generation or "legacy"
-        chunks = self.chunk_repo.list_by_knowledge_base(
-            knowledge_base.id,
-            user_id,
-            index_generation=index_generation,
-        )
-        pending_chunks = [
-            chunk
-            for chunk in chunks
-            if not self._has_reusable_embedding(chunk=chunk, knowledge_base=knowledge_base)
-        ]
-        if not pending_chunks:
-            return 0
-
-        index_path = self.faiss_store.index_path(
-            knowledge_base.id,
-            generation_id=index_generation,
-        )
-        if not index_path.exists():
-            raise RuntimeError(f"FAISS 索引不存在：{index_path}")
-        index = faiss.read_index(str(index_path))
-        if index.d != knowledge_base.embedding_dimensions:
-            raise RuntimeError(
-                f"FAISS 维度与知识库配置不一致："
-                f"index={index.d}, knowledge_base={knowledge_base.embedding_dimensions}"
-            )
-        if not hasattr(index, "id_map"):
-            raise RuntimeError("FAISS 索引缺少 vector_id 映射，不能安全迁移。")
-        index_ids = [int(item) for item in faiss.vector_to_array(index.id_map).tolist()]
-        if len(index_ids) != len(set(index_ids)):
-            raise RuntimeError("FAISS 索引包含重复 vector_id，已拒绝迁移。")
-        chunk_ids = {chunk.vector_id for chunk in chunks}
-        if set(index_ids) != chunk_ids:
-            missing_in_faiss = sorted(chunk_ids - set(index_ids))[:10]
-            missing_in_database = sorted(set(index_ids) - chunk_ids)[:10]
-            raise RuntimeError(
-                "FAISS 与数据库 vector_id 集合不一致，已拒绝迁移："
-                f"missing_in_faiss={missing_in_faiss}, missing_in_database={missing_in_database}"
-            )
-
-        vectors_by_id = {
-            vector_id: index.reconstruct(vector_id).astype("float32").tolist()
-            for vector_id in index_ids
-        }
-        pending_vectors = [vectors_by_id[chunk.vector_id] for chunk in pending_chunks]
-        self._validate_vectors(
-            vectors=pending_vectors,
-            expected_count=len(pending_chunks),
-            dimensions=knowledge_base.embedding_dimensions,
-        )
-        for chunk, vector in zip(pending_chunks, pending_vectors, strict=True):
-            chunk.embedding = vector
-            chunk.embedding_provider = knowledge_base.embedding_provider
-            chunk.embedding_model = knowledge_base.embedding_model
-            chunk.embedding_dimensions = knowledge_base.embedding_dimensions
-            chunk.embedding_version = self.EMBEDDING_VERSION
-        self.chunk_repo.save_embeddings(pending_chunks)
-        return len(pending_chunks)
-
     def index_document(self, *, user_id: str, knowledge_base: KnowledgeBase, document: KnowledgeDocument) -> IndexResult:
         """Build and publish one document's chunks as part of a knowledge-base-wide index.
 
-        The current storage format has one FAISS file and one BM25 file per knowledge base, so indexing one
-        document must rebuild both files from all chunks. Keep fallible external work before database mutation,
-        and keep the vector_id -> embedding association explicit when publishing the rebuilt files.
+        Embeddings live with chunks in PostgreSQL, while the lexical index is a per-knowledge-base BM25 file.
+        Keep fallible external work before database mutation, and keep the vector_id -> embedding association
+        explicit when publishing the rebuilt chunks and lexical index.
         """
         if document.parse_status != "parsed" or not document.parsed_markdown_path:
             raise RuntimeError("文档尚未解析，不能生成索引。")
@@ -755,7 +609,7 @@ class KnowledgeIndexService:
             chunks_missing_embedding.append(chunk)
 
         # Embedding 是最昂贵、最容易因网络或供应商失败的步骤。必须在替换数据库 chunks 之前完成，
-        # 否则重索引失败会留下“新数据库 chunks + 旧 FAISS/BM25 文件”的不可查询状态。
+        # 否则重索引失败会留下“新数据库 chunks + 旧 BM25 文件”的向量/词法快照不一致状态。
         if chunks_missing_embedding:
             generated_vectors = asyncio.run(
                 self.embedding_service.embed_texts(
@@ -799,14 +653,6 @@ class KnowledgeIndexService:
             user_id,
             index_generation=index_generation,
         )
-        all_vectors = [vector_by_id[chunk.vector_id] for chunk in all_chunks]
-        index_path = self.faiss_store.rebuild(
-            knowledge_base_id=knowledge_base.id,
-            chunks=all_chunks,
-            vectors=all_vectors,
-            dimensions=knowledge_base.embedding_dimensions,
-            generation_id=index_generation,
-        )
         self.lexical_store.rebuild(
             knowledge_base_id=knowledge_base.id,
             chunks=all_chunks,
@@ -815,7 +661,7 @@ class KnowledgeIndexService:
         document.index_status = "indexed"
         document.error_message = None
         self.document_repo.save(document)
-        return IndexResult(chunk_count=len(saved_chunks), index_path=index_path)
+        return IndexResult(chunk_count=len(saved_chunks))
 
     def retrieve(
         self,
@@ -855,7 +701,7 @@ class KnowledgeIndexService:
             setting_service=self.setting_service,
             embedding_service=self.embedding_service,
             rerank_service=self.rerank_service,
-            faiss_store=self.faiss_store if self._faiss_store_was_injected else None,
+            vector_search=self.vector_search,
             lexical_store=self.lexical_store,
         )
 

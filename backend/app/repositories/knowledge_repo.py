@@ -145,7 +145,7 @@ class KnowledgeChunkRepository:
         vector_ids: list[int],
         index_generation: str | None = None,
     ) -> list[KnowledgeChunk]:
-        # 查询期通常只需要 FAISS/BM25 命中的少量 vector_id，不应该每次把整个知识库 chunks 全量拉出。
+        # 查询期通常只需要 BM25 命中的少量 vector_id，不应该每次把整个知识库 chunks 全量拉出。
         unique_vector_ids = list(dict.fromkeys(vector_ids))
         if not unique_vector_ids:
             return []

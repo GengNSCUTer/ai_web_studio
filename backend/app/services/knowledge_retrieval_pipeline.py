@@ -10,7 +10,6 @@ from app.models.knowledge import KnowledgeBase
 from app.repositories.knowledge_repo import KnowledgeChunkRepository
 from app.services.knowledge_index_service import (
     KnowledgeEmbeddingService,
-    KnowledgeFaissStore,
     LexicalSearchHit,
     KnowledgeLexicalStore,
     KnowledgeRerankService,
@@ -18,7 +17,6 @@ from app.services.knowledge_index_service import (
 )
 from app.services.knowledge_vector_search import (
     KnowledgeVectorSearch,
-    LegacyFaissVectorSearchAdapter,
     PgvectorKnowledgeVectorSearch,
 )
 from app.services.setting_service import SettingService
@@ -68,22 +66,13 @@ class KnowledgeRetrievalPipeline:
         embedding_service: KnowledgeEmbeddingService | None = None,
         rerank_service: KnowledgeRerankService | None = None,
         vector_search: KnowledgeVectorSearch | None = None,
-        faiss_store: KnowledgeFaissStore | None = None,
         lexical_store: KnowledgeLexicalStore | None = None,
     ) -> None:
         self.chunk_repo = chunk_repo
         self.setting_service = setting_service
         self.embedding_service = embedding_service or KnowledgeEmbeddingService(setting_service)
         self.rerank_service = rerank_service or KnowledgeRerankService(setting_service)
-        if vector_search is not None:
-            self.vector_search = vector_search
-        elif faiss_store is not None:
-            self.vector_search = LegacyFaissVectorSearchAdapter(
-                chunk_repo=chunk_repo,
-                faiss_store=faiss_store,
-            )
-        else:
-            self.vector_search = PgvectorKnowledgeVectorSearch(chunk_repo)
+        self.vector_search = vector_search or PgvectorKnowledgeVectorSearch(chunk_repo)
         self.lexical_store = lexical_store or KnowledgeLexicalStore()
 
     def retrieve(

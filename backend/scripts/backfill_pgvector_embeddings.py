@@ -22,11 +22,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Report active Chunk counts without calling the Embedding provider",
     )
-    parser.add_argument(
-        "--from-faiss",
-        action="store_true",
-        help="Import the normalized vectors from the active legacy FAISS index instead of calling the provider",
-    )
     return parser.parse_args()
 
 
@@ -67,20 +62,14 @@ def main() -> int:
                 document_repo=KnowledgeDocumentRepository(db),
                 setting_service=SettingService(UserSettingRepository(db)),
             )
-            if args.from_faiss:
-                total_backfilled += service.import_active_generation_embeddings_from_faiss(
-                    user_id=knowledge_base.user_id,
-                    knowledge_base=knowledge_base,
-                )
-            else:
-                total_backfilled += service.backfill_active_generation_embeddings(
-                    user_id=knowledge_base.user_id,
-                    knowledge_base=knowledge_base,
-                )
+            total_backfilled += service.backfill_active_generation_embeddings(
+                user_id=knowledge_base.user_id,
+                knowledge_base=knowledge_base,
+            )
 
         print(
             f"knowledge_bases={len(knowledge_bases)} backfilled={total_backfilled} "
-            f"dry_run={args.dry_run} source={'faiss' if args.from_faiss else 'provider'}"
+            f"dry_run={args.dry_run} source=provider"
         )
     return 0
 

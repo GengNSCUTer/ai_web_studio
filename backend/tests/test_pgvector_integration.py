@@ -183,7 +183,7 @@ class PgvectorKnowledgeChunkIntegrationTest(unittest.TestCase):
         self.assertAlmostEqual(rows[0][1], 1.0, places=6)
         self.assertGreater(rows[1][1], rows[2][1])
 
-    def test_retrieval_pipeline_uses_pgvector_instead_of_faiss_on_postgresql(self) -> None:
+    def test_retrieval_pipeline_uses_pgvector_on_postgresql(self) -> None:
         knowledge_base, document = self._add_knowledge_base_and_document(name="pipeline", dimensions=3)
         knowledge_base.rerank_enabled = False
         knowledge_base.score_threshold = 0.0

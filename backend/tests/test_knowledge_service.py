@@ -53,11 +53,11 @@ from app.services.knowledge_service import (
     KnowledgeDocumentService,
     KnowledgeJobService,
 )
+from app.services.knowledge_vector_search import KnowledgeVectorSearchHit
 from app.services.conversation_service import ConversationService
 from app.services.message_service import MessageService
 from app.services.knowledge_index_service import (
     KnowledgeEmbeddingService,
-    KnowledgeFaissStore,
     KnowledgeIndexService,
     KnowledgeLexicalStore,
     KnowledgeRerankService,
@@ -138,19 +138,54 @@ class GuardedKnowledgeChunkRepository(KnowledgeChunkRepository):
         raise AssertionError("retrieval query path should not load all chunks")
 
 
-class StaticFaissStore:
-    def __init__(self, hits: list[tuple[int, float]]) -> None:
+class StaticVectorSearch:
+    def __init__(self, hits: list[KnowledgeVectorSearchHit]) -> None:
         self.hits = hits
 
     def search(
         self,
         *,
-        knowledge_base_id: str,
+        user_id: str,
+        knowledge_base,
+        index_generation: str,
         query_vector: list[float],
         top_k: int,
-        generation_id: str | None = None,
-    ):  # noqa: ANN201, ARG002
+    ) -> list[KnowledgeVectorSearchHit]:  # noqa: ANN001, ARG002
         return self.hits[:top_k]
+
+
+class InMemoryVectorSearch:
+    """Small SQLite-test implementation; production always uses pgvector."""
+
+    def __init__(self, db):  # noqa: ANN001
+        self.chunk_repo = KnowledgeChunkRepository(db)
+
+    def search(
+        self,
+        *,
+        user_id: str,
+        knowledge_base,
+        index_generation: str,
+        query_vector: list[float],
+        top_k: int,
+    ) -> list[KnowledgeVectorSearchHit]:  # noqa: ANN001
+        chunks = self.chunk_repo.list_by_knowledge_base(
+            knowledge_base.id,
+            user_id,
+            index_generation=index_generation,
+        )
+        query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
+        hits: list[KnowledgeVectorSearchHit] = []
+        for chunk in chunks:
+            vector = list(chunk.embedding or [])
+            if len(vector) != len(query_vector):
+                continue
+            vector_norm = math.sqrt(sum(value * value for value in vector)) or 1.0
+            score = sum(left * right for left, right in zip(vector, query_vector, strict=True)) / (
+                vector_norm * query_norm
+            )
+            hits.append(KnowledgeVectorSearchHit(chunk=chunk, score=score))
+        return sorted(hits, key=lambda hit: (-hit.score, hit.chunk.vector_id))[:top_k]
 
 
 class KnowledgeServiceTest(unittest.TestCase):
@@ -250,7 +285,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
             lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
         )
         index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
@@ -294,28 +329,18 @@ class KnowledgeServiceTest(unittest.TestCase):
         )
         self.assertEqual([chunk.id for chunk in matching_legacy_chunks], [legacy_chunks[0].id])
 
-        faiss_store = KnowledgeFaissStore(index_root=settings.knowledge_index_dir)
         lexical_store = KnowledgeLexicalStore(index_root=settings.knowledge_index_dir)
         legacy_dir = Path(settings.knowledge_index_dir) / knowledge_base.id
-        future_dir = legacy_dir / "generations" / "future-generation"
-        self.assertEqual(
-            faiss_store.index_path(knowledge_base.id, generation_id="legacy"),
-            legacy_dir / "index.faiss",
-        )
         self.assertEqual(
             lexical_store.index_path(knowledge_base.id, generation_id="legacy"),
             legacy_dir / "lexical_index.json",
-        )
-        self.assertEqual(
-            faiss_store.index_path(knowledge_base.id, generation_id="future-generation"),
-            future_dir / "index.faiss",
         )
 
         results = KnowledgeRetrievalPipeline(
             chunk_repo=chunk_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=faiss_store,
+            vector_search=InMemoryVectorSearch(self.db),
             lexical_store=lexical_store,
         ).retrieve(
             user_id=self.user.id,
@@ -668,7 +693,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=SettingService(UserSettingRepository(self.db)),
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
 
         preview = document_service.preview_markdown(knowledge_base.id, document.id, self.user.id)
@@ -863,7 +888,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=SettingService(UserSettingRepository(self.db)),
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         )
         index_result = index_service.index_document(
             user_id=self.user.id,
@@ -872,7 +897,7 @@ class KnowledgeServiceTest(unittest.TestCase):
         )
 
         self.assertGreater(index_result.chunk_count, 0)
-        self.assertTrue(Path(index_result.index_path).exists())
+        self.assertIsNone(index_result.index_path)
         self.assertEqual(chunk_repo.count_by_knowledge_base(knowledge_base.id, self.user.id), index_result.chunk_count)
         persisted_chunks = chunk_repo.list_by_knowledge_base(knowledge_base.id, self.user.id)
         self.assertTrue(all(chunk.embedding is not None for chunk in persisted_chunks))
@@ -904,9 +929,7 @@ class KnowledgeServiceTest(unittest.TestCase):
         )
         old_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
         old_chunk_snapshot = [(chunk.id, chunk.vector_id, chunk.content) for chunk in old_chunks]
-        faiss_path = KnowledgeFaissStore(index_root=settings.knowledge_index_dir).index_path(knowledge_base.id)
         lexical_path = KnowledgeLexicalStore(index_root=settings.knowledge_index_dir).index_path(knowledge_base.id)
-        old_faiss_bytes = faiss_path.read_bytes()
         old_lexical_bytes = lexical_path.read_bytes()
 
         assert parsed_document.parsed_markdown_path is not None
@@ -919,7 +942,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=KnowledgeDocumentRepository(self.db),
             setting_service=setting_service,
             embedding_service=FailingKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
             lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
         )
 
@@ -935,7 +958,6 @@ class KnowledgeServiceTest(unittest.TestCase):
             [(chunk.id, chunk.vector_id, chunk.content) for chunk in preserved_chunks],
             old_chunk_snapshot,
         )
-        self.assertEqual(faiss_path.read_bytes(), old_faiss_bytes)
         self.assertEqual(lexical_path.read_bytes(), old_lexical_bytes)
 
     def test_reindex_unchanged_chunks_reuses_persisted_embeddings_without_api_call(self) -> None:
@@ -953,7 +975,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=KnowledgeDocumentRepository(self.db),
             setting_service=setting_service,
             embedding_service=FailingKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
             lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
         )
         index_service.index_document(
@@ -988,7 +1010,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=KnowledgeDocumentRepository(self.db),
             setting_service=setting_service,
             embedding_service=FailingKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
             lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
         )
 
@@ -1042,84 +1064,6 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertEqual(rebuilt_chunk.embedding_model, knowledge_base.embedding_model)
         self.assertEqual(rebuilt_chunk.embedding_dimensions, knowledge_base.embedding_dimensions)
         self.assertEqual(rebuilt_chunk.embedding_version, KnowledgeIndexService.EMBEDDING_VERSION)
-
-    def test_legacy_faiss_vectors_can_be_imported_without_embedding_api_call(self) -> None:
-        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
-            name="Legacy FAISS 向量迁移测试",
-            file_name="legacy-faiss-import.md",
-            content="The existing FAISS snapshot is the migration source of truth.",
-        )
-        chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
-        for chunk in chunks:
-            chunk.embedding = None
-            chunk.embedding_provider = None
-            chunk.embedding_model = None
-            chunk.embedding_dimensions = None
-            chunk.embedding_version = None
-        self.db.add_all(chunks)
-        self.db.commit()
-
-        service = KnowledgeIndexService(
-            chunk_repo=chunk_repo,
-            document_repo=KnowledgeDocumentRepository(self.db),
-            setting_service=setting_service,
-            embedding_service=FailingKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
-        )
-        self.assertEqual(
-            service.import_active_generation_embeddings_from_faiss(
-                user_id=self.user.id,
-                knowledge_base=knowledge_base,
-            ),
-            len(chunks),
-        )
-
-        imported_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
-        self.assertTrue(all(chunk.embedding is not None for chunk in imported_chunks))
-        self.assertTrue(
-            all(
-                abs(math.sqrt(sum(value * value for value in (chunk.embedding or []))) - 1.0) < 1e-6
-                for chunk in imported_chunks
-                if any(chunk.embedding or [])
-            )
-        )
-        self.assertTrue(
-            all(chunk.embedding_version == KnowledgeIndexService.EMBEDDING_VERSION for chunk in imported_chunks)
-        )
-
-    def test_faiss_rebuild_failure_preserves_previous_index_file(self) -> None:
-        store = KnowledgeFaissStore(index_root=settings.knowledge_index_dir)
-        knowledge_base_id = str(uuid4())
-        chunks = [Mock(vector_id=1)]
-        vectors = [[1.0, 0.0]]
-        index_path = Path(
-            store.rebuild(
-                knowledge_base_id=knowledge_base_id,
-                chunks=chunks,
-                vectors=vectors,
-                dimensions=2,
-            )
-        )
-        old_index_bytes = index_path.read_bytes()
-
-        def write_partial_index_then_fail(index, path: str) -> None:  # noqa: ANN001, ARG001
-            Path(path).write_bytes(b"partial-corrupt-index")
-            raise RuntimeError("fake faiss write failure")
-
-        with patch(
-            "app.services.knowledge_index_service.faiss.write_index",
-            side_effect=write_partial_index_then_fail,
-        ):
-            with self.assertRaisesRegex(RuntimeError, "fake faiss write failure"):
-                store.rebuild(
-                    knowledge_base_id=knowledge_base_id,
-                    chunks=chunks,
-                    vectors=vectors,
-                    dimensions=2,
-                )
-
-        self.assertEqual(index_path.read_bytes(), old_index_bytes)
-        self.assertEqual(list(index_path.parent.glob(".index.faiss.*.tmp")), [])
 
     def test_embedding_validation_rejects_non_finite_values(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "非有限数值"):
@@ -1189,7 +1133,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
 
         expected_chunk = chunk_repo.list_by_knowledge_base(knowledge_base.id, self.user.id)[0]
@@ -1205,7 +1149,7 @@ class KnowledgeServiceTest(unittest.TestCase):
                 chunk_repo=chunk_repo,
                 setting_service=setting_service,
                 embedding_service=FakeKnowledgeEmbeddingService(),
-                faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+                vector_search=InMemoryVectorSearch(self.db),
             ),
         )
 
@@ -1294,7 +1238,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=KnowledgeDocumentRepository(self.db),
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
             lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
         ).index_document(
             user_id=self.user.id,
@@ -1470,7 +1414,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         )
         parsed_adaptive = document_repo.get_by_user(adaptive_document.id, self.user.id)
         parsed_expert = document_repo.get_by_user(expert_document.id, self.user.id)
@@ -1483,7 +1427,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             chunk_repo=chunk_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).retrieve(
             user_id=self.user.id,
             knowledge_base=knowledge_base,
@@ -1499,7 +1443,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             chunk_repo=chunk_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).retrieve(
             user_id=self.user.id,
             knowledge_base=knowledge_base,
@@ -1580,14 +1524,14 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
 
         results = KnowledgeRetrievalPipeline(
             chunk_repo=chunk_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).retrieve(
             user_id=self.user.id,
             knowledge_base=knowledge_base,
@@ -1600,7 +1544,7 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertIn("ZXQ-42", results[0].chunk.content)
         self.assertIn("lexical_score", results[0].metadata)
 
-    def test_vector_retrieval_fetches_only_hit_chunks_by_vector_id(self) -> None:
+    def test_vector_retrieval_consumes_search_hits_without_repository_rescan(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
         knowledge_base = base_service.create_knowledge_base(
             self.user.id,
@@ -1659,7 +1603,12 @@ class KnowledgeServiceTest(unittest.TestCase):
             chunk_repo=GuardedKnowledgeChunkRepository(self.db),
             setting_service=SettingService(UserSettingRepository(self.db)),
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=StaticFaissStore(hits=[(3, 0.91), (1, 0.82)]),
+            vector_search=StaticVectorSearch(
+                hits=[
+                    KnowledgeVectorSearchHit(chunk=chunks[2], score=0.91),
+                    KnowledgeVectorSearchHit(chunk=chunks[0], score=0.82),
+                ]
+            ),
         ).retrieve(
             user_id=self.user.id,
             knowledge_base=knowledge_base_model,
@@ -1668,6 +1617,7 @@ class KnowledgeServiceTest(unittest.TestCase):
         )
 
         self.assertEqual([result.chunk.vector_id for result in results], [3, 1])
+        self.assertEqual([result.score for result in results], [0.91, 0.82])
 
     def test_rag64_hybrid_retrieval_uses_rrf_fusion(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
@@ -1730,14 +1680,14 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
 
         results = KnowledgeRetrievalPipeline(
             chunk_repo=chunk_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).retrieve(
             user_id=self.user.id,
             knowledge_base=knowledge_base,
@@ -1794,7 +1744,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             chunk_repo=chunk_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
             lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
         ).retrieve(
             user_id=self.user.id,
@@ -1832,7 +1782,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             chunk_repo=chunk_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
             lexical_store=lexical_store,
         ).retrieve(
             user_id=self.user.id,
@@ -1864,7 +1814,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             chunk_repo=chunk_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
             lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
         ).retrieve(
             user_id=self.user.id,
@@ -1944,7 +1894,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
 
         chunks = chunk_repo.list_by_knowledge_base(knowledge_base.id, self.user.id)
@@ -1955,7 +1905,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             chunk_repo=chunk_repo,
             setting_service=setting_service,
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).retrieve(
             user_id=self.user.id,
             knowledge_base=knowledge_base,
@@ -2043,7 +1993,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             setting_service=SettingService(UserSettingRepository(self.db)),
             embedding_service=FakeKnowledgeEmbeddingService(),
             rerank_service=FakeKnowledgeRerankService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         )
         index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
 
@@ -2122,7 +2072,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             setting_service=SettingService(UserSettingRepository(self.db)),
             embedding_service=FakeKnowledgeEmbeddingService(),
             rerank_service=FailingKnowledgeRerankService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         )
         index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
 
@@ -2197,7 +2147,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=SettingService(UserSettingRepository(self.db)),
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         )
         index_result = index_service.index_document(
             user_id=self.user.id,
@@ -2273,7 +2223,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=SettingService(UserSettingRepository(self.db)),
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         )
         index_service.index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
 
@@ -2471,7 +2421,7 @@ class KnowledgeServiceTest(unittest.TestCase):
             document_repo=document_repo,
             setting_service=SettingService(UserSettingRepository(self.db)),
             embedding_service=FakeKnowledgeEmbeddingService(),
-            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            vector_search=InMemoryVectorSearch(self.db),
         ).index_document(user_id=self.user.id, knowledge_base=knowledge_base, document=parsed_document)
 
         object.__setattr__(settings, "knowledge_context_timeout_seconds", 0.01)
@@ -2590,7 +2540,6 @@ class KnowledgeServiceTest(unittest.TestCase):
         assert kb is not None
         index_dir = Path(settings.knowledge_index_dir) / kb.id
         index_dir.mkdir(parents=True, exist_ok=True)
-        (index_dir / "index.faiss").write_text("fake", encoding="utf-8")
         (index_dir / "lexical_index.json").write_text("{}", encoding="utf-8")
 
         deleted = base_service.delete_knowledge_base(kb.id, self.user.id)
