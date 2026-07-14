@@ -11,11 +11,15 @@ from app.repositories.knowledge_repo import KnowledgeChunkRepository
 from app.services.knowledge_index_service import (
     KnowledgeEmbeddingService,
     KnowledgeFaissStore,
-    KnowledgeIndexService,
     LexicalSearchHit,
     KnowledgeLexicalStore,
     KnowledgeRerankService,
     RetrievalResult,
+)
+from app.services.knowledge_vector_search import (
+    KnowledgeVectorSearch,
+    LegacyFaissVectorSearchAdapter,
+    PgvectorKnowledgeVectorSearch,
 )
 from app.services.setting_service import SettingService
 
@@ -63,6 +67,7 @@ class KnowledgeRetrievalPipeline:
         setting_service: SettingService,
         embedding_service: KnowledgeEmbeddingService | None = None,
         rerank_service: KnowledgeRerankService | None = None,
+        vector_search: KnowledgeVectorSearch | None = None,
         faiss_store: KnowledgeFaissStore | None = None,
         lexical_store: KnowledgeLexicalStore | None = None,
     ) -> None:
@@ -70,7 +75,15 @@ class KnowledgeRetrievalPipeline:
         self.setting_service = setting_service
         self.embedding_service = embedding_service or KnowledgeEmbeddingService(setting_service)
         self.rerank_service = rerank_service or KnowledgeRerankService(setting_service)
-        self.faiss_store = faiss_store or KnowledgeFaissStore()
+        if vector_search is not None:
+            self.vector_search = vector_search
+        elif faiss_store is not None:
+            self.vector_search = LegacyFaissVectorSearchAdapter(
+                chunk_repo=chunk_repo,
+                faiss_store=faiss_store,
+            )
+        else:
+            self.vector_search = PgvectorKnowledgeVectorSearch(chunk_repo)
         self.lexical_store = lexical_store or KnowledgeLexicalStore()
 
     def retrieve(
@@ -182,57 +195,23 @@ class KnowledgeRetrievalPipeline:
         self._validate_vectors(vectors=[query_vector], expected_count=1, dimensions=knowledge_base.embedding_dimensions)
         candidate_top_k = self._candidate_top_k(top_k=top_k, filters=filters)
         index_generation = self._active_generation(knowledge_base)
-        if self.chunk_repo.db.get_bind().dialect.name == "postgresql":
-            pgvector_hits = self.chunk_repo.search_by_cosine_distance(
-                knowledge_base_id=knowledge_base.id,
-                user_id=user_id,
-                index_generation=index_generation,
-                query_vector=query_vector,
-                embedding_provider=knowledge_base.embedding_provider,
-                embedding_model=knowledge_base.embedding_model,
-                embedding_dimensions=knowledge_base.embedding_dimensions,
-                embedding_version=KnowledgeIndexService.EMBEDDING_VERSION,
-                top_k=candidate_top_k,
-            )
-            results = [
-                RetrievalResult(
-                    chunk=chunk,
-                    score=score,
-                    metadata=json.loads(chunk.metadata_json or "{}"),
-                )
-                for chunk, score in pgvector_hits
-            ]
-            if filters.enabled:
-                return self._apply_filters(results, filters)[:top_k]
-            return results[:top_k]
-
-        # 迁移期间仅供 SQLite 单测和旧环境使用；生产 PostgreSQL 读路已转向 pgvector。
-        # 待 Pipeline 单测改为显式注入 Vector Search Port 后，删除该分支和 FAISS 依赖。
-        hits = self.faiss_store.search(
-            knowledge_base_id=knowledge_base.id,
+        hits = self.vector_search.search(
+            user_id=user_id,
+            knowledge_base=knowledge_base,
+            index_generation=index_generation,
             query_vector=query_vector,
             top_k=candidate_top_k,
-            generation_id=index_generation,
         )
         if not hits:
             return []
-
-        hit_vector_ids = [vector_id for vector_id, _ in hits]
-        score_by_id = {vector_id: score for vector_id, score in hits}
-        chunks = self.chunk_repo.list_by_vector_ids_and_knowledge_base(
-            knowledge_base_id=knowledge_base.id,
-            user_id=user_id,
-            vector_ids=hit_vector_ids,
-            index_generation=index_generation,
-        )
-        chunk_by_vector_id = {chunk.vector_id: chunk for chunk in chunks}
-        results: list[RetrievalResult] = []
-        for vector_id, score in hits:
-            chunk = chunk_by_vector_id.get(vector_id)
-            if not chunk:
-                continue
-            metadata = json.loads(chunk.metadata_json or "{}")
-            results.append(RetrievalResult(chunk=chunk, score=score_by_id[vector_id], metadata=metadata))
+        results = [
+            RetrievalResult(
+                chunk=hit.chunk,
+                score=hit.score,
+                metadata=json.loads(hit.chunk.metadata_json or "{}"),
+            )
+            for hit in hits
+        ]
         if filters.enabled:
             return self._apply_filters(results, filters)[:top_k]
         return results[:top_k]

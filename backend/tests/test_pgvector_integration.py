@@ -22,11 +22,6 @@ class StaticEmbeddingService:
         return [[1.0, 0.0, 0.0] for _ in texts]
 
 
-class FailIfFaissIsUsed:
-    def search(self, **kwargs):  # noqa: ANN003, ANN201
-        raise AssertionError(f"PostgreSQL retrieval must not call FAISS: {kwargs}")
-
-
 @unittest.skipUnless(TEST_POSTGRES_URL, "set TEST_POSTGRES_URL to run PostgreSQL integration tests")
 class PgvectorKnowledgeChunkIntegrationTest(unittest.TestCase):
     @classmethod
@@ -212,7 +207,6 @@ class PgvectorKnowledgeChunkIntegrationTest(unittest.TestCase):
             chunk_repo=KnowledgeChunkRepository(self.db),
             setting_service=Mock(),
             embedding_service=StaticEmbeddingService(),
-            faiss_store=FailIfFaissIsUsed(),
         )
         results = pipeline.retrieve(
             user_id=self.user.id,

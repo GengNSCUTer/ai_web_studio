@@ -547,6 +547,7 @@ class KnowledgeIndexService:
         self.embedding_service = embedding_service or KnowledgeEmbeddingService(setting_service)
         self.rerank_service = rerank_service or KnowledgeRerankService(setting_service)
         self.faiss_store = faiss_store or KnowledgeFaissStore()
+        self._faiss_store_was_injected = faiss_store is not None
         self.lexical_store = lexical_store or KnowledgeLexicalStore()
         self.chunker = KnowledgeChunker()
 
@@ -854,7 +855,7 @@ class KnowledgeIndexService:
             setting_service=self.setting_service,
             embedding_service=self.embedding_service,
             rerank_service=self.rerank_service,
-            faiss_store=self.faiss_store,
+            faiss_store=self.faiss_store if self._faiss_store_was_injected else None,
             lexical_store=self.lexical_store,
         )
 
