@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base
 
@@ -112,6 +113,13 @@ class KnowledgeChunk(Base):
     vector_id: Mapped[int] = mapped_column(Integer, index=True)
     content: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64))
+    # 不在列类型上写死维度：不同知识库可以使用不同 Embedding 模型。
+    # 先允许 null 以便 legacy Chunk 渐进回填；只有向量已就绪的 generation 才能激活。
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
+    embedding_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    embedding_dimensions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     char_count: Mapped[int] = mapped_column(Integer)
     token_estimate: Mapped[int] = mapped_column(Integer)
     source_start: Mapped[int | None] = mapped_column(Integer, nullable=True)

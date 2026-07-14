@@ -79,7 +79,16 @@ def _get_foreign_key(table_name: str, column_name: str) -> tuple[str, str] | Non
         return (str(row[0]), str(row[1])) if row else None
 
 
+def _ensure_pgvector_extension() -> None:
+    """Install the vector SQL type before metadata or runtime DDL refers to it."""
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as connection:
+        connection.execute(text("create extension if not exists vector"))
+
+
 def ensure_runtime_schema() -> None:
+    _ensure_pgvector_extension()
     Base.metadata.create_all(bind=engine)
 
     columns = _get_column_names("user_settings")
@@ -175,6 +184,18 @@ def ensure_runtime_schema() -> None:
         statements.append(
             "alter table knowledge_chunks add column index_generation varchar(64) not null default 'legacy'"
         )
+    if knowledge_chunk_columns and "embedding" not in knowledge_chunk_columns:
+        # 使用不限维度的 vector，保留知识库级模型配置能力。
+        # legacy 行先保持 null，后续由显式 backfill 任务填充，不在启动时调外部 API。
+        statements.append("alter table knowledge_chunks add column embedding vector")
+    if knowledge_chunk_columns and "embedding_provider" not in knowledge_chunk_columns:
+        statements.append("alter table knowledge_chunks add column embedding_provider varchar(32)")
+    if knowledge_chunk_columns and "embedding_model" not in knowledge_chunk_columns:
+        statements.append("alter table knowledge_chunks add column embedding_model varchar(128)")
+    if knowledge_chunk_columns and "embedding_dimensions" not in knowledge_chunk_columns:
+        statements.append("alter table knowledge_chunks add column embedding_dimensions integer")
+    if knowledge_chunk_columns and "embedding_version" not in knowledge_chunk_columns:
+        statements.append("alter table knowledge_chunks add column embedding_version varchar(32)")
     knowledge_chunk_indexes = _get_index_names("knowledge_chunks")
     if "uq_knowledge_chunks_generation_vector" not in knowledge_chunk_indexes:
         statements.append(

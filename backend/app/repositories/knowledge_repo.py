@@ -159,6 +159,40 @@ class KnowledgeChunkRepository:
         stmt = select(KnowledgeChunk).where(*conditions).order_by(KnowledgeChunk.vector_id.asc())
         return list(self.db.scalars(stmt).all())
 
+    def search_by_cosine_distance(
+        self,
+        *,
+        knowledge_base_id: str,
+        user_id: str,
+        index_generation: str,
+        query_vector: list[float],
+        embedding_provider: str,
+        embedding_model: str,
+        embedding_dimensions: int,
+        embedding_version: str,
+        top_k: int,
+    ) -> list[tuple[KnowledgeChunk, float]]:
+        if top_k <= 0:
+            return []
+        distance = KnowledgeChunk.embedding.cosine_distance(query_vector)
+        similarity = (1.0 - distance).label("similarity")
+        statement = (
+            select(KnowledgeChunk, similarity)
+            .where(
+                KnowledgeChunk.knowledge_base_id == knowledge_base_id,
+                KnowledgeChunk.user_id == user_id,
+                KnowledgeChunk.index_generation == index_generation,
+                KnowledgeChunk.embedding.is_not(None),
+                KnowledgeChunk.embedding_provider == embedding_provider,
+                KnowledgeChunk.embedding_model == embedding_model,
+                KnowledgeChunk.embedding_dimensions == embedding_dimensions,
+                KnowledgeChunk.embedding_version == embedding_version,
+            )
+            .order_by(distance.asc(), KnowledgeChunk.vector_id.asc())
+            .limit(top_k)
+        )
+        return [(chunk, float(score)) for chunk, score in self.db.execute(statement).all()]
+
     def count_by_knowledge_base(
         self,
         knowledge_base_id: str,
@@ -207,6 +241,14 @@ class KnowledgeChunkRepository:
         for chunk in chunks:
             self.db.refresh(chunk)
         return chunks
+
+    def save_embeddings(self, chunks: list[KnowledgeChunk]) -> None:
+        try:
+            self.db.add_all(chunks)
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
 
 
 class KnowledgeJobRepository:

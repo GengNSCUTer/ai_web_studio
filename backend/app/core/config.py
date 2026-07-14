@@ -36,7 +36,7 @@ class Settings:
     # Postgres数据库地址
     postgres_host: str = os.getenv("POSTGRES_HOST", "127.0.0.1")
     # Postgres数据库端口
-    postgres_port: int = int(os.getenv("POSTGRES_PORT", "35432"))
+    postgres_port: int = int(os.getenv("POSTGRES_PORT", "35433"))
     # 数据库库名
     postgres_db: str = os.getenv("POSTGRES_DB", "ai_web_studio")
     # 数据库登录用户名

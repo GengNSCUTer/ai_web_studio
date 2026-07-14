@@ -11,6 +11,7 @@ from app.repositories.knowledge_repo import KnowledgeChunkRepository
 from app.services.knowledge_index_service import (
     KnowledgeEmbeddingService,
     KnowledgeFaissStore,
+    KnowledgeIndexService,
     LexicalSearchHit,
     KnowledgeLexicalStore,
     KnowledgeRerankService,
@@ -181,6 +182,32 @@ class KnowledgeRetrievalPipeline:
         self._validate_vectors(vectors=[query_vector], expected_count=1, dimensions=knowledge_base.embedding_dimensions)
         candidate_top_k = self._candidate_top_k(top_k=top_k, filters=filters)
         index_generation = self._active_generation(knowledge_base)
+        if self.chunk_repo.db.get_bind().dialect.name == "postgresql":
+            pgvector_hits = self.chunk_repo.search_by_cosine_distance(
+                knowledge_base_id=knowledge_base.id,
+                user_id=user_id,
+                index_generation=index_generation,
+                query_vector=query_vector,
+                embedding_provider=knowledge_base.embedding_provider,
+                embedding_model=knowledge_base.embedding_model,
+                embedding_dimensions=knowledge_base.embedding_dimensions,
+                embedding_version=KnowledgeIndexService.EMBEDDING_VERSION,
+                top_k=candidate_top_k,
+            )
+            results = [
+                RetrievalResult(
+                    chunk=chunk,
+                    score=score,
+                    metadata=json.loads(chunk.metadata_json or "{}"),
+                )
+                for chunk, score in pgvector_hits
+            ]
+            if filters.enabled:
+                return self._apply_filters(results, filters)[:top_k]
+            return results[:top_k]
+
+        # 迁移期间仅供 SQLite 单测和旧环境使用；生产 PostgreSQL 读路已转向 pgvector。
+        # 待 Pipeline 单测改为显式注入 Vector Search Port 后，删除该分支和 FAISS 依赖。
         hits = self.faiss_store.search(
             knowledge_base_id=knowledge_base.id,
             query_vector=query_vector,

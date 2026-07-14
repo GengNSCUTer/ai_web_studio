@@ -528,6 +528,8 @@ class KnowledgeLexicalStore:
 
 
 class KnowledgeIndexService:
+    EMBEDDING_VERSION = "l2-normalized-v1"
+
     def __init__(
         self,
         *,
@@ -547,6 +549,115 @@ class KnowledgeIndexService:
         self.faiss_store = faiss_store or KnowledgeFaissStore()
         self.lexical_store = lexical_store or KnowledgeLexicalStore()
         self.chunker = KnowledgeChunker()
+
+    def backfill_active_generation_embeddings(
+        self,
+        *,
+        user_id: str,
+        knowledge_base: KnowledgeBase,
+    ) -> int:
+        """Persist missing/stale vectors without rebuilding or activating an index generation."""
+        index_generation = knowledge_base.active_index_generation or "legacy"
+        chunks = self.chunk_repo.list_by_knowledge_base(
+            knowledge_base.id,
+            user_id,
+            index_generation=index_generation,
+        )
+        pending_chunks = [
+            chunk
+            for chunk in chunks
+            if not self._has_reusable_embedding(chunk=chunk, knowledge_base=knowledge_base)
+        ]
+        if not pending_chunks:
+            return 0
+
+        # 外部请求和向量校验先于数据库修改；失败时不留下部分回填。
+        generated_vectors = asyncio.run(
+            self.embedding_service.embed_texts(
+                user_id=user_id,
+                knowledge_base=knowledge_base,
+                texts=[chunk.content for chunk in pending_chunks],
+            )
+        )
+        self._validate_vectors(
+            vectors=generated_vectors,
+            expected_count=len(pending_chunks),
+            dimensions=knowledge_base.embedding_dimensions,
+        )
+        for chunk, vector in zip(pending_chunks, generated_vectors, strict=True):
+            chunk.embedding = self._normalize_vector(vector)
+            chunk.embedding_provider = knowledge_base.embedding_provider
+            chunk.embedding_model = knowledge_base.embedding_model
+            chunk.embedding_dimensions = knowledge_base.embedding_dimensions
+            chunk.embedding_version = self.EMBEDDING_VERSION
+        self.chunk_repo.save_embeddings(pending_chunks)
+        return len(pending_chunks)
+
+    def import_active_generation_embeddings_from_faiss(
+        self,
+        *,
+        user_id: str,
+        knowledge_base: KnowledgeBase,
+    ) -> int:
+        """Migrate the normalized vectors already serving legacy FAISS queries into pgvector."""
+        index_generation = knowledge_base.active_index_generation or "legacy"
+        chunks = self.chunk_repo.list_by_knowledge_base(
+            knowledge_base.id,
+            user_id,
+            index_generation=index_generation,
+        )
+        pending_chunks = [
+            chunk
+            for chunk in chunks
+            if not self._has_reusable_embedding(chunk=chunk, knowledge_base=knowledge_base)
+        ]
+        if not pending_chunks:
+            return 0
+
+        index_path = self.faiss_store.index_path(
+            knowledge_base.id,
+            generation_id=index_generation,
+        )
+        if not index_path.exists():
+            raise RuntimeError(f"FAISS 索引不存在：{index_path}")
+        index = faiss.read_index(str(index_path))
+        if index.d != knowledge_base.embedding_dimensions:
+            raise RuntimeError(
+                f"FAISS 维度与知识库配置不一致："
+                f"index={index.d}, knowledge_base={knowledge_base.embedding_dimensions}"
+            )
+        if not hasattr(index, "id_map"):
+            raise RuntimeError("FAISS 索引缺少 vector_id 映射，不能安全迁移。")
+        index_ids = [int(item) for item in faiss.vector_to_array(index.id_map).tolist()]
+        if len(index_ids) != len(set(index_ids)):
+            raise RuntimeError("FAISS 索引包含重复 vector_id，已拒绝迁移。")
+        chunk_ids = {chunk.vector_id for chunk in chunks}
+        if set(index_ids) != chunk_ids:
+            missing_in_faiss = sorted(chunk_ids - set(index_ids))[:10]
+            missing_in_database = sorted(set(index_ids) - chunk_ids)[:10]
+            raise RuntimeError(
+                "FAISS 与数据库 vector_id 集合不一致，已拒绝迁移："
+                f"missing_in_faiss={missing_in_faiss}, missing_in_database={missing_in_database}"
+            )
+
+        vectors_by_id = {
+            vector_id: index.reconstruct(vector_id).astype("float32").tolist()
+            for vector_id in index_ids
+        }
+        pending_vectors = [vectors_by_id[chunk.vector_id] for chunk in pending_chunks]
+        self._validate_vectors(
+            vectors=pending_vectors,
+            expected_count=len(pending_chunks),
+            dimensions=knowledge_base.embedding_dimensions,
+        )
+        for chunk, vector in zip(pending_chunks, pending_vectors, strict=True):
+            chunk.embedding = vector
+            chunk.embedding_provider = knowledge_base.embedding_provider
+            chunk.embedding_model = knowledge_base.embedding_model
+            chunk.embedding_dimensions = knowledge_base.embedding_dimensions
+            chunk.embedding_version = self.EMBEDDING_VERSION
+        self.chunk_repo.save_embeddings(pending_chunks)
+        return len(pending_chunks)
 
     def index_document(self, *, user_id: str, knowledge_base: KnowledgeBase, document: KnowledgeDocument) -> IndexResult:
         """Build and publish one document's chunks as part of a knowledge-base-wide index.
@@ -621,28 +732,61 @@ class KnowledgeIndexService:
             index_generation=index_generation,
         )
         retained_chunks = [chunk for chunk in existing_chunks if chunk.document_id != document.id]
-        chunks_to_embed = [*retained_chunks, *chunks]
+        chunks_to_publish = [*retained_chunks, *chunks]
+
+        # 目标文档会生成新 Chunk 行，但内容未变的 Chunk 仍可在删除旧行前按 hash 复用向量。
+        # 这里只使用签名与当前知识库完整匹配的缓存，换模型或维度后会自动 miss。
+        reusable_vector_by_hash = {
+            chunk.content_hash: list(chunk.embedding or [])
+            for chunk in existing_chunks
+            if self._has_reusable_embedding(chunk=chunk, knowledge_base=knowledge_base)
+        }
+        vector_by_id: dict[int, list[float]] = {}
+        chunks_missing_embedding: list[KnowledgeChunk] = []
+        for chunk in chunks_to_publish:
+            if self._has_reusable_embedding(chunk=chunk, knowledge_base=knowledge_base):
+                vector_by_id[chunk.vector_id] = list(chunk.embedding or [])
+                continue
+            reusable_vector = reusable_vector_by_hash.get(chunk.content_hash)
+            if reusable_vector is not None:
+                vector_by_id[chunk.vector_id] = reusable_vector
+                continue
+            chunks_missing_embedding.append(chunk)
 
         # Embedding 是最昂贵、最容易因网络或供应商失败的步骤。必须在替换数据库 chunks 之前完成，
         # 否则重索引失败会留下“新数据库 chunks + 旧 FAISS/BM25 文件”的不可查询状态。
-        vectors_to_publish = asyncio.run(
-            self.embedding_service.embed_texts(
-                user_id=user_id,
-                knowledge_base=knowledge_base,
-                texts=[chunk.content for chunk in chunks_to_embed],
+        if chunks_missing_embedding:
+            generated_vectors = asyncio.run(
+                self.embedding_service.embed_texts(
+                    user_id=user_id,
+                    knowledge_base=knowledge_base,
+                    texts=[chunk.content for chunk in chunks_missing_embedding],
+                )
             )
-        )
+            self._validate_vectors(
+                vectors=generated_vectors,
+                expected_count=len(chunks_missing_embedding),
+                dimensions=knowledge_base.embedding_dimensions,
+            )
+            for chunk, vector in zip(chunks_missing_embedding, generated_vectors, strict=True):
+                vector_by_id[chunk.vector_id] = vector
+
+        vectors_to_publish = [vector_by_id[chunk.vector_id] for chunk in chunks_to_publish]
+        # 缓存命中也经过同一道校验，防止历史脏数据进入新索引。
         self._validate_vectors(
             vectors=vectors_to_publish,
-            expected_count=len(chunks_to_embed),
+            expected_count=len(chunks_to_publish),
             dimensions=knowledge_base.embedding_dimensions,
         )
 
-        # Repository 保存后会重新按 vector_id 查询；显式用 vector_id 绑定向量，避免依赖列表/数据库返回顺序。
-        vector_by_id = {
-            chunk.vector_id: vector
-            for chunk, vector in zip(chunks_to_embed, vectors_to_publish, strict=True)
-        }
+        # 向量与生成它的模型签名一起持久化。未来只有签名完整匹配时才能复用，
+        # 避免知识库更换 provider/model 后把旧向量错当成当前向量。
+        for chunk, vector in zip(chunks_to_publish, vectors_to_publish, strict=True):
+            chunk.embedding = self._normalize_vector(vector)
+            chunk.embedding_provider = knowledge_base.embedding_provider
+            chunk.embedding_model = knowledge_base.embedding_model
+            chunk.embedding_dimensions = knowledge_base.embedding_dimensions
+            chunk.embedding_version = self.EMBEDDING_VERSION
         saved_chunks = self.chunk_repo.replace_document_chunks(
             document.id,
             user_id,
@@ -752,6 +896,25 @@ class KnowledgeIndexService:
                 raise RuntimeError(f"Embedding 维度不一致：知识库维度 {dimensions}，实际返回 {len(vector)}。")
             if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in vector):
                 raise RuntimeError("Embedding 返回了非有限数值，已拒绝写入向量索引。")
+
+    @staticmethod
+    def _has_reusable_embedding(*, chunk: KnowledgeChunk, knowledge_base: KnowledgeBase) -> bool:
+        embedding = chunk.embedding
+        return bool(
+            embedding is not None
+            and chunk.embedding_provider == knowledge_base.embedding_provider
+            and chunk.embedding_model == knowledge_base.embedding_model
+            and chunk.embedding_dimensions == knowledge_base.embedding_dimensions
+            and chunk.embedding_version == KnowledgeIndexService.EMBEDDING_VERSION
+            and len(embedding) == knowledge_base.embedding_dimensions
+        )
+
+    @staticmethod
+    def _normalize_vector(vector: list[float]) -> list[float]:
+        norm = math.sqrt(sum(value * value for value in vector))
+        if norm == 0:
+            return list(vector)
+        return [value / norm for value in vector]
 
     @staticmethod
     def _normalize_file_type(file_name: str, mime_type: str | None) -> str:

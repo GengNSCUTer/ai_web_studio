@@ -4,6 +4,7 @@ import io
 import asyncio
 import hashlib
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -873,6 +874,16 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertGreater(index_result.chunk_count, 0)
         self.assertTrue(Path(index_result.index_path).exists())
         self.assertEqual(chunk_repo.count_by_knowledge_base(knowledge_base.id, self.user.id), index_result.chunk_count)
+        persisted_chunks = chunk_repo.list_by_knowledge_base(knowledge_base.id, self.user.id)
+        self.assertTrue(all(chunk.embedding is not None for chunk in persisted_chunks))
+        self.assertTrue(all(len(chunk.embedding or []) == 128 for chunk in persisted_chunks))
+        self.assertTrue(
+            all(chunk.embedding_provider == knowledge_base.embedding_provider for chunk in persisted_chunks)
+        )
+        self.assertTrue(all(chunk.embedding_model == knowledge_base.embedding_model for chunk in persisted_chunks))
+        self.assertTrue(
+            all(chunk.embedding_dimensions == knowledge_base.embedding_dimensions for chunk in persisted_chunks)
+        )
 
         results = index_service.retrieve(
             user_id=self.user.id,
@@ -926,6 +937,155 @@ class KnowledgeServiceTest(unittest.TestCase):
         )
         self.assertEqual(faiss_path.read_bytes(), old_faiss_bytes)
         self.assertEqual(lexical_path.read_bytes(), old_lexical_bytes)
+
+    def test_reindex_unchanged_chunks_reuses_persisted_embeddings_without_api_call(self) -> None:
+        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="Embedding 复用测试",
+            file_name="embedding-reuse.md",
+            content="The unchanged document keeps the same chunk content and embedding signature.",
+        )
+        old_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
+        old_embeddings_by_hash = {chunk.content_hash: chunk.embedding for chunk in old_chunks}
+
+        # 如果重索引仍调用 Embedding API，这个 fake 会立即让测试失败。
+        index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=KnowledgeDocumentRepository(self.db),
+            setting_service=setting_service,
+            embedding_service=FailingKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
+        )
+        index_service.index_document(
+            user_id=self.user.id,
+            knowledge_base=knowledge_base,
+            document=parsed_document,
+        )
+
+        rebuilt_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
+        self.assertEqual(
+            {chunk.content_hash: chunk.embedding for chunk in rebuilt_chunks},
+            old_embeddings_by_hash,
+        )
+
+    def test_reindex_model_change_invalidates_persisted_embeddings(self) -> None:
+        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="Embedding 签名失效测试",
+            file_name="embedding-signature.md",
+            content="The content stays unchanged while the embedding model changes.",
+        )
+        persisted_knowledge_base = KnowledgeBaseRepository(self.db).get_by_user(
+            knowledge_base.id,
+            self.user.id,
+        )
+        assert persisted_knowledge_base is not None
+        persisted_knowledge_base.embedding_model = "another-embedding-model"
+        self.db.add(persisted_knowledge_base)
+        self.db.commit()
+
+        index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=KnowledgeDocumentRepository(self.db),
+            setting_service=setting_service,
+            embedding_service=FailingKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+            lexical_store=KnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "fake embedding failure"):
+            index_service.index_document(
+                user_id=self.user.id,
+                knowledge_base=persisted_knowledge_base,
+                document=parsed_document,
+            )
+
+    def test_embedding_backfill_only_updates_missing_or_stale_chunks(self) -> None:
+        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="Embedding backfill 测试",
+            file_name="embedding-backfill.md",
+            content="Backfill should update only chunks whose persisted vectors are missing.",
+        )
+        chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
+        self.assertGreaterEqual(len(chunks), 1)
+        chunks[0].embedding = None
+        chunks[0].embedding_provider = None
+        chunks[0].embedding_model = None
+        chunks[0].embedding_dimensions = None
+        chunks[0].embedding_version = None
+        self.db.add(chunks[0])
+        self.db.commit()
+
+        service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=KnowledgeDocumentRepository(self.db),
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+        )
+        self.assertEqual(
+            service.backfill_active_generation_embeddings(
+                user_id=self.user.id,
+                knowledge_base=knowledge_base,
+            ),
+            1,
+        )
+        self.assertEqual(
+            service.backfill_active_generation_embeddings(
+                user_id=self.user.id,
+                knowledge_base=knowledge_base,
+            ),
+            0,
+        )
+
+        rebuilt_chunk = chunk_repo.get_by_user(chunks[0].id, self.user.id)
+        assert rebuilt_chunk is not None
+        self.assertIsNotNone(rebuilt_chunk.embedding)
+        self.assertEqual(rebuilt_chunk.embedding_model, knowledge_base.embedding_model)
+        self.assertEqual(rebuilt_chunk.embedding_dimensions, knowledge_base.embedding_dimensions)
+        self.assertEqual(rebuilt_chunk.embedding_version, KnowledgeIndexService.EMBEDDING_VERSION)
+
+    def test_legacy_faiss_vectors_can_be_imported_without_embedding_api_call(self) -> None:
+        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="Legacy FAISS 向量迁移测试",
+            file_name="legacy-faiss-import.md",
+            content="The existing FAISS snapshot is the migration source of truth.",
+        )
+        chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
+        for chunk in chunks:
+            chunk.embedding = None
+            chunk.embedding_provider = None
+            chunk.embedding_model = None
+            chunk.embedding_dimensions = None
+            chunk.embedding_version = None
+        self.db.add_all(chunks)
+        self.db.commit()
+
+        service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=KnowledgeDocumentRepository(self.db),
+            setting_service=setting_service,
+            embedding_service=FailingKnowledgeEmbeddingService(),
+            faiss_store=KnowledgeFaissStore(index_root=settings.knowledge_index_dir),
+        )
+        self.assertEqual(
+            service.import_active_generation_embeddings_from_faiss(
+                user_id=self.user.id,
+                knowledge_base=knowledge_base,
+            ),
+            len(chunks),
+        )
+
+        imported_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
+        self.assertTrue(all(chunk.embedding is not None for chunk in imported_chunks))
+        self.assertTrue(
+            all(
+                abs(math.sqrt(sum(value * value for value in (chunk.embedding or []))) - 1.0) < 1e-6
+                for chunk in imported_chunks
+                if any(chunk.embedding or [])
+            )
+        )
+        self.assertTrue(
+            all(chunk.embedding_version == KnowledgeIndexService.EMBEDDING_VERSION for chunk in imported_chunks)
+        )
 
     def test_faiss_rebuild_failure_preserves_previous_index_file(self) -> None:
         store = KnowledgeFaissStore(index_root=settings.knowledge_index_dir)
