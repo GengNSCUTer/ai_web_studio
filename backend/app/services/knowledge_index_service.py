@@ -315,6 +315,49 @@ class KnowledgeLexicalStore:
     def exists(self, *, knowledge_base_id: str, generation_id: str | None = None) -> bool:
         return self.index_path(knowledge_base_id, generation_id=generation_id).exists()
 
+    def snapshot(self, *, knowledge_base_id: str, generation_id: str | None = None) -> bytes | None:
+        """Capture the currently published BM25 file for normal-exception compensation.
+
+        ``None`` means no lexical index had been published yet.  This snapshot is
+        deliberately kept in memory: it is only a short-lived rollback aid for one
+        indexing request, not a replacement for a durable generation publisher.
+        """
+        index_path = self.index_path(knowledge_base_id, generation_id=generation_id)
+        return index_path.read_bytes() if index_path.exists() else None
+
+    def restore(
+        self,
+        *,
+        knowledge_base_id: str,
+        snapshot: bytes | None,
+        generation_id: str | None = None,
+    ) -> None:
+        """Atomically restore the previously published BM25 file when possible."""
+        index_path = self.index_path(knowledge_base_id, generation_id=generation_id)
+        if snapshot is None:
+            index_path.unlink(missing_ok=True)
+            return
+
+        target_dir = index_path.parent
+        target_dir.mkdir(parents=True, exist_ok=True)
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=target_dir,
+                prefix=f".{self.INDEX_FILE_NAME}.restore.",
+                suffix=".tmp",
+                mode="wb",
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+                temp_file.write(snapshot)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_path, index_path)
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
     def rebuild(
         self,
         *,
@@ -586,6 +629,20 @@ class KnowledgeIndexService:
             user_id,
             index_generation=index_generation,
         )
+        # ``replace_document_chunks`` commits before the BM25 file is published.  Keep
+        # detached copies of the old document rows plus the old BM25 bytes so an ordinary
+        # filesystem/provider exception can restore the last queryable pair.  This is
+        # compensation, not crash-atomic publication; process/power loss still requires
+        # the planned inactive-generation + CAS protocol.
+        previous_document_chunks = [
+            self._copy_chunk(chunk)
+            for chunk in existing_chunks
+            if chunk.document_id == document.id
+        ]
+        lexical_snapshot = self.lexical_store.snapshot(
+            knowledge_base_id=knowledge_base.id,
+            generation_id=index_generation,
+        )
         retained_chunks = [chunk for chunk in existing_chunks if chunk.document_id != document.id]
         chunks_to_publish = [*retained_chunks, *chunks]
 
@@ -653,11 +710,35 @@ class KnowledgeIndexService:
             user_id,
             index_generation=index_generation,
         )
-        self.lexical_store.rebuild(
-            knowledge_base_id=knowledge_base.id,
-            chunks=all_chunks,
-            generation_id=index_generation,
-        )
+        try:
+            self.lexical_store.rebuild(
+                knowledge_base_id=knowledge_base.id,
+                chunks=all_chunks,
+                generation_id=index_generation,
+            )
+        except Exception as lexical_error:
+            compensation_errors: list[str] = []
+            try:
+                self.chunk_repo.replace_document_chunks(
+                    document.id,
+                    user_id,
+                    previous_document_chunks,
+                    index_generation=index_generation,
+                )
+            except Exception as chunk_restore_error:
+                compensation_errors.append(f"Chunk 恢复失败：{chunk_restore_error}")
+            try:
+                self.lexical_store.restore(
+                    knowledge_base_id=knowledge_base.id,
+                    snapshot=lexical_snapshot,
+                    generation_id=index_generation,
+                )
+            except Exception as lexical_restore_error:
+                compensation_errors.append(f"BM25 恢复失败：{lexical_restore_error}")
+            if compensation_errors:
+                details = "；".join(compensation_errors)
+                raise RuntimeError(f"BM25 发布失败，且索引补偿未完全成功：{details}") from lexical_error
+            raise
         document.index_status = "indexed"
         document.error_message = None
         self.document_repo.save(document)
@@ -762,6 +843,33 @@ class KnowledgeIndexService:
         if norm == 0:
             return list(vector)
         return [value / norm for value in vector]
+
+    @staticmethod
+    def _copy_chunk(chunk: KnowledgeChunk) -> KnowledgeChunk:
+        """Create a fresh ORM row carrying the previous chunk state for compensation."""
+        return KnowledgeChunk(
+            id=chunk.id,
+            user_id=chunk.user_id,
+            knowledge_base_id=chunk.knowledge_base_id,
+            document_id=chunk.document_id,
+            index_generation=chunk.index_generation,
+            chunk_index=chunk.chunk_index,
+            vector_id=chunk.vector_id,
+            content=chunk.content,
+            content_hash=chunk.content_hash,
+            embedding=list(chunk.embedding) if chunk.embedding is not None else None,
+            embedding_provider=chunk.embedding_provider,
+            embedding_model=chunk.embedding_model,
+            embedding_dimensions=chunk.embedding_dimensions,
+            embedding_version=chunk.embedding_version,
+            char_count=chunk.char_count,
+            token_estimate=chunk.token_estimate,
+            source_start=chunk.source_start,
+            source_end=chunk.source_end,
+            metadata_json=chunk.metadata_json,
+            created_at=chunk.created_at,
+            updated_at=chunk.updated_at,
+        )
 
     @staticmethod
     def _normalize_file_type(file_name: str, mime_type: str | None) -> str:

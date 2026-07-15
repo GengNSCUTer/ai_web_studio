@@ -92,6 +92,14 @@ class FailingKnowledgeEmbeddingService(KnowledgeEmbeddingService):
         raise RuntimeError("fake embedding failure")
 
 
+class PublishThenFailKnowledgeLexicalStore(KnowledgeLexicalStore):
+    """Simulate a failure after a new BM25 file has already replaced the old file."""
+
+    def rebuild(self, **kwargs) -> str:  # noqa: ANN003
+        super().rebuild(**kwargs)
+        raise RuntimeError("fake lexical publish failure")
+
+
 class FakeKnowledgeRerankService(KnowledgeRerankService):
     async def rerank(self, *, user_id: str, knowledge_base, query: str, documents: list[str], top_n: int) -> list[tuple[int, float]]:  # noqa: ANN001
         ranked: list[tuple[int, float]] = []
@@ -956,6 +964,66 @@ class KnowledgeServiceTest(unittest.TestCase):
         preserved_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
         self.assertEqual(
             [(chunk.id, chunk.vector_id, chunk.content) for chunk in preserved_chunks],
+            old_chunk_snapshot,
+        )
+        self.assertEqual(lexical_path.read_bytes(), old_lexical_bytes)
+
+    def test_reindex_lexical_failure_restores_previous_chunks_and_bm25(self) -> None:
+        knowledge_base, parsed_document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="BM25 发布失败补偿测试",
+            file_name="lexical-rollback.md",
+            content="The stable lexical index contains the ORIGINAL-LEXICAL marker.",
+            retrieval_mode="hybrid",
+        )
+        old_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
+        old_chunk_snapshot = [
+            (
+                chunk.id,
+                chunk.vector_id,
+                chunk.content,
+                list(chunk.embedding or []),
+                chunk.embedding_model,
+                chunk.embedding_version,
+            )
+            for chunk in old_chunks
+        ]
+        lexical_path = KnowledgeLexicalStore(index_root=settings.knowledge_index_dir).index_path(knowledge_base.id)
+        old_lexical_bytes = lexical_path.read_bytes()
+
+        assert parsed_document.parsed_markdown_path is not None
+        (Path(settings.upload_dir) / parsed_document.parsed_markdown_path).write_text(
+            "The replacement text contains a NEW-LEXICAL marker.",
+            encoding="utf-8",
+        )
+        failing_index_service = KnowledgeIndexService(
+            chunk_repo=chunk_repo,
+            document_repo=KnowledgeDocumentRepository(self.db),
+            setting_service=setting_service,
+            embedding_service=FakeKnowledgeEmbeddingService(),
+            vector_search=InMemoryVectorSearch(self.db),
+            lexical_store=PublishThenFailKnowledgeLexicalStore(index_root=settings.knowledge_index_dir),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "fake lexical publish failure"):
+            failing_index_service.index_document(
+                user_id=self.user.id,
+                knowledge_base=knowledge_base,
+                document=parsed_document,
+            )
+
+        restored_chunks = chunk_repo.list_by_document(parsed_document.id, self.user.id)
+        self.assertEqual(
+            [
+                (
+                    chunk.id,
+                    chunk.vector_id,
+                    chunk.content,
+                    list(chunk.embedding or []),
+                    chunk.embedding_model,
+                    chunk.embedding_version,
+                )
+                for chunk in restored_chunks
+            ],
             old_chunk_snapshot,
         )
         self.assertEqual(lexical_path.read_bytes(), old_lexical_bytes)
