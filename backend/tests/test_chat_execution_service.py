@@ -21,14 +21,19 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.tool_trace import ToolCallRun, ToolRouteRun
 from app.models.user import User
+from app.repositories.attachment_repo import AttachmentRepository
+from app.repositories.conversation_repo import ConversationRepository
+from app.repositories.message_repo import MessageRepository
 from app.repositories.setting_repo import UserSettingRepository
-from app.api.routes.chat import edit_last_user_stream, regenerate_last_answer_stream
+from app.api.routes.chat import _build_streaming_response, edit_last_user_stream, regenerate_last_answer_stream
 from app.schemas.message import ChatEditLastUserRequest, ChatRegenerateRequest, ChatStreamRequest
 from app.schemas.upload import UploadItemReference
 from app.services.chat_execution_service import (
+    ChatExecutionContext,
     ChatExecutionService,
     ExistingTurnExecutionInput,
 )
+from app.services.message_service import MessageService
 from app.services.setting_service import SettingService
 from app.services.tools.schemas import (
     ExternalContextResult,
@@ -194,6 +199,118 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 if child.is_dir():
                     child.rmdir()
             self.test_upload_root.rmdir()
+
+    def _create_stream_context(self) -> ChatExecutionContext:
+        conversation = Conversation(
+            user_id=self.user.id,
+            title="流式状态测试",
+            model_name="qwen-test",
+            system_prompt="用中文回答。",
+        )
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+
+        user_message = Message(
+            conversation_id=conversation.id,
+            role="user",
+            content="RRF 是什么？",
+            status="done",
+        )
+        assistant_message = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="",
+            status="streaming",
+        )
+        message_repo = MessageRepository(self.db)
+        message_repo.create(user_message)
+        message_repo.create(assistant_message)
+
+        return ChatExecutionContext(
+            conversation_repo=ConversationRepository(self.db),
+            message_service=MessageService(message_repo, AttachmentRepository(self.db)),
+            conversation=conversation,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            history_messages=[{"role": "user", "content": user_message.content}],
+            resolved_model="qwen-test",
+            provider_type="ollama",
+            base_url="http://ollama.test",
+            api_key=None,
+            temperature=0.2,
+            top_p=0.9,
+            max_tokens=None,
+            context_notices=[],
+            context_stats={},
+            context_details={},
+            context_summary=None,
+            thinking_enabled=True,
+            thinking_budget=None,
+            tool_events=[],
+            external_sources=[{"title": "RRF 资料", "url": "https://example.com/rrf"}],
+        )
+
+    def test_streaming_response_done_persists_complete_answer(self) -> None:
+        class DoneProvider:
+            async def stream_chat_events(self, **_: object):
+                yield SimpleNamespace(type="reasoning_delta", text="先比较排名。")
+                yield SimpleNamespace(type="answer_delta", text="RRF 是一种")
+                yield SimpleNamespace(type="answer_delta", text="排名融合算法。")
+
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            response = _build_streaming_response(context, DoneProvider(), event_stream=True)
+            chunks = [chunk async for chunk in response.body_iterator]
+
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "done")
+            self.assertEqual(context.assistant_message.content, "RRF 是一种排名融合算法。")
+            self.assertEqual(context.assistant_message.reasoning_content, "先比较排名。")
+            self.assertIn('"title": "RRF 资料"', context.assistant_message.external_sources or "")
+            self.assertIn('"type": "done"', "".join(chunks))
+
+        asyncio.run(run_test())
+
+    def test_streaming_response_cancelled_persists_partial_answer(self) -> None:
+        class CancelledProvider:
+            async def stream_chat_events(self, **_: object):
+                yield SimpleNamespace(type="answer_delta", text="RRF 是一种排名融合算法")
+                raise asyncio.CancelledError
+
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            response = _build_streaming_response(context, CancelledProvider(), event_stream=True)
+
+            with self.assertRaises(asyncio.CancelledError):
+                async for _ in response.body_iterator:
+                    pass
+
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "cancelled")
+            self.assertEqual(context.assistant_message.content, "RRF 是一种排名融合算法")
+
+        asyncio.run(run_test())
+
+    def test_streaming_response_failed_persists_partial_answer_and_emits_error(self) -> None:
+        class FailedProvider:
+            async def stream_chat_events(self, **_: object):
+                yield SimpleNamespace(type="answer_delta", text="RRF 是一种")
+                raise RuntimeError("provider unavailable")
+
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            response = _build_streaming_response(context, FailedProvider(), event_stream=True)
+            chunks = [chunk async for chunk in response.body_iterator]
+
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "failed")
+            self.assertEqual(context.assistant_message.content, "RRF 是一种")
+            body = "".join(chunks)
+            self.assertIn('"type": "answer_delta"', body)
+            self.assertIn('"type": "model_error"', body)
+
+        asyncio.run(run_test())
 
     def test_prepare_chat_execution_builds_context_without_external_services(self) -> None:
         async def run_test() -> None:

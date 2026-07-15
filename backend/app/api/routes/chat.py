@@ -131,6 +131,24 @@ def _find_latest_user_before(messages: list[object], *, assistant_index: int) ->
     return None
 
 
+def _persist_stream_result(
+    context: ChatExecutionContext,
+    *,
+    status_value: str,
+    content_parts: list[str],
+    reasoning_parts: list[str],
+) -> None:
+    """统一收口流式结果，避免完成、取消和失败分支写出不同的消息字段。"""
+    context.assistant_message.content = "".join(content_parts)
+    context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
+    context.assistant_message.external_sources = (
+        json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
+    )
+    context.assistant_message.status = status_value
+    context.message_service.save_message(context.assistant_message)
+    context.conversation_repo.touch(context.conversation.id)
+
+
 def _build_streaming_response(
     context: ChatExecutionContext,
     provider_service: ChatProviderService,
@@ -183,37 +201,31 @@ def _build_streaming_response(
                     yield _encode_stream_event("answer_delta", text=event.text) if event_stream else event.text
 
             # 模型正常结束后，一次性把完整 answer/reasoning/sources 写回 assistant 消息。
-            context.assistant_message.content = "".join(content_parts)
-            context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
-            context.assistant_message.external_sources = (
-                json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
+            _persist_stream_result(
+                context,
+                status_value="done",
+                content_parts=content_parts,
+                reasoning_parts=reasoning_parts,
             )
-            context.assistant_message.status = "done"
-            context.message_service.save_message(context.assistant_message)
-            context.conversation_repo.touch(context.conversation.id)
             if event_stream:
                 yield _encode_stream_event("done", assistant_message_id=context.assistant_message.id)
         except asyncio.CancelledError:
             # 客户端主动停止或连接断开时，保存 partial content，前端用 cancelled 展示“已停止”。
-            context.assistant_message.status = "cancelled"
-            context.assistant_message.content = "".join(content_parts)
-            context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
-            context.assistant_message.external_sources = (
-                json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
+            _persist_stream_result(
+                context,
+                status_value="cancelled",
+                content_parts=content_parts,
+                reasoning_parts=reasoning_parts,
             )
-            context.message_service.save_message(context.assistant_message)
-            context.conversation_repo.touch(context.conversation.id)
             raise
         except Exception as exc:
             # 模型错误也要保存 partial content/reasoning/sources，否则刷新后会丢失已生成片段和诊断线索。
-            context.assistant_message.status = "failed"
-            context.assistant_message.content = "".join(content_parts)
-            context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
-            context.assistant_message.external_sources = (
-                json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
+            _persist_stream_result(
+                context,
+                status_value="failed",
+                content_parts=content_parts,
+                reasoning_parts=reasoning_parts,
             )
-            context.message_service.save_message(context.assistant_message)
-            context.conversation_repo.touch(context.conversation.id)
             if event_stream:
                 yield _encode_stream_event(
                     "model_error",
