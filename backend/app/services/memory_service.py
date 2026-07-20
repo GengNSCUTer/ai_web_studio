@@ -89,8 +89,9 @@ class MemoryService:
         if not memories:
             return None, 0, 0
 
+        header = "以下是用户显式保存的长期记忆，请在不违背当前对话的前提下参考："
         chunks: list[str] = []
-        total_chars = 0
+        total_chars = len(header) + 1
         limit = max(500, min(max_chars, 20000))
 
         for memory in memories:
@@ -100,17 +101,18 @@ class MemoryService:
                 continue
             label = self.TYPE_LABELS.get(memory.memory_type, "长期记忆")
             line = f"- [{label}] {title}: {content}"
-            next_total = total_chars + len(line) + 1
+            next_total = total_chars + len(line) + (1 if chunks else 0)
             if next_total > limit:
-                break
+                # 单条异常长记忆不能阻塞后续所有短记忆；也不截断事实，避免把半句话注入模型。
+                continue
             chunks.append(line)
             total_chars = next_total
 
         if not chunks:
-            return None, len(memories), 0
+            return None, 0, 0
 
-        context = "以下是用户显式保存的长期记忆，请在不违背当前对话的前提下参考：\n" + "\n".join(chunks)
-        return context, len(memories), len(context)
+        context = header + "\n" + "\n".join(chunks)
+        return context, len(chunks), len(context)
 
     def build_existing_memory_text(self, user_id: str, *, max_chars: int = 4000) -> str:
         memories = self.repo.list_by_user(user_id)
@@ -118,10 +120,11 @@ class MemoryService:
         total = 0
         for memory in memories:
             line = f"- [{memory.memory_type}] {memory.title}: {memory.content}"
-            if total + len(line) > max_chars:
-                break
+            next_total = total + len(line) + (1 if lines else 0)
+            if next_total > max_chars:
+                continue
             lines.append(line)
-            total += len(line)
+            total = next_total
         return "\n".join(lines) or "无"
 
     @staticmethod

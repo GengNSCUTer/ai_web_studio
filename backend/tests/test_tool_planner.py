@@ -5,6 +5,7 @@ import unittest
 
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.planner import DeterministicToolPlanner, LLMToolPlanner, PlannerRuntime
+from app.services.tools.schemas import ToolDefinition
 from app.services.tools.selector import ToolCandidateSelector
 from app.services.tools.validation import ToolSchemaValidationError, ToolSchemaValidator
 
@@ -56,6 +57,53 @@ class ToolPlannerTest(unittest.TestCase):
 
         with self.assertRaises(ToolSchemaValidationError):
             ToolSchemaValidator().validate(definition=definition, arguments={"origin": "深圳松岗"})
+
+    def test_schema_validator_rejects_undeclared_field_when_schema_is_strict(self) -> None:
+        definition = ToolDefinition(
+            tool_key="mcp.weather.lookup",
+            provider="weather",
+            category="weather",
+            display_name="Weather",
+            description="Lookup weather",
+            input_schema={
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+                "additionalProperties": False,
+            },
+        )
+
+        with self.assertRaisesRegex(ToolSchemaValidationError, "schema 未声明的参数：query"):
+            ToolSchemaValidator().validate(
+                definition=definition,
+                arguments={"city": "深圳", "query": "深圳天气"},
+            )
+
+    def test_llm_planner_does_not_inject_query_into_strict_schema_without_query_field(self) -> None:
+        definition = ToolDefinition(
+            tool_key="mcp.weather.lookup",
+            provider="weather",
+            category="weather",
+            display_name="Weather",
+            description="Lookup weather",
+            input_schema={
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+                "additionalProperties": False,
+            },
+        )
+        catalog = ToolCatalog()
+        catalog._definitions = {definition.tool_key: definition}
+        planner = LLMToolPlanner(catalog=catalog)
+
+        plan = planner._parse_llm_plan(
+            text='{"should_use_tools":true,"calls":[{"tool_key":"mcp.weather.lookup","arguments":{"city":"深圳"}}]}',
+            query="深圳天气",
+            allowed_tool_keys={definition.tool_key},
+        )
+
+        self.assertEqual(plan.calls[0].arguments, {"city": "深圳"})
 
     def test_llm_planner_parses_valid_tool_call(self) -> None:
         async def run_test() -> None:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -101,8 +103,9 @@ class McpToolUpdate(BaseModel):
     description_override: str | None = None
     category: str | None = Field(default=None, max_length=64)
     is_enabled: bool | None = None
-    risk_level: str | None = None
+    risk_level: Literal["low", "medium", "high"] | None = None
     read_only: bool | None = None
+    risk_reviewed: bool | None = None
     fixed_arguments: dict | None = None
 
 
@@ -120,10 +123,13 @@ class McpToolResponse(BaseModel):
     description: str | None = None
     description_override: str | None = None
     input_schema: dict = {}
+    output_schema: dict = {}
     fixed_arguments: dict = {}
     category: str
     risk_level: str
     read_only: bool
+    remote_read_only_hint: bool | None = None
+    risk_reviewed: bool
     is_enabled: bool
     last_seen_at: str | None = None
 

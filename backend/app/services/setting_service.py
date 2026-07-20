@@ -94,6 +94,12 @@ class SettingService:
             min(candidate, ContextBudgetPlanner.HARD_MAX_CONTEXT_WINDOW),
         )
 
+    @staticmethod
+    def normalize_max_tokens(value: int | None) -> int | None:
+        if value is None:
+            return None
+        return max(1, min(int(value), ContextBudgetPlanner.HARD_MAX_CONTEXT_WINDOW // 2))
+
     @classmethod
     def default_context_window_for_provider(cls, provider_type: str) -> int:
         if provider_type == "ollama":
@@ -251,6 +257,10 @@ class SettingService:
                 if normalized_window != setting.model_context_window:
                     setting.model_context_window = normalized_window
                     should_save = True
+            normalized_max_tokens = self.normalize_max_tokens(getattr(setting, "max_tokens", None))
+            if normalized_max_tokens != getattr(setting, "max_tokens", None):
+                setting.max_tokens = normalized_max_tokens
+                should_save = True
             normalized_theme = self.normalize_theme_mode(getattr(setting, "theme_mode", None))
             if normalized_theme != getattr(setting, "theme_mode", None):
                 setting.theme_mode = normalized_theme
@@ -326,6 +336,7 @@ class SettingService:
             getattr(setting, "model_context_window", None),
             setting.provider_type,
         )
+        setting.max_tokens = self.normalize_max_tokens(getattr(setting, "max_tokens", None))
         if not getattr(setting, "ui_language", None):
             setting.ui_language = self.DEFAULT_UI_LANGUAGE
         setting.theme_mode = self.normalize_theme_mode(getattr(setting, "theme_mode", None))

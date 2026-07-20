@@ -69,6 +69,9 @@ class ToolCatalogTest(unittest.TestCase):
                         input_schema_json=json.dumps(
                             {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
                         ),
+                        output_schema_json=json.dumps(
+                            {"type": "object", "properties": {"items": {"type": "array"}}, "required": ["items"]}
+                        ),
                         fixed_arguments_json=json.dumps({"limit": 5}),
                         category="web_search",
                         risk_level="low",
@@ -103,6 +106,7 @@ class ToolCatalogTest(unittest.TestCase):
             self.assertEqual(definition.adapter["auth_type"], "api_key")
             self.assertEqual(definition.adapter["default_arguments"], {"limit": 5})
             self.assertEqual(definition.input_schema["required"], ["query"])
+            self.assertEqual(definition.output_schema["required"], ["items"])
             self.assertTrue(definition.read_only)
         finally:
             db.close()

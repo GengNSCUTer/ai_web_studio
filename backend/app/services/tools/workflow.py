@@ -23,6 +23,7 @@ class ToolWorkflowResult:
 @dataclass
 class ToolStepResult:
     call: PlannedToolCall
+    succeeded: bool = False
     sources: list[ExternalSource] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     events: list[ToolTraceEvent] = field(default_factory=list)
@@ -30,12 +31,10 @@ class ToolStepResult:
 
 
 class ToolWorkflowService:
-    """Executes a bounded sequence of planned tool calls.
+    """执行一份 ToolPlan 内有上限的调用图。
 
-    This is intentionally not a fully autonomous Agent loop yet. It supports
-    multiple calls from the planner, per-call fallback, maximum tool count, and
-    trace visibility. A later version can add "observe result -> ask planner
-    again" semantics on top of this boundary.
+    这里负责依赖顺序、并行、单次计划的重复调用抑制、fallback 和 Trace。
+    外层 ExternalContextService 才负责最多两轮的 observe -> re-plan。
     """
 
     max_tool_calls = 5
@@ -69,11 +68,14 @@ class ToolWorkflowService:
             )
         )
 
+        # 只抑制当前 ToolPlan 内的同工具同参数重复调用；下一轮重新规划会创建新的 Workflow。
         seen_call_keys: set[tuple[str, str]] = set()
         pending = {call.call_id: call for call in calls}
         completed: set[str] = set()
+        failed: set[str] = set()
         step = 0
         while pending:
+            # depends_on 目前只控制调度顺序，不会把上游 sources 自动写入下游 arguments。
             ready = [
                 call
                 for call in pending.values()
@@ -101,6 +103,25 @@ class ToolWorkflowService:
 
             executable: list[PlannedToolCall] = []
             for call in ready:
+                failed_dependencies = sorted(dep for dep in call.depends_on if dep in failed)
+                if failed_dependencies:
+                    result.events.append(
+                        ToolTraceEvent(
+                            type="tool_workflow_step_skipped",
+                            payload={
+                                "workflow": "tool_workflow_v1",
+                                "call_id": call.call_id,
+                                "tool_key": call.tool_key,
+                                "depends_on": call.depends_on,
+                                "failed_dependencies": failed_dependencies,
+                                "reason": "failed_dependencies",
+                            },
+                        )
+                    )
+                    completed.add(call.call_id)
+                    failed.add(call.call_id)
+                    pending.pop(call.call_id, None)
+                    continue
                 call_key = (call.tool_key, self._stable_arguments(call))
                 if call_key in seen_call_keys:
                     result.events.append(
@@ -115,6 +136,7 @@ class ToolWorkflowService:
                         )
                     )
                     completed.add(call.call_id)
+                    failed.add(call.call_id)
                     pending.pop(call.call_id, None)
                     continue
                 seen_call_keys.add(call_key)
@@ -145,6 +167,8 @@ class ToolWorkflowService:
                 result.selected_tool = step_result.call.category
                 result.error_message = step_result.error_message or result.error_message
                 completed.add(step_result.call.call_id)
+                if not step_result.succeeded:
+                    failed.add(step_result.call.call_id)
                 pending.pop(step_result.call.call_id, None)
 
         result.elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -181,7 +205,7 @@ class ToolWorkflowService:
         call_result, call_events = await self.executor.execute(call)
         events.extend(call_events)
         if call_result.sources:
-            return ToolStepResult(call=call, sources=call_result.sources, events=events)
+            return ToolStepResult(call=call, succeeded=True, sources=call_result.sources, events=events)
 
         error_message = call_result.error_message or ""
         if any(event.type == "tool_confirmation_required" for event in call_events):
@@ -217,6 +241,7 @@ class ToolWorkflowService:
         notices = [f"{call.display_name}未返回有效结果，已回退到网页搜索。"] if fallback_result.sources else []
         return ToolStepResult(
             call=call,
+            succeeded=bool(fallback_result.sources),
             sources=fallback_result.sources,
             notices=notices,
             events=events,

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.database import Base
@@ -296,7 +297,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
         class FailedProvider:
             async def stream_chat_events(self, **_: object):
                 yield SimpleNamespace(type="answer_delta", text="RRF 是一种")
-                raise RuntimeError("provider unavailable")
+                raise RuntimeError("provider unavailable at https://secret.internal?api_key=hidden")
 
         async def run_test() -> None:
             context = self._create_stream_context()
@@ -309,6 +310,9 @@ class ChatExecutionServiceTest(unittest.TestCase):
             body = "".join(chunks)
             self.assertIn('"type": "answer_delta"', body)
             self.assertIn('"type": "model_error"', body)
+            self.assertIn('"error_code": "provider_error"', body)
+            self.assertIn("模型调用失败，请稍后重试。", body)
+            self.assertNotIn("secret.internal", body)
 
         asyncio.run(run_test())
 
@@ -346,6 +350,11 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.assertEqual(context.context_stats["prompt_attachment_context_injected"], 1)
             self.assertEqual(context.context_stats["external_context_enabled"], 0)
             self.assertGreaterEqual(context.context_stats["attachment_chunks_selected"], 1)
+            self.assertEqual(context.max_tokens, context.context_stats["budget_reserved_output_tokens"])
+            self.assertLessEqual(
+                context.context_stats["budget_max_total_tokens"] + context.max_tokens,
+                context.context_stats["model_context_window"],
+            )
             self.assertTrue(context.history_messages)
             self.assertEqual(len(context.context_stats["prompt_prefix_hash"]), 16)
             self.assertEqual(len(context.user_message.attachments), 1)
@@ -354,6 +363,128 @@ class ChatExecutionServiceTest(unittest.TestCase):
             messages = self.db.scalars(select(Message)).all()
             self.assertEqual(len(conversations), 1)
             self.assertEqual(len(messages), 2)
+
+        asyncio.run(run_test())
+
+    def test_prepare_failure_closes_assistant_placeholder(self) -> None:
+        async def run_test() -> None:
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+            payload = ChatStreamRequest(
+                content="触发上下文组装失败",
+                model_name="qwen-test",
+                web_search_enabled=False,
+            )
+
+            with patch.object(
+                service.context_assembly_service,
+                "build_execution_context",
+                new=AsyncMock(side_effect=RuntimeError("context assembly failed")),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "context assembly failed"):
+                    await service.prepare_chat_execution(payload)
+
+            assistant_messages = self.db.scalars(
+                select(Message).where(Message.role == "assistant")
+            ).all()
+            self.assertEqual(len(assistant_messages), 1)
+            self.assertEqual(assistant_messages[0].status, "failed")
+
+        asyncio.run(run_test())
+
+    def test_prepare_failure_rolls_back_broken_session_before_closing_placeholder(self) -> None:
+        async def run_test() -> None:
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+            payload = ChatStreamRequest(content="触发数据库事务失败", model_name="qwen-test")
+
+            async def fail_with_broken_session(**_: object) -> None:
+                self.db.add(User(email=self.user.email, username=f"duplicate-{uuid4()}"))
+                self.db.flush()
+
+            with patch.object(
+                service.context_assembly_service,
+                "build_execution_context",
+                new=AsyncMock(side_effect=fail_with_broken_session),
+            ):
+                with self.assertRaises(IntegrityError):
+                    await service.prepare_chat_execution(payload)
+
+            assistant_message = self.db.scalars(
+                select(Message).where(Message.role == "assistant")
+            ).one()
+            self.assertEqual(assistant_message.status, "failed")
+
+        asyncio.run(run_test())
+
+    def test_streaming_response_enforces_first_token_timeout(self) -> None:
+        class SlowFirstTokenProvider:
+            async def stream_chat_events(self, **_: object):
+                await asyncio.sleep(0.05)
+                yield SimpleNamespace(type="answer_delta", text="too late")
+
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            timeout_settings = SimpleNamespace(
+                chat_first_token_timeout_seconds=0.01,
+                chat_stream_idle_timeout_seconds=1.0,
+                chat_stream_total_timeout_seconds=1.0,
+            )
+            with patch("app.api.routes.chat.settings", timeout_settings):
+                response = _build_streaming_response(context, SlowFirstTokenProvider(), event_stream=True)
+                body = "".join([chunk async for chunk in response.body_iterator])
+
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "failed")
+            self.assertIn('"error_code": "first_token_timeout"', body)
+
+        asyncio.run(run_test())
+
+    def test_streaming_response_enforces_idle_timeout_after_partial_answer(self) -> None:
+        class IdleProvider:
+            async def stream_chat_events(self, **_: object):
+                yield SimpleNamespace(type="answer_delta", text="partial")
+                await asyncio.sleep(0.05)
+                yield SimpleNamespace(type="answer_delta", text="too late")
+
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            timeout_settings = SimpleNamespace(
+                chat_first_token_timeout_seconds=1.0,
+                chat_stream_idle_timeout_seconds=0.01,
+                chat_stream_total_timeout_seconds=1.0,
+            )
+            with patch("app.api.routes.chat.settings", timeout_settings):
+                response = _build_streaming_response(context, IdleProvider(), event_stream=True)
+                body = "".join([chunk async for chunk in response.body_iterator])
+
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "failed")
+            self.assertEqual(context.assistant_message.content, "partial")
+            self.assertIn('"error_code": "stream_idle_timeout"', body)
+
+        asyncio.run(run_test())
+
+    def test_streaming_response_enforces_total_timeout_despite_regular_tokens(self) -> None:
+        class EndlessSlowProvider:
+            async def stream_chat_events(self, **_: object):
+                while True:
+                    await asyncio.sleep(0.005)
+                    yield SimpleNamespace(type="answer_delta", text="x")
+
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            timeout_settings = SimpleNamespace(
+                chat_first_token_timeout_seconds=1.0,
+                chat_stream_idle_timeout_seconds=1.0,
+                chat_stream_total_timeout_seconds=0.025,
+            )
+            with patch("app.api.routes.chat.settings", timeout_settings):
+                response = _build_streaming_response(context, EndlessSlowProvider(), event_stream=True)
+                body = "".join([chunk async for chunk in response.body_iterator])
+
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "failed")
+            self.assertGreater(len(context.assistant_message.content), 0)
+            self.assertIn('"error_code": "stream_total_timeout"', body)
 
         asyncio.run(run_test())
 

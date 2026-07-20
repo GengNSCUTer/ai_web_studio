@@ -26,6 +26,13 @@ class ToolSchemaValidator:
         required = schema.get("required") or []
         normalized = dict(arguments or {})
 
+        if schema.get("additionalProperties") is False:
+            unexpected = sorted(set(normalized) - set(properties))
+            if unexpected:
+                raise ToolSchemaValidationError(
+                    f"{definition.tool_key} 包含 schema 未声明的参数：{', '.join(unexpected)}"
+                )
+
         for field in required:
             if normalized.get(field) in (None, "", []):
                 raise ToolSchemaValidationError(f"{definition.tool_key} 缺少必填参数：{field}")

@@ -86,6 +86,7 @@ class ToolCatalog:
             when_to_use=list(record.get("when_to_use") or []),
             when_not_to_use=list(record.get("when_not_to_use") or []),
             input_schema=dict(record.get("input_schema") or {}),
+            output_schema=dict(record.get("output_schema") or {}),
             adapter_type=str(record.get("adapter_type") or adapter.get("type") or "python"),
             adapter=adapter,
             source_type=str(record.get("source_type") or "local_manifest"),
@@ -115,6 +116,7 @@ class ToolCatalog:
     @classmethod
     def _parse_mcp_tool(cls, *, tool: McpTool, server: McpServer) -> ToolDefinition:
         input_schema = cls._json_loads(tool.input_schema_json, {})
+        output_schema = cls._json_loads(tool.output_schema_json, {})
         fixed_arguments = cls._json_loads(tool.fixed_arguments_json, {})
         credential_provider = (server.credential_provider or server.server_key).strip()
         description = (tool.description_override or tool.description or f"{server.name} MCP tool: {tool.raw_name}").strip()
@@ -127,6 +129,7 @@ class ToolCatalog:
             when_to_use=[description],
             when_not_to_use=[],
             input_schema=input_schema if isinstance(input_schema, dict) else {},
+            output_schema=output_schema if isinstance(output_schema, dict) else {},
             adapter_type="mcp_http",
             adapter={
                 "endpoint_template": server.url,

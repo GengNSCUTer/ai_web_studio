@@ -30,6 +30,12 @@ from app.schemas.tool_config import (
 )
 from app.services.tools.credentials import ToolCredentialResolver
 from app.services.tools.mcp_client import McpHttpClient
+from app.services.tools.mcp_security import (
+    McpEndpointPolicyError,
+    apply_remote_tool_security_policy,
+    enforce_mcp_endpoint_target_policy,
+    validate_mcp_endpoint_url,
+)
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.tavily import TavilySearchProvider
 from app.services.tools.registry import ToolRegistry
@@ -88,6 +94,12 @@ def _server_response(server: McpServer) -> McpServerResponse:
 
 
 def _tool_response(tool: McpTool, server: McpServer | None = None) -> McpToolResponse:
+    annotations = _json_loads(tool.annotations_json, {})
+    remote_read_only_hint = (
+        annotations.get("readOnlyHint")
+        if isinstance(annotations, dict) and isinstance(annotations.get("readOnlyHint"), bool)
+        else None
+    )
     return McpToolResponse(
         id=tool.id,
         server_id=tool.server_id,
@@ -98,10 +110,13 @@ def _tool_response(tool: McpTool, server: McpServer | None = None) -> McpToolRes
         description=tool.description,
         description_override=tool.description_override,
         input_schema=_json_loads(tool.input_schema_json, {}),
+        output_schema=_json_loads(tool.output_schema_json, {}),
         fixed_arguments=_json_loads(tool.fixed_arguments_json, {}),
         category=tool.category,
         risk_level=tool.risk_level,
         read_only=tool.read_only,
+        remote_read_only_hint=remote_read_only_hint,
+        risk_reviewed=tool.risk_reviewed,
         is_enabled=tool.is_enabled,
         last_seen_at=_dt(tool.last_seen_at),
     )
@@ -305,6 +320,10 @@ def create_mcp_server(
     server_key = _slug(payload.server_key)
     if repo.get_mcp_server_by_key(user_id=current_user.id, server_key=server_key):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="MCP server key already exists")
+    try:
+        validate_mcp_endpoint_url(payload.url.strip())
+    except McpEndpointPolicyError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     server = McpServer(
         user_id=current_user.id,
         server_key=server_key,
@@ -336,7 +355,12 @@ def update_mcp_server(
     if "description" in data:
         server.description = (data["description"] or "").strip() or None
     if "url" in data and data["url"] is not None:
-        server.url = data["url"].strip()
+        candidate_url = data["url"].strip()
+        try:
+            validate_mcp_endpoint_url(candidate_url)
+        except McpEndpointPolicyError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        server.url = candidate_url
     if "transport_type" in data and data["transport_type"] is not None:
         server.transport_type = data["transport_type"]
     if "auth_type" in data and data["auth_type"] is not None:
@@ -374,6 +398,7 @@ async def _list_mcp_tools_for_server(
     if needs_api_key and not resolved.api_key:
         raise RuntimeError(f"MCP server {server.name} 需要配置凭据：{provider_key}")
     endpoint, headers = _mcp_endpoint(server, resolved.api_key)
+    await enforce_mcp_endpoint_target_policy(endpoint)
     return await McpHttpClient(endpoint=endpoint, extra_headers=headers).list_tools()
 
 
@@ -436,7 +461,6 @@ async def sync_mcp_tools(
             continue
         annotations = remote.raw.get("annotations") if isinstance(remote.raw, dict) else {}
         annotations = annotations if isinstance(annotations, dict) else {}
-        read_only = bool(annotations.get("readOnlyHint", True))
         tool = existing.get(raw_name)
         if not tool:
             tool = McpTool(
@@ -446,11 +470,18 @@ async def sync_mcp_tools(
                 display_name=raw_name,
                 is_enabled=False,
             )
+        input_schema_json = _json_dumps(remote.input_schema or {})
+        output_schema_json = _json_dumps(remote.output_schema or {})
+        annotations_json = _json_dumps(annotations)
         tool.description = remote.description or tool.description
-        tool.input_schema_json = _json_dumps(remote.input_schema or {})
-        tool.annotations_json = _json_dumps(annotations)
-        tool.read_only = read_only
-        tool.risk_level = "low" if read_only else "high"
+        # readOnlyHint 来自远程、不可信 Server，只展示给用户参考，不直接升级为本地低风险策略。
+        # 首次发现、尚未审核，或 Schema/annotations 发生变化时，必须重新禁用并人工审核。
+        apply_remote_tool_security_policy(
+            tool=tool,
+            input_schema_json=input_schema_json,
+            output_schema_json=output_schema_json,
+            annotations_json=annotations_json,
+        )
         tool.last_seen_at = now
         repo.flush_mcp_tool(tool)
         saved_tools.append(tool)
@@ -489,12 +520,23 @@ def update_mcp_tool(
         tool.description_override = (data["description_override"] or "").strip() or None
     if "category" in data and data["category"] is not None:
         tool.category = _slug(data["category"])[:64] or tool.category
-    if "is_enabled" in data and data["is_enabled"] is not None:
-        tool.is_enabled = bool(data["is_enabled"])
     if "risk_level" in data and data["risk_level"] is not None:
         tool.risk_level = data["risk_level"]
     if "read_only" in data and data["read_only"] is not None:
         tool.read_only = bool(data["read_only"])
+    if "risk_reviewed" in data and data["risk_reviewed"] is not None:
+        tool.risk_reviewed = bool(data["risk_reviewed"])
+        if not tool.risk_reviewed:
+            tool.is_enabled = False
+            tool.read_only = False
+            tool.risk_level = "high"
+    if "is_enabled" in data and data["is_enabled"] is not None:
+        if data["is_enabled"] and not tool.risk_reviewed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="MCP tool risk has not been reviewed",
+            )
+        tool.is_enabled = bool(data["is_enabled"])
     if "fixed_arguments" in data and data["fixed_arguments"] is not None:
         tool.fixed_arguments_json = _json_dumps(data["fixed_arguments"])
     saved = repo.save_mcp_tool(tool)
@@ -520,9 +562,11 @@ async def test_mcp_tool(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MCP 工具需要配置凭据：{provider_key}")
     endpoint, headers = _mcp_endpoint(server, credential.api_key)
     try:
+        await enforce_mcp_endpoint_target_policy(endpoint)
         response = await McpHttpClient(endpoint=endpoint, extra_headers=headers).call_tool(
             tool_name=tool.raw_name,
             arguments=payload.arguments or {},
+            output_schema=_json_loads(tool.output_schema_json, {}) or None,
         )
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MCP 工具测试失败：{exc}") from exc

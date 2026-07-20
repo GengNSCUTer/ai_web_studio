@@ -1,6 +1,8 @@
 import asyncio
 import base64
 import json
+import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import settings
 from app.models.user import User
 from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
@@ -22,6 +25,76 @@ from app.services.chat_provider_service import ChatProviderService
 from app.services.message_service import MessageService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
+
+
+class ChatStreamTimeoutError(TimeoutError):
+    """Chat Provider 流式迭代超过某一层时间预算。"""
+
+    def __init__(self, timeout_kind: str) -> None:
+        self.timeout_kind = timeout_kind
+        super().__init__(timeout_kind)
+
+
+def _public_stream_error(exc: Exception) -> tuple[str, str]:
+    if isinstance(exc, ChatStreamTimeoutError):
+        messages = {
+            "first_token_timeout": "模型在规定时间内未开始响应，请稍后重试。",
+            "stream_idle_timeout": "模型流式输出中断过久，请稍后重试。",
+            "stream_total_timeout": "模型回答超过最大允许时长，已停止生成。",
+        }
+        return exc.timeout_kind, messages.get(exc.timeout_kind, "模型调用超时，请稍后重试。")
+    # 第三方异常可能包含 URL、响应正文甚至鉴权信息，只在服务端日志记录原始异常。
+    return "provider_error", "模型调用失败，请稍后重试。"
+
+
+async def _iter_with_stream_timeouts(
+    source: AsyncIterator[Any],
+    *,
+    first_token_timeout_seconds: float,
+    idle_timeout_seconds: float,
+    total_timeout_seconds: float,
+) -> AsyncIterator[Any]:
+    """为 Provider 事件流分别施加首事件、闲置和总时长限制。"""
+    timeout_values = {
+        "first_token_timeout": first_token_timeout_seconds,
+        "stream_idle_timeout": idle_timeout_seconds,
+        "stream_total_timeout": total_timeout_seconds,
+    }
+    invalid_names = [name for name, value in timeout_values.items() if value <= 0]
+    if invalid_names:
+        raise ValueError(f"Chat stream timeout must be positive: {', '.join(invalid_names)}")
+
+    loop = asyncio.get_running_loop()
+    started_at = loop.time()
+    first_event = True
+    iterator = source.__aiter__()
+    try:
+        while True:
+            remaining_total = total_timeout_seconds - (loop.time() - started_at)
+            if remaining_total <= 0:
+                raise ChatStreamTimeoutError("stream_total_timeout")
+
+            phase_timeout = first_token_timeout_seconds if first_event else idle_timeout_seconds
+            wait_timeout = min(phase_timeout, remaining_total)
+            try:
+                event = await asyncio.wait_for(iterator.__anext__(), timeout=wait_timeout)
+            except StopAsyncIteration:
+                return
+            except asyncio.TimeoutError as exc:
+                timeout_kind = (
+                    "stream_total_timeout"
+                    if remaining_total <= phase_timeout
+                    else "first_token_timeout" if first_event else "stream_idle_timeout"
+                )
+                raise ChatStreamTimeoutError(timeout_kind) from exc
+
+            first_event = False
+            yield event
+    finally:
+        close = getattr(iterator, "aclose", None)
+        if close is not None:
+            await close()
 
 
 def _stringify_stats(stats: dict[str, Any]) -> str:
@@ -177,7 +250,7 @@ def _build_streaming_response(
                         "tool_sources",
                         sources=context.external_sources,
                     )
-            async for event in provider_service.stream_chat_events(
+            provider_events = provider_service.stream_chat_events(
                 provider_type=context.provider_type,
                 base_url=context.base_url,
                 api_key=context.api_key,
@@ -188,6 +261,12 @@ def _build_streaming_response(
                 max_tokens=context.max_tokens,
                 thinking_enabled=context.thinking_enabled,
                 thinking_budget=context.thinking_budget,
+            )
+            async for event in _iter_with_stream_timeouts(
+                provider_events,
+                first_token_timeout_seconds=settings.chat_first_token_timeout_seconds,
+                idle_timeout_seconds=settings.chat_stream_idle_timeout_seconds,
+                total_timeout_seconds=settings.chat_stream_total_timeout_seconds,
             ):
                 if event.type == "reasoning_delta":
                     # reasoning_delta 是深度思考过程；单独存储，避免混入最终回答正文。
@@ -220,6 +299,11 @@ def _build_streaming_response(
             raise
         except Exception as exc:
             # 模型错误也要保存 partial content/reasoning/sources，否则刷新后会丢失已生成片段和诊断线索。
+            # 不记录原始异常文本：第三方 SDK 可能把 URL、响应正文或凭据片段放进异常消息。
+            if isinstance(exc, ChatStreamTimeoutError):
+                logger.warning("Chat provider stream timed out: %s", exc.timeout_kind)
+            else:
+                logger.error("Chat provider stream failed: %s", type(exc).__name__)
             _persist_stream_result(
                 context,
                 status_value="failed",
@@ -227,9 +311,11 @@ def _build_streaming_response(
                 reasoning_parts=reasoning_parts,
             )
             if event_stream:
+                error_code, public_error = _public_stream_error(exc)
                 yield _encode_stream_event(
                     "model_error",
-                    error=str(exc) or "模型调用失败",
+                    error=public_error,
+                    error_code=error_code,
                     assistant_message_id=context.assistant_message.id,
                 )
                 return

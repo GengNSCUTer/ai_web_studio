@@ -15,6 +15,9 @@ from app.schemas.upload import UploadItemResponse
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_FILE_BYTES = 20 * 1024 * 1024
+MAX_UPLOAD_FILES = 10
+MAX_BATCH_BYTES = 50 * 1024 * 1024
+UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 SUPPORTED_TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".docx"}
 SUPPORTED_TEXT_MIME_TYPES = {
@@ -37,6 +40,20 @@ class PendingUpload:
     kind: str
 
 
+async def _read_upload_limited(file: UploadFile, *, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := await file.read(UPLOAD_READ_CHUNK_BYTES):
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"单文件不能超过 {max_bytes // (1024 * 1024)}MB",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _classify_upload(*, original_name: str, mime_type: str) -> str | None:
     suffix = Path(original_name).suffix.lower()
     if mime_type.startswith("image/") or suffix in SUPPORTED_IMAGE_EXTENSIONS:
@@ -52,12 +69,18 @@ async def upload_files(
     current_user: User = Depends(get_current_user),
     _db=Depends(get_db),
 ) -> list[UploadItemResponse]:
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"单次最多上传 {MAX_UPLOAD_FILES} 个文件",
+        )
     user_dir = Path(settings.upload_dir) / current_user.id
     user_dir.mkdir(parents=True, exist_ok=True)
 
     uploaded_items: list[UploadItemResponse] = []
     parser = FileParserService()
     pending_uploads: list[PendingUpload] = []
+    batch_bytes = 0
 
     for file in files:
         original_name = Path(file.filename or "upload.bin").name
@@ -65,7 +88,6 @@ async def upload_files(
         generated_id = str(uuid4())
         stored_name = f"{generated_id}{suffix}"
         target_path = user_dir / stored_name
-        content = await file.read()
         mime_type = file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
         kind = _classify_upload(original_name=original_name, mime_type=mime_type)
         if not kind:
@@ -73,15 +95,13 @@ async def upload_files(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="当前仅支持图片（png/jpg/jpeg/webp/gif）以及 txt、md、pdf、docx 文档上传",
             )
-        if kind == "image" and len(content) > MAX_IMAGE_BYTES:
+        max_bytes = MAX_IMAGE_BYTES if kind == "image" else MAX_FILE_BYTES
+        content = await _read_upload_limited(file, max_bytes=max_bytes)
+        batch_bytes += len(content)
+        if batch_bytes > MAX_BATCH_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"图片过大，单文件不能超过 {MAX_IMAGE_BYTES // (1024 * 1024)}MB",
-            )
-        if kind == "file" and len(content) > MAX_FILE_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"文档过大，单文件不能超过 {MAX_FILE_BYTES // (1024 * 1024)}MB",
+                detail=f"单批上传总大小不能超过 {MAX_BATCH_BYTES // (1024 * 1024)}MB",
             )
         pending_uploads.append(
             PendingUpload(

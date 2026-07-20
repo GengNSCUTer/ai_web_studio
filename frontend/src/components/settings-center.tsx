@@ -1770,18 +1770,49 @@ export function SettingsCenter({
                                   <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">category={tool.category}</span>
                                   <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">risk={tool.risk_level}</span>
                                   <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">read_only={String(tool.read_only)}</span>
+                                  <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">
+                                    remote_hint={String(tool.remote_read_only_hint)}
+                                  </span>
+                                  <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">
+                                    reviewed={String(tool.risk_reviewed)}
+                                  </span>
                                 </span>
                               </button>
-                              <label className="flex shrink-0 items-center gap-2 text-xs text-[var(--ink-soft)]">
-                                <input
-                                  type="checkbox"
-                                  checked={tool.is_enabled}
-                                  onChange={(event) =>
-                                    void handleUpdateMcpTool(tool.id, { is_enabled: event.target.checked })
-                                  }
-                                />
-                                {tool.is_enabled ? text.enabled : text.disabled}
-                              </label>
+                              <div className="flex shrink-0 flex-col items-end gap-2">
+                                <label className="flex items-center gap-2 text-xs text-[var(--ink-soft)]">
+                                  <input
+                                    type="checkbox"
+                                    checked={tool.is_enabled}
+                                    disabled={!tool.risk_reviewed || !tool.read_only || tool.risk_level === "high"}
+                                    onChange={(event) =>
+                                      void handleUpdateMcpTool(tool.id, { is_enabled: event.target.checked })
+                                    }
+                                  />
+                                  {tool.is_enabled ? text.enabled : text.disabled}
+                                </label>
+                                {!tool.risk_reviewed && tool.remote_read_only_hint === true ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleUpdateMcpTool(tool.id, {
+                                        read_only: true,
+                                        risk_level: "low",
+                                        risk_reviewed: true,
+                                      })
+                                    }
+                                    className="rounded-full border border-[var(--control-border)] bg-[var(--soft-bg)] px-3 py-1.5 text-[10px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
+                                  >
+                                    {uiLanguage === "zh-CN" ? "审核并确认为只读" : "Review as read-only"}
+                                  </button>
+                                ) : null}
+                                {!tool.risk_reviewed && tool.remote_read_only_hint !== true ? (
+                                  <span className="max-w-40 text-right text-[10px] leading-4 text-[var(--danger-text)]">
+                                    {uiLanguage === "zh-CN"
+                                      ? "远端未声明只读，当前版本保持阻断"
+                                      : "Not declared read-only; blocked in this version"}
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                             {expandedMcpToolId === tool.id ? (
                               <div className="mt-4 grid gap-3 border-t border-[var(--hairline)] pt-4">
@@ -1828,12 +1859,22 @@ export function SettingsCenter({
                                 </div>
                                 <details className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2">
                                   <summary className="cursor-pointer text-xs font-medium text-[var(--ink-strong)]">
-                                    {text.schema}
+                                    {text.schema} · input
                                   </summary>
                                   <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-[var(--control-bg)] p-3 text-xs leading-5 text-[var(--ink-soft)]">
                                     {JSON.stringify(tool.input_schema ?? {}, null, 2)}
                                   </pre>
                                 </details>
+                                {Object.keys(tool.output_schema ?? {}).length > 0 ? (
+                                  <details className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2">
+                                    <summary className="cursor-pointer text-xs font-medium text-[var(--ink-strong)]">
+                                      {text.schema} · output
+                                    </summary>
+                                    <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-[var(--control-bg)] p-3 text-xs leading-5 text-[var(--ink-soft)]">
+                                      {JSON.stringify(tool.output_schema, null, 2)}
+                                    </pre>
+                                  </details>
+                                ) : null}
                                 <div className="grid gap-2">
                                   <label className="grid gap-1 text-xs text-[var(--ink-soft)]">
                                     {text.testArguments}

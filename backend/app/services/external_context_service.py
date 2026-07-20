@@ -16,10 +16,10 @@ from app.services.tools.workflow import ToolWorkflowService
 
 
 class ExternalContextService:
-    """Facade for external context retrieval.
+    """Chat 侧外部上下文门面。
 
-    Chat routes should depend on this facade only. Tool definitions, routing,
-    execution and prompt assembly live in app.services.tools.
+    Chat 只依赖这一层；Catalog、Planner、Workflow、Executor 和结果组装都收在 tools 包内。
+    每轮先规划再执行，并把结果作为 observations 交给下一轮，但最多两轮，避免开放式 Agent 无限循环。
     """
 
     max_agent_rounds = 2
@@ -100,6 +100,7 @@ class ExternalContextService:
         selected_tool = "none"
         error_message = ""
 
+        # 这是有硬上限的 observe -> re-plan，而不是可无限自主运行的 ReAct loop。
         for round_index in range(1, self.max_agent_rounds + 1):
             plan = await self.planner.plan(
                 query=routed_query,

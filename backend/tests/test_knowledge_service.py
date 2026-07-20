@@ -8,6 +8,7 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 from zipfile import ZipFile
 from unittest.mock import AsyncMock, Mock, patch
@@ -1141,6 +1142,38 @@ class KnowledgeServiceTest(unittest.TestCase):
                 dimensions=2,
             )
 
+    def test_openai_embedding_client_is_closed_after_request(self) -> None:
+        setting_service = SettingService(UserSettingRepository(self.db))
+        setting_service.update_user_settings(
+            self.user.id,
+            UserSettingUpdate(knowledge_embedding_api_key="embedding-test-key"),
+        )
+        knowledge_base = SimpleNamespace(
+            embedding_provider="openai-compatible",
+            embedding_model="fake-embedding",
+        )
+        client = Mock()
+        client.embeddings = SimpleNamespace(
+            create=AsyncMock(
+                return_value=SimpleNamespace(
+                    data=[SimpleNamespace(embedding=[0.1, 0.2])],
+                )
+            )
+        )
+        client.close = AsyncMock()
+
+        with patch("app.services.knowledge_index_service.AsyncOpenAI", return_value=client):
+            vectors = asyncio.run(
+                KnowledgeEmbeddingService(setting_service).embed_texts(
+                    user_id=self.user.id,
+                    knowledge_base=knowledge_base,
+                    texts=["query"],
+                )
+            )
+
+        self.assertEqual(vectors, [[0.1, 0.2]])
+        client.close.assert_awaited_once()
+
     def test_rag6_eval_set_runs_retrieval_baseline(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
         document_repo = KnowledgeDocumentRepository(self.db)
@@ -1252,6 +1285,13 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertEqual(outcome.run.metrics["case_count"], 1)
         self.assertEqual(outcome.run.metrics["hit_at_k"], 1.0)
         self.assertGreater(float(outcome.run.metrics["mrr"]), 0)
+        self.assertGreaterEqual(float(outcome.run.metrics["avg_elapsed_ms"]), 0)
+        self.assertEqual(outcome.run.metrics["failure_count"], 0)
+        self.assertEqual(outcome.run.metrics["fallback_count"], 0)
+        self.assertEqual(
+            outcome.run.metrics["config_snapshot"]["embedding"]["version"],
+            "l2-normalized-v1",
+        )
         self.assertEqual(len(outcome.results), 1)
         self.assertTrue(outcome.results[0].hit_at_k)
         saved_eval_set = KnowledgeEvalSetRepository(self.db).get_by_user(eval_set.id, self.user.id)
@@ -1259,6 +1299,159 @@ class KnowledgeServiceTest(unittest.TestCase):
         KnowledgeEvalSetRepository(self.db).delete(saved_eval_set)
         self.assertEqual(len(KnowledgeEvalCaseRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)), 0)
         self.assertEqual(len(KnowledgeEvalRunRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)), 0)
+
+    def test_eval_chunk_target_does_not_degrade_to_same_document_match(self) -> None:
+        document_id = str(uuid4())
+        expected_chunk_id = str(uuid4())
+        same_document_wrong_chunk = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=str(uuid4()),
+            document_id=document_id,
+            index_generation="legacy",
+            vector_id=0,
+            chunk_index=0,
+            content="Same document, but not the expected evidence chunk.",
+        )
+
+        metrics = KnowledgeEvaluationService._score_case(
+            retrieved=[RetrievalResult(chunk=same_document_wrong_chunk, score=0.9, metadata={})],
+            expected_chunk_id=expected_chunk_id,
+            expected_document_id=document_id,
+        )
+
+        self.assertFalse(metrics["hit_at_k"])
+        self.assertEqual(metrics["mrr"], 0.0)
+        self.assertEqual(metrics["context_precision"], 0.0)
+        self.assertEqual(metrics["context_recall"], 0.0)
+
+    def test_eval_document_only_target_matches_any_chunk_from_document(self) -> None:
+        document_id = str(uuid4())
+        document_chunk = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=str(uuid4()),
+            document_id=document_id,
+            index_generation="legacy",
+            vector_id=0,
+            chunk_index=0,
+            content="A chunk from the expected document.",
+        )
+
+        metrics = KnowledgeEvaluationService._score_case(
+            retrieved=[RetrievalResult(chunk=document_chunk, score=0.9, metadata={})],
+            expected_chunk_id=None,
+            expected_document_id=document_id,
+        )
+
+        self.assertTrue(metrics["hit_at_k"])
+        self.assertEqual(metrics["mrr"], 1.0)
+
+    def test_eval_empty_set_is_rejected_before_creating_run(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(name="空评测集知识库"),
+        )
+        assert knowledge_base is not None
+        service = KnowledgeEvaluationService(
+            base_repo=KnowledgeBaseRepository(self.db),
+            chunk_repo=KnowledgeChunkRepository(self.db),
+            eval_set_repo=KnowledgeEvalSetRepository(self.db),
+            eval_case_repo=KnowledgeEvalCaseRepository(self.db),
+            eval_run_repo=KnowledgeEvalRunRepository(self.db),
+            eval_result_repo=KnowledgeEvalResultRepository(self.db),
+            setting_service=SettingService(UserSettingRepository(self.db)),
+        )
+        eval_set = service.create_eval_set(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeEvalSetCreate(name="没有 Case"),
+        )
+        assert eval_set is not None
+
+        with self.assertRaisesRegex(ValueError, "还没有 Case"):
+            service.run_eval(
+                knowledge_base.id,
+                eval_set.id,
+                self.user.id,
+                KnowledgeEvalRunRequest(),
+            )
+
+        self.assertEqual(
+            KnowledgeEvalRunRepository(self.db).list_by_eval_set(eval_set.id, self.user.id),
+            [],
+        )
+
+    def test_eval_run_overrides_are_detached_and_snapshotted(self) -> None:
+        knowledge_base, document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="评测临时配置测试",
+            file_name="eval-override.md",
+            content="Adaptive retrieval uses both lexical and semantic evidence.",
+            retrieval_mode="vector",
+        )
+        expected_chunk = chunk_repo.list_by_document(document.id, self.user.id)[0]
+        captured_configs: list[object] = []
+        pipeline = Mock()
+
+        def retrieve(**kwargs):  # noqa: ANN003, ANN202
+            captured_configs.append(kwargs["knowledge_base"])
+            return [RetrievalResult(chunk=expected_chunk, score=0.9)]
+
+        pipeline.retrieve.side_effect = retrieve
+        service = KnowledgeEvaluationService(
+            base_repo=KnowledgeBaseRepository(self.db),
+            chunk_repo=chunk_repo,
+            eval_set_repo=KnowledgeEvalSetRepository(self.db),
+            eval_case_repo=KnowledgeEvalCaseRepository(self.db),
+            eval_run_repo=KnowledgeEvalRunRepository(self.db),
+            eval_result_repo=KnowledgeEvalResultRepository(self.db),
+            setting_service=setting_service,
+            retrieval_pipeline=pipeline,
+        )
+        eval_set = service.create_eval_set(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeEvalSetCreate(name="临时配置对照组"),
+        )
+        assert eval_set is not None
+        service.add_eval_case(
+            knowledge_base.id,
+            eval_set.id,
+            self.user.id,
+            KnowledgeEvalCaseCreate(query="What is adaptive retrieval?", expected_chunk_id=expected_chunk.id),
+        )
+
+        outcome = service.run_eval(
+            knowledge_base.id,
+            eval_set.id,
+            self.user.id,
+            KnowledgeEvalRunRequest(
+                top_k=7,
+                retrieval_mode="hybrid",
+                rerank_enabled=True,
+            ),
+        )
+
+        assert outcome is not None
+        self.assertEqual(outcome.run.retrieval_mode, "hybrid")
+        self.assertEqual(outcome.run.top_k, 7)
+        self.assertTrue(outcome.run.rerank_enabled)
+        self.assertEqual(len(captured_configs), 1)
+        self.assertEqual(captured_configs[0].retrieval_mode, "hybrid")
+        self.assertTrue(captured_configs[0].rerank_enabled)
+        snapshot = outcome.run.metrics["config_snapshot"]
+        self.assertEqual(snapshot["active_index_generation"], knowledge_base.active_index_generation)
+        self.assertEqual(snapshot["retrieval_mode"], "hybrid")
+        self.assertEqual(snapshot["top_k"], 7)
+        self.assertEqual(snapshot["rrf_k"], 60)
+        self.assertEqual(snapshot["chunking"]["size"], knowledge_base.chunk_size)
+
+        self.db.expire_all()
+        persisted_base = KnowledgeBaseRepository(self.db).get_by_user(knowledge_base.id, self.user.id)
+        assert persisted_base is not None
+        self.assertEqual(persisted_base.retrieval_mode, "vector")
+        self.assertFalse(persisted_base.rerank_enabled)
 
     def test_reindex_clears_stale_expected_chunk_but_preserves_eval_case_document_target(self) -> None:
         self.db.execute(text("PRAGMA foreign_keys = ON"))

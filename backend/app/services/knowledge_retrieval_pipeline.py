@@ -58,6 +58,8 @@ class KnowledgeRetrievalPipeline:
     features should depend on this pipeline instead of growing the index service.
     """
 
+    RRF_K = 60
+
     def __init__(
         self,
         *,
@@ -482,7 +484,6 @@ class KnowledgeRetrievalPipeline:
         top_k: int,
         vector_error: str | None = None,
     ) -> list[RetrievalResult]:
-        rrf_k = 60
         fused: dict[str, dict[str, object]] = {}
 
         def add_results(results: list[RetrievalResult], source: str) -> None:
@@ -499,7 +500,9 @@ class KnowledgeRetrievalPipeline:
                         "lexical_index": None,
                     },
                 )
-                entry["rrf_score"] = float(entry["rrf_score"]) + 1 / (rrf_k + rank)
+                entry["rrf_score"] = float(entry["rrf_score"]) + 1 / (
+                    KnowledgeRetrievalPipeline.RRF_K + rank
+                )
                 entry[f"{source}_rank"] = rank
                 if source == "vector":
                     entry["vector_score"] = result.score

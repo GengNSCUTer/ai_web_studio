@@ -254,7 +254,11 @@ class LLMToolPlanner:
                 continue
             arguments = item.get("arguments") if isinstance(item.get("arguments"), dict) else {}
             raw_arguments = dict(arguments)
-            arguments.setdefault("query", query)
+            # 只给显式声明 query 的工具补全原始问题。动态 MCP 工具可能使用
+            # additionalProperties=false，向其强塞 query 会把一个合法调用变成非法调用。
+            properties = (definition.input_schema or {}).get("properties") or {}
+            if "query" in properties:
+                arguments.setdefault("query", query)
             try:
                 arguments = self.validator.validate(definition=definition, arguments=arguments)
             except ToolSchemaValidationError as exc:

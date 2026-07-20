@@ -45,7 +45,10 @@ class ChatProviderService:
                 api_key=api_key or "sk-placeholder",
                 base_url=base_url,
             )
-            response = await client.models.list()
+            try:
+                response = await client.models.list()
+            finally:
+                await client.close()
             return [item.id for item in response.data]
 
         return []
@@ -139,6 +142,8 @@ class ChatProviderService:
                     yield ChatStreamEvent(type="answer_delta", text=content)
         except httpx.TimeoutException as exc:
             raise RuntimeError("在线模型响应超时，请稍后重试") from exc
+        finally:
+            await client.close()
 
     async def complete_chat(
         self,
@@ -189,6 +194,8 @@ class ChatProviderService:
             )
         except httpx.TimeoutException as exc:
             raise RuntimeError("在线模型响应超时，请稍后重试") from exc
+        finally:
+            await client.close()
 
         if not response.choices:
             return ""

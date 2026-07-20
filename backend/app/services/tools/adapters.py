@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from app.services.tools.mcp_client import McpHttpClient
+from app.services.tools.mcp_security import enforce_mcp_endpoint_target_policy
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.tavily import TavilySearchProvider
 from app.services.tools.result_mappers import map_mcp_result
@@ -88,6 +89,9 @@ class ToolAdapterRunner:
             raise RuntimeError(f"工具 {definition.tool_key} 未配置 API Key。")
 
         endpoint = endpoint_template.replace("{api_key}", api_key or "")
+        if definition.source_type == "mcp_server":
+            # 内置 manifest endpoint 由项目维护；用户动态添加的 Server 必须在每次调用前做 SSRF 检查。
+            await enforce_mcp_endpoint_target_policy(endpoint)
         arguments = self._build_adapter_arguments(definition=definition, call=call)
         client = McpHttpClient(endpoint=endpoint, extra_headers=self._mcp_auth_headers(auth_type=auth_type, api_key=api_key))
         arguments = await self._normalize_raw_amap_arguments(client=client, mcp_tool_name=mcp_tool_name, arguments=arguments)
@@ -101,7 +105,11 @@ class ToolAdapterRunner:
         if mcp_workflow == "amap_poi_search":
             return await self._run_amap_poi_workflow(client=client, definition=definition, call=call, arguments=arguments)
 
-        response = await client.call_tool(tool_name=mcp_tool_name, arguments=arguments)
+        response = await client.call_tool(
+            tool_name=mcp_tool_name,
+            arguments=arguments,
+            output_schema=definition.output_schema or None,
+        )
         sources = map_mcp_result(
             mapper=str(definition.adapter.get("result_mapper") or ""),
             provider=definition.provider,

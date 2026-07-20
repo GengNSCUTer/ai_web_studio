@@ -69,44 +69,70 @@ class ChatExecutionService:
         # 返回的 ChatExecutionContext 还没有真正调用模型；模型流式调用发生在 route 的 StreamingResponse 中。
         default_settings = self.setting_service.get_or_create_user_settings(self.current_user.id)
         turn = self.turn_bootstrapper.bootstrap_new_turn(payload=payload, default_settings=default_settings)
-        runtime = self._build_runtime_config(turn.conversation)
-        return await self.context_assembly_service.build_execution_context(
-            conversation=turn.conversation,
-            history_rows=turn.history_rows,
-            user_message=turn.user_message,
-            assistant_message=turn.assistant_message,
-            runtime=runtime,
-            thinking_enabled=payload.thinking_enabled,
-            thinking_budget=payload.thinking_budget,
-            web_search_enabled=payload.web_search_enabled,
-            knowledge_base_id=payload.knowledge_base_id,
-            knowledge_base_ids=payload.knowledge_base_ids,
-        )
+        try:
+            runtime = self._build_runtime_config(turn.conversation)
+            return await self.context_assembly_service.build_execution_context(
+                conversation=turn.conversation,
+                history_rows=turn.history_rows,
+                user_message=turn.user_message,
+                assistant_message=turn.assistant_message,
+                runtime=runtime,
+                thinking_enabled=payload.thinking_enabled,
+                thinking_budget=payload.thinking_budget,
+                web_search_enabled=payload.web_search_enabled,
+                knowledge_base_id=payload.knowledge_base_id,
+                knowledge_base_ids=payload.knowledge_base_ids,
+            )
+        except Exception:
+            # StreamingResponse 尚未创建，generator 的异常收口不会执行。
+            # 这里必须先把占位消息从 streaming 收口，否则它只能等 15 分钟自愈。
+            self._mark_prepare_failed(turn.assistant_message)
+            raise
 
     async def prepare_existing_turn_execution(
         self,
         execution_input: ExistingTurnExecutionInput,
     ) -> ChatExecutionContext:
         # 重生成/编辑重答入口：复用已存在的 user/assistant 消息，只重新组装上下文和模型运行时配置。
-        self.turn_bootstrapper.apply_turn_overrides(
-            conversation=execution_input.conversation,
-            model_name=execution_input.model_name,
-            system_prompt=execution_input.system_prompt,
-        )
-        self.validate_attachment_context_inputs(list(getattr(execution_input.user_message, "attachments", []) or []))
-        runtime = self._build_runtime_config(execution_input.conversation)
-        return await self.context_assembly_service.build_execution_context(
-            conversation=execution_input.conversation,
-            history_rows=execution_input.history_rows,
-            user_message=execution_input.user_message,
-            assistant_message=execution_input.assistant_message,
-            runtime=runtime,
-            thinking_enabled=execution_input.thinking_enabled,
-            thinking_budget=execution_input.thinking_budget,
-            web_search_enabled=execution_input.web_search_enabled,
-            knowledge_base_id=execution_input.knowledge_base_id,
-            knowledge_base_ids=execution_input.knowledge_base_ids,
-        )
+        try:
+            self.turn_bootstrapper.apply_turn_overrides(
+                conversation=execution_input.conversation,
+                model_name=execution_input.model_name,
+                system_prompt=execution_input.system_prompt,
+            )
+            self.validate_attachment_context_inputs(
+                list(getattr(execution_input.user_message, "attachments", []) or [])
+            )
+            runtime = self._build_runtime_config(execution_input.conversation)
+            return await self.context_assembly_service.build_execution_context(
+                conversation=execution_input.conversation,
+                history_rows=execution_input.history_rows,
+                user_message=execution_input.user_message,
+                assistant_message=execution_input.assistant_message,
+                runtime=runtime,
+                thinking_enabled=execution_input.thinking_enabled,
+                thinking_budget=execution_input.thinking_budget,
+                web_search_enabled=execution_input.web_search_enabled,
+                knowledge_base_id=execution_input.knowledge_base_id,
+                knowledge_base_ids=execution_input.knowledge_base_ids,
+            )
+        except Exception:
+            self._mark_prepare_failed(execution_input.assistant_message)
+            raise
+
+    def _mark_prepare_failed(self, assistant_message: object) -> None:
+        """收口模型调用前失败的 assistant 占位消息。
+
+        保存失败时不覆盖原始异常，避免错误收口掩盖真正的 Prepare 故障。
+        """
+        try:
+            # Context Assembly 内部可能刚经历过 flush/commit 异常，此时 Session 处于
+            # PendingRollbackError 状态；必须先 rollback，才能保存失败状态。
+            self.db.rollback()
+            assistant_message.status = "failed"
+            self.message_service.save_message(assistant_message)
+        except Exception:
+            self.db.rollback()
 
     def _build_runtime_config(self, conversation: object) -> ChatRuntimeConfig:
         # 运行时配置是“用户设置 + 会话覆盖”的合并结果。
@@ -123,6 +149,7 @@ class ChatExecutionService:
         budget = ContextBudgetPlanner.build(
             model_context_window=max(8192, int(getattr(settings, "model_context_window", 128000) or 128000)),
             context_mode=clean_optional_str(getattr(settings, "context_mode", "balanced")) or "balanced",
+            requested_output_tokens=getattr(settings, "max_tokens", None),
         )
         tokenizer = TokenizerEstimator(model_name=resolved_model)
         governance_service = ContextGovernanceService(budget=budget, tokenizer=tokenizer)

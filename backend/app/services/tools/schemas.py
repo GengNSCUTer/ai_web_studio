@@ -31,6 +31,7 @@ class ToolDefinition:
     when_to_use: list[str] = field(default_factory=list)
     when_not_to_use: list[str] = field(default_factory=list)
     input_schema: dict[str, Any] = field(default_factory=dict)
+    output_schema: dict[str, Any] = field(default_factory=dict)
     adapter_type: str = "python"
     adapter: dict[str, Any] = field(default_factory=dict)
     source_type: str = "local_manifest"

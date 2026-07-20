@@ -244,7 +244,8 @@ class ChatContextAssemblyService:
             api_key=runtime.provider_api_key,
             temperature=runtime.settings.temperature,
             top_p=runtime.settings.top_p,
-            max_tokens=runtime.settings.max_tokens,
+            # Provider 输出上限必须与预算预留一致，否则输入合规后仍可能在生成阶段挤爆窗口。
+            max_tokens=runtime.budget.reserved_output_tokens,
             context_notices=[
                 *external_context_result.notices,
                 *knowledge_context_result.notices,
@@ -253,6 +254,7 @@ class ChatContextAssemblyService:
             context_stats={
                 "context_mode": runtime.budget.context_mode,
                 "model_context_window": runtime.budget.model_context_window,
+                "budget_reserved_output_tokens": runtime.budget.reserved_output_tokens,
                 "budget_max_total_chars": runtime.budget.max_total_chars,
                 "budget_max_total_tokens": runtime.budget.max_total_tokens,
                 "budget_max_attachment_chars": runtime.budget.max_attachment_chars,
@@ -270,6 +272,7 @@ class ChatContextAssemblyService:
                 "summary_refresh_source_chars": summary_bundle.stats["summary_refresh_source_chars"],
                 "summary_refresh_model_used": summary_bundle.stats["summary_refresh_model_used"],
                 "summary_refresh_fallback_used": summary_bundle.stats["summary_refresh_fallback_used"],
+                "summary_boundary_reset": summary_bundle.stats["summary_boundary_reset"],
                 "summary_refresh_source_tokens": summary_source_tokens,
                 "summary_compression_ratio": summary_compression_ratio,
                 "attachment_context_tokens": attachment_context_tokens,
@@ -379,7 +382,13 @@ class ChatContextAssemblyService:
             conversation_messages=history_rows,
             summarizer=summarize_with_model,
         )
-        if stats["summary_refresh_triggered"] and next_summary:
+        if stats["summary_boundary_reset"]:
+            # boundary 消失意味着旧摘要覆盖范围不可验证；没有足够旧消息生成新摘要时也必须清空旧状态。
+            conversation.context_summary = next_summary
+            conversation.context_summary_boundary_message_id = boundary_message_id
+            conversation.context_summary_updated_at = datetime.now(timezone.utc) if next_summary else None
+            self.conversation_repo.save(conversation)
+        elif stats["summary_refresh_triggered"] and next_summary:
             # 摘要和边界必须一起保存，否则后续 prompt 无法知道哪些历史已被摘要覆盖。
             conversation.context_summary = next_summary
             conversation.context_summary_boundary_message_id = boundary_message_id

@@ -95,6 +95,18 @@ class SettingServiceTest(unittest.TestCase):
 
         self.assertIsNone(repo.get_by_user(self.user.id))
 
+    def test_max_tokens_is_bounded_by_schema_and_service(self) -> None:
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            UserSettingUpdate(max_tokens=0)
+        with self.assertRaises(ValidationError):
+            UserSettingUpdate(max_tokens=131073)
+
+        service = SettingService(UserSettingRepository(self.db))
+        response = service.update_user_settings(self.user.id, UserSettingUpdate(max_tokens=4096))
+        self.assertEqual(response.max_tokens, 4096)
+
     def test_secret_service_requires_dedicated_key_in_production(self) -> None:
         previous_env = settings.app_env
         previous_secret = settings.secret_encryption_key

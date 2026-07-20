@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any
 
 from app.models.knowledge import KnowledgeEvalCase, KnowledgeEvalResult, KnowledgeEvalRun, KnowledgeEvalSet
@@ -25,6 +26,7 @@ from app.schemas.knowledge import (
     KnowledgeEvalSetResponse,
 )
 from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
+from app.services.knowledge_vector_search import CURRENT_EMBEDDING_VERSION
 from app.services.setting_service import SettingService
 
 
@@ -32,6 +34,28 @@ from app.services.setting_service import SettingService
 class KnowledgeEvalOutcome:
     run: KnowledgeEvalRunResponse
     results: list[KnowledgeEvalResultResponse]
+
+
+@dataclass(frozen=True)
+class KnowledgeEvalRetrievalConfig:
+    """Detached, read-only KB view used by one evaluation run.
+
+    Evaluation overrides must not mutate the SQLAlchemy KnowledgeBase entity:
+    result repositories commit once per case and would otherwise persist a
+    temporary experiment setting as the knowledge base's production setting.
+    """
+
+    id: str
+    active_index_generation: str
+    embedding_provider: str
+    embedding_model: str
+    embedding_dimensions: int
+    rerank_enabled: bool
+    rerank_provider: str
+    rerank_model: str
+    retrieval_mode: str
+    rerank_top_n: int
+    score_threshold: float
 
 
 class KnowledgeEvaluationService:
@@ -137,15 +161,35 @@ class KnowledgeEvaluationService:
         if not eval_set or eval_set.knowledge_base_id != knowledge_base_id:
             return None
         cases = self.eval_case_repo.list_by_eval_set(eval_set_id, user_id)
+        if not cases:
+            raise ValueError("评测集还没有 Case，无法运行评测。")
+
         resolved_top_k = payload.top_k or knowledge_base.retrieval_top_k
+        resolved_retrieval_mode = payload.retrieval_mode or knowledge_base.retrieval_mode
+        resolved_rerank_enabled = (
+            payload.rerank_enabled
+            if payload.rerank_enabled is not None
+            else bool(knowledge_base.rerank_enabled)
+        )
+        retrieval_config = self._build_retrieval_config(
+            knowledge_base=knowledge_base,
+            retrieval_mode=resolved_retrieval_mode,
+            rerank_enabled=resolved_rerank_enabled,
+        )
+        config_snapshot = self._build_config_snapshot(
+            knowledge_base=knowledge_base,
+            retrieval_mode=resolved_retrieval_mode,
+            top_k=resolved_top_k,
+            rerank_enabled=resolved_rerank_enabled,
+        )
         run = KnowledgeEvalRun(
             user_id=user_id,
             knowledge_base_id=knowledge_base_id,
             eval_set_id=eval_set_id,
             status="running",
-            retrieval_mode=knowledge_base.retrieval_mode,
+            retrieval_mode=resolved_retrieval_mode,
             top_k=resolved_top_k,
-            rerank_enabled=bool(knowledge_base.rerank_enabled),
+            rerank_enabled=resolved_rerank_enabled,
             started_at=datetime.now(timezone.utc),
         )
         run = self.eval_run_repo.save(run)
@@ -159,13 +203,30 @@ class KnowledgeEvaluationService:
             mrr_sum = 0.0
             precision_sum = 0.0
             recall_sum = 0.0
+            total_elapsed_ms = 0.0
+            failure_count = 0
+            fallback_count = 0
+            case_errors: list[dict[str, str]] = []
             for case in cases:
-                retrieved = pipeline.retrieve(
-                    user_id=user_id,
-                    knowledge_base=knowledge_base,
-                    query=case.query,
-                    top_k=resolved_top_k,
-                )
+                started_at = perf_counter()
+                try:
+                    retrieved = pipeline.retrieve(
+                        user_id=user_id,
+                        knowledge_base=retrieval_config,
+                        query=case.query,
+                        top_k=resolved_top_k,
+                    )
+                except Exception as exc:
+                    retrieved = []
+                    failure_count += 1
+                    case_errors.append({"case_id": case.id, "error": str(exc)})
+                elapsed_ms = (perf_counter() - started_at) * 1000
+                total_elapsed_ms += elapsed_ms
+                if any(
+                    item.metadata.get("hybrid_fallback") or item.metadata.get("rerank_fallback")
+                    for item in retrieved
+                ):
+                    fallback_count += 1
                 retrieved_payload = [
                     {
                         "chunk_id": item.chunk.id,
@@ -206,17 +267,28 @@ class KnowledgeEvaluationService:
                 )
                 result_items.append(self._to_result_response(result))
 
-            case_count = len(cases) or 1
-            run.status = "succeeded"
+            case_count = len(cases)
+            run.status = "succeeded" if failure_count == 0 else "partial"
+            run.error_message = (
+                f"{failure_count} 个 Case 检索失败；详见 metrics.case_errors。"
+                if failure_count
+                else None
+            )
             run.finished_at = datetime.now(timezone.utc)
             run.metrics_json = self._dump_dict(
                 {
-                    "case_count": len(cases),
+                    "case_count": case_count,
                     "hit_at_k": hit_sum / case_count,
                     "mrr": mrr_sum / case_count,
                     "context_precision": precision_sum / case_count,
                     "context_recall": recall_sum / case_count,
                     "top_k": resolved_top_k,
+                    "avg_elapsed_ms": total_elapsed_ms / case_count,
+                    "total_elapsed_ms": total_elapsed_ms,
+                    "failure_count": failure_count,
+                    "fallback_count": fallback_count,
+                    "case_errors": case_errors,
+                    "config_snapshot": config_snapshot,
                 }
             )
             saved_run = self.eval_run_repo.save(run)
@@ -228,6 +300,14 @@ class KnowledgeEvaluationService:
             run.status = "failed"
             run.error_message = str(exc)
             run.finished_at = datetime.now(timezone.utc)
+            if not run.metrics_json:
+                run.metrics_json = self._dump_dict(
+                    {
+                        "case_count": len(cases),
+                        "failure_count": 1,
+                        "config_snapshot": config_snapshot,
+                    }
+                )
             saved_run = self.eval_run_repo.save(run)
             return KnowledgeEvalOutcome(
                 run=self._to_run_response(saved_run),
@@ -278,8 +358,8 @@ class KnowledgeEvaluationService:
         loaded = KnowledgeEvaluationService._load_json(value)
         return loaded if isinstance(loaded, dict) else {}
 
+    @staticmethod
     def _score_case(
-        self,
         *,
         retrieved: list[Any],
         expected_chunk_id: str | None,
@@ -287,10 +367,13 @@ class KnowledgeEvaluationService:
     ) -> dict[str, float | bool]:
         matched_index: int | None = None
         for index, item in enumerate(retrieved, start=1):
-            if expected_chunk_id and item.chunk.id == expected_chunk_id:
-                matched_index = index
-                break
-            if expected_document_id and item.chunk.document_id == expected_document_id:
+            # Chunk-level ground truth is more specific. The document target is
+            # only a fallback after reindexing has SET NULL on expected_chunk_id.
+            if expected_chunk_id:
+                matched = item.chunk.id == expected_chunk_id
+            else:
+                matched = bool(expected_document_id and item.chunk.document_id == expected_document_id)
+            if matched:
                 matched_index = index
                 break
         hit_at_k = matched_index is not None
@@ -302,6 +385,63 @@ class KnowledgeEvaluationService:
             "mrr": mrr if hit_at_k else 0.0,
             "context_precision": relevant_count / retrieved_count,
             "context_recall": 1.0 if hit_at_k else 0.0,
+        }
+
+    @staticmethod
+    def _build_retrieval_config(
+        *,
+        knowledge_base: Any,
+        retrieval_mode: str,
+        rerank_enabled: bool,
+    ) -> KnowledgeEvalRetrievalConfig:
+        return KnowledgeEvalRetrievalConfig(
+            id=knowledge_base.id,
+            active_index_generation=knowledge_base.active_index_generation or "legacy",
+            embedding_provider=knowledge_base.embedding_provider,
+            embedding_model=knowledge_base.embedding_model,
+            embedding_dimensions=knowledge_base.embedding_dimensions,
+            rerank_enabled=rerank_enabled,
+            rerank_provider=knowledge_base.rerank_provider,
+            rerank_model=knowledge_base.rerank_model,
+            retrieval_mode=retrieval_mode,
+            rerank_top_n=knowledge_base.rerank_top_n,
+            score_threshold=knowledge_base.score_threshold,
+        )
+
+    @staticmethod
+    def _build_config_snapshot(
+        *,
+        knowledge_base: Any,
+        retrieval_mode: str,
+        top_k: int,
+        rerank_enabled: bool,
+    ) -> dict[str, Any]:
+        return {
+            "active_index_generation": knowledge_base.active_index_generation or "legacy",
+            "retrieval_mode": retrieval_mode,
+            "top_k": top_k,
+            "score_threshold": knowledge_base.score_threshold,
+            "rrf_k": KnowledgeRetrievalPipeline.RRF_K,
+            "embedding": {
+                "provider": knowledge_base.embedding_provider,
+                "model": knowledge_base.embedding_model,
+                "dimensions": knowledge_base.embedding_dimensions,
+                "version": CURRENT_EMBEDDING_VERSION,
+            },
+            "rerank": {
+                "enabled": rerank_enabled,
+                "provider": knowledge_base.rerank_provider,
+                "model": knowledge_base.rerank_model,
+                "top_n": knowledge_base.rerank_top_n,
+            },
+            "chunking": {
+                "mode": knowledge_base.chunk_mode,
+                "size": knowledge_base.chunk_size,
+                "overlap": knowledge_base.chunk_overlap,
+                "parent_size": knowledge_base.parent_chunk_size,
+                "child_size": knowledge_base.child_chunk_size,
+                "child_overlap": knowledge_base.child_chunk_overlap,
+            },
         }
 
     def _to_set_response(self, item: KnowledgeEvalSet) -> KnowledgeEvalSetResponse:

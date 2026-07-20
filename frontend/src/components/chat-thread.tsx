@@ -525,7 +525,7 @@ type ChatStreamEvent =
   | { type: "answer_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_sources"; sources: ExternalSource[] }
-  | { type: "model_error"; error?: string; assistant_message_id?: string }
+  | { type: "model_error"; error?: string; error_code?: string; assistant_message_id?: string }
   | { type: "stream_error"; error?: string }
   | ToolTraceEvent
   | { type: "done"; assistant_message_id?: string };

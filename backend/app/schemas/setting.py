@@ -18,7 +18,7 @@ class UserSettingResponse(BaseModel):
     api_key_masked: str | None = None
     temperature: float
     top_p: float
-    max_tokens: int | None = None
+    max_tokens: int | None = Field(default=None, ge=1, le=131072)
     system_prompt: str | None = None
     model_context_window: int
     context_mode: str
@@ -54,7 +54,7 @@ class UserSettingUpdate(BaseModel):
     clear_api_key: bool | None = None
     temperature: float | None = None
     top_p: float | None = None
-    max_tokens: int | None = None
+    max_tokens: int | None = Field(default=None, ge=1, le=131072)
     system_prompt: str | None = None
     model_context_window: int | None = None
     context_mode: str | None = Field(default=None, max_length=32)

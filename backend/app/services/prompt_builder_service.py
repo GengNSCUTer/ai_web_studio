@@ -16,6 +16,14 @@ class PromptBuildResult:
 class ContextPromptBuilder:
     TEMPLATE_VERSION = "context_prompt_v1"
     REFERENCE_CONTEXT_LAYER = "reference_context_prefix"
+    # Governance 从 reference 尾部裁剪，因此这里按业务优先级从高到低排列。
+    # 当前 query 产生的 RAG/Tool 证据优先于会话摘要和全局 Memory。
+    REFERENCE_PRIORITY_ORDER = (
+        "knowledge_context",
+        "external_context",
+        "conversation_summary",
+        "long_term_memory",
+    )
 
     PROVIDER_TEMPLATES = {
         "ollama": "ollama_chat_v1",
@@ -44,9 +52,13 @@ class ContextPromptBuilder:
         reference_sections: list[str] = []
         layers.append("system")
 
-        if memory_context:
-            reference_sections.append(self._wrap_layer("长期记忆", memory_context))
-            layers.append("long_term_memory")
+        if knowledge_context:
+            reference_sections.append(self._wrap_layer("知识库片段", knowledge_context))
+            layers.append("knowledge_context")
+
+        if external_context:
+            reference_sections.append(self._wrap_layer("外部信息源", external_context))
+            layers.append("external_context")
 
         if context_summary:
             reference_sections.append(
@@ -58,13 +70,9 @@ class ContextPromptBuilder:
             )
             layers.append("conversation_summary")
 
-        if external_context:
-            reference_sections.append(self._wrap_layer("外部信息源", external_context))
-            layers.append("external_context")
-
-        if knowledge_context:
-            reference_sections.append(self._wrap_layer("知识库片段", knowledge_context))
-            layers.append("knowledge_context")
+        if memory_context:
+            reference_sections.append(self._wrap_layer("长期记忆", memory_context))
+            layers.append("long_term_memory")
 
         # Some OpenAI-compatible providers only accept one leading system message.
         prompt_messages.append(
@@ -137,6 +145,9 @@ class ContextPromptBuilder:
                 "prompt_layers": ",".join(layers + (["recent_history"] if history_messages else [])),
                 "prompt_system_layers": len(system_sections),
                 "prompt_reference_layers": len(reference_sections),
+                "prompt_reference_priority_order": ",".join(
+                    layer for layer in self.REFERENCE_PRIORITY_ORDER if layer in layers
+                ),
                 "prompt_reference_context_injected": int(bool(reference_sections)),
                 "prompt_history_messages": history_messages,
                 "prompt_attachment_context_injected": attachment_context_injected,

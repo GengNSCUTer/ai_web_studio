@@ -80,6 +80,8 @@ class McpTool(Base):
     category: Mapped[str] = mapped_column(String(64), default="mcp_tool")
     risk_level: Mapped[str] = mapped_column(String(32), default="low")
     read_only: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 远程 Server 的 annotations 只是提示，不能直接当作本地安全策略；需用户显式审核。
+    risk_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     call_count: Mapped[int] = mapped_column(Integer, default=0)

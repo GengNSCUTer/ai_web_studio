@@ -96,10 +96,13 @@ export type McpTool = {
   description: string | null;
   description_override: string | null;
   input_schema: Record<string, unknown>;
+  output_schema: Record<string, unknown>;
   fixed_arguments: Record<string, unknown>;
   category: string;
   risk_level: string;
   read_only: boolean;
+  remote_read_only_hint: boolean | null;
+  risk_reviewed: boolean;
   is_enabled: boolean;
   last_seen_at: string | null;
 };

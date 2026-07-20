@@ -192,7 +192,10 @@ class KnowledgeEmbeddingService:
             base_url=base_url,
             timeout=settings.knowledge_model_request_timeout_seconds,
         )
-        response = await client.embeddings.create(model=knowledge_base.embedding_model, input=texts)
+        try:
+            response = await client.embeddings.create(model=knowledge_base.embedding_model, input=texts)
+        finally:
+            await client.close()
         return [list(item.embedding) for item in response.data]
 
     async def _embed_ollama(self, *, user_id: str, knowledge_base: KnowledgeBase, texts: list[str]) -> list[list[float]]:

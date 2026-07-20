@@ -83,5 +83,5 @@ export async function POST(request: NextRequest) {
     web_search_enabled: Boolean(payload.webSearchEnabled),
     knowledge_base_id: payload.knowledgeBaseId || null,
     knowledge_base_ids: payload.knowledgeBaseIds ?? [],
-  });
+  }, request.signal);
 }

@@ -21,7 +21,7 @@ from app.api.routes import (
     uploads,             # 文件上传接口
 )
 # 导入全局配置实例
-from app.core.config import settings as app_settings
+from app.core.config import settings as app_settings, validate_runtime_security_settings
 # 导入初始化函数：确保运行时数据库表/结构存在
 from app.core.startup import ensure_runtime_schema
 
@@ -33,6 +33,7 @@ app = FastAPI(
 )
 
 # 服务启动前置初始化：校验并创建运行所需数据库结构
+validate_runtime_security_settings()
 ensure_runtime_schema()
 
 # 注册跨域CORS中间件，解决前后端本地联调跨域问题

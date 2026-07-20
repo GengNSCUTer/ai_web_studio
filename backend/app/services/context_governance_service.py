@@ -35,6 +35,7 @@ class GovernedContext:
 class ContextBudgetConfig:
     model_context_window: int
     context_mode: str
+    reserved_output_tokens: int
     max_history_messages: int
     max_total_tokens: int
     max_attachment_tokens: int
@@ -83,22 +84,26 @@ class ContextBudgetPlanner:
         *,
         model_context_window: int,
         context_mode: str | None,
+        requested_output_tokens: int | None = None,
     ) -> ContextBudgetConfig:
         normalized_mode = context_mode or "balanced"
         if normalized_mode not in cls.MODE_CHAR_RATIOS:
             normalized_mode = "balanced"
 
         bounded_window = max(cls.MIN_CONTEXT_WINDOW, min(model_context_window, cls.HARD_MAX_CONTEXT_WINDOW))
-        input_token_budget = max(2048, bounded_window - cls.RESERVED_OUTPUT_TOKENS)
+        requested_reserve = max(1, int(requested_output_tokens or cls.RESERVED_OUTPUT_TOKENS))
+        # 小上下文模型不能固定预留 8192，否则“输入预算 + 输出预留”会超过模型窗口。
+        reserved_output_tokens = min(requested_reserve, max(1, bounded_window // 2))
+        input_token_budget = bounded_window - reserved_output_tokens
 
-        # 当前仍然是字符级治理，这里用保守估算把 token 预算映射到字符预算。
-        estimated_chars = input_token_budget * 2
-        max_total_tokens = max(4096, int(input_token_budget * cls.MODE_CHAR_RATIOS[normalized_mode]))
-        max_total_chars = max(16000, int(estimated_chars * cls.MODE_CHAR_RATIOS[normalized_mode]))
-        max_attachment_tokens = max(1000, int(max_total_tokens * cls.MODE_ATTACHMENT_RATIOS[normalized_mode]))
-        max_attachment_chars = max(4000, int(max_total_chars * cls.MODE_ATTACHMENT_RATIOS[normalized_mode]))
-        max_summary_tokens = max(600, int(max_total_tokens * cls.MODE_SUMMARY_RATIOS[normalized_mode]))
-        max_summary_chars = max(2000, int(max_total_chars * cls.MODE_SUMMARY_RATIOS[normalized_mode]))
+        ratio_budget = int(input_token_budget * cls.MODE_CHAR_RATIOS[normalized_mode])
+        max_total_tokens = min(input_token_budget, max(min(4096, input_token_budget), ratio_budget))
+        # 字符限制是 tokenizer 估算之外的第二道保护，按约 2 字符/token 保守映射。
+        max_total_chars = max(4000, max_total_tokens * 2)
+        max_attachment_tokens = max(512, int(max_total_tokens * cls.MODE_ATTACHMENT_RATIOS[normalized_mode]))
+        max_attachment_chars = max(1000, int(max_total_chars * cls.MODE_ATTACHMENT_RATIOS[normalized_mode]))
+        max_summary_tokens = max(256, int(max_total_tokens * cls.MODE_SUMMARY_RATIOS[normalized_mode]))
+        max_summary_chars = max(800, int(max_total_chars * cls.MODE_SUMMARY_RATIOS[normalized_mode]))
         max_image_equiv_tokens = max(300, min(1800, int(max_total_tokens * 0.08)))
         max_image_equiv_chars = max(1200, min(6000, int(max_total_chars * 0.08)))
         max_history_messages = cls.MODE_HISTORY_LIMITS[normalized_mode]
@@ -106,6 +111,7 @@ class ContextBudgetPlanner:
         return ContextBudgetConfig(
             model_context_window=bounded_window,
             context_mode=normalized_mode,
+            reserved_output_tokens=reserved_output_tokens,
             max_history_messages=max_history_messages,
             max_total_tokens=max_total_tokens,
             max_attachment_tokens=max_attachment_tokens,
@@ -161,25 +167,19 @@ class ContextGovernanceService:
         )
         stats.truncated_history_messages += max(0, len(history_slice) - governed_history_count)
 
-        summary = None
-        summary_triggered = False
-        if stats.truncated_history_messages > 0 or clipped_chars > 0:
-            summary = self._build_summary(source_messages=messages, clipped_chars=clipped_chars)
-            summary_triggered = bool(summary)
-
         if clipped_chars > 0:
             notices.append(f"上下文已裁剪约 {clipped_chars} 字符，以满足预算限制")
         if stats.truncated_history_messages > 0:
             notices.append(f"历史消息已裁剪 {stats.truncated_history_messages} 条")
-        if summary_triggered:
-            notices.append("已生成会话摘要，作为压缩记忆保留")
 
         return GovernedContext(
             messages=[self._strip_internal_fields(message) for message in governed_messages],
             stats=stats,
             notices=notices,
-            summary=summary,
-            summary_triggered=summary_triggered,
+            # 持久化滚动摘要由 build_incremental_summary 在 Prompt 组装前完成。
+            # 预算裁剪后再临时生成摘要却不重新注入，只会产生误导诊断。
+            summary=None,
+            summary_triggered=False,
         )
 
     @staticmethod
@@ -227,14 +227,23 @@ class ContextGovernanceService:
                 "summary_refresh_source_tokens": 0,
                 "summary_refresh_model_used": 0,
                 "summary_refresh_fallback_used": 0,
+                "summary_boundary_reset": 0,
             }
 
         start_index = 0
+        boundary_reset = 0
         if summary_boundary_message_id:
+            boundary_found = False
             for index, message in enumerate(source_messages):
                 if getattr(message, "id", None) == summary_boundary_message_id:
                     start_index = index + 1
+                    boundary_found = True
                     break
+            if not boundary_found:
+                # 消息被删除或历史被重建后，旧摘要已无法证明覆盖范围。
+                existing_summary = None
+                summary_boundary_message_id = None
+                boundary_reset = 1
 
         pending_messages = source_messages[start_index:]
         pending_source = pending_messages[:-self.budget.max_history_messages]
@@ -246,6 +255,7 @@ class ContextGovernanceService:
                 "summary_refresh_source_tokens": 0,
                 "summary_refresh_model_used": 0,
                 "summary_refresh_fallback_used": 0,
+                "summary_boundary_reset": boundary_reset,
             }
 
         pending_chars = sum(len((getattr(item, "content", None) or "").strip()) for item in pending_source)
@@ -263,6 +273,7 @@ class ContextGovernanceService:
                 "summary_refresh_source_tokens": pending_tokens,
                 "summary_refresh_model_used": 0,
                 "summary_refresh_fallback_used": 0,
+                "summary_boundary_reset": boundary_reset,
             }
 
         summary = None
@@ -294,6 +305,7 @@ class ContextGovernanceService:
             "summary_refresh_source_tokens": pending_tokens,
             "summary_refresh_model_used": model_used,
             "summary_refresh_fallback_used": fallback_used,
+            "summary_boundary_reset": boundary_reset,
         }
 
     def _fit_to_budget(self, messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:

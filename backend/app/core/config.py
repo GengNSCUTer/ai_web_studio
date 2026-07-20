@@ -13,6 +13,8 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 # 加载项目根目录下的.env配置文件，读取自定义环境变量
 load_dotenv(ROOT_DIR / ".env")
 
+DEFAULT_AUTH_SECRET_KEY = "change-this-before-production-ai-web-studio-secret"
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -52,11 +54,15 @@ class Settings:
     ollama_keep_alive: str = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
     # Ollama接口请求超时秒数
     ollama_request_timeout_seconds: int = int(os.getenv("OLLAMA_REQUEST_TIMEOUT_SECONDS", "600"))
+    # Chat 流式请求的三层超时：首事件、相邻事件闲置、整次模型生成总时长。
+    chat_first_token_timeout_seconds: float = float(os.getenv("CHAT_FIRST_TOKEN_TIMEOUT_SECONDS", "120"))
+    chat_stream_idle_timeout_seconds: float = float(os.getenv("CHAT_STREAM_IDLE_TIMEOUT_SECONDS", "120"))
+    chat_stream_total_timeout_seconds: float = float(os.getenv("CHAT_STREAM_TOTAL_TIMEOUT_SECONDS", "900"))
 
     # JWT鉴权加密密钥，生产环境必须替换
     auth_secret_key: str = os.getenv(
         "AUTH_SECRET_KEY",
-        "change-this-before-production-ai-web-studio-secret",
+        DEFAULT_AUTH_SECRET_KEY,
     )
     # JWT加密算法
     auth_algorithm: str = os.getenv("AUTH_ALGORITHM", "HS256")
@@ -90,6 +96,10 @@ class Settings:
     mineru_poll_interval_seconds: float = float(os.getenv("MINERU_POLL_INTERVAL_SECONDS", "3"))
     # 第三方外部工具通用请求超时秒数
     external_tool_timeout_seconds: int = int(os.getenv("EXTERNAL_TOOL_TIMEOUT_SECONDS", "8"))
+    # 单次 MCP JSON/SSE 响应最大字节数，防止不可信 Server 用超大响应耗尽内存或撑爆 Trace。
+    mcp_max_response_bytes: int = int(os.getenv("MCP_MAX_RESPONSE_BYTES", str(1024 * 1024)))
+    # 默认禁止用户添加的 MCP Server 访问回环、私网和云元数据地址；本地单用户部署可显式开启。
+    allow_private_mcp_servers: bool = _env_bool("ALLOW_PRIVATE_MCP_SERVERS", False)
     # 用户存储密钥等敏感信息的加密密钥
     secret_encryption_key: str = os.getenv("SECRET_ENCRYPTION_KEY", "")
 
@@ -108,3 +118,13 @@ class Settings:
 
 # 全局单例配置对象，项目各处直接导入使用
 settings = Settings()
+
+
+def validate_runtime_security_settings(config: Settings = settings) -> None:
+    """Fail fast instead of starting production with a known JWT signing key."""
+
+    if config.app_env != "production":
+        return
+    secret = config.auth_secret_key.strip()
+    if secret in {"", DEFAULT_AUTH_SECRET_KEY, "change-this-to-a-long-random-string"} or len(secret) < 32:
+        raise RuntimeError("生产环境必须配置至少 32 个字符的独立 AUTH_SECRET_KEY")

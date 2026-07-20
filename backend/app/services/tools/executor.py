@@ -79,6 +79,7 @@ class ToolExecutor:
 
         requires_confirmation = bool(not definition.read_only or definition.risk_level == "high")
         if requires_confirmation:
+            # 当前只实现“检测后阻断 + 产生确认事件”，尚无确认后恢复同一调用的 continuation。
             events.append(
                 ToolTraceEvent(
                     type="tool_confirmation_required",

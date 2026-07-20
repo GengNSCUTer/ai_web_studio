@@ -19,7 +19,12 @@ function ndjsonError(type: string, error: string) {
   return `${JSON.stringify({ type, error })}\n`;
 }
 
-export async function proxyBackendChatStream(path: string, token: string, body: unknown) {
+export async function proxyBackendChatStream(
+  path: string,
+  token: string,
+  body: unknown,
+  signal?: AbortSignal
+) {
   let upstream: Response;
   try {
     upstream = await fetchBackend(path, {
@@ -30,10 +35,11 @@ export async function proxyBackendChatStream(path: string, token: string, body: 
         accept: "application/x-ndjson",
       },
       body: JSON.stringify(body),
+      signal,
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown upstream connection error";
-    return new Response(ndjsonError("stream_error", `后端流式服务连接失败：${message}`), {
+  } catch {
+    // fetch 异常可能包含内部后端地址；客户端只需要稳定、可操作的公开错误文案。
+    return new Response(ndjsonError("stream_error", "后端流式服务暂时不可用，请稍后重试。"), {
       status: 200,
       headers: streamHeaders(),
     });

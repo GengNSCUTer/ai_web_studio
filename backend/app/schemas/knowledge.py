@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -317,3 +318,5 @@ class KnowledgeEvalOutcomeResponse(BaseModel):
 
 class KnowledgeEvalRunRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=50)
+    retrieval_mode: Literal["vector", "lexical", "hybrid"] | None = None
+    rerank_enabled: bool | None = None

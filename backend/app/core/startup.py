@@ -272,6 +272,14 @@ def ensure_runtime_schema() -> None:
     if prompt_template_columns and "variables" not in prompt_template_columns:
         statements.append("alter table prompt_templates add column variables text")
 
+    mcp_tool_columns = _get_column_names("mcp_tools")
+    if mcp_tool_columns and "risk_reviewed" not in mcp_tool_columns:
+        # 历史动态 MCP 工具也必须重新经过人工风险审核，不能沿用远端 readOnlyHint 推导出的低风险状态。
+        statements.append("alter table mcp_tools add column risk_reviewed boolean not null default false")
+        statements.append(
+            "update mcp_tools set is_enabled = false, read_only = false, risk_level = 'high'"
+        )
+
     if not statements:
         return
 
