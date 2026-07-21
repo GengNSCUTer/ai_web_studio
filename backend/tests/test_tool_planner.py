@@ -35,6 +35,26 @@ class ToolPlannerTest(unittest.TestCase):
         self.assertEqual(trace["type"], "tool_candidate_selection")
         self.assertLessEqual(len(candidates), 5)
 
+    def test_candidate_selector_does_not_select_every_read_only_tool(self) -> None:
+        candidates, _ = ToolCandidateSelector(ToolCatalog()).select(
+            query="深圳今天气温怎么样",
+            enabled=True,
+        )
+
+        tool_keys = {tool.tool_key for tool in candidates}
+        self.assertEqual(tool_keys, {"amap.maps.weather", "web.tavily.search"})
+        self.assertNotIn("amap.maps.direction.driving", tool_keys)
+        self.assertNotIn("amap.maps.distance", tool_keys)
+
+    def test_candidate_selector_reserves_web_fallback_slot(self) -> None:
+        candidates, _ = ToolCandidateSelector(ToolCatalog(), max_candidates=4).select(
+            query="深圳到汕头怎么去，路上有哪些服务区",
+            enabled=True,
+        )
+
+        self.assertLessEqual(len(candidates), 4)
+        self.assertIn("web.tavily.search", {tool.tool_key for tool in candidates})
+
     def test_schema_validator_normalizes_array_and_enum_defaults(self) -> None:
         catalog = ToolCatalog()
         definition = catalog.get("amap.maps.distance")
@@ -78,6 +98,60 @@ class ToolPlannerTest(unittest.TestCase):
                 definition=definition,
                 arguments={"city": "深圳", "query": "深圳天气"},
             )
+
+    def test_schema_validator_enforces_full_json_schema_keywords(self) -> None:
+        definition = ToolDefinition(
+            tool_key="mcp.strict.search",
+            provider="test",
+            category="web_search",
+            display_name="Strict",
+            description="Strict schema",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "mode": {"const": "safe"},
+                    "filter": {
+                        "type": "object",
+                        "properties": {"country": {"type": "string", "pattern": "^[A-Z]{2}$"}},
+                        "required": ["country"],
+                    },
+                },
+                "required": ["mode", "filter"],
+            },
+        )
+
+        with self.assertRaises(ToolSchemaValidationError):
+            ToolSchemaValidator().validate(
+                definition=definition,
+                arguments={"mode": "unsafe", "filter": {"country": "china"}},
+            )
+
+    def test_planner_fixed_arguments_are_not_model_overridable(self) -> None:
+        definition = ToolDefinition(
+            tool_key="mcp.tenant.lookup",
+            provider="test",
+            category="web_search",
+            display_name="Tenant lookup",
+            description="Tenant-scoped lookup",
+            input_schema={
+                "type": "object",
+                "properties": {"query": {"type": "string"}, "tenant_id": {"type": "string"}},
+                "required": ["query", "tenant_id"],
+                "additionalProperties": False,
+            },
+            adapter={"fixed_arguments": {"tenant_id": "trusted-tenant"}},
+        )
+        catalog = ToolCatalog()
+        catalog._definitions = {definition.tool_key: definition}
+        planner = LLMToolPlanner(catalog=catalog)
+
+        plan = planner._parse_llm_plan(
+            text='{"should_use_tools":true,"calls":[{"tool_key":"mcp.tenant.lookup","arguments":{"query":"x","tenant_id":"attacker"}}]}',
+            query="x",
+            allowed_tool_keys={definition.tool_key},
+        )
+
+        self.assertEqual(plan.calls[0].arguments, {"query": "x"})
 
     def test_llm_planner_does_not_inject_query_into_strict_schema_without_query_field(self) -> None:
         definition = ToolDefinition(
@@ -246,6 +320,32 @@ class ToolPlannerTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_llm_planner_rejects_duplicate_call_ids_and_their_dependents(self) -> None:
+        planner = LLMToolPlanner()
+        plan = planner._parse_llm_plan(
+            text="""
+            {
+              "should_use_tools": true,
+              "calls": [
+                {"id":"same", "tool_key":"amap.maps.weather", "arguments":{"city":"深圳"}},
+                {"id":"same", "tool_key":"amap.maps.weather", "arguments":{"city":"广州"}},
+                {"id":"after", "tool_key":"web.tavily.search", "depends_on":["missing"], "arguments":{"query":"天气"}}
+              ]
+            }
+            """,
+            query="深圳和广州天气",
+        )
+
+        self.assertEqual(len(plan.calls), 1)
+        self.assertEqual(plan.calls[0].arguments["city"], "深圳")
+        failed = [
+            event
+            for event in plan.trace_events
+            if event.get("type") == "tool_schema_validation" and event.get("status") == "failed"
+        ]
+        self.assertTrue(any("重复" in str(event.get("error")) for event in failed))
+        self.assertTrue(any("依赖" in str(event.get("error")) for event in failed))
+
     def test_llm_planner_handles_complex_route_weather_poi_query(self) -> None:
         async def run_test() -> None:
             planner = LLMToolPlanner(
@@ -383,6 +483,29 @@ class ToolPlannerTest(unittest.TestCase):
             self.assertIn("tool_planner_end", event_types)
             fallback_events = [event for event in plan.trace_events if event["type"] == "tool_fallback"]
             self.assertIn("LLM 工具规划失败", fallback_events[0]["reason"])
+
+    def test_llm_planner_does_not_expose_provider_exception_text_in_fallback_trace(self) -> None:
+        class FailingProvider:
+            async def complete_chat(self, **_: object) -> str:
+                raise RuntimeError("https://provider.internal/v1?api_key=secret-value")
+
+        async def run_test() -> None:
+            planner = LLMToolPlanner(chat_provider=FailingProvider())
+            plan = await planner.plan(
+                query="查一下最新信息",
+                enabled=True,
+                runtime=PlannerRuntime(
+                    provider_type="openai-compatible",
+                    base_url="https://example.test/v1",
+                    api_key="test-key",
+                    model_name="test-model",
+                ),
+            )
+            fallback_events = [event for event in plan.trace_events if event["type"] == "tool_fallback"]
+            self.assertEqual(len(fallback_events), 1)
+            self.assertIn("LLM 工具规划失败", fallback_events[0]["reason"])
+            self.assertNotIn("provider.internal", fallback_events[0]["reason"])
+            self.assertNotIn("secret-value", fallback_events[0]["reason"])
 
         asyncio.run(run_test())
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import time
 import asyncio
+import json
+import time
 from dataclasses import dataclass, field
 from uuid import uuid4
 
 from app.services.tools.executor import ToolExecutor
-from app.services.tools.registry import ToolRegistry
+from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolPlan, ToolTraceEvent
 
 
@@ -43,7 +44,7 @@ class ToolWorkflowService:
         self,
         *,
         executor: ToolExecutor,
-        registry: ToolRegistry,
+        registry: ToolCatalog,
         max_tool_calls: int | None = None,
     ) -> None:
         self.executor = executor
@@ -55,6 +56,7 @@ class ToolWorkflowService:
         started = time.perf_counter()
         result = ToolWorkflowResult(selected_tool=plan.calls[0].category if plan.calls else "none")
         calls = plan.calls[: self.max_tool_calls]
+        fallback_call_ids = self._select_fallback_call_ids(plan=plan, calls=calls, query=query)
         result.events.append(
             ToolTraceEvent(
                 type="tool_workflow_start",
@@ -70,7 +72,22 @@ class ToolWorkflowService:
 
         # 只抑制当前 ToolPlan 内的同工具同参数重复调用；下一轮重新规划会创建新的 Workflow。
         seen_call_keys: set[tuple[str, str]] = set()
-        pending = {call.call_id: call for call in calls}
+        pending: dict[str, PlannedToolCall] = {}
+        for call in calls:
+            if call.call_id in pending:
+                result.events.append(
+                    ToolTraceEvent(
+                        type="tool_workflow_step_skipped",
+                        payload={
+                            "workflow": "tool_workflow_v1",
+                            "call_id": call.call_id,
+                            "tool_key": call.tool_key,
+                            "reason": "duplicate_call_id",
+                        },
+                    )
+                )
+                continue
+            pending[call.call_id] = call
         completed: set[str] = set()
         failed: set[str] = set()
         step = 0
@@ -158,7 +175,15 @@ class ToolWorkflowService:
                 )
             )
             step_results = await asyncio.gather(
-                *[self._execute_call(call=call, query=query, plan=plan) for call in executable]
+                *[
+                    self._execute_call(
+                        call=call,
+                        query=query,
+                        plan=plan,
+                        allow_fallback=call.call_id in fallback_call_ids,
+                    )
+                    for call in executable
+                ]
             )
             for step_result in step_results:
                 result.events.extend(step_result.events)
@@ -187,7 +212,14 @@ class ToolWorkflowService:
         )
         return result
 
-    async def _execute_call(self, *, call: PlannedToolCall, query: str, plan: ToolPlan) -> ToolStepResult:
+    async def _execute_call(
+        self,
+        *,
+        call: PlannedToolCall,
+        query: str,
+        plan: ToolPlan,
+        allow_fallback: bool,
+    ) -> ToolStepResult:
         events = [
             ToolTraceEvent(
                 type="tool_workflow_step",
@@ -202,7 +234,28 @@ class ToolWorkflowService:
                 },
             )
         ]
-        call_result, call_events = await self.executor.execute(call)
+        try:
+            call_result, call_events = await self.executor.execute(call)
+        except Exception:
+            # 凭证解析、Catalog 或策略检查也可能在 Executor 的 Adapter try 之外抛错。
+            # 单个工具故障不能击穿整个并行批次，且 Trace 不记录可能含 URL/凭证的原始异常。
+            safe_error = f"{call.display_name}调用失败，请稍后重试。"
+            events.append(
+                ToolTraceEvent(
+                    type="tool_call_error",
+                    payload={
+                        "call_id": call.call_id,
+                        "tool_key": call.tool_key,
+                        "provider": call.provider,
+                        "category": call.category,
+                        "display_name": call.display_name,
+                        "status": "error",
+                        "elapsed_ms": 0,
+                        "error": safe_error,
+                    },
+                )
+            )
+            return ToolStepResult(call=call, events=events, error_message=safe_error)
         events.extend(call_events)
         if call_result.sources:
             return ToolStepResult(call=call, succeeded=True, sources=call_result.sources, events=events)
@@ -216,11 +269,48 @@ class ToolWorkflowService:
                 error_message=error_message,
             )
 
-        if not plan.fallback_tool_key:
+        if not plan.fallback_tool_key or not allow_fallback:
             return ToolStepResult(call=call, events=events, error_message=error_message)
 
-        fallback_call = self._build_fallback_call(query=query, parent_call=call)
-        fallback_result, fallback_events = await self.executor.execute(fallback_call)
+        fallback_call = self._build_fallback_call(
+            query=query,
+            parent_call=call,
+            fallback_tool_key=plan.fallback_tool_key,
+        )
+        try:
+            fallback_result, fallback_events = await self.executor.execute(fallback_call)
+        except Exception:
+            safe_error = f"{fallback_call.display_name}调用失败，请稍后重试。"
+            events.extend(
+                [
+                    ToolTraceEvent(
+                        type="tool_call_fallback",
+                        payload={
+                            "from": call.tool_key,
+                            "to": fallback_call.tool_key,
+                            "from_call_id": call.call_id,
+                            "from_tool_key": call.tool_key,
+                            "to_call_id": fallback_call.call_id,
+                            "to_tool_key": fallback_call.tool_key,
+                            "reason": "primary_tool_empty_or_failed",
+                        },
+                    ),
+                    ToolTraceEvent(
+                        type="tool_call_error",
+                        payload={
+                            "call_id": fallback_call.call_id,
+                            "tool_key": fallback_call.tool_key,
+                            "provider": fallback_call.provider,
+                            "category": fallback_call.category,
+                            "display_name": fallback_call.display_name,
+                            "status": "error",
+                            "elapsed_ms": 0,
+                            "error": safe_error,
+                        },
+                    ),
+                ]
+            )
+            return ToolStepResult(call=call, events=events, error_message=safe_error)
         events.extend(
             [
                 ToolTraceEvent(
@@ -239,17 +329,64 @@ class ToolWorkflowService:
             ]
         )
         notices = [f"{call.display_name}未返回有效结果，已回退到网页搜索。"] if fallback_result.sources else []
+        # 网页 fallback 可以给最终回答补充来源，但不等于满足天气/路线等结构化输出合同。
+        # 只有同一 category 的降级工具才允许解锁依赖当前主调用的下游步骤。
+        dependency_contract_satisfied = bool(fallback_result.sources) and fallback_call.category == call.category
         return ToolStepResult(
             call=call,
-            succeeded=bool(fallback_result.sources),
+            succeeded=dependency_contract_satisfied,
             sources=fallback_result.sources,
             notices=notices,
             events=events,
             error_message=fallback_result.error_message or error_message,
         )
 
-    def _build_fallback_call(self, *, query: str, parent_call: PlannedToolCall) -> PlannedToolCall:
-        definition = self.registry.web_search_tool()
+    def _select_fallback_call_ids(
+        self,
+        *,
+        plan: ToolPlan,
+        calls: list[PlannedToolCall],
+        query: str,
+    ) -> set[str]:
+        """Reserve fallback slots before parallel execution.
+
+        Primary calls and fallbacks share the same hard budget. A fallback cannot call
+        the same tool again, duplicate an already planned call, or duplicate another
+        fallback in the same plan.
+        """
+        if not plan.fallback_tool_key:
+            return set()
+        if not self.registry.get_or_none(plan.fallback_tool_key):
+            return set()
+        remaining_slots = max(0, self.max_tool_calls - len(calls))
+        if remaining_slots == 0:
+            return set()
+
+        reserved_keys = {(call.tool_key, self._stable_arguments(call)) for call in calls}
+        allowed: set[str] = set()
+        for call in calls:
+            if len(allowed) >= remaining_slots or call.tool_key == plan.fallback_tool_key:
+                continue
+            fallback_call = self._build_fallback_call(
+                query=query,
+                parent_call=call,
+                fallback_tool_key=plan.fallback_tool_key,
+            )
+            fallback_key = (fallback_call.tool_key, self._stable_arguments(fallback_call))
+            if fallback_key in reserved_keys:
+                continue
+            reserved_keys.add(fallback_key)
+            allowed.add(call.call_id)
+        return allowed
+
+    def _build_fallback_call(
+        self,
+        *,
+        query: str,
+        parent_call: PlannedToolCall,
+        fallback_tool_key: str,
+    ) -> PlannedToolCall:
+        definition = self.registry.get(fallback_tool_key)
         return PlannedToolCall(
             call_id=str(uuid4()),
             tool_key=definition.tool_key,
@@ -263,5 +400,4 @@ class ToolWorkflowService:
 
     @staticmethod
     def _stable_arguments(call: PlannedToolCall) -> str:
-        items = sorted((str(key), str(value)) for key, value in call.arguments.items())
-        return "|".join(f"{key}={value}" for key, value in items)
+        return json.dumps(call.arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)

@@ -122,9 +122,9 @@ class ToolCatalog:
         description = (tool.description_override or tool.description or f"{server.name} MCP tool: {tool.raw_name}").strip()
         return ToolDefinition(
             tool_key=tool.tool_key,
-            provider=server.server_key,
+            provider=server.server_key[:64],
             category=tool.category or "mcp_tool",
-            display_name=tool.display_name,
+            display_name=tool.display_name[:128],
             description=description,
             when_to_use=[description],
             when_not_to_use=[],
@@ -137,7 +137,9 @@ class ToolCatalog:
                 "result_mapper": "",
                 "credential_provider": credential_provider,
                 "auth_type": server.auth_type,
-                "default_arguments": fixed_arguments if isinstance(fixed_arguments, dict) else {},
+                # User-configured fixed arguments are policy-owned values, not
+                # model-overridable defaults (tenant/account/scope are common examples).
+                "fixed_arguments": fixed_arguments if isinstance(fixed_arguments, dict) else {},
             },
             source_type="mcp_server",
             risk_level=tool.risk_level or "low",

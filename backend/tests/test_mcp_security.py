@@ -91,6 +91,14 @@ class McpSecurityPolicyTest(unittest.TestCase):
         with self.assertRaises(McpEndpointPolicyError):
             validate_mcp_endpoint_url("https://example.com:99999/mcp")
 
+    def test_credentialed_endpoint_requires_https(self) -> None:
+        with self.assertRaisesRegex(McpEndpointPolicyError, "HTTPS"):
+            validate_mcp_endpoint_url("http://example.com/mcp", auth_type="bearer")
+        with self.assertRaisesRegex(McpEndpointPolicyError, "HTTPS"):
+            validate_mcp_endpoint_url("http://example.com/mcp?key={api_key}", auth_type="none")
+
+        validate_mcp_endpoint_url("http://example.com/mcp", auth_type="none")
+
     def test_endpoint_target_rejects_private_dns_result(self) -> None:
         async def run_test() -> None:
             records = [(2, 1, 6, "", ("169.254.169.254", 443))]

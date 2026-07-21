@@ -81,27 +81,31 @@ class QueryRewriteService:
 
     def _extract_recent_places(self, recent_messages: list[object], *, exclude: str) -> list[str]:
         places: list[str] = []
-        for message in reversed(recent_messages[-8:]):
-            content = getattr(message, "content", None) if not isinstance(message, dict) else message.get("content")
-            role = getattr(message, "role", None) if not isinstance(message, dict) else message.get("role")
-            if role not in {"user", "assistant"} or not content:
-                continue
-            for split_place in self._extract_split_places(str(content)):
-                place = self._clean_place(split_place)
-                if not place or place in places or place == exclude or place in exclude or exclude in place:
+        recent = recent_messages[-8:]
+        # Prefer places explicitly written by the user. Assistant history can be
+        # hallucinated or contain explanatory locations unrelated to the reference.
+        for preferred_role in ("user", "assistant"):
+            for message in reversed(recent):
+                content = getattr(message, "content", None) if not isinstance(message, dict) else message.get("content")
+                role = getattr(message, "role", None) if not isinstance(message, dict) else message.get("role")
+                if role != preferred_role or not content:
                     continue
-                places.append(place)
-                if len(places) >= 2:
-                    return places
-            for match in self.PLACE_HINT_PATTERN.finditer(str(content)):
-                place = self._clean_place(match.group(1))
-                if not place or place in places or place == exclude or place in exclude or exclude in place:
-                    continue
-                if self.NOISE_PATTERN.fullmatch(place):
-                    continue
-                places.append(place)
-                if len(places) >= 4:
-                    return places
+                for split_place in self._extract_split_places(str(content)):
+                    place = self._clean_place(split_place)
+                    if not place or place in places or place == exclude or place in exclude or exclude in place:
+                        continue
+                    places.append(place)
+                    if len(places) >= 2:
+                        return places
+                for match in self.PLACE_HINT_PATTERN.finditer(str(content)):
+                    place = self._clean_place(match.group(1))
+                    if not place or place in places or place == exclude or place in exclude or exclude in place:
+                        continue
+                    if self.NOISE_PATTERN.fullmatch(place):
+                        continue
+                    places.append(place)
+                    if len(places) >= 4:
+                        return places
         return places
 
     @staticmethod

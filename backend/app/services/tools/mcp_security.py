@@ -13,7 +13,7 @@ class McpEndpointPolicyError(ValueError):
     pass
 
 
-def validate_mcp_endpoint_url(endpoint: str) -> None:
+def validate_mcp_endpoint_url(endpoint: str, *, auth_type: str | None = None) -> None:
     """Reject malformed URL forms before persisting a user-added MCP Server."""
 
     if not endpoint or any(ord(char) < 32 for char in endpoint):
@@ -35,6 +35,9 @@ def validate_mcp_endpoint_url(endpoint: str) -> None:
         raise McpEndpointPolicyError("MCP URL 不允许在 authority 中携带用户名或密码。")
     if parsed.fragment:
         raise McpEndpointPolicyError("MCP URL 不允许包含 fragment。")
+    carries_credential = (auth_type is not None and auth_type != "none") or "{api_key}" in endpoint
+    if carries_credential and parsed.scheme != "https":
+        raise McpEndpointPolicyError("携带凭据的 MCP Server 必须使用 HTTPS。")
 
 
 async def enforce_mcp_endpoint_target_policy(

@@ -3,11 +3,11 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.services.tools.credentials import ToolCredentialResolver
+from app.services.tools.catalog import ToolCatalog
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.formatter import ExternalContextAssembler
 from app.services.tools.planner import DeterministicToolPlanner, LLMToolPlanner, PlannerRuntime
 from app.services.tools.query_rewriter import QueryRewriteService
-from app.services.tools.registry import ToolRegistry
 from app.services.tools.schemas import (
     ExternalContextResult,
     ToolTraceEvent,
@@ -30,7 +30,7 @@ class ExternalContextService:
         db: Session | None = None,
         user_id: str | None = None,
         project_id: str | None = None,
-        registry: ToolRegistry | None = None,
+        registry: ToolCatalog | None = None,
         router: object | None = None,
         executor: ToolExecutor | None = None,
         assembler: ExternalContextAssembler | None = None,
@@ -39,7 +39,7 @@ class ExternalContextService:
         planner_runtime: PlannerRuntime | None = None,
         workflow: ToolWorkflowService | None = None,
     ) -> None:
-        self.registry = registry or ToolRegistry(db=db, user_id=user_id)
+        self.registry = registry or ToolCatalog(db=db, user_id=user_id)
         deterministic = router or DeterministicToolPlanner(self.registry)
         self.planner = planner or LLMToolPlanner(
             catalog=self.registry,
@@ -201,7 +201,7 @@ class ExternalContextService:
             notices.append(f"外部信息工具调用失败：{error_message}")
 
         context_text = self.assembler.format_sources_for_prompt(sources, max_chars=max_chars)
-        included_sources = sources if context_text else []
+        included_sources = [source for source in sources if source.used_in_prompt]
         public_sources = [source.to_public_dict() for source in sources]
         public_events = [event.to_public_dict() for event in events]
 
@@ -230,8 +230,27 @@ class ExternalContextService:
 
     @staticmethod
     def _build_observations(*, round_index: int, sources: list) -> list[dict]:
+        allowed_metadata_keys = {
+            "call_id",
+            "tool_key",
+            "city",
+            "province",
+            "district",
+            "address",
+            "name",
+            "domain",
+            "origin",
+            "destination",
+            "mode",
+        }
         observations: list[dict] = []
         for index, source in enumerate(sources[:8], start=1):
+            raw_metadata = getattr(source, "metadata", {})
+            safe_metadata = {
+                key: str(value)[:240]
+                for key, value in (raw_metadata.items() if isinstance(raw_metadata, dict) else [])
+                if key in allowed_metadata_keys and isinstance(value, (str, int, float, bool))
+            }
             observations.append(
                 {
                     "round": round_index,
@@ -240,7 +259,9 @@ class ExternalContextService:
                     "provider": getattr(source, "provider", ""),
                     "title": getattr(source, "title", ""),
                     "display_text": str(getattr(source, "display_text", ""))[:1200],
-                    "metadata": getattr(source, "metadata", {}),
+                    # Never send metadata.raw or nested remote payloads back to the
+                    # Planner; observations are untrusted evidence, not instructions.
+                    "metadata": safe_metadata,
                 }
             )
         return observations

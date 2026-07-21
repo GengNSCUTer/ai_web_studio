@@ -150,13 +150,15 @@ class ToolTraceRepository:
                     }
                 )
             elif event_type == "tool_call_error":
+                event_status = event.get("status")
+                persisted_status = event_status if event_status in {"skipped", "error"} else "error"
                 current.update(
                     {
                         "tool_key": event.get("tool_key") or current.get("tool_key") or "",
                         "provider": event.get("provider") or current.get("provider") or "",
                         "category": event.get("category") or current.get("category") or "",
                         "display_name": event.get("display_name") or current.get("display_name"),
-                        "status": "error",
+                        "status": persisted_status,
                         "elapsed_ms": event.get("elapsed_ms"),
                         "error_message": event.get("error"),
                         "finished_at": datetime.now(timezone.utc),
@@ -168,7 +170,8 @@ class ToolTraceRepository:
             tool_sources = [
                 source
                 for source in sources
-                if source.get("provider") == call.get("provider") and source.get("source_type") in {call.get("category"), "web", "weather", "map"}
+                if isinstance(source.get("metadata"), dict)
+                and source["metadata"].get("call_id") == call.get("call_id")
             ]
             call_runs.append(
                 ToolCallRun(

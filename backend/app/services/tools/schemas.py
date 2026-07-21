@@ -1,7 +1,26 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import re
 from typing import Any
+
+
+SENSITIVE_ARGUMENT_PATTERN = re.compile(
+    r"(^|[_-])(api[_-]?key|token|password|passwd|secret|credential|authorization|auth)([_-]|$)",
+    flags=re.IGNORECASE,
+)
+
+
+def redact_sensitive_arguments(value: Any) -> Any:
+    """Redact model/tool arguments before Trace, API responses and persistence."""
+    if isinstance(value, dict):
+        return {
+            str(key): "***" if SENSITIVE_ARGUMENT_PATTERN.search(str(key)) else redact_sensitive_arguments(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_sensitive_arguments(item) for item in value]
+    return value
 
 
 @dataclass
@@ -44,6 +63,12 @@ class ToolDefinition:
     def credential_provider(self) -> str:
         return str(self.adapter.get("credential_provider") or self.provider)
 
+    @property
+    def credential_required(self) -> bool:
+        auth_type = str(self.adapter.get("auth_type") or "api_key").strip() or "api_key"
+        endpoint_template = str(self.adapter.get("endpoint_template") or "")
+        return auth_type != "none" or "{api_key}" in endpoint_template
+
     def to_public_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -62,7 +87,9 @@ class PlannedToolCall:
     can_parallel: bool = True
 
     def to_public_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["arguments"] = redact_sensitive_arguments(self.arguments)
+        return payload
 
 
 @dataclass

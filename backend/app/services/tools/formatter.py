@@ -12,7 +12,14 @@ class ExternalContextAssembler:
         parts: list[str] = []
         used_chars = 0
         for index, source in enumerate(sources, start=1):
-            label = source.citation_label or f"[{index}]"
+            previous_label = source.citation_label
+            if previous_label and previous_label != f"[T{index}]":
+                source.metadata.setdefault("provider_citation_label", previous_label)
+            # Provider-local labels restart from 1 on every call. Re-number after
+            # aggregation so parallel tools cannot both claim [W1]/[1].
+            label = f"[T{index}]"
+            source.citation_label = label
+            source.used_in_prompt = False
             url_line = f"\nURL: {source.url}" if source.url else ""
             text = (
                 f"{label} 类型：{source.source_type}\n"
@@ -27,6 +34,7 @@ class ExternalContextAssembler:
                 text = text[:remaining].rstrip() + "\n[已按上下文预算截断]"
             parts.append(text)
             used_chars += len(text)
+            source.used_in_prompt = True
 
         if not parts:
             return None

@@ -41,6 +41,7 @@ class McpHttpClient:
         self.timeout_seconds = timeout_seconds or settings.external_tool_timeout_seconds
         self.extra_headers = extra_headers or {}
         self.max_response_bytes = max_response_bytes or settings.mcp_max_response_bytes
+        self.session_id: str | None = None
 
     async def list_tools(self) -> list[McpTool]:
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -134,6 +135,7 @@ class McpHttpClient:
                 json=payload,
             ) as response:
                 response.raise_for_status()
+                self._capture_session_id(response)
                 data = await self._parse_streaming_response(response)
         except httpx.HTTPError as exc:
             # httpx 的 HTTPStatusError 会包含完整请求 URL；这里在进入 Tool Trace 前去掉 endpoint/credential。
@@ -163,8 +165,15 @@ class McpHttpClient:
         }
         if include_protocol_header:
             headers["MCP-Protocol-Version"] = self.protocol_version
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
         headers.update(self.extra_headers)
         return headers
+
+    def _capture_session_id(self, response: httpx.Response) -> None:
+        session_id = (response.headers.get("Mcp-Session-Id") or "").strip()
+        if session_id:
+            self.session_id = session_id
 
     @staticmethod
     def _parse_response_text(text: str) -> dict[str, Any]:

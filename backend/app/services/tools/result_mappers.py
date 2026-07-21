@@ -37,12 +37,13 @@ def map_mcp_result(
 
 
 def _extract_payload(raw: dict[str, Any]) -> Any:
-    result = raw.get("result") or raw
+    result = raw["result"] if "result" in raw else raw
     # MCP outputSchema 对应的 structuredContent 是机器可读主结果；content 中的 JSON 文本只是兼容副本。
     if isinstance(result, dict) and "structuredContent" in result:
         return result["structuredContent"]
-    content = result.get("content") if isinstance(result, dict) else None
-    if isinstance(content, list) and content:
+    content_present = isinstance(result, dict) and "content" in result
+    content = result.get("content") if content_present else None
+    if isinstance(content, list):
         texts: list[str] = []
         structured_items: list[Any] = []
         for item in content:
@@ -59,7 +60,9 @@ def _extract_payload(raw: dict[str, Any]) -> Any:
             return structured_items[0]
         if structured_items:
             return structured_items
-        return "\n".join(texts)
+        return "\n".join(texts) if texts else None
+    if content_present:
+        return None
     return result
 
 

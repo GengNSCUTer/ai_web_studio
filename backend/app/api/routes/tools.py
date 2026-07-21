@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import hashlib
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -38,7 +39,7 @@ from app.services.tools.mcp_security import (
 )
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.tavily import TavilySearchProvider
-from app.services.tools.registry import ToolRegistry
+from app.services.tools.catalog import ToolCatalog
 from app.services.secret_service import SecretService
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -52,6 +53,13 @@ def _json_dumps(value: object) -> str:
 def _json_loads(value: str | None, fallback: object) -> object:
     if not value:
         return fallback
+
+
+def _dynamic_tool_key(*, server_id: str, raw_name: str) -> str:
+    """Create a globally unique, bounded and stable key for a discovered MCP tool."""
+    name_slug = _slug(raw_name)[:48] or "tool"
+    name_hash = hashlib.sha256(raw_name.encode("utf-8")).hexdigest()[:10]
+    return f"mcp.{server_id}.{name_slug}.{name_hash}"
     try:
         return json.loads(value)
     except json.JSONDecodeError:
@@ -159,13 +167,20 @@ def get_tool_settings(
     if project_id and not ProjectRepository(db).get_by_user(project_id, current_user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    registry = ToolRegistry(db=db, user_id=current_user.id)
+    registry = ToolCatalog(db=db, user_id=current_user.id)
     repo = ToolConfigRepository(db)
     resolver = ToolCredentialResolver(db)
     credentials = {item.provider_key: item for item in repo.list_credentials(current_user.id)}
     mcp_servers = repo.list_mcp_servers(current_user.id)
     mcp_tool_pairs = repo.list_mcp_tools(user_id=current_user.id)
-    provider_keys = sorted({tool.credential_provider for tool in registry.list_definitions()} | {server.credential_provider or server.server_key for server in mcp_servers})
+    provider_keys = sorted(
+        {tool.credential_provider for tool in registry.list_definitions() if tool.credential_required}
+        | {
+            server.credential_provider or server.server_key
+            for server in mcp_servers
+            if server.auth_type != "none" or "{api_key}" in server.url
+        }
+    )
     workspace_settings = repo.list_workspace_settings(project_id) if project_id else []
 
     return ToolSettingsResponse(
@@ -182,7 +197,7 @@ def get_tool_settings(
                 input_schema=tool.input_schema,
                 read_only=tool.read_only,
                 enabled_by_default=tool.enabled_by_default,
-                credential_required=True,
+                credential_required=tool.credential_required,
                 credential_provider=tool.credential_provider,
             )
             for tool in registry.list_definitions()
@@ -217,7 +232,7 @@ def update_tool_credential(
     current_user: User = Depends(get_current_user),
 ) -> UserToolCredentialResponse:
     repo = ToolConfigRepository(db)
-    registry = ToolRegistry(db=db, user_id=current_user.id)
+    registry = ToolCatalog(db=db, user_id=current_user.id)
     valid_providers = {tool.credential_provider for tool in registry.list_definitions()}
     valid_providers.update({server.credential_provider or server.server_key for server in repo.list_mcp_servers(current_user.id)})
     if provider_key not in valid_providers:
@@ -262,7 +277,7 @@ def update_workspace_tool_setting(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> WorkspaceToolSettingResponse:
-    if tool_key not in {tool.tool_key for tool in ToolRegistry(db=db, user_id=current_user.id).list_definitions()}:
+    if tool_key not in {tool.tool_key for tool in ToolCatalog(db=db, user_id=current_user.id).list_definitions()}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool not found")
     if not ProjectRepository(db).get_by_user(project_id, current_user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -301,7 +316,10 @@ async def test_tool_credential(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"连接失败：{exc}") from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="工具连接测试失败，请检查凭证和网络配置。",
+        ) from exc
 
     return ToolConnectionTestResponse(
         ok=True,
@@ -321,7 +339,7 @@ def create_mcp_server(
     if repo.get_mcp_server_by_key(user_id=current_user.id, server_key=server_key):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="MCP server key already exists")
     try:
-        validate_mcp_endpoint_url(payload.url.strip())
+        validate_mcp_endpoint_url(payload.url.strip(), auth_type=payload.auth_type)
     except McpEndpointPolicyError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     server = McpServer(
@@ -350,16 +368,17 @@ def update_mcp_server(
     if not server:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
     data = payload.model_dump(exclude_unset=True)
+    candidate_url = str(data.get("url") or server.url).strip()
+    candidate_auth_type = str(data.get("auth_type") or server.auth_type)
+    try:
+        validate_mcp_endpoint_url(candidate_url, auth_type=candidate_auth_type)
+    except McpEndpointPolicyError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     if "name" in data and data["name"] is not None:
         server.name = data["name"].strip() or server.name
     if "description" in data:
         server.description = (data["description"] or "").strip() or None
     if "url" in data and data["url"] is not None:
-        candidate_url = data["url"].strip()
-        try:
-            validate_mcp_endpoint_url(candidate_url)
-        except McpEndpointPolicyError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         server.url = candidate_url
     if "transport_type" in data and data["transport_type"] is not None:
         server.transport_type = data["transport_type"]
@@ -421,9 +440,9 @@ async def test_mcp_server(
         server.last_error = None
         repo.save_mcp_server(server)
     except Exception as exc:
-        server.last_error = str(exc)
+        server.last_error = "MCP 连接失败，请检查地址、凭证、网络和 Server 配置。"
         repo.save_mcp_server(server)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MCP 连接失败：{exc}") from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=server.last_error) from exc
     return ToolConnectionTestResponse(
         ok=True,
         provider_key=server.credential_provider or server.server_key,
@@ -448,15 +467,16 @@ async def sync_mcp_tools(
             user_id=current_user.id,
         )
     except Exception as exc:
-        server.last_error = str(exc)
+        server.last_error = "MCP 同步失败，请检查地址、凭证、网络和 Server 响应。"
         repo.save_mcp_server(server)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MCP 同步失败：{exc}") from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=server.last_error) from exc
 
     existing = {tool.raw_name: tool for tool in repo.list_mcp_tools_for_server(user_id=current_user.id, server_id=server.id)}
     now = datetime.now(timezone.utc)
     saved_tools: list[McpTool] = []
     for remote in remote_tools:
-        raw_name = remote.name.strip()
+        remote_name = remote.name.strip()
+        raw_name = remote_name[:160]
         if not raw_name:
             continue
         annotations = remote.raw.get("annotations") if isinstance(remote.raw, dict) else {}
@@ -466,8 +486,8 @@ async def sync_mcp_tools(
             tool = McpTool(
                 server_id=server.id,
                 raw_name=raw_name,
-                tool_key=f"mcp.{server.server_key}.{_slug(raw_name)}",
-                display_name=raw_name,
+                tool_key=_dynamic_tool_key(server_id=server.id, raw_name=remote_name),
+                display_name=raw_name[:128],
                 is_enabled=False,
             )
         input_schema_json = _json_dumps(remote.input_schema or {})
@@ -485,6 +505,16 @@ async def sync_mcp_tools(
         tool.last_seen_at = now
         repo.flush_mcp_tool(tool)
         saved_tools.append(tool)
+
+    seen_names = {tool.raw_name for tool in saved_tools}
+    for stale_name, stale_tool in existing.items():
+        if stale_name in seen_names:
+            continue
+        stale_tool.is_enabled = False
+        stale_tool.risk_reviewed = False
+        stale_tool.read_only = False
+        stale_tool.risk_level = "high"
+        repo.flush_mcp_tool(stale_tool)
 
     server.last_sync_at = now
     server.last_error = None
@@ -555,6 +585,17 @@ async def test_mcp_tool(
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP tool not found")
     tool, server = result
+    if (
+        not server.is_enabled
+        or not tool.is_enabled
+        or not tool.risk_reviewed
+        or not tool.read_only
+        or tool.risk_level == "high"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="MCP 工具尚未通过低风险只读审核，禁止执行测试。",
+        )
     provider_key = server.credential_provider or server.server_key
     credential = ToolCredentialResolver(db).resolve(user_id=current_user.id, provider_key=provider_key)
     needs_api_key = server.auth_type != "none" or "{api_key}" in server.url
@@ -563,13 +604,21 @@ async def test_mcp_tool(
     endpoint, headers = _mcp_endpoint(server, credential.api_key)
     try:
         await enforce_mcp_endpoint_target_policy(endpoint)
+        fixed_arguments = _json_loads(tool.fixed_arguments_json, {})
+        effective_arguments = {
+            **(payload.arguments or {}),
+            **(fixed_arguments if isinstance(fixed_arguments, dict) else {}),
+        }
         response = await McpHttpClient(endpoint=endpoint, extra_headers=headers).call_tool(
             tool_name=tool.raw_name,
-            arguments=payload.arguments or {},
+            arguments=effective_arguments,
             output_schema=_json_loads(tool.output_schema_json, {}) or None,
         )
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"MCP 工具测试失败：{exc}") from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MCP 工具测试失败，请检查参数、网络和输出 Schema。",
+        ) from exc
     return ToolConnectionTestResponse(
         ok=True,
         provider_key=provider_key,

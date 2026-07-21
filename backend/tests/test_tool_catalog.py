@@ -9,9 +9,40 @@ from sqlalchemy.orm import sessionmaker
 from app.core.database import Base
 from app.models.tool_config import McpServer, McpTool
 from app.services.tools.catalog import ToolCatalog
+from app.services.tools.adapters import ToolAdapterRunner
+from app.services.tools.schemas import PlannedToolCall
+from app.services.tools.schemas import ToolDefinition
 
 
 class ToolCatalogTest(unittest.TestCase):
+    def test_fixed_arguments_override_model_arguments(self) -> None:
+        definition = ToolDefinition(
+            tool_key="mcp.tenant.lookup",
+            provider="test",
+            category="web_search",
+            display_name="Tenant lookup",
+            description="Tenant lookup",
+            adapter={
+                "default_arguments": {"limit": 5},
+                "fixed_arguments": {"tenant_id": "trusted"},
+            },
+        )
+        call = PlannedToolCall(
+            call_id="call-1",
+            tool_key=definition.tool_key,
+            provider=definition.provider,
+            category=definition.category,
+            display_name=definition.display_name,
+            confidence=1.0,
+            reason="test",
+            arguments={"query": "hello", "tenant_id": "attacker", "limit": 10},
+        )
+
+        arguments = ToolAdapterRunner._build_adapter_arguments(definition=definition, call=call)
+
+        self.assertEqual(arguments["tenant_id"], "trusted")
+        self.assertEqual(arguments["limit"], 10)
+
     def test_loads_manifest_schema_and_adapter_metadata(self) -> None:
         catalog = ToolCatalog()
 
@@ -76,6 +107,7 @@ class ToolCatalogTest(unittest.TestCase):
                         category="web_search",
                         risk_level="low",
                         read_only=True,
+                        risk_reviewed=True,
                         is_enabled=True,
                     ),
                     McpTool(
@@ -87,7 +119,20 @@ class ToolCatalogTest(unittest.TestCase):
                         category="web_search",
                         risk_level="low",
                         read_only=True,
+                        risk_reviewed=True,
                         is_enabled=False,
+                    ),
+                    McpTool(
+                        server_id=server.id,
+                        raw_name="unreviewed_search",
+                        tool_key="mcp.custom_search.unreviewed_search",
+                        display_name="Unreviewed Search",
+                        description="Enabled flag must not bypass risk review",
+                        category="web_search",
+                        risk_level="low",
+                        read_only=True,
+                        risk_reviewed=False,
+                        is_enabled=True,
                     ),
                 ]
             )
@@ -97,6 +142,7 @@ class ToolCatalogTest(unittest.TestCase):
             definition = catalog.get("mcp.custom_search.search")
 
             self.assertIsNone(catalog.get_or_none("mcp.custom_search.disabled_search"))
+            self.assertIsNone(catalog.get_or_none("mcp.custom_search.unreviewed_search"))
             self.assertEqual(definition.source_type, "mcp_server")
             self.assertEqual(definition.adapter_type, "mcp_http")
             self.assertEqual(definition.provider, "custom_search")
@@ -104,7 +150,7 @@ class ToolCatalogTest(unittest.TestCase):
             self.assertEqual(definition.adapter["endpoint_template"], "https://example.test/mcp?key={api_key}")
             self.assertEqual(definition.adapter["mcp_tool_name"], "search")
             self.assertEqual(definition.adapter["auth_type"], "api_key")
-            self.assertEqual(definition.adapter["default_arguments"], {"limit": 5})
+            self.assertEqual(definition.adapter["fixed_arguments"], {"limit": 5})
             self.assertEqual(definition.input_schema["required"], ["query"])
             self.assertEqual(definition.output_schema["required"], ["items"])
             self.assertTrue(definition.read_only)
@@ -112,6 +158,23 @@ class ToolCatalogTest(unittest.TestCase):
             db.close()
             Base.metadata.drop_all(bind=engine)
             engine.dispose()
+
+    def test_no_auth_mcp_definition_does_not_require_credential(self) -> None:
+        definition = ToolDefinition(
+            tool_key="mcp.public.weather",
+            provider="public",
+            category="weather",
+            display_name="Public Weather",
+            description="No-auth public weather tool",
+            adapter_type="mcp_http",
+            adapter={
+                "endpoint_template": "https://example.test/mcp",
+                "mcp_tool_name": "weather",
+                "auth_type": "none",
+            },
+        )
+
+        self.assertFalse(definition.credential_required)
 
 
 if __name__ == "__main__":

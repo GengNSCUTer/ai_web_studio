@@ -63,12 +63,12 @@ class ToolConnectionTestResponse(BaseModel):
 
 
 class McpServerCreate(BaseModel):
-    server_key: str = Field(min_length=2, max_length=96)
+    server_key: str = Field(min_length=2, max_length=64)
     name: str = Field(min_length=1, max_length=128)
     description: str | None = None
     url: str = Field(min_length=8)
-    transport_type: str = "streamable_http"
-    auth_type: str = "none"
+    transport_type: Literal["streamable_http"] = "streamable_http"
+    auth_type: Literal["none", "api_key", "bearer", "api_key_header"] = "none"
     credential_provider: str | None = Field(default=None, max_length=96)
     is_enabled: bool = True
 
@@ -77,8 +77,8 @@ class McpServerUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=128)
     description: str | None = None
     url: str | None = None
-    transport_type: str | None = None
-    auth_type: str | None = None
+    transport_type: Literal["streamable_http"] | None = None
+    auth_type: Literal["none", "api_key", "bearer", "api_key_header"] | None = None
     credential_provider: str | None = Field(default=None, max_length=96)
     is_enabled: bool | None = None
 

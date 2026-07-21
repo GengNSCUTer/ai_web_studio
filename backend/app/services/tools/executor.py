@@ -5,17 +5,13 @@ import time
 from app.services.tools.adapters import ToolAdapterRunner
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.credentials import ToolCredentialResolver
-from app.services.tools.providers.amap import AmapToolProvider
-from app.services.tools.providers.tavily import TavilySearchProvider
-from app.services.tools.schemas import PlannedToolCall, ToolCallResult, ToolTraceEvent
+from app.services.tools.schemas import PlannedToolCall, ToolCallResult, ToolTraceEvent, redact_sensitive_arguments
 
 
 class ToolExecutor:
     def __init__(
         self,
         *,
-        tavily_provider: TavilySearchProvider | None = None,
-        amap_provider: AmapToolProvider | None = None,
         credential_resolver: ToolCredentialResolver | None = None,
         catalog: ToolCatalog | None = None,
         adapter_runner: ToolAdapterRunner | None = None,
@@ -23,10 +19,7 @@ class ToolExecutor:
         project_id: str | None = None,
     ) -> None:
         self.catalog = catalog or ToolCatalog()
-        self.adapter_runner = adapter_runner or ToolAdapterRunner(
-            tavily_provider=tavily_provider or TavilySearchProvider(),
-            amap_provider=amap_provider or AmapToolProvider(),
-        )
+        self.adapter_runner = adapter_runner or ToolAdapterRunner()
         self.credential_resolver = credential_resolver or ToolCredentialResolver()
         self.user_id = user_id
         self.project_id = project_id
@@ -99,10 +92,16 @@ class ToolExecutor:
             result, skipped_events = self._skipped(call, "高风险或非只读工具需要用户确认后才能执行。")
             return result, [*events, *skipped_events]
 
-        credential = self.credential_resolver.resolve(
-            user_id=self.user_id,
-            provider_key=definition.credential_provider,
+        credential = (
+            self.credential_resolver.resolve(
+                user_id=self.user_id,
+                provider_key=definition.credential_provider,
+            )
+            if definition.credential_required
+            else None
         )
+        credential_enabled = bool(credential.is_enabled) if credential else True
+        credential_source = credential.source if credential else "not_required"
         events.append(
             ToolTraceEvent(
                 type="tool_policy_check",
@@ -114,17 +113,18 @@ class ToolExecutor:
                     "display_name": call.display_name,
                     "risk_level": definition.risk_level,
                     "read_only": definition.read_only,
-                    "status": "passed" if credential.is_enabled else "denied",
+                    "status": "passed" if credential_enabled else "denied",
                     "credential_provider": definition.credential_provider,
-                    "credential_source": credential.source,
+                    "credential_source": credential_source,
+                    "credential_required": definition.credential_required,
                     "requires_confirmation": False,
                     "reason": "只读低风险工具，允许执行。"
-                    if credential.is_enabled
+                    if credential_enabled
                     else None,
                 },
             )
         )
-        if not credential.is_enabled:
+        if not credential_enabled:
             result, skipped_events = self._skipped(call, f"工具 provider {definition.credential_provider} 未启用或未配置凭证。")
             return result, [*events, *skipped_events]
 
@@ -137,8 +137,8 @@ class ToolExecutor:
                     "provider": call.provider,
                     "category": call.category,
                     "display_name": call.display_name,
-                    "arguments": call.arguments,
-                    "credential_source": credential.source,
+                    "arguments": redact_sensitive_arguments(call.arguments),
+                    "credential_source": credential_source,
                     "adapter_type": definition.adapter_type,
                     "source_type": definition.source_type,
                 },
@@ -149,7 +149,7 @@ class ToolExecutor:
             sources, adapter_metadata = await self.adapter_runner.run(
                 definition=definition,
                 call=call,
-                api_key=credential.api_key,
+                api_key=credential.api_key if credential else None,
             )
             for source_index, source in enumerate(sources, start=1):
                 source.metadata.setdefault("call_id", call.call_id)
@@ -181,14 +181,16 @@ class ToolExecutor:
                 )
             )
             return result, events
-        except Exception as exc:
+        except Exception:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
+            # Adapter/MCP 的底层异常可能带 endpoint、query 参数或远端响应正文，不能进入 Trace。
+            safe_error = f"{call.display_name}调用失败，请稍后重试。"
             result = ToolCallResult(
                 call=call,
                 status="error",
                 sources=[],
                 elapsed_ms=elapsed_ms,
-                error_message=str(exc),
+                error_message=safe_error,
             )
             events.append(
                 ToolTraceEvent(
@@ -201,7 +203,7 @@ class ToolExecutor:
                         "display_name": call.display_name,
                         "status": "error",
                         "elapsed_ms": elapsed_ms,
-                        "error": str(exc),
+                        "error": safe_error,
                     },
                 )
             )

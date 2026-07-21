@@ -35,6 +35,21 @@ class QueryRewriteServiceTest(unittest.TestCase):
         self.assertFalse(result.did_rewrite)
         self.assertEqual(result.rewritten_query, "深圳松岗离汕头市潮阳区西凤村多远")
 
+    def test_prefers_user_places_over_assistant_generated_locations(self) -> None:
+        service = QueryRewriteService()
+        result = service.rewrite(
+            query="他们离汕头市潮阳区西凤村多远",
+            recent_messages=[
+                SimpleNamespace(role="user", content="深圳松岗和广州南站这两个地点。"),
+                SimpleNamespace(role="assistant", content="还可以考虑北京西站和上海虹桥站。"),
+            ],
+        )
+
+        self.assertTrue(result.did_rewrite)
+        self.assertIn("深圳松岗", result.rewritten_query)
+        self.assertIn("广州南站", result.rewritten_query)
+        self.assertNotIn("北京西站", result.rewritten_query)
+
 
 if __name__ == "__main__":
     unittest.main()

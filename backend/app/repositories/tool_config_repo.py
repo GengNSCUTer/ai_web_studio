@@ -89,7 +89,11 @@ class ToolConfigRepository:
             .order_by(McpServer.name.asc(), McpTool.display_name.asc())
         )
         if enabled_only:
-            stmt = stmt.where(McpServer.is_enabled.is_(True), McpTool.is_enabled.is_(True))
+            stmt = stmt.where(
+                McpServer.is_enabled.is_(True),
+                McpTool.is_enabled.is_(True),
+                McpTool.risk_reviewed.is_(True),
+            )
         return [(tool, server) for tool, server in self.db.execute(stmt).all()]
 
     def list_mcp_tools_for_server(self, *, user_id: str, server_id: str) -> list[McpTool]:

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+
 from app.services.tools.schemas import ToolDefinition
 
 
@@ -10,12 +13,7 @@ class ToolSchemaValidationError(ValueError):
 
 
 class ToolSchemaValidator:
-    """Small JSON-schema subset validator for tool arguments.
-
-    The manifest currently uses a constrained subset: object properties,
-    required fields, primitive types, arrays, enum, minimum and maximum.
-    Keeping this local avoids adding another dependency for the first version.
-    """
+    """Normalize common model output forms, then enforce full Draft 2020-12 JSON Schema."""
 
     def validate(self, *, definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str, Any]:
         schema = definition.input_schema or {}
@@ -46,6 +44,18 @@ class ToolSchemaValidator:
                 field=field,
                 value=value,
                 schema=field_schema,
+            )
+        try:
+            Draft202012Validator.check_schema(schema)
+            errors = sorted(Draft202012Validator(schema).iter_errors(normalized), key=lambda item: list(item.path))
+        except SchemaError as exc:
+            raise ToolSchemaValidationError(f"{definition.tool_key} input_schema 不合法。") from exc
+        if errors:
+            first = errors[0]
+            path = ".".join(str(part) for part in first.path)
+            location = f".{path}" if path else ""
+            raise ToolSchemaValidationError(
+                f"{definition.tool_key}{location} 不符合 JSON Schema：{first.validator}"
             )
         return normalized
 

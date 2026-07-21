@@ -7,6 +7,7 @@ import httpx
 
 from app.services.tools.mcp_client import McpHttpClient
 from app.services.tools.result_mappers import _extract_payload
+from app.services.tools.result_mappers import map_mcp_result
 
 
 class McpHttpClientTest(unittest.TestCase):
@@ -39,6 +40,23 @@ class McpHttpClientTest(unittest.TestCase):
         )
 
         self.assertEqual(payload, {"temperature": 22.5, "city": "深圳"})
+
+    def test_empty_mcp_result_does_not_become_protocol_source(self) -> None:
+        for raw in (
+            {"jsonrpc": "2.0", "id": 1, "result": {}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "image", "data": "ignored"}]}},
+        ):
+            with self.subTest(raw=raw):
+                sources = map_mcp_result(
+                    mapper="",
+                    provider="test",
+                    category="test",
+                    display_name="Test",
+                    query="query",
+                    raw=raw,
+                )
+                self.assertEqual(sources, [])
 
     def test_post_jsonrpc_redacts_endpoint_secret_from_http_error(self) -> None:
         async def run_test() -> None:
@@ -147,6 +165,33 @@ class McpHttpClientTest(unittest.TestCase):
             self.assertNotIn(secret, message)
             self.assertNotIn(endpoint, message)
             self.assertIsNone(captured.exception.__cause__)
+
+        asyncio.run(run_test())
+
+    def test_initialize_propagates_server_session_id_to_followup_notification(self) -> None:
+        async def run_test() -> None:
+            requests: list[httpx.Request] = []
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                requests.append(request)
+                if len(requests) == 1:
+                    return httpx.Response(
+                        200,
+                        headers={
+                            "content-type": "application/json",
+                            "Mcp-Session-Id": "session-123",
+                        },
+                        json={"jsonrpc": "2.0", "id": 1, "result": {}},
+                        request=request,
+                    )
+                return httpx.Response(202, request=request)
+
+            client = McpHttpClient(endpoint="https://example.test/mcp")
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+                await client._initialize(http_client)
+
+            self.assertEqual(client.session_id, "session-123")
+            self.assertEqual(requests[1].headers.get("Mcp-Session-Id"), "session-123")
 
         asyncio.run(run_test())
 
