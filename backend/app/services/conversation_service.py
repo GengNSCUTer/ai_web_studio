@@ -48,7 +48,13 @@ class ConversationService:
             return None
         return ConversationResponse.model_validate(conversation)
 
-    def create_conversation(self, payload: ConversationCreate, user_id: str) -> ConversationResponse | None:
+    def create_conversation(
+        self,
+        payload: ConversationCreate,
+        user_id: str,
+        *,
+        commit: bool = True,
+    ) -> ConversationResponse | None:
         if not self._project_belongs_to_user(payload.project_id, user_id):
             return None
 
@@ -63,10 +69,18 @@ class ConversationService:
             context_summary_updated_at=None,
         )
         created = self.repo.create(conversation)
+        if commit:
+            self._commit()
+            self.repo.db.refresh(created)
         return ConversationResponse.model_validate(created)
 
     def update_conversation(
-        self, conversation_id: str, payload: ConversationUpdate, user_id: str
+        self,
+        conversation_id: str,
+        payload: ConversationUpdate,
+        user_id: str,
+        *,
+        commit: bool = True,
     ) -> ConversationResponse | None:
         conversation = self.repo.get_by_user(conversation_id, user_id)
         if not conversation:
@@ -88,6 +102,9 @@ class ConversationService:
             conversation.project_id = payload.project_id
 
         updated = self.repo.save(conversation)
+        if commit:
+            self._commit()
+            self.repo.db.refresh(updated)
         return ConversationResponse.model_validate(updated)
 
     def delete_conversation(self, conversation_id: str, user_id: str) -> bool:
@@ -102,9 +119,16 @@ class ConversationService:
                 user_id=user_id,
                 commit=False,
             )
-            self.repo.delete(conversation, commit=False)
+            self.repo.delete(conversation)
             self.repo.db.commit()
         except Exception:
             self.repo.db.rollback()
             raise
         return True
+
+    def _commit(self) -> None:
+        try:
+            self.repo.db.commit()
+        except Exception:
+            self.repo.db.rollback()
+            raise

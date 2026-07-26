@@ -40,7 +40,11 @@ class ChatExecutionService:
         self.conversation_repo = ConversationRepository(db)
         self.project_repo = ProjectRepository(db)
         self.message_repo = MessageRepository(db)
-        self.message_service = MessageService(self.message_repo, AttachmentRepository(db))
+        self.message_service = MessageService(
+            self.message_repo,
+            AttachmentRepository(db),
+            self.conversation_repo,
+        )
         self.setting_service = SettingService(UserSettingRepository(db))
         self.memory_service = MemoryService(UserMemoryRepository(db))
         self.tool_trace_repo = ToolTraceRepository(db)
@@ -103,6 +107,9 @@ class ChatExecutionService:
             self.validate_attachment_context_inputs(
                 list(getattr(execution_input.user_message, "attachments", []) or [])
             )
+            # 重生成/编辑重答的消息重置已由上层事务提交；这里把会话覆盖项作为一个独立、短事务提交，
+            # 不让后续外部 Tool/RAG 调用持有未提交数据库事务。
+            self.db.commit()
             runtime = self._build_runtime_config(execution_input.conversation)
             return await self.context_assembly_service.build_execution_context(
                 conversation=execution_input.conversation,

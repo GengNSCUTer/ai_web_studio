@@ -366,6 +366,88 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_turn_bootstrap_rolls_back_conversation_and_messages_when_attachment_write_fails(self) -> None:
+        service = ChatExecutionService(db=self.db, current_user=self.user)
+        payload = ChatStreamRequest(
+            content="这轮不应留下半成品",
+            model_name="qwen-test",
+            attachments=[
+                UploadItemReference(
+                    id="upload-failure",
+                    file_name="notes.md",
+                    mime_type="text/markdown",
+                    file_size=128,
+                    kind="file",
+                    storage_key=f"{self.user.id}/notes.md",
+                    parsed_text="valid parsed text",
+                )
+            ],
+            web_search_enabled=False,
+        )
+        default_settings = service.setting_service.get_or_create_user_settings(self.user.id)
+
+        with patch.object(
+            service.message_service.attachment_repo,
+            "create_many",
+            side_effect=RuntimeError("attachment write failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "attachment write failed"):
+                service.turn_bootstrapper.bootstrap_new_turn(
+                    payload=payload,
+                    default_settings=default_settings,
+                )
+
+        self.assertEqual(list(self.db.scalars(select(Conversation)).all()), [])
+        self.assertEqual(list(self.db.scalars(select(Message)).all()), [])
+        self.assertEqual(list(self.db.scalars(select(Attachment)).all()), [])
+
+    def test_edit_and_reset_rolls_back_user_text_when_attachment_replacement_fails(self) -> None:
+        conversation = Conversation(user_id=self.user.id, title="Atomic edit", model_name="qwen-test")
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        user_message = Message(conversation_id=conversation.id, role="user", content="old question", status="done")
+        assistant_message = Message(conversation_id=conversation.id, role="assistant", content="old answer", status="done")
+        self.db.add_all([user_message, assistant_message])
+        self.db.commit()
+        self.db.refresh(user_message)
+        self.db.refresh(assistant_message)
+        message_service = MessageService(
+            MessageRepository(self.db),
+            AttachmentRepository(self.db),
+            ConversationRepository(self.db),
+        )
+
+        with patch.object(
+            message_service.attachment_repo,
+            "create_many",
+            side_effect=RuntimeError("replacement failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "replacement failed"):
+                message_service.edit_and_reset_for_regeneration(
+                    user_message=user_message,
+                    assistant_message=assistant_message,
+                    content="new question",
+                    uploads=[
+                        UploadItemReference(
+                            id="replacement",
+                            file_name="new.md",
+                            mime_type="text/markdown",
+                            file_size=64,
+                            kind="file",
+                            storage_key=f"{self.user.id}/new.md",
+                            parsed_text="new text",
+                        )
+                    ],
+                    user_id=self.user.id,
+                )
+
+        self.db.refresh(user_message)
+        self.db.refresh(assistant_message)
+        self.assertEqual(user_message.content, "old question")
+        self.assertEqual(assistant_message.content, "old answer")
+        self.assertEqual(assistant_message.status, "done")
+
     def test_prepare_failure_closes_assistant_placeholder(self) -> None:
         async def run_test() -> None:
             service = ChatExecutionService(db=self.db, current_user=self.user)

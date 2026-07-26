@@ -416,6 +416,43 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertEqual(len(listed), 1)
         self.assertEqual(listed[0].document_count, 1)
 
+    def test_add_document_rolls_back_document_when_job_commit_fails(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            KnowledgeDocumentRepository(self.db),
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(name="文档任务原子创建测试", parser_provider="local_basic"),
+        )
+        assert knowledge_base is not None
+
+        with patch.object(self.db, "commit", side_effect=RuntimeError("commit failed")):
+            with self.assertRaisesRegex(RuntimeError, "commit failed"):
+                document_service.add_document(
+                    knowledge_base.id,
+                    self.user.id,
+                    KnowledgeDocumentCreate(
+                        file_name="atomic.md",
+                        mime_type="text/markdown",
+                        file_size=6,
+                        storage_key=f"{self.user.id}/atomic.md",
+                    ),
+                )
+
+        documents = KnowledgeDocumentRepository(self.db).list_by_knowledge_base(
+            knowledge_base.id,
+            self.user.id,
+        )
+        jobs = KnowledgeJobRepository(self.db).list_by_knowledge_base(
+            knowledge_base.id,
+            self.user.id,
+        )
+        self.assertEqual(documents, [])
+        self.assertEqual(jobs, [])
+
     def test_rejects_foreign_storage_key(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
         document_service = KnowledgeDocumentService(
@@ -601,6 +638,147 @@ class KnowledgeServiceTest(unittest.TestCase):
         assert preview is not None
         self.assertIn("# notes", preview.markdown)
         self.assertIn("Runnable", preview.markdown)
+
+    def test_parse_document_is_idempotent_after_success(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            KnowledgeDocumentRepository(self.db),
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(name="解析幂等测试", parser_provider="local_basic"),
+        )
+        assert knowledge_base is not None
+
+        source_file = Path(settings.upload_dir) / self.user.id / "idempotent.md"
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+        source_file.write_text("同一文档不应被重复解析。", encoding="utf-8")
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="idempotent.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/idempotent.md",
+            ),
+        )
+        assert document is not None
+
+        first = document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        second = document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+
+        assert first is not None
+        assert second is not None
+        self.assertEqual(first.job.id, second.job.id)
+        self.assertEqual(second.job.status, "succeeded")
+        self.assertEqual(second.job.retry_count, 1)
+        self.assertIn("不应被重复解析", second.markdown_preview or "")
+
+    def test_parse_job_failure_is_classified_and_explicit_retry_increments_count(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_service = KnowledgeDocumentService(
+            KnowledgeDocumentRepository(self.db),
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(name="解析失败状态测试", parser_provider="local_basic"),
+        )
+        assert knowledge_base is not None
+
+        source_file = Path(settings.upload_dir) / self.user.id / "failed.md"
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+        source_file.write_text("failure", encoding="utf-8")
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="failed.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/failed.md",
+            ),
+        )
+        assert document is not None
+
+        with patch(
+            "app.services.knowledge_service.KnowledgeParserService.parse",
+            side_effect=RuntimeError("provider secret should never be persisted"),
+        ):
+            first = document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+            second = document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+
+        assert first is not None
+        assert second is not None
+        self.assertEqual(first.job.id, second.job.id)
+        self.assertEqual(first.job.status, "failed")
+        self.assertEqual(first.job.error_code, "job_failed")
+        self.assertEqual(first.job.retry_count, 1)
+        self.assertNotIn("provider secret", first.job.error_message or "")
+        self.assertEqual(second.job.retry_count, 2)
+
+    def test_index_document_reuses_successful_job_for_same_request(self) -> None:
+        base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
+        document_repo = KnowledgeDocumentRepository(self.db)
+        document_service = KnowledgeDocumentService(
+            document_repo,
+            KnowledgeBaseRepository(self.db),
+            KnowledgeJobRepository(self.db),
+        )
+        knowledge_base = base_service.create_knowledge_base(
+            self.user.id,
+            KnowledgeBaseCreate(
+                name="索引幂等测试",
+                parser_provider="local_basic",
+                embedding_provider="openai-compatible",
+                embedding_model="fake-embedding",
+                embedding_dimensions=128,
+            ),
+        )
+        assert knowledge_base is not None
+
+        source_file = Path(settings.upload_dir) / self.user.id / "index-idempotent.md"
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+        source_file.write_text("index once", encoding="utf-8")
+        document = document_service.add_document(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeDocumentCreate(
+                file_name="index-idempotent.md",
+                mime_type="text/markdown",
+                file_size=source_file.stat().st_size,
+                storage_key=f"{self.user.id}/index-idempotent.md",
+            ),
+        )
+        assert document is not None
+        parsed = document_service.parse_document(knowledge_base.id, document.id, self.user.id)
+        assert parsed is not None
+        parsed_document = document_repo.get_by_user(document.id, self.user.id)
+        assert parsed_document is not None
+
+        fake_index_service = Mock()
+        fake_index_service.index_document.return_value = SimpleNamespace(
+            chunk_count=1,
+            index_path="/tmp/index-idempotent.json",
+        )
+        with patch(
+            "app.services.knowledge_service.KnowledgeIndexService",
+            return_value=fake_index_service,
+        ):
+            first = document_service.index_document(knowledge_base.id, parsed_document.id, self.user.id)
+            second = document_service.index_document(knowledge_base.id, parsed_document.id, self.user.id)
+
+        assert first is not None
+        assert second is not None
+        self.assertEqual(first.job.id, second.job.id)
+        self.assertEqual(second.job.status, "succeeded")
+        self.assertEqual(second.job.retry_count, 1)
+        self.assertEqual(second.chunk_count, 1)
+        fake_index_service.index_document.assert_called_once()
 
     def test_markdown_preview_endpoint_returns_full_markdown(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))

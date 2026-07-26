@@ -27,18 +27,18 @@ class MessageRepository:
         return list(self.db.scalars(stmt).all())
 
     def create(self, message: Message) -> Message:
-        # 与 ConversationRepository 一样，当前仓储自己 commit；复杂聊天事务后续应上移。
+        # Repository 只 flush；一轮聊天可能还要同时写会话、附件和 assistant 占位消息。
         self._assign_sequence_if_needed(message)
         self.db.add(message)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(message)
         return message
 
     def save(self, message: Message) -> Message:
-        # 流式生成会多次保存 assistant message；调用频率较高时要注意 commit 成本。
+        # 这里只登记变更；流式完成/失败等业务边界由 MessageService 提交。
         self._assign_sequence_if_needed(message)
         self.db.add(message)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(message)
         return message
 
@@ -104,15 +104,14 @@ class MessageRepository:
         if not stale_messages:
             return 0
 
-        self.db.commit()
+        self.db.flush()
         return len(stale_messages)
 
-    def delete(self, message: Message, *, commit: bool = True) -> None:
+    def delete(self, message: Message) -> None:
         self.db.delete(message)
-        if commit:
-            self.db.commit()
+        self.db.flush()
 
-    def bulk_delete(self, conversation_id: str, message_ids: list[str], *, commit: bool = True) -> int:
+    def bulk_delete(self, conversation_id: str, message_ids: list[str]) -> int:
         # bulk_delete 仍然按 conversation_id 收口，传入其他会话的 message_id 不会被删除。
         if not message_ids:
             return 0
@@ -120,8 +119,7 @@ class MessageRepository:
         messages = self.list_by_ids_and_conversation(conversation_id, message_ids)
         for message in messages:
             self.db.delete(message)
-        if commit:
-            self.db.commit()
+        self.db.flush()
         return len(messages)
 
     def delete_by_conversation(self, conversation_id: str) -> int:
@@ -130,5 +128,5 @@ class MessageRepository:
         messages = list(self.db.scalars(stmt).all())
         for message in messages:
             self.db.delete(message)
-        self.db.commit()
+        self.db.flush()
         return len(messages)

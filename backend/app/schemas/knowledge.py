@@ -121,6 +121,7 @@ class KnowledgeJobResponse(BaseModel):
     status: str
     payload_json: str | None = None
     retry_count: int
+    error_code: str | None = None
     error_message: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None

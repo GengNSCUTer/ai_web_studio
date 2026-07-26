@@ -198,6 +198,19 @@ class ConversationMessageContractTest(unittest.TestCase):
         self.assertEqual(second.sequence, 2)
         self.assertEqual([message.id for message in repo.list_by_conversation(conversation.id)], [first.id, second.id])
 
+    def test_conversation_and_message_repositories_do_not_commit_the_unit_of_work(self) -> None:
+        conversation_repo = ConversationRepository(self.db)
+        message_repo = MessageRepository(self.db)
+        conversation = conversation_repo.create(
+            Conversation(user_id=self.user.id, title="rollback", model_name="model")
+        )
+        message_repo.create(Message(conversation_id=conversation.id, role="user", content="rollback me"))
+
+        self.db.rollback()
+
+        self.assertEqual(conversation_repo.list_by_user(self.user.id), [])
+        self.assertEqual(message_repo.list_by_conversation(conversation.id), [])
+
     def test_conversation_list_supports_limit_and_offset(self) -> None:
         repo = ConversationRepository(self.db)
         for index in range(3):

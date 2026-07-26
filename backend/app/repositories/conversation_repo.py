@@ -43,17 +43,17 @@ class ConversationRepository:
         return self.db.scalars(stmt).first()
 
     def create(self, conversation: Conversation) -> Conversation:
-        # 目前会话仓储仍然自己提交事务，适合简单 CRUD。
-        # 如果一次业务要同时写 conversation/message/tool trace，事务边界应上移到 service。
+        # Repository 只把变更 flush 到当前事务；commit/rollback 由 Service/用例编排层控制。
+        # flush 后可以拿到数据库默认值和主键，但其他事务仍看不到这条未提交记录。
         self.db.add(conversation)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(conversation)
         return conversation
 
     def save(self, conversation: Conversation) -> Conversation:
-        # save 会提交当前 Session 里所有待提交对象；调用前要避免混入不相关脏对象。
+        # save 不擅自提交，避免一次跨 Repository 业务被切成多个不可回滚的小事务。
         self.db.add(conversation)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(conversation)
         return conversation
 
@@ -73,7 +73,7 @@ class ConversationRepository:
         conversation.context_summary = context_summary
         conversation.context_summary_boundary_message_id = context_summary_boundary_message_id
         self.db.add(conversation)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(conversation)
         return conversation
 
@@ -85,11 +85,9 @@ class ConversationRepository:
             .values(updated_at=func.now())
         )
         self.db.execute(stmt)
-        self.db.commit()
 
-    def delete(self, conversation: Conversation, *, commit: bool = True) -> None:
+    def delete(self, conversation: Conversation) -> None:
         # 删除 conversation 会通过 ORM cascade 删除 messages/shares。
         # 无外键级联的引用表需要在 service 中先解除引用。
         self.db.delete(conversation)
-        if commit:
-            self.db.commit()
+        self.db.flush()

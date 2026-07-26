@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.models.attachment import Attachment
 from app.models.message import Message
 from app.repositories.attachment_repo import AttachmentRepository
+from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.knowledge_repo import KnowledgeRetrievalLogRepository
 from app.repositories.message_repo import MessageRepository
 from app.schemas.message import MessageCreate, MessageResponse
@@ -17,16 +18,30 @@ class MessageService:
     它负责消息创建/删除、附件挂载、RAG 日志断链和出站序列化。
     """
 
-    def __init__(self, repo: MessageRepository, attachment_repo: AttachmentRepository | None = None):
+    def __init__(
+        self,
+        repo: MessageRepository,
+        attachment_repo: AttachmentRepository | None = None,
+        conversation_repo: ConversationRepository | None = None,
+    ):
         self.repo = repo
         self.attachment_repo = attachment_repo
+        self.conversation_repo = conversation_repo
 
     def list_messages(self, conversation_id: str) -> list[MessageResponse]:
         # 读取列表时修复过期 streaming 状态，是为了让服务重启/断流后的 UI 能恢复一致状态。
-        self.repo.mark_stale_streaming_messages(conversation_id)
+        stale_count = self.repo.mark_stale_streaming_messages(conversation_id)
+        if stale_count:
+            self._commit()
         return [self._serialize_message(item) for item in self.repo.list_by_conversation(conversation_id)]
 
-    def create_message(self, conversation_id: str, payload: MessageCreate) -> MessageResponse:
+    def create_message(
+        self,
+        conversation_id: str,
+        payload: MessageCreate,
+        *,
+        commit: bool = True,
+    ) -> MessageResponse:
         # 公开创建入口只接受 user 消息；assistant/system 消息由 create_system_message 给内部编排链路使用。
         message = Message(
             conversation_id=conversation_id,
@@ -35,6 +50,10 @@ class MessageService:
             status="done",
         )
         created = self.repo.create(message)
+        self._touch_conversation(conversation_id)
+        if commit:
+            self._commit()
+            self.repo.db.refresh(created)
         return self._serialize_message(created)
 
     def create_system_message(
@@ -43,6 +62,8 @@ class MessageService:
         role: str,
         content: str,
         status: str = "done",
+        *,
+        commit: bool = True,
     ) -> Message:
         # 内部写消息入口。名字中的 system 不是指 role=system，而是“系统内部可信调用”。
         # ChatTurnBootstrapper 会用它创建 user 和 assistant 两类消息。
@@ -52,10 +73,18 @@ class MessageService:
             content=content,
             status=status,
         )
-        return self.repo.create(message)
+        created = self.repo.create(message)
+        if commit:
+            self._commit()
+            self.repo.db.refresh(created)
+        return created
 
-    def save_message(self, message: Message) -> MessageResponse:
+    def save_message(self, message: Message, *, commit: bool = True) -> MessageResponse:
         saved = self.repo.save(message)
+        self._touch_conversation(message.conversation_id)
+        if commit:
+            self._commit()
+            self.repo.db.refresh(saved)
         return self._serialize_message(saved)
 
     def attach_uploaded_items(
@@ -64,6 +93,7 @@ class MessageService:
         message_id: str,
         uploads: list[UploadItemReference],
         user_id: str,
+        commit: bool = True,
     ) -> list[Attachment]:
         # 上传文件必须位于当前用户目录下。storage_key 前缀校验是防止把别人的上传挂到自己的消息上。
         if not uploads:
@@ -92,7 +122,12 @@ class MessageService:
                 )
             )
 
-        return self.attachment_repo.create_many(attachments)
+        created = self.attachment_repo.create_many(attachments)
+        if commit:
+            self._commit()
+            for attachment in created:
+                self.repo.db.refresh(attachment)
+        return created
 
     def replace_uploaded_items(
         self,
@@ -100,6 +135,7 @@ class MessageService:
         message_id: str,
         uploads: list[UploadItemReference],
         user_id: str,
+        commit: bool = True,
     ) -> list[Attachment]:
         # 编辑上一条用户消息时使用：先删除旧附件元数据，再挂载新上传项。
         # 这里不负责删除物理文件，避免误删仍被其他引用使用的上传文件。
@@ -107,7 +143,61 @@ class MessageService:
             raise RuntimeError("Attachment repository is required for replacing uploads")
 
         self.attachment_repo.delete_by_message_id(message_id)
-        return self.attach_uploaded_items(message_id=message_id, uploads=uploads, user_id=user_id)
+        attachments = self.attach_uploaded_items(
+            message_id=message_id,
+            uploads=uploads,
+            user_id=user_id,
+            commit=False,
+        )
+        if commit:
+            self._commit()
+            for attachment in attachments:
+                self.repo.db.refresh(attachment)
+        return attachments
+
+    def reset_assistant_for_regeneration(self, assistant_message: Message) -> None:
+        self._reset_assistant(assistant_message)
+        self.repo.save(assistant_message)
+        self._touch_conversation(assistant_message.conversation_id)
+        self._commit()
+        self.repo.db.refresh(assistant_message)
+
+    def edit_and_reset_for_regeneration(
+        self,
+        *,
+        user_message: Message,
+        assistant_message: Message,
+        content: str,
+        uploads: list[UploadItemReference] | None,
+        user_id: str,
+    ) -> list[Attachment] | None:
+        """原子保存编辑后的用户消息、附件替换和 assistant 重置。"""
+
+        try:
+            user_message.content = content
+            self.repo.save(user_message)
+            attachments: list[Attachment] | None = None
+            if uploads is not None:
+                attachments = self.replace_uploaded_items(
+                    message_id=user_message.id,
+                    uploads=uploads,
+                    user_id=user_id,
+                    commit=False,
+                )
+                user_message.attachments = attachments
+
+            self._reset_assistant(assistant_message)
+            self.repo.save(assistant_message)
+            self._touch_conversation(user_message.conversation_id)
+            self.repo.db.commit()
+            self.repo.db.refresh(user_message)
+            self.repo.db.refresh(assistant_message)
+            for attachment in attachments or []:
+                self.repo.db.refresh(attachment)
+            return attachments
+        except Exception:
+            self.repo.db.rollback()
+            raise
 
     def delete_message(self, message_id: str, conversation_id: str) -> bool:
         # 删除消息前先解除 RAG 日志中的消息引用，避免来源定位指向不存在的 message_id。
@@ -120,7 +210,8 @@ class MessageService:
                 message_ids=[message.id],
                 commit=False,
             )
-            self.repo.delete(message, commit=False)
+            self.repo.delete(message)
+            self._touch_conversation(conversation_id)
             self.repo.db.commit()
         except Exception:
             self.repo.db.rollback()
@@ -139,12 +230,31 @@ class MessageService:
                     message_ids=scoped_message_ids,
                     commit=False,
                 )
-            deleted_count = self.repo.bulk_delete(conversation_id, scoped_message_ids, commit=False)
+            deleted_count = self.repo.bulk_delete(conversation_id, scoped_message_ids)
+            self._touch_conversation(conversation_id)
             self.repo.db.commit()
             return deleted_count
         except Exception:
             self.repo.db.rollback()
             raise
+
+    def _touch_conversation(self, conversation_id: str) -> None:
+        if self.conversation_repo:
+            self.conversation_repo.touch(conversation_id)
+
+    def _commit(self) -> None:
+        try:
+            self.repo.db.commit()
+        except Exception:
+            self.repo.db.rollback()
+            raise
+
+    @staticmethod
+    def _reset_assistant(message: Message) -> None:
+        message.content = ""
+        message.reasoning_content = None
+        message.external_sources = None
+        message.status = "streaming"
 
     def _serialize_message(self, message: Message) -> MessageResponse:
         # 不直接使用 model_validate 的原因是附件需要转换成前端可再次引用的 UploadItemReference。

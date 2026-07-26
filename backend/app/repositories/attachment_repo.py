@@ -13,7 +13,7 @@ class AttachmentRepository:
             return []
 
         self.db.add_all(attachments)
-        self.db.commit()
+        self.db.flush()
 
         for attachment in attachments:
             self.db.refresh(attachment)
@@ -31,7 +31,7 @@ class AttachmentRepository:
             return []
 
         self.db.add_all(attachments)
-        self.db.commit()
+        self.db.flush()
         for attachment in attachments:
             self.db.refresh(attachment)
         return attachments
@@ -39,5 +39,5 @@ class AttachmentRepository:
     def delete_by_message_id(self, message_id: str) -> int:
         stmt = delete(Attachment).where(Attachment.message_id == message_id)
         result = self.db.execute(stmt)
-        self.db.commit()
+        self.db.flush()
         return int(result.rowcount or 0)

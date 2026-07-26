@@ -88,6 +88,21 @@ class KnowledgeDocumentRepository:
         )
         return self.db.scalars(stmt).first()
 
+    def get_by_user_for_update(self, document_id: str, user_id: str) -> KnowledgeDocument | None:
+        """Serialize the short job-claim section for one document.
+
+        PostgreSQL holds this row lock until the service marks the selected Job as
+        running and commits.  The external parser/embedding call happens afterwards,
+        so the database lock is not held during the long-running work.
+        """
+        stmt = (
+            select(KnowledgeDocument)
+            .where(KnowledgeDocument.id == document_id, KnowledgeDocument.user_id == user_id)
+            .with_for_update()
+            .limit(1)
+        )
+        return self.db.scalars(stmt).first()
+
     def save(self, document: KnowledgeDocument) -> KnowledgeDocument:
         self.db.add(document)
         self.db.commit()

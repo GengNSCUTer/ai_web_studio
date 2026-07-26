@@ -103,6 +103,31 @@ class ChatTurnBootstrapper:
             )
 
     def bootstrap_new_turn(self, *, payload: ChatStreamRequest, default_settings: object) -> NewTurnBootstrapResult:
+        """原子创建一轮聊天的全部数据库骨架。
+
+        Repository 只会 flush；只有会话、用户消息、附件、assistant 占位和 touch 全部成功后
+        才统一 commit。任一步失败都会 rollback，避免刷新后出现半轮对话。
+        """
+
+        try:
+            result = self._bootstrap_new_turn_uncommitted(payload=payload, default_settings=default_settings)
+            self.conversation_repo.db.commit()
+            self.conversation_repo.db.refresh(result.conversation)
+            self.conversation_repo.db.refresh(result.user_message)
+            self.conversation_repo.db.refresh(result.assistant_message)
+            for attachment in list(getattr(result.user_message, "attachments", []) or []):
+                self.conversation_repo.db.refresh(attachment)
+            return result
+        except Exception:
+            self.conversation_repo.db.rollback()
+            raise
+
+    def _bootstrap_new_turn_uncommitted(
+        self,
+        *,
+        payload: ChatStreamRequest,
+        default_settings: object,
+    ) -> NewTurnBootstrapResult:
         # 如果传了 conversation_id，本轮必须落在当前用户自己的会话里。
         # 如果没传，则按当前输入创建新会话，并使用用户默认模型/系统提示兜底。
         conversation = None
@@ -121,6 +146,7 @@ class ChatTurnBootstrapper:
                     or clean_optional_str(getattr(default_settings, "system_prompt", None)),
                 ),
                 self.user_id,
+                commit=False,
             )
             if not conversation_response:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
@@ -148,11 +174,13 @@ class ChatTurnBootstrapper:
             role="user",
             content=payload.content,
             status="done",
+            commit=False,
         )
         attachments = self.message_service.attach_uploaded_items(
             message_id=user_message.id,
             uploads=payload.attachments,
             user_id=self.user_id,
+            commit=False,
         )
         if attachments:
             user_message.attachments = attachments
@@ -165,6 +193,7 @@ class ChatTurnBootstrapper:
             role="assistant",
             content="",
             status="streaming",
+            commit=False,
         )
         self.conversation_repo.touch(conversation.id)
 

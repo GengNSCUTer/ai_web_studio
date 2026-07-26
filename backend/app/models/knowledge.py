@@ -144,6 +144,8 @@ class KnowledgeJob(Base):
     status: Mapped[str] = mapped_column(String(32), default="pending")
     payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 机器可读的失败分类；error_message 只保存脱敏后的用户可见文案。
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

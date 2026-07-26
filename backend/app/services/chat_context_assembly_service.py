@@ -212,6 +212,8 @@ class ChatContextAssemblyService:
         conversation.last_prompt_prefix_token_count = prompt_diagnostics.prompt_prefix_tokens or None
         # prefix hash 只是观测/缓存命中诊断字段，不影响业务权限。
         self.conversation_repo.save(conversation)
+        # ConversationRepository 只 flush；摘要边界与 prefix 诊断在 Context Assembly 用例末尾统一提交。
+        self.db.commit()
 
         summary_text = summary_bundle.summary or clean_optional_str(getattr(conversation, "context_summary", None)) or ""
         summary_tokens = runtime.tokenizer.estimate_text_tokens(summary_text)

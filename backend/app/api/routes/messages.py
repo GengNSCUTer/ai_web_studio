@@ -24,7 +24,7 @@ def list_messages(
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
-    service = MessageService(MessageRepository(db), AttachmentRepository(db))
+    service = MessageService(MessageRepository(db), AttachmentRepository(db), ConversationRepository(db))
     messages = service.list_messages(conversation_id)
     events_by_message_id = ToolTraceRepository(db).get_events_by_assistant_messages(
         [message.id for message in messages if message.role == "assistant"]
@@ -50,9 +50,8 @@ def create_message(
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
-    service = MessageService(MessageRepository(db), AttachmentRepository(db))
+    service = MessageService(MessageRepository(db), AttachmentRepository(db), conversation_repo)
     created = service.create_message(conversation_id, payload)
-    conversation_repo.touch(conversation_id)
     return created
 
 
@@ -69,12 +68,10 @@ def delete_message(
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
-    service = MessageService(MessageRepository(db), AttachmentRepository(db))
+    service = MessageService(MessageRepository(db), AttachmentRepository(db), conversation_repo)
     deleted = service.delete_message(message_id, conversation_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
-
-    conversation_repo.touch(conversation_id)
 
 
 @router.post("/bulk-delete")
@@ -90,7 +87,6 @@ def bulk_delete_messages(
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
-    service = MessageService(MessageRepository(db), AttachmentRepository(db))
+    service = MessageService(MessageRepository(db), AttachmentRepository(db), conversation_repo)
     deleted_count = service.bulk_delete_messages(conversation_id, payload.message_ids)
-    conversation_repo.touch(conversation_id)
     return {"deleted_count": deleted_count}

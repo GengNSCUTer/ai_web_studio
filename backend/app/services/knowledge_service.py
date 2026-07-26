@@ -49,6 +49,47 @@ class KnowledgeDocumentConflictError(RuntimeError):
     """Raised when deleting a document would invalidate user-owned dependent data."""
 
 
+JOB_STATUS_PENDING = "pending"
+JOB_STATUS_RUNNING = "running"
+JOB_STATUS_SUCCEEDED = "succeeded"
+JOB_STATUS_FAILED = "failed"
+
+
+def _classify_job_error(exc: Exception) -> str:
+    """Return a stable, non-sensitive error code for a synchronous job attempt.
+
+    Scheme A intentionally does not retry in the background.  The code still records
+    whether a future explicit retry is plausible, without persisting provider URLs,
+    tokens, or raw exception text.
+    """
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return "provider_unavailable"
+    if isinstance(exc, (PermissionError, FileNotFoundError, ValueError)):
+        return "invalid_request"
+    message = str(exc).lower()
+    if any(marker in message for marker in ("timeout", "timed out", "rate limit", "429", "502", "503")):
+        return "provider_unavailable"
+    return "job_failed"
+
+
+def _safe_job_error_message(error_code: str) -> str:
+    return {
+        "provider_unavailable": "外部服务暂时不可用，请稍后重试。",
+        "invalid_request": "任务输入或资源状态不合法，请修正后重试。",
+        "job_failed": "任务执行失败，请稍后重试或查看服务日志。",
+    }.get(error_code, "任务执行失败，请稍后重试。")
+
+
+def _payload_object(payload_json: str | None) -> dict[str, object]:
+    if not payload_json:
+        return {}
+    try:
+        payload = json.loads(payload_json)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 class KnowledgeBaseService:
     ALLOWED_PARSERS = {"local_basic", "mineru"}
     ALLOWED_CHUNK_MODES = {"general", "parent_child"}
@@ -212,6 +253,24 @@ class KnowledgeDocumentService:
         self.setting_repo = setting_repo or UserSettingRepository(document_repo.db)
         self.eval_case_repo = eval_case_repo or KnowledgeEvalCaseRepository(document_repo.db)
 
+    def _save_document_and_job(
+        self,
+        *,
+        document: KnowledgeDocument,
+        job: KnowledgeJob,
+    ) -> tuple[KnowledgeDocument, KnowledgeJob]:
+        """Persist one Job transition and its document state as one unit of work."""
+        db = self.document_repo.db
+        try:
+            db.add_all([document, job])
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        db.refresh(document)
+        db.refresh(job)
+        return document, job
+
     def list_documents(self, knowledge_base_id: str, user_id: str) -> list[KnowledgeDocumentResponse] | None:
         if not self.base_repo.get_by_user(knowledge_base_id, user_id):
             return None
@@ -244,17 +303,25 @@ class KnowledgeDocumentService:
             parse_status="pending",
             index_status="pending",
         )
-        saved = self.document_repo.save(document)
-        job = KnowledgeJob(
-            user_id=user_id,
-            knowledge_base_id=knowledge_base.id,
-            document_id=saved.id,
-            job_type="parse_document",
-            status="pending",
-            payload_json=json.dumps({"storage_key": saved.storage_key}, ensure_ascii=False),
-        )
-        self.job_repo.save(job)
-        return KnowledgeDocumentResponse.model_validate(saved)
+        db = self.document_repo.db
+        try:
+            db.add(document)
+            db.flush()
+            job = KnowledgeJob(
+                user_id=user_id,
+                knowledge_base_id=knowledge_base.id,
+                document_id=document.id,
+                job_type="parse_document",
+                status=JOB_STATUS_PENDING,
+                payload_json=json.dumps({"storage_key": document.storage_key}, ensure_ascii=False),
+            )
+            db.add(job)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        db.refresh(document)
+        return KnowledgeDocumentResponse.model_validate(document)
 
     def delete_document(self, knowledge_base_id: str, document_id: str, user_id: str) -> bool:
         document = self.document_repo.get_by_user(document_id, user_id)
@@ -281,7 +348,7 @@ class KnowledgeDocumentService:
         user_id: str,
     ) -> KnowledgeDocumentParseResponse | None:
         knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
-        document = self.document_repo.get_by_user(document_id, user_id)
+        document = self.document_repo.get_by_user_for_update(document_id, user_id)
         if not knowledge_base or not document or document.knowledge_base_id != knowledge_base.id:
             return None
 
@@ -290,26 +357,48 @@ class KnowledgeDocumentService:
             user_id=user_id,
             job_type="parse_document",
         )
-        if not job or job.status not in {"pending", "failed"}:
+        # 同一文档的解析请求是幂等的：已经执行中的任务不再并发启动，
+        # 已成功的任务直接返回已有状态。当前仍是同步 HTTP 执行，因此
+        # running 任务没有 lease，不能在这里擅自接管。
+        if job and job.status in {JOB_STATUS_RUNNING, JOB_STATUS_SUCCEEDED}:
+            markdown_preview = None
+            if job.status == JOB_STATUS_SUCCEEDED and document.parsed_markdown_path:
+                try:
+                    markdown = KnowledgeParserService().preview_markdown(
+                        markdown_path=document.parsed_markdown_path,
+                        user_id=user_id,
+                    )
+                    markdown_preview = markdown[: KnowledgeParserService.MAX_MARKDOWN_PREVIEW_CHARS]
+                except (OSError, ValueError):
+                    # Job 仍保持已成功的历史事实；预览文件异常由专用预览接口明确报告。
+                    markdown_preview = None
+            return KnowledgeDocumentParseResponse(
+                document=KnowledgeDocumentResponse.model_validate(document),
+                job=KnowledgeJobResponse.model_validate(job),
+                markdown_preview=markdown_preview,
+            )
+        now = datetime.now(timezone.utc)
+        if not job:
             job = KnowledgeJob(
                 user_id=user_id,
                 knowledge_base_id=knowledge_base.id,
                 document_id=document.id,
                 job_type="parse_document",
-                status="pending",
+                status=JOB_STATUS_RUNNING,
                 payload_json=json.dumps({"storage_key": document.storage_key}, ensure_ascii=False),
+                retry_count=1,
+                started_at=now,
             )
-            job = self.job_repo.save(job)
-
-        now = datetime.now(timezone.utc)
-        job.status = "running"
-        job.started_at = now
-        job.finished_at = None
-        job.error_message = None
+        else:
+            job.status = JOB_STATUS_RUNNING
+            job.retry_count = (job.retry_count or 0) + 1
+            job.started_at = now
+            job.finished_at = None
+            job.error_code = None
+            job.error_message = None
         document.parse_status = "parsing"
         document.error_message = None
-        self.job_repo.save(job)
-        self.document_repo.save(document)
+        document, job = self._save_document_and_job(document=document, job=job)
 
         parser = KnowledgeParserService(credential_resolver=ToolCredentialResolver(self.document_repo.db))
         try:
@@ -319,23 +408,26 @@ class KnowledgeDocumentService:
             document.parsed_markdown_path = result.markdown_path
             document.parsed_assets_json = result.assets_json
             document.error_message = None
-            saved_document = self.document_repo.save(document)
-            job.status = "succeeded"
+            job.status = JOB_STATUS_SUCCEEDED
+            job.error_code = None
+            job.error_message = None
             job.finished_at = datetime.now(timezone.utc)
-            saved_job = self.job_repo.save(job)
+            saved_document, saved_job = self._save_document_and_job(document=document, job=job)
             return KnowledgeDocumentParseResponse(
                 document=KnowledgeDocumentResponse.model_validate(saved_document),
                 job=KnowledgeJobResponse.model_validate(saved_job),
                 markdown_preview=result.markdown_preview,
             )
         except Exception as exc:
+            error_code = _classify_job_error(exc)
+            safe_message = _safe_job_error_message(error_code)
             document.parse_status = "failed"
-            document.error_message = str(exc)
-            saved_document = self.document_repo.save(document)
-            job.status = "failed"
-            job.error_message = str(exc)
+            document.error_message = safe_message
+            job.status = JOB_STATUS_FAILED
+            job.error_code = error_code
+            job.error_message = safe_message
             job.finished_at = datetime.now(timezone.utc)
-            saved_job = self.job_repo.save(job)
+            saved_document, saved_job = self._save_document_and_job(document=document, job=job)
             return KnowledgeDocumentParseResponse(
                 document=KnowledgeDocumentResponse.model_validate(saved_document),
                 job=KnowledgeJobResponse.model_validate(saved_job),
@@ -382,30 +474,65 @@ class KnowledgeDocumentService:
         user_id: str,
     ) -> KnowledgeDocumentIndexResponse | None:
         knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
-        document = self.document_repo.get_by_user(document_id, user_id)
+        document = self.document_repo.get_by_user_for_update(document_id, user_id)
         if not knowledge_base or not document or document.knowledge_base_id != knowledge_base.id:
             return None
 
-        job = KnowledgeJob(
-            user_id=user_id,
-            knowledge_base_id=knowledge_base.id,
+        request_payload: dict[str, object] = {
+            "embedding_provider": knowledge_base.embedding_provider,
+            "embedding_model": knowledge_base.embedding_model,
+            "embedding_dimensions": knowledge_base.embedding_dimensions,
+            "document_version": document.document_version,
+            "content_hash": document.content_hash,
+        }
+        previous_job = self.job_repo.latest_by_document_type(
             document_id=document.id,
+            user_id=user_id,
             job_type="index_document",
-            status="running",
-            payload_json=json.dumps(
-                {
-                    "embedding_provider": knowledge_base.embedding_provider,
-                    "embedding_model": knowledge_base.embedding_model,
-                    "embedding_dimensions": knowledge_base.embedding_dimensions,
-                },
-                ensure_ascii=False,
-            ),
-            started_at=datetime.now(timezone.utc),
         )
-        job = self.job_repo.save(job)
+        previous_payload = _payload_object(previous_job.payload_json) if previous_job else {}
+        previous_request = previous_payload.get("request", previous_payload)
+        same_request = isinstance(previous_request, dict) and previous_request == request_payload
+
+        # 相同文档版本 + 相同 Embedding 签名的索引请求可以复用结果；
+        # 这避免用户重复点击 index 时产生多条无意义 Job 和重复外部调用。
+        if previous_job and same_request and previous_job.status in {
+            JOB_STATUS_RUNNING,
+            JOB_STATUS_SUCCEEDED,
+        }:
+            result_payload = previous_payload.get("result")
+            result = result_payload if isinstance(result_payload, dict) else {}
+            chunk_count = int(result.get("chunk_count") or len(self.chunk_repo.list_by_document(document.id, user_id)))
+            return KnowledgeDocumentIndexResponse(
+                document=KnowledgeDocumentResponse.model_validate(document),
+                job=KnowledgeJobResponse.model_validate(previous_job),
+                chunk_count=chunk_count,
+                index_path=result.get("index_path") if isinstance(result.get("index_path"), str) else None,
+            )
+
+        if previous_job and same_request and previous_job.status == JOB_STATUS_FAILED:
+            job = previous_job
+        else:
+            job = KnowledgeJob(
+                user_id=user_id,
+                knowledge_base_id=knowledge_base.id,
+                document_id=document.id,
+                job_type="index_document",
+                status=JOB_STATUS_RUNNING,
+                payload_json=json.dumps({"request": request_payload}, ensure_ascii=False),
+                retry_count=1,
+                started_at=datetime.now(timezone.utc),
+            )
+        if job is previous_job:
+            job.status = JOB_STATUS_RUNNING
+            job.retry_count = (job.retry_count or 0) + 1
+            job.started_at = datetime.now(timezone.utc)
+            job.finished_at = None
+            job.error_code = None
+            job.error_message = None
         document.index_status = "indexing"
         document.error_message = None
-        self.document_repo.save(document)
+        document, job = self._save_document_and_job(document=document, job=job)
 
         index_service = KnowledgeIndexService(
             chunk_repo=self.chunk_repo,
@@ -415,9 +542,21 @@ class KnowledgeDocumentService:
         try:
             result = index_service.index_document(user_id=user_id, knowledge_base=knowledge_base, document=document)
             saved_document = self.document_repo.get_by_user(document.id, user_id) or document
-            job.status = "succeeded"
+            job.status = JOB_STATUS_SUCCEEDED
+            job.error_code = None
+            job.error_message = None
+            job.payload_json = json.dumps(
+                {
+                    "request": request_payload,
+                    "result": {
+                        "chunk_count": result.chunk_count,
+                        "index_path": result.index_path,
+                    },
+                },
+                ensure_ascii=False,
+            )
             job.finished_at = datetime.now(timezone.utc)
-            saved_job = self.job_repo.save(job)
+            saved_document, saved_job = self._save_document_and_job(document=saved_document, job=job)
             return KnowledgeDocumentIndexResponse(
                 document=KnowledgeDocumentResponse.model_validate(saved_document),
                 job=KnowledgeJobResponse.model_validate(saved_job),
@@ -425,13 +564,15 @@ class KnowledgeDocumentService:
                 index_path=result.index_path,
             )
         except Exception as exc:
+            error_code = _classify_job_error(exc)
+            safe_message = _safe_job_error_message(error_code)
             document.index_status = "failed"
-            document.error_message = str(exc)
-            saved_document = self.document_repo.save(document)
-            job.status = "failed"
-            job.error_message = str(exc)
+            document.error_message = safe_message
+            job.status = JOB_STATUS_FAILED
+            job.error_code = error_code
+            job.error_message = safe_message
             job.finished_at = datetime.now(timezone.utc)
-            saved_job = self.job_repo.save(job)
+            saved_document, saved_job = self._save_document_and_job(document=document, job=job)
             return KnowledgeDocumentIndexResponse(
                 document=KnowledgeDocumentResponse.model_validate(saved_document),
                 job=KnowledgeJobResponse.model_validate(saved_job),

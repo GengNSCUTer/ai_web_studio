@@ -219,7 +219,6 @@ def _persist_stream_result(
     )
     context.assistant_message.status = status_value
     context.message_service.save_message(context.assistant_message)
-    context.conversation_repo.touch(context.conversation.id)
 
 
 def _build_streaming_response(
@@ -372,6 +371,7 @@ async def regenerate_last_answer_stream(
     provider_service = ChatProviderService()
     conversation_repo = ConversationRepository(db)
     message_repo = MessageRepository(db)
+    message_service = MessageService(message_repo, AttachmentRepository(db), conversation_repo)
 
     conversation = conversation_repo.get_by_user(payload.conversation_id, current_user.id)
     if not conversation:
@@ -393,11 +393,7 @@ async def regenerate_last_answer_stream(
     if not user_message:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未找到对应的上一条用户消息")
 
-    assistant_message.content = ""
-    assistant_message.reasoning_content = None
-    assistant_message.external_sources = None
-    assistant_message.status = "streaming"
-    message_repo.save(assistant_message)
+    message_service.reset_assistant_for_regeneration(assistant_message)
 
     context = await ChatExecutionService(db=db, current_user=current_user).prepare_existing_turn_execution(
         ExistingTurnExecutionInput(
@@ -428,7 +424,7 @@ async def edit_last_user_stream(
     conversation_repo = ConversationRepository(db)
     message_repo = MessageRepository(db)
     attachment_repo = AttachmentRepository(db)
-    message_service = MessageService(message_repo, attachment_repo)
+    message_service = MessageService(message_repo, attachment_repo, conversation_repo)
 
     conversation = conversation_repo.get_by_user(payload.conversation_id, current_user.id)
     if not conversation:
@@ -453,21 +449,15 @@ async def edit_last_user_stream(
     ):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前仅支持编辑最后一条用户消息并重新回答")
 
-    user_message.content = content
-    message_repo.save(user_message)
     if payload.attachments is not None:
         ChatExecutionService.validate_attachment_context_inputs(payload.attachments)
-        user_message.attachments = message_service.replace_uploaded_items(
-            message_id=user_message.id,
-            uploads=payload.attachments,
-            user_id=current_user.id,
-        )
-
-    assistant_message.content = ""
-    assistant_message.reasoning_content = None
-    assistant_message.external_sources = None
-    assistant_message.status = "streaming"
-    message_repo.save(assistant_message)
+    message_service.edit_and_reset_for_regeneration(
+        user_message=user_message,
+        assistant_message=assistant_message,
+        content=content,
+        uploads=payload.attachments,
+        user_id=current_user.id,
+    )
 
     context = await ChatExecutionService(db=db, current_user=current_user).prepare_existing_turn_execution(
         ExistingTurnExecutionInput(

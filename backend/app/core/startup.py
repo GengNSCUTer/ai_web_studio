@@ -177,6 +177,10 @@ def ensure_runtime_schema() -> None:
             "alter table knowledge_bases add column active_index_generation varchar(64) not null default 'legacy'"
         )
 
+    knowledge_job_columns = _get_column_names("knowledge_jobs")
+    if knowledge_job_columns and "error_code" not in knowledge_job_columns:
+        statements.append("alter table knowledge_jobs add column error_code varchar(64)")
+
     knowledge_chunk_columns = _get_column_names("knowledge_chunks")
     if knowledge_chunk_columns and "metadata_json" not in knowledge_chunk_columns:
         statements.append("alter table knowledge_chunks add column metadata_json text")
