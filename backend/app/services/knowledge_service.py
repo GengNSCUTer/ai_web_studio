@@ -2,12 +2,14 @@ import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.models.tool_config import UserToolCredential
-from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeJob
+from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeJob, OutboxEvent
 from app.repositories.knowledge_repo import (
     KnowledgeBaseRepository,
     KnowledgeChunkRepository,
@@ -53,6 +55,7 @@ JOB_STATUS_PENDING = "pending"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_SUCCEEDED = "succeeded"
 JOB_STATUS_FAILED = "failed"
+JOB_STATUS_DEAD_LETTER = "dead_letter"
 
 
 def _classify_job_error(exc: Exception) -> str:
@@ -313,7 +316,10 @@ class KnowledgeDocumentService:
                 document_id=document.id,
                 job_type="parse_document",
                 status=JOB_STATUS_PENDING,
+                idempotency_key=f"parse:{document.id}:{document.document_version}",
                 payload_json=json.dumps({"storage_key": document.storage_key}, ensure_ascii=False),
+                max_attempts=settings.knowledge_job_max_attempts,
+                available_at=datetime.now(timezone.utc),
             )
             db.add(job)
             db.commit()
@@ -340,6 +346,169 @@ class KnowledgeDocumentService:
                 "该文档仍被关联数据引用，暂时无法删除。"
             ) from exc
         return True
+
+    def _has_delivery(self, job_id: str) -> bool:
+        stmt = (
+            select(OutboxEvent.id)
+            .where(
+                OutboxEvent.aggregate_id == job_id,
+                OutboxEvent.status.in_({"pending", "publishing", "published"}),
+            )
+            .limit(1)
+        )
+        return self.document_repo.db.scalar(stmt) is not None
+
+    def _enqueue(self, *, document: KnowledgeDocument, job: KnowledgeJob, document_status_field: str) -> None:
+        now = datetime.now(timezone.utc)
+        job.status = JOB_STATUS_PENDING
+        job.available_at = now
+        job.lease_owner = None
+        job.lease_expires_at = None
+        job.heartbeat_at = None
+        job.finished_at = None
+        job.dead_lettered_at = None
+        job.error_code = None
+        job.error_message = None
+        job.max_attempts = job.max_attempts or settings.knowledge_job_max_attempts
+        setattr(document, document_status_field, "queued")
+        document.error_message = None
+        db = self.document_repo.db
+        try:
+            db.add_all([document, job])
+            db.flush()
+            if not self._has_delivery(job.id):
+                db.add(
+                    OutboxEvent(
+                        event_key=f"knowledge-job:{job.id}",
+                        aggregate_id=job.id,
+                        payload_json=json.dumps(
+                            {"event_id": f"knowledge-job:{job.id}", "job_id": job.id},
+                            ensure_ascii=False,
+                        ),
+                        status="pending",
+                        available_at=now,
+                    )
+                )
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        db.refresh(document)
+        db.refresh(job)
+
+    def enqueue_parse_document(
+        self,
+        knowledge_base_id: str,
+        document_id: str,
+        user_id: str,
+    ) -> KnowledgeDocumentParseResponse | None:
+        """Atomically persist a parse Job and Outbox intent; never call MinerU in HTTP."""
+        knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
+        document = self.document_repo.get_by_user_for_update(document_id, user_id)
+        if not knowledge_base or not document or document.knowledge_base_id != knowledge_base.id:
+            return None
+        previous = self.job_repo.latest_by_document_type(
+            document_id=document.id,
+            user_id=user_id,
+            job_type="parse_document",
+        )
+        if previous and previous.status == JOB_STATUS_SUCCEEDED:
+            return KnowledgeDocumentParseResponse(
+                document=KnowledgeDocumentResponse.model_validate(document),
+                job=KnowledgeJobResponse.model_validate(previous),
+                markdown_preview=None,
+            )
+        if previous and previous.status in {JOB_STATUS_PENDING, JOB_STATUS_RUNNING} and self._has_delivery(previous.id):
+            return KnowledgeDocumentParseResponse(
+                document=KnowledgeDocumentResponse.model_validate(document),
+                job=KnowledgeJobResponse.model_validate(previous),
+                markdown_preview=None,
+            )
+        if previous and previous.status in {JOB_STATUS_FAILED, JOB_STATUS_DEAD_LETTER}:
+            job = KnowledgeJob(
+                user_id=user_id,
+                knowledge_base_id=knowledge_base.id,
+                document_id=document.id,
+                job_type="parse_document",
+                idempotency_key=f"parse:{document.id}:{document.document_version}:{uuid4()}",
+                payload_json=json.dumps({"storage_key": document.storage_key}, ensure_ascii=False),
+                max_attempts=settings.knowledge_job_max_attempts,
+            )
+        else:
+            job = previous or KnowledgeJob(
+                user_id=user_id,
+                knowledge_base_id=knowledge_base.id,
+                document_id=document.id,
+                job_type="parse_document",
+                idempotency_key=f"parse:{document.id}:{document.document_version}",
+                payload_json=json.dumps({"storage_key": document.storage_key}, ensure_ascii=False),
+                max_attempts=settings.knowledge_job_max_attempts,
+            )
+        self._enqueue(document=document, job=job, document_status_field="parse_status")
+        return KnowledgeDocumentParseResponse(
+            document=KnowledgeDocumentResponse.model_validate(document),
+            job=KnowledgeJobResponse.model_validate(job),
+            markdown_preview=None,
+        )
+
+    def enqueue_index_document(
+        self,
+        knowledge_base_id: str,
+        document_id: str,
+        user_id: str,
+    ) -> KnowledgeDocumentIndexResponse | None:
+        """Atomically persist an index Job and Outbox intent; embedding runs in Worker."""
+        knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
+        document = self.document_repo.get_by_user_for_update(document_id, user_id)
+        if not knowledge_base or not document or document.knowledge_base_id != knowledge_base.id:
+            return None
+        if document.parse_status != "parsed":
+            raise ValueError("文档尚未解析完成，不能创建索引任务。")
+        request_payload: dict[str, object] = {
+            "embedding_provider": knowledge_base.embedding_provider,
+            "embedding_model": knowledge_base.embedding_model,
+            "embedding_dimensions": knowledge_base.embedding_dimensions,
+            "document_version": document.document_version,
+            "content_hash": document.content_hash,
+        }
+        previous = self.job_repo.latest_by_document_type(
+            document_id=document.id,
+            user_id=user_id,
+            job_type="index_document",
+        )
+        previous_payload = _payload_object(previous.payload_json) if previous else {}
+        same_request = previous_payload.get("request", previous_payload) == request_payload
+        if previous and same_request and previous.status == JOB_STATUS_SUCCEEDED:
+            result = _payload_object(previous.result_json)
+            return KnowledgeDocumentIndexResponse(
+                document=KnowledgeDocumentResponse.model_validate(document),
+                job=KnowledgeJobResponse.model_validate(previous),
+                chunk_count=int(result.get("chunk_count") or 0),
+                index_path=result.get("index_path") if isinstance(result.get("index_path"), str) else None,
+            )
+        if previous and same_request and previous.status in {JOB_STATUS_PENDING, JOB_STATUS_RUNNING} and self._has_delivery(previous.id):
+            return KnowledgeDocumentIndexResponse(
+                document=KnowledgeDocumentResponse.model_validate(document),
+                job=KnowledgeJobResponse.model_validate(previous),
+                chunk_count=0,
+                index_path=None,
+            )
+        job = KnowledgeJob(
+            user_id=user_id,
+            knowledge_base_id=knowledge_base.id,
+            document_id=document.id,
+            job_type="index_document",
+            idempotency_key=f"index:{document.id}:{document.document_version}:{uuid4()}",
+            payload_json=json.dumps({"request": request_payload}, ensure_ascii=False),
+            max_attempts=settings.knowledge_job_max_attempts,
+        )
+        self._enqueue(document=document, job=job, document_status_field="index_status")
+        return KnowledgeDocumentIndexResponse(
+            document=KnowledgeDocumentResponse.model_validate(document),
+            job=KnowledgeJobResponse.model_validate(job),
+            chunk_count=0,
+            index_path=None,
+        )
 
     def parse_document(
         self,

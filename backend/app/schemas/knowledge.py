@@ -119,12 +119,21 @@ class KnowledgeJobResponse(BaseModel):
     document_id: str | None = None
     job_type: str
     status: str
+    idempotency_key: str | None = None
     payload_json: str | None = None
+    result_json: str | None = None
     retry_count: int
+    max_attempts: int = 3
+    available_at: datetime | None = None
+    lease_owner: str | None = None
+    lease_expires_at: datetime | None = None
+    lease_version: int = 0
+    heartbeat_at: datetime | None = None
     error_code: str | None = None
     error_message: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    dead_lettered_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None = None
 

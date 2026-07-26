@@ -81,6 +81,13 @@ class Settings:
     knowledge_model_request_timeout_seconds: int = int(os.getenv("KNOWLEDGE_MODEL_REQUEST_TIMEOUT_SECONDS", "60"))
     # 知识库检索上下文加载超时秒数
     knowledge_context_timeout_seconds: int = int(os.getenv("KNOWLEDGE_CONTEXT_TIMEOUT_SECONDS", "25"))
+    # 知识库后台任务：HTTP 只写 PostgreSQL Outbox，独立 Worker 通过 Redis Stream 消费。
+    knowledge_redis_url: str = os.getenv("KNOWLEDGE_REDIS_URL", "redis://127.0.0.1:6379/0")
+    knowledge_job_stream: str = os.getenv("KNOWLEDGE_JOB_STREAM", "stream.aiws.knowledge-jobs")
+    knowledge_job_group: str = os.getenv("KNOWLEDGE_JOB_GROUP", "aiws-knowledge-workers")
+    knowledge_job_lease_seconds: int = int(os.getenv("KNOWLEDGE_JOB_LEASE_SECONDS", "90"))
+    knowledge_job_claim_idle_ms: int = int(os.getenv("KNOWLEDGE_JOB_CLAIM_IDLE_MS", "90000"))
+    knowledge_job_max_attempts: int = int(os.getenv("KNOWLEDGE_JOB_MAX_ATTEMPTS", "3"))
 
     # Tavily联网搜索工具API密钥
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")

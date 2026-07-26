@@ -35,6 +35,7 @@ class PreparedChunk:
 class IndexResult:
     chunk_count: int
     index_path: str | None = None
+    manifest_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -560,6 +561,166 @@ class KnowledgeIndexService:
         self.chunk_repo.save_embeddings(pending_chunks)
         return len(pending_chunks)
 
+    def build_inactive_generation(
+        self,
+        *,
+        user_id: str,
+        knowledge_base: KnowledgeBase,
+        document: KnowledgeDocument,
+        generation_id: str,
+    ) -> IndexResult:
+        """Build a complete immutable Chunk + vector + BM25 snapshot without activating it.
+
+        A failed or stale worker may leave this generation in ``failed``/``ready`` state,
+        but retrieval remains pinned to ``knowledge_base.active_index_generation``. The
+        worker performs the final pointer switch with its lease fencing token.
+        """
+        if document.parse_status != "parsed" or not document.parsed_markdown_path:
+            raise RuntimeError("文档尚未解析，不能生成索引。")
+        markdown = KnowledgeParserService().read_markdown(
+            markdown_path=document.parsed_markdown_path,
+            user_id=user_id,
+        )
+        if knowledge_base.chunk_mode == "parent_child":
+            prepared_chunks = self.chunker.split_parent_child(
+                markdown=markdown,
+                parent_chunk_size=knowledge_base.parent_chunk_size or max(knowledge_base.chunk_size, 2000),
+                child_chunk_size=knowledge_base.child_chunk_size or max(100, min(knowledge_base.chunk_size, 500)),
+                child_chunk_overlap=knowledge_base.child_chunk_overlap
+                or min(80, (knowledge_base.child_chunk_size or 500) - 1),
+            )
+        else:
+            prepared_chunks = self.chunker.split(
+                markdown=markdown,
+                chunk_size=knowledge_base.chunk_size,
+                chunk_overlap=knowledge_base.chunk_overlap,
+            )
+        if not prepared_chunks:
+            raise RuntimeError("文档解析结果为空，不能生成索引。")
+
+        active_generation = knowledge_base.active_index_generation or "legacy"
+        active_chunks = self.chunk_repo.list_by_knowledge_base(
+            knowledge_base.id,
+            user_id,
+            index_generation=active_generation,
+        )
+        retained_chunks = [
+            self._clone_chunk_for_generation(chunk, generation_id)
+            for chunk in active_chunks
+            if chunk.document_id != document.id
+        ]
+        vector_start = max((chunk.vector_id for chunk in retained_chunks), default=0) + 1
+        replacement_chunks = [
+            KnowledgeChunk(
+                user_id=user_id,
+                knowledge_base_id=knowledge_base.id,
+                document_id=document.id,
+                index_generation=generation_id,
+                chunk_index=chunk.chunk_index,
+                vector_id=vector_start + offset,
+                content=chunk.content,
+                content_hash=hashlib.sha256(chunk.content.encode("utf-8")).hexdigest(),
+                char_count=len(chunk.content),
+                token_estimate=max(1, len(chunk.content) // 4),
+                source_start=chunk.source_start,
+                source_end=chunk.source_end,
+                metadata_json=json.dumps(
+                    {
+                        "file_name": document.file_name,
+                        "mime_type": document.mime_type,
+                        "file_type": self._normalize_file_type(document.file_name, document.mime_type),
+                        "document_id": document.id,
+                        "chunk_index": chunk.chunk_index,
+                        "source_start": chunk.source_start,
+                        "source_end": chunk.source_end,
+                        "document_version": document.document_version,
+                        "parser_provider": document.parser_provider,
+                        **(chunk.metadata or {}),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            for offset, chunk in enumerate(prepared_chunks)
+        ]
+        snapshot_chunks = [*retained_chunks, *replacement_chunks]
+        reusable_vector_by_hash = {
+            chunk.content_hash: list(chunk.embedding or [])
+            for chunk in active_chunks
+            if self._has_reusable_embedding(chunk=chunk, knowledge_base=knowledge_base)
+        }
+        missing: list[KnowledgeChunk] = []
+        for chunk in snapshot_chunks:
+            if self._has_reusable_embedding(chunk=chunk, knowledge_base=knowledge_base):
+                continue
+            reusable = reusable_vector_by_hash.get(chunk.content_hash)
+            if reusable is None:
+                missing.append(chunk)
+            else:
+                chunk.embedding = reusable
+
+        # 上面只读取了已激活快照。在调用外部 Embedding API 前结束读事务，
+        # 避免数十秒的网络等待持有 PostgreSQL transaction snapshot。
+        db = self.chunk_repo.db
+        db.commit()
+
+        if missing:
+            generated = asyncio.run(
+                self.embedding_service.embed_texts(
+                    user_id=user_id,
+                    knowledge_base=knowledge_base,
+                    texts=[chunk.content for chunk in missing],
+                )
+            )
+            self._validate_vectors(
+                vectors=generated,
+                expected_count=len(missing),
+                dimensions=knowledge_base.embedding_dimensions,
+            )
+            for chunk, vector in zip(missing, generated, strict=True):
+                chunk.embedding = vector
+
+        vectors = [list(chunk.embedding or []) for chunk in snapshot_chunks]
+        self._validate_vectors(
+            vectors=vectors,
+            expected_count=len(snapshot_chunks),
+            dimensions=knowledge_base.embedding_dimensions,
+        )
+        for chunk, vector in zip(snapshot_chunks, vectors, strict=True):
+            chunk.embedding = self._normalize_vector(vector)
+            chunk.embedding_provider = knowledge_base.embedding_provider
+            chunk.embedding_model = knowledge_base.embedding_model
+            chunk.embedding_dimensions = knowledge_base.embedding_dimensions
+            chunk.embedding_version = self.EMBEDDING_VERSION
+
+        try:
+            db.add_all(snapshot_chunks)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        index_path = self.lexical_store.rebuild(
+            knowledge_base_id=knowledge_base.id,
+            chunks=snapshot_chunks,
+            generation_id=generation_id,
+        )
+        manifest_payload = {
+            "generation_id": generation_id,
+            "chunk_count": len(snapshot_chunks),
+            "chunks": [
+                [chunk.vector_id, chunk.document_id, chunk.content_hash, chunk.embedding_dimensions]
+                for chunk in snapshot_chunks
+            ],
+            "bm25_sha256": hashlib.sha256(Path(index_path).read_bytes()).hexdigest(),
+        }
+        manifest_hash = hashlib.sha256(
+            json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return IndexResult(
+            chunk_count=len(snapshot_chunks),
+            index_path=index_path,
+            manifest_hash=manifest_hash,
+        )
+
     def index_document(self, *, user_id: str, knowledge_base: KnowledgeBase, document: KnowledgeDocument) -> IndexResult:
         """Build and publish one document's chunks as part of a knowledge-base-wide index.
 
@@ -872,6 +1033,29 @@ class KnowledgeIndexService:
             metadata_json=chunk.metadata_json,
             created_at=chunk.created_at,
             updated_at=chunk.updated_at,
+        )
+
+    @staticmethod
+    def _clone_chunk_for_generation(chunk: KnowledgeChunk, generation_id: str) -> KnowledgeChunk:
+        return KnowledgeChunk(
+            user_id=chunk.user_id,
+            knowledge_base_id=chunk.knowledge_base_id,
+            document_id=chunk.document_id,
+            index_generation=generation_id,
+            chunk_index=chunk.chunk_index,
+            vector_id=chunk.vector_id,
+            content=chunk.content,
+            content_hash=chunk.content_hash,
+            embedding=list(chunk.embedding) if chunk.embedding is not None else None,
+            embedding_provider=chunk.embedding_provider,
+            embedding_model=chunk.embedding_model,
+            embedding_dimensions=chunk.embedding_dimensions,
+            embedding_version=chunk.embedding_version,
+            char_count=chunk.char_count,
+            token_estimate=chunk.token_estimate,
+            source_start=chunk.source_start,
+            source_end=chunk.source_end,
+            metadata_json=chunk.metadata_json,
         )
 
     @staticmethod

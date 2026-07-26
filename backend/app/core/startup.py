@@ -15,6 +15,7 @@ from app.models import (  # noqa: F401
     KnowledgeJob,
     KnowledgeIndexGeneration,
     KnowledgeRetrievalLog,
+    OutboxEvent,
     Message,
     Project,
     ProjectFile,
@@ -180,6 +181,34 @@ def ensure_runtime_schema() -> None:
     knowledge_job_columns = _get_column_names("knowledge_jobs")
     if knowledge_job_columns and "error_code" not in knowledge_job_columns:
         statements.append("alter table knowledge_jobs add column error_code varchar(64)")
+    knowledge_job_additions = {
+        "idempotency_key": "varchar(192)",
+        "result_json": "text",
+        "max_attempts": "integer not null default 3",
+        "available_at": "timestamptz",
+        "lease_owner": "varchar(128)",
+        "lease_expires_at": "timestamptz",
+        "lease_version": "integer not null default 0",
+        "heartbeat_at": "timestamptz",
+        "dead_lettered_at": "timestamptz",
+    }
+    for column_name, column_type in knowledge_job_additions.items():
+        if knowledge_job_columns and column_name not in knowledge_job_columns:
+            statements.append(f"alter table knowledge_jobs add column {column_name} {column_type}")
+    knowledge_job_indexes = _get_index_names("knowledge_jobs")
+    if not {"ux_knowledge_jobs_idempotency_key", "ix_knowledge_jobs_idempotency_key"}.intersection(
+        knowledge_job_indexes
+    ):
+        statements.append(
+            "create unique index if not exists ux_knowledge_jobs_idempotency_key "
+            "on knowledge_jobs (idempotency_key) where idempotency_key is not null"
+        )
+
+    generation_columns = _get_column_names("knowledge_index_generations")
+    if generation_columns and "job_id" not in generation_columns:
+        statements.append("alter table knowledge_index_generations add column job_id varchar(36)")
+    if generation_columns and "chunk_count" not in generation_columns:
+        statements.append("alter table knowledge_index_generations add column chunk_count integer")
 
     knowledge_chunk_columns = _get_column_names("knowledge_chunks")
     if knowledge_chunk_columns and "metadata_json" not in knowledge_chunk_columns:

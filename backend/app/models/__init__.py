@@ -12,6 +12,7 @@ from app.models.knowledge import (
     KnowledgeIndexGeneration,
     KnowledgeJob,
     KnowledgeRetrievalLog,
+    OutboxEvent,
 )
 from app.models.message import Message
 from app.models.project import Project
@@ -37,6 +38,7 @@ __all__ = [
     "KnowledgeIndexGeneration",
     "KnowledgeJob",
     "KnowledgeRetrievalLog",
+    "OutboxEvent",
     "Message",
     "McpServer",
     "McpTool",

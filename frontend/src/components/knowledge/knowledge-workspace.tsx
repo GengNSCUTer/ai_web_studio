@@ -311,6 +311,22 @@ export function KnowledgeWorkspace({
     ]);
     setDocuments(nextDocuments);
     setJobs(nextJobs);
+    return { documents: nextDocuments, jobs: nextJobs };
+  }
+
+  async function waitForKnowledgeJob(knowledgeBaseId: string, jobId: string) {
+    for (let attempt = 0; attempt < 600; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      const snapshot = await refreshDocuments(knowledgeBaseId);
+      const job = snapshot.jobs.find((item) => item.id === jobId);
+      if (job && ["succeeded", "failed", "dead_letter"].includes(job.status)) {
+        return {
+          job,
+          document: snapshot.documents.find((item) => item.id === job.document_id) ?? null,
+        };
+      }
+    }
+    throw new Error("后台任务仍在执行，请稍后刷新查看。");
   }
 
   async function refreshRetrievalLogs(knowledgeBaseId: string) {
@@ -551,19 +567,29 @@ export function KnowledgeWorkspace({
         current.map((item) => (item.id === result.document.id ? result.document : item))
       );
       setJobs((current) => [result.job, ...current.filter((item) => item.id !== result.job.id)]);
-      if (result.markdown_preview) {
+      const completed = ["pending", "running"].includes(result.job.status)
+        ? await waitForKnowledgeJob(visibleActiveKnowledgeBase.id, result.job.id)
+        : { job: result.job, document: result.document };
+      if (completed.job.status === "dead_letter" || completed.job.status === "failed") {
+        setErrorMessage(`解析失败：${completed.job.error_message ?? "后台任务执行失败。"}`);
+        return;
+      }
+      const parsedDocument = completed.document ?? result.document;
+      if (completed.job.status === "succeeded") {
         try {
           const fullPreview = await requestJson<KnowledgeMarkdownPreview>(
-            `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/documents/${result.document.id}/markdown-preview`
+            `/api/backend/knowledge-bases/${visibleActiveKnowledgeBase.id}/documents/${parsedDocument.id}/markdown-preview`
           );
           setPreviewDocument(fullPreview);
         } catch {
-          setPreviewDocument({
-            document_id: result.document.id,
-            file_name: result.document.file_name,
-            markdown: result.markdown_preview,
-            chunks: [],
-          });
+          if (result.markdown_preview) {
+            setPreviewDocument({
+              document_id: parsedDocument.id,
+              file_name: parsedDocument.file_name,
+              markdown: result.markdown_preview,
+              chunks: [],
+            });
+          }
         }
       }
     } catch (error) {
@@ -603,8 +629,11 @@ export function KnowledgeWorkspace({
         current.map((item) => (item.id === result.document.id ? result.document : item))
       );
       setJobs((current) => [result.job, ...current.filter((item) => item.id !== result.job.id)]);
-      if (result.chunk_count === 0 && result.job.error_message) {
-        setErrorMessage(`索引失败：${result.job.error_message}`);
+      const completed = ["pending", "running"].includes(result.job.status)
+        ? await waitForKnowledgeJob(visibleActiveKnowledgeBase.id, result.job.id)
+        : { job: result.job, document: result.document };
+      if (["failed", "dead_letter"].includes(completed.job.status)) {
+        setErrorMessage(`索引失败：${completed.job.error_message ?? "后台任务执行失败。"}`);
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "生成索引失败。");

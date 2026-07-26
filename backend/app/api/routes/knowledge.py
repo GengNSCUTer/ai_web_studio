@@ -207,7 +207,7 @@ def parse_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> KnowledgeDocumentParseResponse:
-    result = _document_service(db).parse_document(knowledge_base_id, document_id, current_user.id)
+    result = _document_service(db).enqueue_parse_document(knowledge_base_id, document_id, current_user.id)
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge document not found")
     return result
@@ -220,7 +220,10 @@ def index_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> KnowledgeDocumentIndexResponse:
-    result = _document_service(db).index_document(knowledge_base_id, document_id, current_user.id)
+    try:
+        result = _document_service(db).enqueue_index_document(knowledge_base_id, document_id, current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge document not found")
     return result
