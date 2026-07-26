@@ -40,10 +40,7 @@ ensure_runtime_schema()
 app.add_middleware(
     CORSMiddleware,
     # 允许访问的前端域名列表
-    allow_origins=[
-        "http://127.0.0.1:3000",
-        "http://localhost:3000",
-    ],
+    allow_origins=list(app_settings.cors_allowed_origins),
     allow_credentials=True,  # 允许携带Cookie、凭证信息
     allow_methods=["*"],      # 放行所有HTTP请求方法(GET/POST/PUT/DELETE等)
     allow_headers=["*"],      # 放行所有请求头

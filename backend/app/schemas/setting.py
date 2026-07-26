@@ -1,6 +1,10 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+ChatProviderType = Literal["ollama", "openai-compatible", "vllm"]
 
 
 class UserSettingResponse(BaseModel):
@@ -46,7 +50,7 @@ class UserSettingResponse(BaseModel):
 
 class UserSettingUpdate(BaseModel):
     # Update Schema 表示“局部更新”；None 和未传字段在 service 中有不同语义。
-    provider_type: str | None = Field(default=None, max_length=32)
+    provider_type: ChatProviderType | None = None
     default_model: str | None = Field(default=None, max_length=128)
     ollama_base_url: str | None = Field(default=None, max_length=255)
     api_base_url: str | None = Field(default=None, max_length=255)
@@ -79,7 +83,7 @@ class UserSettingUpdate(BaseModel):
 
 class ProviderConnectionTestRequest(BaseModel):
     # 测试连接是临时动作，不等于保存设置；保存仍走 PATCH /settings。
-    provider_type: str = Field(max_length=32)
+    provider_type: ChatProviderType
     ollama_base_url: str = Field(max_length=255)
     api_base_url: str | None = Field(default=None, max_length=255)
     api_key: str | None = None

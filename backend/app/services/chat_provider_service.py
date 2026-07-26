@@ -8,6 +8,9 @@ from openai import AsyncOpenAI
 from app.core.config import settings
 
 
+OPENAI_COMPATIBLE_PROVIDER_TYPES = frozenset({"openai-compatible", "vllm"})
+
+
 @dataclass(frozen=True)
 class ChatStreamEvent:
     """Provider 返回的统一流式事件。
@@ -40,7 +43,7 @@ class ChatProviderService:
 
             return await OllamaService(base_url=base_url).list_models()
 
-        if provider_type == "openai-compatible":
+        if provider_type in OPENAI_COMPATIBLE_PROVIDER_TYPES:
             client = AsyncOpenAI(
                 api_key=api_key or "sk-placeholder",
                 base_url=base_url,
@@ -51,7 +54,7 @@ class ChatProviderService:
                 await client.close()
             return [item.id for item in response.data]
 
-        return []
+        raise ValueError(f"Unsupported provider_type: {provider_type}")
 
     async def stream_chat(
         self,
@@ -107,7 +110,7 @@ class ChatProviderService:
                 yield ChatStreamEvent(type=event.type, text=event.text)
             return
 
-        if provider_type != "openai-compatible":
+        if provider_type not in OPENAI_COMPATIBLE_PROVIDER_TYPES:
             raise ValueError(f"Unsupported provider_type: {provider_type}")
 
         client = AsyncOpenAI(
@@ -141,7 +144,7 @@ class ChatProviderService:
                 if content:
                     yield ChatStreamEvent(type="answer_delta", text=content)
         except httpx.TimeoutException as exc:
-            raise RuntimeError("在线模型响应超时，请稍后重试") from exc
+            raise RuntimeError("模型服务响应超时，请稍后重试") from exc
         finally:
             await client.close()
 
@@ -169,7 +172,7 @@ class ChatProviderService:
                 max_tokens=max_tokens,
             )
 
-        if provider_type != "openai-compatible":
+        if provider_type not in OPENAI_COMPATIBLE_PROVIDER_TYPES:
             raise ValueError(f"Unsupported provider_type: {provider_type}")
 
         client = AsyncOpenAI(
@@ -193,7 +196,7 @@ class ChatProviderService:
                 extra_body=extra_body,
             )
         except httpx.TimeoutException as exc:
-            raise RuntimeError("在线模型响应超时，请稍后重试") from exc
+            raise RuntimeError("模型服务响应超时，请稍后重试") from exc
         finally:
             await client.close()
 

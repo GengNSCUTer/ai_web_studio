@@ -28,6 +28,39 @@ class ChatProviderServiceTest(unittest.TestCase):
         self.assertEqual(models, ["model-a"])
         client.close.assert_awaited_once()
 
+    def test_vllm_uses_openai_compatible_models_endpoint_without_requiring_api_key(self) -> None:
+        client = Mock()
+        client.models = SimpleNamespace(
+            list=AsyncMock(return_value=SimpleNamespace(data=[SimpleNamespace(id="Qwen/Qwen3-8B")]))
+        )
+        client.close = AsyncMock()
+
+        with patch("app.services.chat_provider_service.AsyncOpenAI", return_value=client) as client_factory:
+            models = asyncio.run(
+                ChatProviderService().list_models(
+                    provider_type="vllm",
+                    base_url="http://127.0.0.1:8000/v1",
+                    api_key=None,
+                )
+            )
+
+        self.assertEqual(models, ["Qwen/Qwen3-8B"])
+        client_factory.assert_called_once_with(
+            api_key="sk-placeholder",
+            base_url="http://127.0.0.1:8000/v1",
+        )
+        client.close.assert_awaited_once()
+
+    def test_unknown_provider_is_rejected_instead_of_looking_like_an_empty_catalog(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported provider_type"):
+            asyncio.run(
+                ChatProviderService().list_models(
+                    provider_type="typo",
+                    base_url="https://example.test/v1",
+                    api_key=None,
+                )
+            )
+
     def test_complete_chat_closes_openai_client(self) -> None:
         client = Mock()
         client.chat = SimpleNamespace(

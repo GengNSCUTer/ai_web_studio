@@ -28,6 +28,7 @@ class ContextPromptBuilder:
     PROVIDER_TEMPLATES = {
         "ollama": "ollama_chat_v1",
         "openai-compatible": "openai_chat_completions_v1",
+        "vllm": "openai_chat_completions_v1",
     }
 
     def build_chat_messages(
@@ -230,7 +231,7 @@ class ContextPromptBuilder:
                 "images": [encoded for encoded, _ in image_payloads],
             }
 
-        if provider_type == "openai-compatible":
+        if provider_type in {"openai-compatible", "vllm"}:
             content_parts: list[dict[str, Any]] = []
             for encoded, mime_type in image_payloads:
                 content_parts.append(

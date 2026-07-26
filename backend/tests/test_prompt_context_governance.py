@@ -20,6 +20,27 @@ class DummyMessage:
 
 
 class PromptContextGovernanceTest(unittest.TestCase):
+    def test_vllm_uses_openai_compatible_multimodal_message_shape(self) -> None:
+        builder = ContextPromptBuilder()
+        message = DummyMessage(id="u1", role="user", content="describe")
+        message.attachments = [
+            type(
+                "Attachment",
+                (),
+                {"kind": "image", "storage_path": "ignored", "mime_type": "image/png"},
+            )()
+        ]
+
+        original_loader = builder._load_image_base64
+        try:
+            builder._load_image_base64 = lambda path: "aW1hZ2U="  # type: ignore[method-assign]
+            built = builder._build_provider_message(message=message, provider_type="vllm")
+        finally:
+            builder._load_image_base64 = original_loader  # type: ignore[method-assign]
+
+        self.assertIsInstance(built["content"], list)
+        self.assertEqual(built["content"][0]["type"], "image_url")
+
     def test_reference_context_is_not_promoted_to_system_role(self) -> None:
         builder = ContextPromptBuilder()
 

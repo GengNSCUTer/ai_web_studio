@@ -20,6 +20,7 @@
 - 用户设置持久化
 - Provider 模型列表查询
 - Provider 测试连接
+- 在线 OpenAI-compatible、Ollama 与 vLLM 模型调用
 - 文本流聊天接口
 - 文件上传落盘
 
@@ -42,7 +43,7 @@
 PostgreSQL：
 
 - 主机：`127.0.0.1`
-- 端口：`35432`
+- 端口：`35433`
 - 数据库：`ai_web_studio`
 
 配置文件：
@@ -55,7 +56,7 @@ PostgreSQL：
 cd /disk2/gengnan/ai_web_studio/backend
 source /disk2/gengnan/miniconda3/etc/profile.d/conda.sh
 conda activate ai_web_studio
-PYTHONPATH=. uvicorn app.main:app --host 127.0.0.1 --port 32007
+./scripts/run_dev.sh
 ```
 
 ## 主要接口

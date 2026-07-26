@@ -107,6 +107,40 @@ class SettingServiceTest(unittest.TestCase):
         response = service.update_user_settings(self.user.id, UserSettingUpdate(max_tokens=4096))
         self.assertEqual(response.max_tokens, 4096)
 
+    def test_vllm_provider_has_local_openai_compatible_defaults(self) -> None:
+        service = SettingService(UserSettingRepository(self.db))
+
+        response = service.update_user_settings(
+            self.user.id,
+            UserSettingUpdate(provider_type="vllm", api_base_url=None),
+        )
+
+        self.assertEqual(response.provider_type, "vllm")
+        self.assertEqual(response.default_model, "Qwen/Qwen3-8B")
+        self.assertEqual(response.api_base_url, "http://127.0.0.1:8000/v1")
+        self.assertEqual(response.model_context_window, 32768)
+
+    def test_unknown_chat_provider_is_rejected_by_schema(self) -> None:
+        from pydantic import ValidationError
+
+        with self.assertRaises(ValidationError):
+            UserSettingUpdate(provider_type="typo")
+
+    def test_switching_provider_does_not_forward_the_previous_provider_api_key(self) -> None:
+        service = SettingService(UserSettingRepository(self.db))
+        service.update_user_settings(
+            self.user.id,
+            UserSettingUpdate(provider_type="openai-compatible", api_key="cloud-secret"),
+        )
+
+        response = service.update_user_settings(
+            self.user.id,
+            UserSettingUpdate(provider_type="vllm", api_base_url="http://127.0.0.1:8000/v1"),
+        )
+
+        self.assertFalse(response.has_api_key)
+        self.assertIsNone(service.resolve_provider_api_key(self.user.id))
+
     def test_secret_service_requires_dedicated_key_in_production(self) -> None:
         previous_env = settings.app_env
         previous_secret = settings.secret_encryption_key

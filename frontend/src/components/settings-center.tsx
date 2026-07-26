@@ -616,7 +616,7 @@ export function SettingsCenter({
       ...current,
       provider_type: providerType,
       ollama_base_url: current.ollama_base_url || defaults.ollamaBaseUrl,
-      api_base_url: current.api_base_url || defaults.apiBaseUrl,
+      api_base_url: providerType === "ollama" ? current.api_base_url : defaults.apiBaseUrl,
       default_model: defaults.model,
       model_context_window: defaults.modelContextWindow,
     }));
@@ -678,7 +678,7 @@ export function SettingsCenter({
             ollama_base_url: userSettings.ollama_base_url,
             api_base_url: userSettings.api_base_url,
             api_key:
-              userSettings.provider_type === "openai-compatible" && providerApiKeyDraft.trim()
+              userSettings.provider_type !== "ollama" && providerApiKeyDraft.trim()
                 ? providerApiKeyDraft.trim()
                 : null,
           }),
@@ -1100,6 +1100,7 @@ export function SettingsCenter({
                     >
                       <option value="ollama">ollama</option>
                       <option value="openai-compatible">openai-compatible</option>
+                      <option value="vllm">vllm</option>
                     </select>
                   </label>
                   <label className="block text-sm">
@@ -1142,7 +1143,7 @@ export function SettingsCenter({
                       }
                     />
                   </label>
-                  {userSettings.provider_type === "openai-compatible" ? (
+                  {userSettings.provider_type !== "ollama" ? (
                     <div className="xl:col-span-2 rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>

@@ -23,6 +23,11 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_csv(name: str, default: str) -> tuple[str, ...]:
+    value = os.getenv(name, default)
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
 # 冻结数据类，实例化后参数不可修改，存放所有项目配置
 @dataclass(frozen=True)
 class Settings:
@@ -34,6 +39,10 @@ class Settings:
     app_host: str = os.getenv("APP_HOST", "127.0.0.1")
     # 服务启动端口
     app_port: int = int(os.getenv("APP_PORT", "32007"))
+    cors_allowed_origins: tuple[str, ...] = _env_csv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://127.0.0.1:32008,http://localhost:32008,http://127.0.0.1:3000,http://localhost:3000",
+    )
 
     # Postgres数据库地址
     postgres_host: str = os.getenv("POSTGRES_HOST", "127.0.0.1")

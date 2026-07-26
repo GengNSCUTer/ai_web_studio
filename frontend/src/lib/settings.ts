@@ -16,6 +16,12 @@ export const PROVIDER_PRESETS = {
     model: "Qwen/Qwen3.5-35B-A3B",
     modelContextWindow: 128000,
   },
+  vllm: {
+    ollamaBaseUrl: "http://127.0.0.1:11435",
+    apiBaseUrl: "http://127.0.0.1:8000/v1",
+    model: "Qwen/Qwen3-8B",
+    modelContextWindow: 32768,
+  },
 } as const;
 
 export function buildProviderPreset(providerType: string) {

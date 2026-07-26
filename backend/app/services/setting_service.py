@@ -17,6 +17,10 @@ class SettingService:
     DEFAULT_CONTEXT_MODE = "balanced"
     DEFAULT_OPENAI_CONTEXT_WINDOW = 128000
     DEFAULT_OLLAMA_CONTEXT_WINDOW = 100000
+    DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8000/v1"
+    DEFAULT_VLLM_MODEL = "Qwen/Qwen3-8B"
+    DEFAULT_VLLM_CONTEXT_WINDOW = 32768
+    ALLOWED_CHAT_PROVIDERS = {"ollama", "openai-compatible", "vllm"}
     DEFAULT_UI_LANGUAGE = "zh-CN"
     DEFAULT_THEME_MODE = "system"
     DEFAULT_MEMORY_ENABLED = True
@@ -104,7 +108,23 @@ class SettingService:
     def default_context_window_for_provider(cls, provider_type: str) -> int:
         if provider_type == "ollama":
             return cls.DEFAULT_OLLAMA_CONTEXT_WINDOW
+        if provider_type == "vllm":
+            return cls.DEFAULT_VLLM_CONTEXT_WINDOW
         return cls.DEFAULT_OPENAI_CONTEXT_WINDOW
+
+    @classmethod
+    def default_api_base_url_for_provider(cls, provider_type: str) -> str:
+        if provider_type == "vllm":
+            return cls.DEFAULT_VLLM_BASE_URL
+        return cls.DEFAULT_OPENAI_BASE_URL
+
+    @classmethod
+    def default_model_for_provider(cls, provider_type: str) -> str:
+        if provider_type == "ollama":
+            return app_settings.ollama_default_model
+        if provider_type == "vllm":
+            return cls.DEFAULT_VLLM_MODEL
+        return cls.DEFAULT_OPENAI_MODEL
 
     @classmethod
     def _build_default_setting(cls, user_id: str) -> UserSetting:
@@ -164,7 +184,7 @@ class SettingService:
         if setting:
             # 这里兼容历史版本字段缺失或旧默认值，读取时顺手修正并持久化。
             should_save = False
-            if not getattr(setting, "provider_type", None):
+            if getattr(setting, "provider_type", None) not in self.ALLOWED_CHAT_PROVIDERS:
                 setting.provider_type = "openai-compatible"
                 should_save = True
             if not getattr(setting, "api_base_url", None):
@@ -173,7 +193,7 @@ class SettingService:
                 ):
                     setting.api_base_url = setting.ollama_base_url
                 else:
-                    setting.api_base_url = self.DEFAULT_OPENAI_BASE_URL
+                    setting.api_base_url = self.default_api_base_url_for_provider(setting.provider_type)
                 should_save = True
             if setting.provider_type == "openai-compatible":
                 if setting.default_model == app_settings.ollama_default_model:
@@ -275,6 +295,7 @@ class SettingService:
             setting = self._build_default_setting(user_id)
 
         data = payload.model_dump(exclude_unset=True)
+        previous_provider_type = setting.provider_type
         # 普通字符串先做 trim；空字符串归一为 None，避免把无意义空值写进配置。
         for key in ("provider_type", "default_model", "ollama_base_url", "api_base_url", "system_prompt"):
             if key in data:
@@ -303,7 +324,12 @@ class SettingService:
                 continue
             setattr(setting, key, value)
 
-        if data.get("clear_api_key"):
+        provider_changed = bool(
+            data.get("provider_type") and data["provider_type"] != previous_provider_type
+        )
+        if data.get("clear_api_key") or (provider_changed and not data.get("api_key")):
+            # 一个字段不能安全表示多个 Provider 的凭据。切换服务时默认清空旧 Key，
+            # 防止把在线服务密钥发送给新配置的本地或第三方 Base URL。
             setting.api_key = None
         elif "api_key" in data and data["api_key"] is not None:
             # 用户级模型 API Key 只加密保存；响应阶段不会回显明文。
@@ -321,10 +347,12 @@ class SettingService:
 
         if "provider_type" in data and "model_context_window" not in data:
             setting.model_context_window = self.default_context_window_for_provider(setting.provider_type)
+        if provider_changed and "default_model" not in data:
+            setting.default_model = self.default_model_for_provider(setting.provider_type)
         if not getattr(setting, "ollama_base_url", None):
             setting.ollama_base_url = app_settings.ollama_base_url
         if not getattr(setting, "api_base_url", None):
-            setting.api_base_url = self.DEFAULT_OPENAI_BASE_URL
+            setting.api_base_url = self.default_api_base_url_for_provider(setting.provider_type)
         if setting.provider_type == "openai-compatible" and self._looks_like_api_base_url(
             getattr(setting, "ollama_base_url", None)
         ):
