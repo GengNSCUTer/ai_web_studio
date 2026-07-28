@@ -4,7 +4,15 @@ import asyncio
 import unittest
 
 from app.services.tools.catalog import ToolCatalog
-from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolCallResult, ToolPlan, ToolTraceEvent
+from app.services.tools.schemas import (
+    ExternalSource,
+    PlannedToolCall,
+    ToolCallResult,
+    ToolDefinition,
+    ToolPlan,
+    ToolResultBinding,
+    ToolTraceEvent,
+)
 from app.services.tools.workflow import ToolWorkflowService
 
 
@@ -84,7 +92,175 @@ class RaisingFallbackExecutor(FakeWorkflowExecutor):
         )
 
 
+class StructuredBindingExecutor(FakeWorkflowExecutor):
+    async def execute(self, call: PlannedToolCall):
+        self.calls.append(call)
+        metadata = {}
+        if call.call_id == "geo":
+            metadata = {"raw": {"geocodes": [{"location": "114.0579,22.5431"}]}}
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                sources=[
+                    ExternalSource(
+                        source_type=call.category,
+                        provider=call.provider,
+                        title=f"{call.display_name}结果",
+                        display_text="structured result",
+                        metadata=metadata,
+                    )
+                ],
+                elapsed_ms=1,
+            ),
+            [],
+        )
+
+
 class ToolWorkflowTest(unittest.TestCase):
+    @staticmethod
+    def _binding_catalog() -> ToolCatalog:
+        catalog = ToolCatalog()
+        catalog._definitions = {
+            "test.geo": ToolDefinition(
+                tool_key="test.geo",
+                provider="test",
+                category="map",
+                display_name="地理编码",
+                description="resolve location",
+                input_schema={
+                    "type": "object",
+                    "properties": {"address": {"type": "string"}},
+                    "required": ["address"],
+                    "additionalProperties": False,
+                },
+                adapter={"auth_type": "none"},
+            ),
+            "test.route": ToolDefinition(
+                tool_key="test.route",
+                provider="test",
+                category="map",
+                display_name="路线",
+                description="route lookup",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "origin": {"type": "string"},
+                        "destination": {"type": "string"},
+                    },
+                    "required": ["origin", "destination"],
+                    "additionalProperties": False,
+                },
+                adapter={"auth_type": "none"},
+            ),
+        }
+        return catalog
+
+    def test_binds_structured_upstream_value_into_downstream_argument(self) -> None:
+        async def run_test() -> None:
+            executor = StructuredBindingExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=self._binding_catalog())
+            plan = ToolPlan(
+                plan_id="plan-binding",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="geo",
+                        tool_key="test.geo",
+                        provider="test",
+                        category="map",
+                        display_name="地理编码",
+                        confidence=1.0,
+                        reason="first",
+                        arguments={"address": "深圳"},
+                    ),
+                    PlannedToolCall(
+                        call_id="route",
+                        tool_key="test.route",
+                        provider="test",
+                        category="map",
+                        display_name="路线",
+                        confidence=1.0,
+                        reason="second",
+                        arguments={"origin": "113.2644,23.1291"},
+                        depends_on=["geo"],
+                        can_parallel=False,
+                        result_bindings=[
+                            ToolResultBinding(
+                                source_call_id="geo",
+                                source_path="/sources/0/metadata/raw/geocodes/0/location",
+                                target_argument="destination",
+                            )
+                        ],
+                    ),
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="广州到深圳")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["geo", "route"])
+            self.assertEqual(executor.calls[1].arguments["destination"], "114.0579,22.5431")
+            binding_events = [event for event in result.events if event.type == "tool_result_binding"]
+            self.assertEqual(binding_events[0].payload["status"], "resolved")
+
+        asyncio.run(run_test())
+
+    def test_missing_required_binding_skips_downstream_execution(self) -> None:
+        async def run_test() -> None:
+            executor = StructuredBindingExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=self._binding_catalog())
+            plan = ToolPlan(
+                plan_id="plan-missing-binding",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="geo",
+                        tool_key="test.geo",
+                        provider="test",
+                        category="map",
+                        display_name="地理编码",
+                        confidence=1.0,
+                        reason="first",
+                        arguments={"address": "深圳"},
+                    ),
+                    PlannedToolCall(
+                        call_id="route",
+                        tool_key="test.route",
+                        provider="test",
+                        category="map",
+                        display_name="路线",
+                        confidence=1.0,
+                        reason="second",
+                        arguments={"origin": "113.2644,23.1291"},
+                        depends_on=["geo"],
+                        can_parallel=False,
+                        result_bindings=[
+                            ToolResultBinding(
+                                source_call_id="geo",
+                                source_path="/sources/0/metadata/raw/geocodes/9/location",
+                                target_argument="destination",
+                            )
+                        ],
+                    ),
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="广州到深圳")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["geo"])
+            failed = [
+                event
+                for event in result.events
+                if event.type == "tool_result_binding" and event.payload.get("status") == "failed"
+            ]
+            self.assertEqual(len(failed), 1)
+
+        asyncio.run(run_test())
+
     def test_stable_arguments_use_canonical_nested_json(self) -> None:
         common = {
             "call_id": "call",
@@ -102,6 +278,37 @@ class ToolWorkflowTest(unittest.TestCase):
             ToolWorkflowService._stable_arguments(first),
             ToolWorkflowService._stable_arguments(second),
         )
+
+    def test_unbound_call_does_not_require_workflow_catalog_definition(self) -> None:
+        async def run_test() -> None:
+            executor = FakeWorkflowExecutor()
+            catalog = ToolCatalog()
+            catalog._definitions = {}
+            workflow = ToolWorkflowService(executor=executor, registry=catalog)
+            plan = ToolPlan(
+                plan_id="plan-dynamic-unbound",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="dynamic",
+                        tool_key="dynamic.test.tool",
+                        provider="dynamic",
+                        category="test",
+                        display_name="Dynamic",
+                        confidence=1.0,
+                        reason="executor owns final catalog enforcement",
+                        arguments={"query": "test"},
+                    )
+                ],
+            )
+
+            await workflow.run(plan=plan, query="test")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["dynamic"])
+
+        asyncio.run(run_test())
 
     def test_executes_multiple_planned_calls_with_limits(self) -> None:
         async def run_test() -> None:

@@ -17,6 +17,10 @@ from app.repositories.knowledge_repo import (
 )
 from app.repositories.setting_repo import UserSettingRepository
 from app.services.knowledge_index_service import RetrievalResult
+from app.services.knowledge_query_rewriter import (
+    KnowledgeQueryRewriteResult,
+    KnowledgeQueryRewriteService,
+)
 from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
 from app.services.setting_service import SettingService
 from app.services.tools.schemas import ExternalSource
@@ -36,7 +40,14 @@ class KnowledgeContextResult:
 class KnowledgeContextService:
     """Retrieves indexed knowledge chunks and formats them for chat context."""
 
-    def __init__(self, *, db: Session, user_id: str, index_service: object | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        db: Session,
+        user_id: str,
+        index_service: object | None = None,
+        query_rewriter: KnowledgeQueryRewriteService | None = None,
+    ) -> None:
         self.db = db
         self.user_id = user_id
         self.base_repo = KnowledgeBaseRepository(db)
@@ -45,6 +56,7 @@ class KnowledgeContextService:
         self.retrieval_log_repo = KnowledgeRetrievalLogRepository(db)
         self.setting_service = SettingService(UserSettingRepository(db))
         self.index_service = index_service
+        self.query_rewriter = query_rewriter or KnowledgeQueryRewriteService()
 
     async def build_context(
         self,
@@ -52,14 +64,21 @@ class KnowledgeContextService:
         knowledge_base_id: str | None,
         knowledge_base_ids: list[str] | None = None,
         query: str,
+        recent_messages: list[object] | None = None,
     ) -> KnowledgeContextResult:
         resolved_ids = self._normalize_knowledge_base_ids(knowledge_base_id, knowledge_base_ids)
         if not resolved_ids:
             return self._empty(enabled=False)
+        rewrite = self.query_rewriter.rewrite(query=query, recent_messages=recent_messages)
         if len(resolved_ids) == 1:
-            return await self._build_single_context(knowledge_base_id=resolved_ids[0], query=query)
+            return await self._build_single_context(
+                knowledge_base_id=resolved_ids[0],
+                original_query=rewrite.original_query,
+                retrieval_query=rewrite.rewritten_query,
+                rewrite=rewrite,
+            )
 
-        if not query.strip():
+        if not rewrite.original_query:
             return self._empty(
                 enabled=True,
                 knowledge_base_ids=resolved_ids,
@@ -68,7 +87,15 @@ class KnowledgeContextService:
 
         started_at = time.monotonic()
         partials = await asyncio.gather(
-            *[self._build_single_context(knowledge_base_id=base_id, query=query) for base_id in resolved_ids],
+            *[
+                self._build_single_context(
+                    knowledge_base_id=base_id,
+                    original_query=rewrite.original_query,
+                    retrieval_query=rewrite.rewritten_query,
+                    rewrite=rewrite,
+                )
+                for base_id in resolved_ids
+            ],
         )
         latency_ms = int((time.monotonic() - started_at) * 1000)
         notices = [notice for partial in partials for notice in partial.notices]
@@ -90,6 +117,7 @@ class KnowledgeContextService:
             context_text=context_text,
             injected_count=len(injected_sources),
             retrieval_log_ids=retrieval_log_ids,
+            rewrite=rewrite,
         )
         return KnowledgeContextResult(
             context_text=context_text,
@@ -100,6 +128,7 @@ class KnowledgeContextService:
                 "knowledge_sources": [source.to_public_dict() for source in injected_sources],
                 "knowledge_retrieval_log_ids": retrieval_log_ids,
                 "knowledge_base_ids": resolved_ids,
+                "knowledge_query_rewrite": rewrite.to_public_dict(),
             },
             retrieval_log_id=retrieval_log_ids[0] if retrieval_log_ids else None,
             retrieval_log_ids=retrieval_log_ids,
@@ -109,7 +138,9 @@ class KnowledgeContextService:
         self,
         *,
         knowledge_base_id: str,
-        query: str,
+        original_query: str,
+        retrieval_query: str,
+        rewrite: KnowledgeQueryRewriteResult,
     ) -> KnowledgeContextResult:
         knowledge_base = self.base_repo.get_by_user(knowledge_base_id, self.user_id)
         if not knowledge_base:
@@ -119,7 +150,7 @@ class KnowledgeContextService:
                 notices=["所选知识库不存在或无权访问，已跳过知识库检索。"],
             )
 
-        if not query.strip():
+        if not original_query:
             return self._empty(
                 enabled=True,
                 knowledge_base_id=knowledge_base.id,
@@ -150,7 +181,7 @@ class KnowledgeContextService:
                 index_service.retrieve_async(
                     user_id=self.user_id,
                     knowledge_base=knowledge_base,
-                    query=query,
+                    query=retrieval_query,
                     top_k=knowledge_base.retrieval_top_k,
                 ),
                 timeout=settings.knowledge_context_timeout_seconds,
@@ -196,18 +227,27 @@ class KnowledgeContextService:
             "knowledge_rerank_enabled": int(bool(knowledge_base.rerank_enabled)),
             "knowledge_rerank_used": int(any(result.rerank_score is not None for result in injected_results)),
             "knowledge_retrieval_latency_ms": latency_ms,
+            "knowledge_query_rewrite_used": int(rewrite.did_rewrite),
+            "knowledge_query_rewrite_strategy": rewrite.strategy,
+        }
+        log_diagnostics = {
+            **base_diagnostics,
+            "knowledge_original_query": original_query,
+            "knowledge_retrieval_query": retrieval_query,
+            "knowledge_query_rewrite_reason": rewrite.reason,
+            "knowledge_query_rewrite_context_message_id": rewrite.context_message_id,
         }
         retrieval_log = self.retrieval_log_repo.create(
             user_id=self.user_id,
             knowledge_base_id=knowledge_base.id,
-            query=query,
+            query=original_query,
             retrieval_mode=knowledge_base.retrieval_mode,
             top_k=knowledge_base.retrieval_top_k,
             rerank_enabled=bool(knowledge_base.rerank_enabled),
             rerank_model=knowledge_base.rerank_model if knowledge_base.rerank_enabled else None,
             candidates=self._serialize_results(results),
             selected=self._serialize_results(injected_results),
-            diagnostics=base_diagnostics,
+            diagnostics=log_diagnostics,
             sources=[],
             status="success",
             elapsed_ms=latency_ms,
@@ -227,6 +267,7 @@ class KnowledgeContextService:
                 "knowledge_sources": [source.to_public_dict() for source in sources],
                 "knowledge_retrieval_log_id": retrieval_log.id,
                 "knowledge_retrieval_log_ids": [retrieval_log.id],
+                "knowledge_query_rewrite": rewrite.to_public_dict(),
             },
             retrieval_log_id=retrieval_log.id,
             retrieval_log_ids=[retrieval_log.id],
@@ -345,6 +386,7 @@ class KnowledgeContextService:
         context_text: str | None,
         injected_count: int,
         retrieval_log_ids: list[str],
+        rewrite: KnowledgeQueryRewriteResult,
     ) -> dict[str, Any]:
         total_chunks = sum(int(partial.diagnostics.get("knowledge_chunks_total", 0) or 0) for partial in partials)
         retrieved = sum(int(partial.diagnostics.get("knowledge_chunks_retrieved", 0) or 0) for partial in partials)
@@ -372,6 +414,8 @@ class KnowledgeContextService:
             "knowledge_retrieval_latency_ms": latency_ms,
             "knowledge_retrieval_log_id": retrieval_log_ids[0] if retrieval_log_ids else "",
             "knowledge_retrieval_log_ids": ",".join(retrieval_log_ids),
+            "knowledge_query_rewrite_used": int(rewrite.did_rewrite),
+            "knowledge_query_rewrite_strategy": rewrite.strategy,
         }
 
     @staticmethod

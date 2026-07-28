@@ -15,13 +15,20 @@ class ToolSchemaValidationError(ValueError):
 class ToolSchemaValidator:
     """Normalize common model output forms, then enforce full Draft 2020-12 JSON Schema."""
 
-    def validate(self, *, definition: ToolDefinition, arguments: dict[str, Any]) -> dict[str, Any]:
+    def validate(
+        self,
+        *,
+        definition: ToolDefinition,
+        arguments: dict[str, Any],
+        deferred_required_fields: set[str] | None = None,
+    ) -> dict[str, Any]:
         schema = definition.input_schema or {}
         if schema.get("type") and schema.get("type") != "object":
             raise ToolSchemaValidationError(f"{definition.tool_key} input_schema 必须是 object。")
 
         properties = schema.get("properties") or {}
-        required = schema.get("required") or []
+        deferred = deferred_required_fields or set()
+        required = [field for field in (schema.get("required") or []) if field not in deferred]
         normalized = dict(arguments or {})
 
         if schema.get("additionalProperties") is False:
@@ -46,8 +53,12 @@ class ToolSchemaValidator:
                 schema=field_schema,
             )
         try:
-            Draft202012Validator.check_schema(schema)
-            errors = sorted(Draft202012Validator(schema).iter_errors(normalized), key=lambda item: list(item.path))
+            validation_schema = {**schema, "required": required} if deferred else schema
+            Draft202012Validator.check_schema(validation_schema)
+            errors = sorted(
+                Draft202012Validator(validation_schema).iter_errors(normalized),
+                key=lambda item: list(item.path),
+            )
         except SchemaError as exc:
             raise ToolSchemaValidationError(f"{definition.tool_key} input_schema 不合法。") from exc
         if errors:

@@ -74,6 +74,14 @@ class ToolDefinition:
 
 
 @dataclass
+class ToolResultBinding:
+    source_call_id: str
+    source_path: str
+    target_argument: str
+    required: bool = True
+
+
+@dataclass
 class PlannedToolCall:
     call_id: str
     tool_key: str
@@ -85,6 +93,7 @@ class PlannedToolCall:
     arguments: dict[str, Any] = field(default_factory=dict)
     depends_on: list[str] = field(default_factory=list)
     can_parallel: bool = True
+    result_bindings: list[ToolResultBinding] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
         payload = asdict(self)

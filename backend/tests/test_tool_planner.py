@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
 
 from app.services.tools.catalog import ToolCatalog
@@ -319,6 +320,169 @@ class ToolPlannerTest(unittest.TestCase):
             self.assertFalse(plan.calls[1].can_parallel)
 
         asyncio.run(run_test())
+
+    @staticmethod
+    def _result_binding_catalog() -> ToolCatalog:
+        catalog = ToolCatalog()
+        catalog._definitions = {
+            "test.lookup": ToolDefinition(
+                tool_key="test.lookup",
+                provider="test",
+                category="lookup",
+                display_name="Lookup",
+                description="Resolve a location",
+                input_schema={
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+            ),
+            "test.consume": ToolDefinition(
+                tool_key="test.consume",
+                provider="test",
+                category="consumer",
+                display_name="Consume",
+                description="Consume a structured location",
+                input_schema={
+                    "type": "object",
+                    "properties": {"location": {"type": "string"}},
+                    "required": ["location"],
+                    "additionalProperties": False,
+                },
+            ),
+        }
+        return catalog
+
+    def test_llm_planner_defers_required_field_supplied_by_result_binding(self) -> None:
+        catalog = self._result_binding_catalog()
+        planner = LLMToolPlanner(catalog=catalog)
+
+        plan = planner._parse_llm_plan(
+            text="""
+            {
+              "should_use_tools": true,
+              "calls": [
+                {
+                  "id": "lookup",
+                  "tool_key": "test.lookup",
+                  "arguments": {"query": "深圳"}
+                },
+                {
+                  "id": "consume",
+                  "tool_key": "test.consume",
+                  "arguments": {},
+                  "depends_on": ["lookup"],
+                  "can_parallel": false,
+                  "result_bindings": [{
+                    "source_call_id": "lookup",
+                    "source_path": "/sources/0/metadata/raw/location",
+                    "target_argument": "location",
+                    "required": true
+                  }]
+                }
+              ]
+            }
+            """,
+            query="查询深圳位置",
+            allowed_tool_keys={item.tool_key for item in catalog.list_definitions()},
+        )
+
+        self.assertEqual([call.call_id for call in plan.calls], ["lookup", "consume"])
+        self.assertEqual(plan.calls[1].arguments, {})
+        self.assertEqual(plan.calls[1].result_bindings[0].source_call_id, "lookup")
+
+    def test_llm_planner_rejects_unsafe_or_ambiguous_result_binding(self) -> None:
+        catalog = self._result_binding_catalog()
+        planner = LLMToolPlanner(catalog=catalog)
+        unsafe_variants = [
+            {
+                "source_call_id": "lookup",
+                "source_path": "/sources/0/display_text",
+                "target_argument": "location",
+                "required": True,
+            },
+            {
+                "source_call_id": "lookup",
+                "source_path": "/sources/0/metadata/raw/location",
+                "target_argument": "undeclared",
+                "required": True,
+            },
+            {
+                "source_call_id": "lookup",
+                "source_path": "/sources/0/metadata/raw/location",
+                "target_argument": "location",
+                "required": "true",
+            },
+        ]
+
+        for binding in unsafe_variants:
+            with self.subTest(binding=binding):
+                plan = planner._parse_llm_plan(
+                    text=json.dumps(
+                        {
+                            "should_use_tools": True,
+                            "calls": [
+                                {
+                                    "id": "lookup",
+                                    "tool_key": "test.lookup",
+                                    "arguments": {"query": "深圳"},
+                                },
+                                {
+                                    "id": "consume",
+                                    "tool_key": "test.consume",
+                                    "arguments": {},
+                                    "depends_on": ["lookup"],
+                                    "result_bindings": [binding],
+                                },
+                            ],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    query="查询深圳位置",
+                    allowed_tool_keys={item.tool_key for item in catalog.list_definitions()},
+                )
+
+                self.assertEqual([call.call_id for call in plan.calls], ["lookup"])
+
+    def test_llm_planner_requires_binding_source_dependency_and_no_argument_override(self) -> None:
+        catalog = self._result_binding_catalog()
+        planner = LLMToolPlanner(catalog=catalog)
+        common_binding = {
+            "source_call_id": "lookup",
+            "source_path": "/sources/0/metadata/raw/location",
+            "target_argument": "location",
+            "required": True,
+        }
+
+        for arguments, depends_on in [({}, []), ({"location": "模型伪造值"}, ["lookup"])]:
+            with self.subTest(arguments=arguments, depends_on=depends_on):
+                plan = planner._parse_llm_plan(
+                    text=json.dumps(
+                        {
+                            "should_use_tools": True,
+                            "calls": [
+                                {
+                                    "id": "lookup",
+                                    "tool_key": "test.lookup",
+                                    "arguments": {"query": "深圳"},
+                                },
+                                {
+                                    "id": "consume",
+                                    "tool_key": "test.consume",
+                                    "arguments": arguments,
+                                    "depends_on": depends_on,
+                                    "result_bindings": [common_binding],
+                                },
+                            ],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    query="查询深圳位置",
+                    allowed_tool_keys={item.tool_key for item in catalog.list_definitions()},
+                )
+
+                self.assertEqual([call.call_id for call in plan.calls], ["lookup"])
 
     def test_llm_planner_rejects_duplicate_call_ids_and_their_dependents(self) -> None:
         planner = LLMToolPlanner()

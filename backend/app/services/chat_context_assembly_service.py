@@ -157,6 +157,15 @@ class ChatContextAssemblyService:
             knowledge_base_id=knowledge_base_id,
             knowledge_base_ids=knowledge_base_ids,
             query=query,
+            recent_messages=[
+                message
+                for message in history_rows
+                if message is not user_message
+                and (
+                    not getattr(user_message, "id", None)
+                    or getattr(message, "id", None) != getattr(user_message, "id", None)
+                )
+            ],
         )
         retrieval_log_ids = knowledge_context_result.retrieval_log_ids or (
             [knowledge_context_result.retrieval_log_id] if knowledge_context_result.retrieval_log_id else []
@@ -229,6 +238,7 @@ class ChatContextAssemblyService:
             "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
             "external_sources": combined_public_sources,
             "knowledge_sources": knowledge_context_result.details.get("knowledge_sources", []),
+            "knowledge_query_rewrite": knowledge_context_result.details.get("knowledge_query_rewrite"),
             "tool_plan": external_context_result.details.get("tool_plan"),
             "tool_events": external_context_result.details.get("tool_events", []),
         }

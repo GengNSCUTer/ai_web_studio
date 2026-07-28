@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from uuid import uuid4
 
+from app.services.tools.bindings import ToolResultBindingError, ToolResultBindingResolver
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolPlan, ToolTraceEvent
@@ -46,9 +47,11 @@ class ToolWorkflowService:
         executor: ToolExecutor,
         registry: ToolCatalog,
         max_tool_calls: int | None = None,
+        binding_resolver: ToolResultBindingResolver | None = None,
     ) -> None:
         self.executor = executor
         self.registry = registry
+        self.binding_resolver = binding_resolver or ToolResultBindingResolver()
         if max_tool_calls is not None:
             self.max_tool_calls = max_tool_calls
 
@@ -90,9 +93,9 @@ class ToolWorkflowService:
             pending[call.call_id] = call
         completed: set[str] = set()
         failed: set[str] = set()
+        sources_by_call_id: dict[str, list[ExternalSource]] = {}
         step = 0
         while pending:
-            # depends_on 目前只控制调度顺序，不会把上游 sources 自动写入下游 arguments。
             ready = [
                 call
                 for call in pending.values()
@@ -139,6 +142,33 @@ class ToolWorkflowService:
                     failed.add(call.call_id)
                     pending.pop(call.call_id, None)
                     continue
+                if call.result_bindings:
+                    definition = self.registry.get_or_none(call.tool_key)
+                    try:
+                        if not definition:
+                            raise ToolResultBindingError("结果绑定需要可验证的工具定义。")
+                        call, binding_events = self.binding_resolver.resolve(
+                            call=call,
+                            sources_by_call_id=sources_by_call_id,
+                            definition=definition,
+                        )
+                        result.events.extend(binding_events)
+                    except ToolResultBindingError:
+                        result.events.append(
+                            ToolTraceEvent(
+                                type="tool_result_binding",
+                                payload={
+                                    "call_id": call.call_id,
+                                    "tool_key": call.tool_key,
+                                    "status": "failed",
+                                    "reason": "结果绑定缺失、越界或不符合 Input Schema。",
+                                },
+                            )
+                        )
+                        completed.add(call.call_id)
+                        failed.add(call.call_id)
+                        pending.pop(call.call_id, None)
+                        continue
                 call_key = (call.tool_key, self._stable_arguments(call))
                 if call_key in seen_call_keys:
                     result.events.append(
@@ -194,6 +224,7 @@ class ToolWorkflowService:
                 completed.add(step_result.call.call_id)
                 if not step_result.succeeded:
                     failed.add(step_result.call.call_id)
+                sources_by_call_id[step_result.call.call_id] = list(step_result.sources)
                 pending.pop(step_result.call.call_id, None)
 
         result.elapsed_ms = int((time.perf_counter() - started) * 1000)

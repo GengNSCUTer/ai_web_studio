@@ -122,6 +122,15 @@ class SlowKnowledgeIndexService:
         return []
 
 
+class CapturingKnowledgeIndexService:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def retrieve_async(self, *, user_id: str, knowledge_base, query: str, top_k: int):  # noqa: ANN001, ARG002
+        self.queries.append(query)
+        return []
+
+
 class StaticMultiKnowledgeIndexService:
     async def retrieve_async(self, *, user_id: str, knowledge_base, query: str, top_k: int):  # noqa: ANN001, ARG002
         chunks = KnowledgeChunkRepository(self.db).list_by_knowledge_base(knowledge_base.id, user_id)
@@ -2696,6 +2705,56 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertGreaterEqual(len(public_log["selected"]), 1)
         self.assertEqual(public_log["selected"][0]["chunk_id"], result.sources[0].metadata["chunk_id"])
         self.assertEqual(public_log["status"], "success")
+
+    def test_knowledge_context_rewrites_coreference_only_for_retrieval(self) -> None:
+        knowledge_base, _, _, _ = self._create_indexed_markdown_knowledge_base(
+            name="Query Rewrite 测试",
+            file_name="query-rewrite.md",
+            content="KnowledgeIndexGeneration uses compare-and-swap activation.",
+        )
+        index_service = CapturingKnowledgeIndexService()
+
+        result = asyncio.run(
+            KnowledgeContextService(
+                db=self.db,
+                user_id=self.user.id,
+                index_service=index_service,
+            ).build_context(
+                knowledge_base_id=knowledge_base.id,
+                query="它为什么需要 CAS 激活？",
+                recent_messages=[
+                    SimpleNamespace(
+                        id="previous-user-message",
+                        role="user",
+                        content="请解释 KnowledgeIndexGeneration。",
+                    ),
+                    SimpleNamespace(
+                        id="previous-assistant-message",
+                        role="assistant",
+                        content="不应使用这条模型回答改写检索词。",
+                    ),
+                ],
+            )
+        )
+
+        self.assertEqual(
+            index_service.queries,
+            ["请解释 KnowledgeIndexGeneration。；追问：它为什么需要 CAS 激活？"],
+        )
+        self.assertEqual(result.diagnostics["knowledge_query_rewrite_used"], 1)
+        self.assertEqual(
+            result.details["knowledge_query_rewrite"]["context_message_id"],
+            "previous-user-message",
+        )
+        retrieval_log = self.db.query(KnowledgeRetrievalLog).order_by(KnowledgeRetrievalLog.created_at.desc()).first()
+        self.assertIsNotNone(retrieval_log)
+        assert retrieval_log is not None
+        public_log = KnowledgeRetrievalLogRepository.to_public_dict(retrieval_log)
+        self.assertEqual(public_log["query"], "它为什么需要 CAS 激活？")
+        self.assertEqual(
+            public_log["diagnostics"]["knowledge_retrieval_query"],
+            "请解释 KnowledgeIndexGeneration。；追问：它为什么需要 CAS 激活？",
+        )
 
     def test_knowledge_context_sources_match_chunks_injected_into_prompt(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
