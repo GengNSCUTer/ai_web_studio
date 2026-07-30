@@ -15,6 +15,40 @@ class FakeMemoryRepository:
 
 
 class MemoryContextTest(unittest.TestCase):
+    def test_query_selection_keeps_preferences_but_drops_irrelevant_facts(self) -> None:
+        repo = FakeMemoryRepository(
+            [
+                SimpleNamespace(memory_type="profile", title="表达风格", content="回答简洁、有条理"),
+                SimpleNamespace(memory_type="fact", title="旧旅行", content="去年去过冰岛看极光"),
+                SimpleNamespace(memory_type="project", title="Agent 项目", content="项目采用 RAG 检索和工具调用"),
+            ]
+        )
+
+        context, count, _ = MemoryService(repo).build_memory_context(
+            "u1",
+            max_chars=1000,
+            query="Agent 项目的 RAG 检索如何实现？",
+        )
+
+        self.assertIn("回答简洁", context or "")
+        self.assertIn("工具调用", context or "")
+        self.assertNotIn("冰岛", context or "")
+        self.assertEqual(count, 2)
+
+    def test_query_selection_does_not_drop_all_facts_when_query_is_unavailable(self) -> None:
+        repo = FakeMemoryRepository(
+            [
+                SimpleNamespace(memory_type="fact", title="first", content="ONE"),
+                SimpleNamespace(memory_type="fact", title="second", content="TWO"),
+            ]
+        )
+
+        context, count, _ = MemoryService(repo).build_memory_context("u1", max_chars=500)
+
+        self.assertIn("ONE", context or "")
+        self.assertIn("TWO", context or "")
+        self.assertEqual(count, 2)
+
     def test_oversized_memory_does_not_starve_following_short_memory(self) -> None:
         repo = FakeMemoryRepository(
             [

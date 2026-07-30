@@ -37,6 +37,18 @@ class ExternalContextAssemblerTest(unittest.TestCase):
         self.assertTrue(sources[0].used_in_prompt)
         self.assertFalse(sources[1].used_in_prompt)
 
+    def test_long_first_result_does_not_starve_later_source(self) -> None:
+        sources = [
+            ExternalSource(source_type="web", provider="test", title="long", display_text="A" * 2000),
+            ExternalSource(source_type="web", provider="test", title="later", display_text="SECOND_SOURCE"),
+        ]
+
+        context = ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=800)
+
+        self.assertIn("SECOND_SOURCE", context or "")
+        self.assertIn("结果已按上下文预算压缩", context or "")
+        self.assertTrue(all(source.used_in_prompt for source in sources))
+
 
 if __name__ == "__main__":
     unittest.main()

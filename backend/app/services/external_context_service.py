@@ -49,6 +49,7 @@ class ExternalContextService:
         self.executor = executor or ToolExecutor(
             credential_resolver=ToolCredentialResolver(db),
             catalog=self.registry,
+            db=db,
             user_id=user_id,
             project_id=project_id,
         )
@@ -242,6 +243,13 @@ class ExternalContextService:
             "origin",
             "destination",
             "mode",
+            # Workspace file tools expose an opaque ProjectFile id, never a path
+            # or storage key. Keeping it in the bounded observation lets round 2
+            # read a specific file after list/search discovered it.
+            "file_id",
+            "mime_type",
+            "line_start",
+            "line_end",
         }
         observations: list[dict] = []
         for index, source in enumerate(sources[:8], start=1):

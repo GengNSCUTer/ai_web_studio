@@ -103,7 +103,7 @@ class ChatContextAssemblyService:
         self.tool_trace_repo = tool_trace_repo
         self.memory_service = memory_service
 
-    def build_memory_context(self, settings: object) -> MemoryContextBundle:
+    def build_memory_context(self, settings: object, *, query: str | None = None) -> MemoryContextBundle:
         # 长期记忆是用户级上下文，不属于单个 conversation；是否注入由用户设置控制。
         if not getattr(settings, "memory_enabled", True):
             return MemoryContextBundle(context_text=None, count=0, chars=0)
@@ -111,6 +111,7 @@ class ChatContextAssemblyService:
         context_text, count, chars = self.memory_service.build_memory_context(
             self.user_id,
             max_chars=int(getattr(settings, "memory_max_chars", 4000) or 4000),
+            query=query,
         )
         return MemoryContextBundle(context_text=context_text, count=count, chars=chars)
 
@@ -129,8 +130,8 @@ class ChatContextAssemblyService:
         knowledge_base_ids: list[str] | None = None,
     ) -> ChatExecutionContext:
         # 这是 Chat prepare 阶段的核心方法：收集所有上下文来源，构造最终 prompt，并返回给流式执行层。
-        memory_bundle = self.build_memory_context(runtime.settings)
         query = getattr(user_message, "content", "") or ""
+        memory_bundle = self.build_memory_context(runtime.settings, query=query)
 
         # 当前轮附件上下文只围绕本轮 user_message 选择，不扫描全部历史附件。
         attachment_context_result = AttachmentContextService().build_context(

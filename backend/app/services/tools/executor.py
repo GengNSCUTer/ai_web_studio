@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import time
 
+from sqlalchemy.orm import Session
+
 from app.services.tools.adapters import ToolAdapterRunner
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.credentials import ToolCredentialResolver
 from app.services.tools.schemas import PlannedToolCall, ToolCallResult, ToolTraceEvent, redact_sensitive_arguments
+from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 
 
 class ToolExecutor:
@@ -15,11 +18,18 @@ class ToolExecutor:
         credential_resolver: ToolCredentialResolver | None = None,
         catalog: ToolCatalog | None = None,
         adapter_runner: ToolAdapterRunner | None = None,
+        db: Session | None = None,
         user_id: str | None = None,
         project_id: str | None = None,
     ) -> None:
         self.catalog = catalog or ToolCatalog()
-        self.adapter_runner = adapter_runner or ToolAdapterRunner()
+        self.adapter_runner = adapter_runner or ToolAdapterRunner(
+            workspace_file_provider=WorkspaceFileToolProvider(
+                db=db,
+                user_id=user_id,
+                project_id=project_id,
+            )
+        )
         self.credential_resolver = credential_resolver or ToolCredentialResolver()
         self.user_id = user_id
         self.project_id = project_id

@@ -503,5 +503,70 @@
     "fallback_tool_key": "web.tavily.search",
     "enabled_by_default": true,
     "read_only": true
+  },
+  {
+    "tool_key": "workspace.files.list",
+    "provider": "workspace",
+    "category": "workspace_file",
+    "display_name": "工作区文件列表",
+    "description": "List files belonging to the current user's active project. Returns file IDs and metadata only; never exposes local paths.",
+    "when_to_use": ["用户询问当前项目有哪些文件、资料或文档，或需要先定位文件 ID 时使用。"],
+    "when_not_to_use": ["不能读取其他用户、其他项目或任意本机路径。"],
+    "input_schema": {"type": "object", "properties": {}, "additionalProperties": false},
+    "output_schema": {},
+    "adapter_type": "workspace_file",
+    "adapter": {"auth_type": "none"},
+    "source_type": "local_workspace",
+    "risk_level": "low",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "workspace.files.search",
+    "provider": "workspace",
+    "category": "workspace_file",
+    "display_name": "工作区文件搜索",
+    "description": "Search parsed text in files belonging to the current user's active project. Returns a bounded snippet and opaque file ID.",
+    "when_to_use": ["用户要求从当前项目文件、报告、文档或资料中寻找内容时使用。"],
+    "when_not_to_use": ["不能搜索任意磁盘文件、用户没有权限的项目或未解析的二进制内容。"],
+    "input_schema": {
+      "type": "object",
+      "properties": {"query": {"type": "string", "minLength": 1, "maxLength": 500}},
+      "required": ["query"],
+      "additionalProperties": false
+    },
+    "output_schema": {},
+    "adapter_type": "workspace_file",
+    "adapter": {"auth_type": "none"},
+    "source_type": "local_workspace",
+    "risk_level": "low",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "workspace.files.read",
+    "provider": "workspace",
+    "category": "workspace_file",
+    "display_name": "工作区文件分段读取",
+    "description": "Read a bounded line range from one opaque ProjectFile ID in the current user's active project. This tool is read-only.",
+    "when_to_use": ["已经通过文件列表或搜索拿到 file_id，需要查看某段原文时使用。"],
+    "when_not_to_use": ["不能传入本机路径、storage key，也不能修改、删除或执行文件。"],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {"type": "string", "minLength": 1, "maxLength": 36},
+        "start_line": {"type": "integer", "minimum": 1, "default": 1},
+        "max_lines": {"type": "integer", "minimum": 1, "maximum": 200, "default": 80}
+      },
+      "required": ["file_id"],
+      "additionalProperties": false
+    },
+    "output_schema": {},
+    "adapter_type": "workspace_file",
+    "adapter": {"auth_type": "none"},
+    "source_type": "local_workspace",
+    "risk_level": "low",
+    "enabled_by_default": true,
+    "read_only": true
   }
 ]

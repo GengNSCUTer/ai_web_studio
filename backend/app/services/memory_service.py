@@ -1,12 +1,27 @@
 import difflib
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from app.models.user_memory import UserMemory
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.memory_repo import UserMemoryRepository
 from app.schemas.memory import MemorySuggestion, UserMemoryCreate, UserMemoryResponse, UserMemoryUpdate
+
+
+@dataclass(frozen=True)
+class MemoryContextSelection:
+    """The memory subset chosen for one user query.
+
+    Long-term memory is evidence, not a second conversation history.  Keeping the
+    selection separate makes the lexical first pass replaceable with embedding
+    retrieval later without changing prompt assembly.
+    """
+
+    memories: list[UserMemory]
+    relevant_count: int
+    always_on_count: int
 
 
 class MemoryService:
@@ -84,8 +99,61 @@ class MemoryService:
         saved = self.repo.save(memory)
         return self._memory_response(saved, memory.user_id)
 
-    def build_memory_context(self, user_id: str, *, max_chars: int) -> tuple[str | None, int, int]:
+    def select_memories_for_query(
+        self,
+        user_id: str,
+        *,
+        query: str | None,
+        max_memories: int = 8,
+    ) -> MemoryContextSelection:
         memories = self.repo.list_by_user(user_id, enabled_only=True)
+        if not memories:
+            return MemoryContextSelection(memories=[], relevant_count=0, always_on_count=0)
+
+        # Existing callers that do not have a query retain the historical,
+        # recency-based behavior.  Chat assembly always provides the current query.
+        normalized_query = self.normalize_text(query)
+        if not normalized_query:
+            return MemoryContextSelection(
+                memories=memories[:max_memories],
+                relevant_count=len(memories[:max_memories]),
+                always_on_count=0,
+            )
+
+        always_on: list[tuple[UserMemory, float]] = []
+        relevant: list[tuple[UserMemory, float]] = []
+        for memory in memories:
+            title = self.normalize_text(getattr(memory, "title", ""))
+            content = self.normalize_text(getattr(memory, "content", ""))
+            score = self._query_relevance_score(normalized_query, f"{title}\n{content}")
+            if memory.memory_type in {"instruction", "profile"}:
+                # Explicit preferences and durable user instructions should not
+                # disappear merely because their wording differs from this turn.
+                always_on.append((memory, score))
+            elif score > 0:
+                relevant.append((memory, score))
+
+        # The repository is already sorted by recency. Python's stable sort keeps
+        # that deterministic tie-breaker, which makes prompt-cache diagnostics
+        # stable between identical requests.
+        always_on.sort(key=lambda item: item[1], reverse=True)
+        relevant.sort(key=lambda item: item[1], reverse=True)
+        selected = [memory for memory, _ in [*always_on, *relevant][:max_memories]]
+        return MemoryContextSelection(
+            memories=selected,
+            relevant_count=sum(1 for memory, _ in relevant if memory in selected),
+            always_on_count=sum(1 for memory, _ in always_on if memory in selected),
+        )
+
+    def build_memory_context(
+        self,
+        user_id: str,
+        *,
+        max_chars: int,
+        query: str | None = None,
+    ) -> tuple[str | None, int, int]:
+        selection = self.select_memories_for_query(user_id, query=query)
+        memories = selection.memories
         if not memories:
             return None, 0, 0
 
@@ -113,6 +181,39 @@ class MemoryService:
 
         context = header + "\n" + "\n".join(chunks)
         return context, len(chunks), len(context)
+
+    @classmethod
+    def _query_relevance_score(cls, query: str, candidate: str) -> float:
+        """Return a deterministic lexical relevance score for Chinese and English.
+
+        This is deliberately a conservative first-stage filter, not a claim of
+        semantic retrieval. English identifiers/words and Chinese character
+        bigrams are both useful signals without adding an embedding-model
+        dependency or mixing incompatible memory vectors into the current schema.
+        """
+
+        query_terms = cls._search_terms(query)
+        candidate_terms = cls._search_terms(candidate)
+        if not query_terms or not candidate_terms:
+            return 0.0
+        overlap = query_terms & candidate_terms
+        if not overlap:
+            return 0.0
+        # Normalise by query size: matching the key terms of a focused question
+        # matters more than a large memory document sharing many generic terms.
+        return round(len(overlap) / len(query_terms), 4)
+
+    @staticmethod
+    def _search_terms(value: str) -> set[str]:
+        normalized = value.lower()
+        terms = set(re.findall(r"[a-z0-9_]{2,}", normalized))
+        chinese_runs = re.findall(r"[\u4e00-\u9fff]+", normalized)
+        for run in chinese_runs:
+            if len(run) == 1:
+                terms.add(run)
+                continue
+            terms.update(run[index : index + 2] for index in range(len(run) - 1))
+        return terms
 
     def build_existing_memory_text(self, user_id: str, *, max_chars: int = 4000) -> str:
         memories = self.repo.list_by_user(user_id)
