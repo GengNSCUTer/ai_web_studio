@@ -31,6 +31,10 @@ class WorkspaceFileToolProvider:
     async def run(self, *, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
         if not self.db or not self.user_id:
             raise RuntimeError("工作区文件工具缺少用户数据库上下文。")
+        if not self.project_id:
+            # ProjectFile is a project-scoped resource. Falling back to every
+            # file owned by the user would silently widen the workspace boundary.
+            raise RuntimeError("工作区文件工具需要关联项目后才能使用。")
         if call.tool_key == "workspace.files.list":
             return self._list_files(call)
         if call.tool_key == "workspace.files.search":
@@ -40,10 +44,10 @@ class WorkspaceFileToolProvider:
         raise RuntimeError(f"未知工作区文件工具：{call.tool_key}")
 
     def _base_statement(self):
-        statement = select(ProjectFile).where(ProjectFile.user_id == self.user_id)
-        if self.project_id:
-            statement = statement.where(ProjectFile.project_id == self.project_id)
-        return statement
+        return select(ProjectFile).where(
+            ProjectFile.user_id == self.user_id,
+            ProjectFile.project_id == self.project_id,
+        )
 
     def _list_files(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
         files = list(

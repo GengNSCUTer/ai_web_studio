@@ -123,6 +123,12 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
                     self.provider.run(call=build_call("workspace.files.read", {"file_id": file_id}))
                 )
 
+    def test_file_tools_require_project_workspace_context(self) -> None:
+        provider = WorkspaceFileToolProvider(db=self.db, user_id="user-1", project_id=None)
+
+        with self.assertRaisesRegex(RuntimeError, "需要关联项目"):
+            asyncio.run(provider.run(call=build_call("workspace.files.list", {})))
+
     def test_executor_dispatches_workspace_adapter_without_credentials(self) -> None:
         class AllowWorkspaceTool:
             def is_tool_enabled_for_workspace(self, **_kwargs) -> bool:
