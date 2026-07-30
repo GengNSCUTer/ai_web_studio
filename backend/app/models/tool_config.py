@@ -38,6 +38,19 @@ class WorkspaceToolSetting(Base):
     )
 
 
+class WorkspaceAgentPolicy(Base):
+    __tablename__ = "workspace_agent_policies"
+
+    project_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # read_only: no side effects; ask: durable approval; full_workspace:
+    # auto-apply only explicitly allowlisted, workspace-scoped capabilities.
+    permission_mode: Mapped[str] = mapped_column(String(32), default="ask")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class McpServer(Base):
     __tablename__ = "mcp_servers"
     __table_args__ = (UniqueConstraint("user_id", "server_key", name="uq_mcp_server_user_key"),)

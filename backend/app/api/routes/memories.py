@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -7,10 +7,18 @@ from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.message_repo import MessageRepository
 from app.repositories.setting_repo import UserSettingRepository
-from app.schemas.memory import UserMemoryCreate, UserMemoryResponse, UserMemoryUpdate
+from app.schemas.memory import (
+    MemoryExtractionJobResponse,
+    MemoryReviewRequest,
+    UserMemoryCreate,
+    UserMemoryResponse,
+    UserMemoryUpdate,
+)
 from app.schemas.memory import MemorySuggestRequest, MemorySuggestResponse
 from app.services.chat_provider_service import ChatProviderService, resolve_provider_base_url
 from app.services.memory_service import MemoryService
+from app.services.memory_candidate_runtime import MemoryExtractionJobService
+from app.repositories.memory_job_repo import MemoryExtractionJobRepository
 from app.services.setting_service import SettingService
 
 router = APIRouter(prefix="/memories", tags=["memories"])
@@ -86,10 +94,19 @@ def _build_suggestion_prompt(
 
 @router.get("", response_model=list[UserMemoryResponse])
 def list_memories(
+    memory_status: str | None = Query(default=None, alias="status"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[UserMemoryResponse]:
     service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
+    if memory_status:
+        allowed = {"pending", "active", "rejected", "superseded", "expired"}
+        if memory_status not in allowed:
+            raise HTTPException(status_code=400, detail="Invalid memory status")
+        return [
+            service._memory_response(item, current_user.id)
+            for item in UserMemoryRepository(db).list_by_user_and_status(current_user.id, memory_status)
+        ]
     return service.list_memories(current_user.id)
 
 
@@ -101,6 +118,81 @@ def create_memory(
 ) -> UserMemoryResponse:
     service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
     return service.create_memory(current_user.id, payload)
+
+
+@router.post(
+    "/extraction-jobs/{conversation_id}",
+    response_model=MemoryExtractionJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def enqueue_extraction_job(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MemoryExtractionJobResponse:
+    messages = MessageRepository(db).list_by_conversation(conversation_id)
+    assistant = next(
+        (message for message in reversed(messages) if getattr(message, "role", None) == "assistant"),
+        None,
+    )
+    if not assistant:
+        raise HTTPException(status_code=400, detail="Conversation has no completed assistant turn")
+    job = MemoryExtractionJobService(db).enqueue_after_turn(
+        user_id=current_user.id,
+        conversation_id=conversation_id,
+        assistant_message_id=assistant.id,
+        force=True,
+    )
+    if not job:
+        raise HTTPException(status_code=404, detail="Conversation not found or has no source messages")
+    return MemoryExtractionJobResponse.model_validate(job)
+
+
+@router.get("/extraction-jobs", response_model=list[MemoryExtractionJobResponse])
+def list_extraction_jobs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[MemoryExtractionJobResponse]:
+    return [
+        MemoryExtractionJobResponse.model_validate(job)
+        for job in MemoryExtractionJobRepository(db).list_by_user(current_user.id)
+    ]
+
+
+@router.post("/{memory_id}/approve", response_model=UserMemoryResponse)
+def approve_memory_candidate(
+    memory_id: str,
+    payload: MemoryReviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserMemoryResponse:
+    repo = UserMemoryRepository(db)
+    memory = repo.get_by_user(memory_id, current_user.id)
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    try:
+        return MemoryService(repo, ConversationRepository(db)).approve_candidate(
+            memory=memory,
+            expires_at=payload.expires_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/{memory_id}/reject", response_model=UserMemoryResponse)
+def reject_memory_candidate(
+    memory_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserMemoryResponse:
+    repo = UserMemoryRepository(db)
+    memory = repo.get_by_user(memory_id, current_user.id)
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    try:
+        return MemoryService(repo, ConversationRepository(db)).reject_candidate(memory=memory)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/suggest", response_model=MemorySuggestResponse)
@@ -145,7 +237,11 @@ async def suggest_memories(
             max_tokens=1600,
         )
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"生成建议记忆失败：{exc}") from exc
+        # Provider/SDK 异常可能包含 URL、响应正文或鉴权信息，不回显原始异常。
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="生成建议记忆失败，请检查模型配置或稍后重试。",
+        ) from exc
 
     suggestions = MemoryService.parse_suggestion_json(
         raw,

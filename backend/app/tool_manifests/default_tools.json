@@ -568,5 +568,57 @@
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
+  },
+  {
+    "tool_key": "workspace.files.propose_edit",
+    "provider": "workspace",
+    "category": "workspace_file",
+    "display_name": "工作区文件编辑预览",
+    "description": "Validate that old_string occurs exactly once in a project file and return a unified Diff preview. This tool never writes the source file.",
+    "when_to_use": ["用户希望修改项目文件时，先读取相关片段，再用此工具校验唯一替换并生成可审查的 Diff。"],
+    "when_not_to_use": ["不能把 Diff 预览描述为已完成修改；不能传本机路径，也不能用于执行、删除或直接写入文件。"],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {"type": "string", "minLength": 1, "maxLength": 36},
+        "old_string": {"type": "string", "minLength": 1, "maxLength": 12000},
+        "new_string": {"type": "string", "maxLength": 12000}
+      },
+      "required": ["file_id", "old_string", "new_string"],
+      "additionalProperties": false
+    },
+    "output_schema": {},
+    "adapter_type": "workspace_file",
+    "adapter": {"auth_type": "none"},
+    "source_type": "local_workspace",
+    "risk_level": "low",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "workspace.files.apply_edit",
+    "provider": "workspace",
+    "category": "workspace_file",
+    "display_name": "工作区文件受控修改",
+    "description": "Create a durable file-edit run and approval request. The first call never writes; only an authenticated, one-time approval continuation may apply the exact reviewed Diff with revision CAS.",
+    "when_to_use": ["用户明确要求修改当前项目文件，且已经读取原文并能提供唯一 old_string 时使用。"],
+    "when_not_to_use": ["不能修改任意磁盘路径、删除文件、执行代码或跳过用户确认；仅支持 ProjectFile.parsed_text。"],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_id": {"type": "string", "minLength": 1, "maxLength": 36},
+        "old_string": {"type": "string", "minLength": 1, "maxLength": 12000},
+        "new_string": {"type": "string", "maxLength": 12000}
+      },
+      "required": ["file_id", "old_string", "new_string"],
+      "additionalProperties": false
+    },
+    "output_schema": {},
+    "adapter_type": "workspace_file",
+    "adapter": {"auth_type": "none"},
+    "source_type": "local_workspace",
+    "risk_level": "high",
+    "enabled_by_default": true,
+    "read_only": false
   }
 ]

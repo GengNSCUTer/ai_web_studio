@@ -11,6 +11,14 @@ SENSITIVE_ARGUMENT_PATTERN = re.compile(
 )
 
 
+class ToolExecutionFeedbackError(RuntimeError):
+    """Expected, sanitized tool failure that is safe to show to the planner.
+
+    Adapter and network exceptions must not use this type because they may
+    contain endpoints, credentials or raw remote response bodies.
+    """
+
+
 def redact_sensitive_arguments(value: Any) -> Any:
     """Redact model/tool arguments before Trace, API responses and persistence."""
     if isinstance(value, dict):

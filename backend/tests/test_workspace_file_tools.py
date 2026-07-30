@@ -12,6 +12,7 @@ from app.services.tools.catalog import ToolCatalog
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.tools.schemas import ExternalSource, PlannedToolCall
+from app.services.tools.schemas import ToolExecutionFeedbackError
 from app.services.external_context_service import ExternalContextService
 
 
@@ -122,6 +123,54 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
                 asyncio.run(
                     self.provider.run(call=build_call("workspace.files.read", {"file_id": file_id}))
                 )
+
+    def test_edit_preview_requires_unique_match_and_never_mutates_file(self) -> None:
+        sources, metadata = asyncio.run(
+            self.provider.run(
+                call=build_call(
+                    "workspace.files.propose_edit",
+                    {
+                        "file_id": "file-current",
+                        "old_string": "Durable checkpoint",
+                        "new_string": "Durable Agent checkpoint",
+                    },
+                )
+            )
+        )
+
+        self.assertFalse(metadata["applied"])
+        self.assertIn("-Durable checkpoint", sources[0].display_text)
+        self.assertIn("+Durable Agent checkpoint", sources[0].display_text)
+        self.assertIn("未修改源文件", sources[0].display_text)
+        stored = self.db.get(ProjectFile, "file-current")
+        self.assertEqual(
+            stored.parsed_text,
+            "Architecture\nDurable checkpoint and tool approval design.\nFinal line.",
+        )
+
+    def test_edit_preview_returns_safe_feedback_for_missing_or_ambiguous_match(self) -> None:
+        with self.assertRaisesRegex(ToolExecutionFeedbackError, "重新读取"):
+            asyncio.run(
+                self.provider.run(
+                    call=build_call(
+                        "workspace.files.propose_edit",
+                        {"file_id": "file-current", "old_string": "stale text", "new_string": "new"},
+                    )
+                )
+            )
+
+        current = self.db.get(ProjectFile, "file-current")
+        current.parsed_text = "same\nsame\n"
+        self.db.commit()
+        with self.assertRaisesRegex(ToolExecutionFeedbackError, "出现 2 次"):
+            asyncio.run(
+                self.provider.run(
+                    call=build_call(
+                        "workspace.files.propose_edit",
+                        {"file_id": "file-current", "old_string": "same", "new_string": "new"},
+                    )
+                )
+            )
 
     def test_file_tools_require_project_workspace_context(self) -> None:
         provider = WorkspaceFileToolProvider(db=self.db, user_id="user-1", project_id=None)

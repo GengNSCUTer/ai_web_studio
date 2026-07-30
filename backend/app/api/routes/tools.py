@@ -9,7 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.models.tool_config import McpServer, McpTool, UserToolCredential, WorkspaceToolSetting
+from app.models.tool_config import (
+    McpServer,
+    McpTool,
+    UserToolCredential,
+    WorkspaceAgentPolicy,
+    WorkspaceToolSetting,
+)
 from app.models.user import User
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.tool_config_repo import ToolConfigRepository
@@ -26,6 +32,8 @@ from app.schemas.tool_config import (
     ToolSettingsResponse,
     UserToolCredentialResponse,
     UserToolCredentialUpdate,
+    WorkspaceAgentPolicyResponse,
+    WorkspaceAgentPolicyUpdate,
     WorkspaceToolSettingResponse,
     WorkspaceToolSettingUpdate,
 )
@@ -53,6 +61,10 @@ def _json_dumps(value: object) -> str:
 def _json_loads(value: str | None, fallback: object) -> object:
     if not value:
         return fallback
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return fallback
 
 
 def _dynamic_tool_key(*, server_id: str, raw_name: str) -> str:
@@ -60,10 +72,6 @@ def _dynamic_tool_key(*, server_id: str, raw_name: str) -> str:
     name_slug = _slug(raw_name)[:48] or "tool"
     name_hash = hashlib.sha256(raw_name.encode("utf-8")).hexdigest()[:10]
     return f"mcp.{server_id}.{name_slug}.{name_hash}"
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return fallback
 
 
 def _slug(value: str) -> str:
@@ -182,6 +190,7 @@ def get_tool_settings(
         }
     )
     workspace_settings = repo.list_workspace_settings(project_id) if project_id else []
+    workspace_policy = repo.get_workspace_policy(project_id) if project_id else None
 
     return ToolSettingsResponse(
         tools=[
@@ -219,6 +228,14 @@ def get_tool_settings(
             )
             for item in workspace_settings
         ],
+        workspace_policy=(
+            WorkspaceAgentPolicyResponse(
+                project_id=project_id,
+                permission_mode=workspace_policy.permission_mode if workspace_policy else "ask",
+            )
+            if project_id
+            else None
+        ),
         mcp_servers=[_server_response(server) for server in mcp_servers],
         mcp_tools=[_tool_response(tool, server) for tool, server in mcp_tool_pairs],
     )
@@ -293,6 +310,35 @@ def update_workspace_tool_setting(
         project_id=saved.project_id,
         tool_key=saved.tool_key,
         is_enabled=saved.is_enabled,
+    )
+
+
+@router.patch(
+    "/workspace-policies/{project_id}",
+    response_model=WorkspaceAgentPolicyResponse,
+)
+def update_workspace_agent_policy(
+    project_id: str,
+    payload: WorkspaceAgentPolicyUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> WorkspaceAgentPolicyResponse:
+    if not ProjectRepository(db).get_by_user(project_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    repo = ToolConfigRepository(db)
+    policy = repo.get_workspace_policy(project_id)
+    if not policy:
+        policy = WorkspaceAgentPolicy(
+            project_id=project_id,
+            permission_mode=payload.permission_mode,
+        )
+    else:
+        policy.permission_mode = payload.permission_mode
+    saved = repo.save_workspace_policy(policy)
+    return WorkspaceAgentPolicyResponse(
+        project_id=saved.project_id,
+        permission_mode=saved.permission_mode,
     )
 
 

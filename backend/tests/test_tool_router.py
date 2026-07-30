@@ -88,6 +88,17 @@ class FakeLoopWorkflow:
         )
 
 
+class FakeErrorFeedbackWorkflow:
+    async def run(self, *, plan, query):
+        return ToolWorkflowResult(
+            sources=[],
+            selected_tool="workspace_file",
+            error_message="old_string 出现 2 次，请提供更多上下文。",
+            elapsed_ms=2,
+            events=[ToolTraceEvent(type="tool_workflow_end", payload={"sources_count": 0})],
+        )
+
+
 class ToolRouterTest(unittest.TestCase):
     def test_distance_queries_route_to_amap_map(self) -> None:
         router = DeterministicToolPlanner()
@@ -193,6 +204,27 @@ class ToolRouterTest(unittest.TestCase):
             event_types = [event.type for event in result.tool_events]
             self.assertIn("tool_agent_round_start", event_types)
             self.assertIn("tool_agent_round_end", event_types)
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_external_context_can_replan_from_sanitized_tool_error(self) -> None:
+        async def run_test() -> None:
+            planner = FakeLoopPlanner()
+            service = ExternalContextService(planner=planner, workflow=FakeErrorFeedbackWorkflow())
+
+            result = await service.build_context(
+                query="修改项目文件",
+                enabled=True,
+                max_chars=2000,
+                recent_messages=[],
+            )
+
+            self.assertEqual(planner.calls, 2)
+            self.assertEqual(planner.observations_seen[1][0]["source_type"], "tool_error_feedback")
+            self.assertIn("出现 2 次", planner.observations_seen[1][0]["display_text"])
+            self.assertTrue(result.diagnostics["external_context_error"])
 
         import asyncio
 

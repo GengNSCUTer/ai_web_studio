@@ -30,7 +30,7 @@ class ToolCandidateSelector:
         "map_distance": re.compile(r"(多远|相距|距离|几公里|多少公里|哪个近|更近|分别离|离.+远)"),
         "map_poi": re.compile(r"(附近|周边|位置|地址|在哪|哪里|地图|服务区|景点|酒店|餐厅|医院|学校|车站)"),
         "map_geo": re.compile(r"(经纬度|坐标|地理编码|行政区|区划|地址解析)"),
-        "workspace_file": re.compile(r"(工作区|项目文件|文件|文档|资料|附件|报告|代码|读取|查找)"),
+        "workspace_file": re.compile(r"(工作区|项目文件|文件|文档|资料|附件|报告|代码|读取|查找|修改|编辑|替换|重构|diff)"),
     }
 
     def __init__(self, catalog: ToolCatalog | None = None, *, max_candidates: int | None = None) -> None:

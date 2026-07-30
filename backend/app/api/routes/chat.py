@@ -219,6 +219,20 @@ def _persist_stream_result(
     )
     context.assistant_message.status = status_value
     context.message_service.save_message(context.assistant_message)
+    if status_value == "done":
+        # 自动记忆只落一个持久化 extraction job；真正的 LLM 提取由独立 worker
+        # 完成并生成 pending 候选，不延长当前 HTTP 流，也不会直接激活记忆。
+        try:
+            from app.services.memory_candidate_runtime import MemoryExtractionJobService
+
+            MemoryExtractionJobService(context.message_service.repo.db).enqueue_after_turn(
+                user_id=context.conversation.user_id,
+                conversation_id=context.conversation.id,
+                assistant_message_id=context.assistant_message.id,
+            )
+        except Exception:
+            context.message_service.repo.db.rollback()
+            logger.warning("Failed to enqueue memory candidate extraction job")
 
 
 def _build_streaming_response(
@@ -260,6 +274,8 @@ def _build_streaming_response(
                 max_tokens=context.max_tokens,
                 thinking_enabled=context.thinking_enabled,
                 thinking_budget=context.thinking_budget,
+                prompt_cache_key=context.prompt_cache_key,
+                prompt_cache_breakpoint=context.prompt_cache_breakpoint,
             )
             async for event in _iter_with_stream_timeouts(
                 provider_events,
@@ -277,6 +293,32 @@ def _build_streaming_response(
                     # answer_delta 才是最终回答正文。
                     content_parts.append(event.text)
                     yield _encode_stream_event("answer_delta", text=event.text) if event_stream else event.text
+                    continue
+                if event.type == "provider_usage" and event.data:
+                    # usage 事件来自 Provider 最终 chunk，不包含凭据；它让前端/测试能够
+                    # 区分“理论前缀可复用”和“Provider 实际命中 cached tokens”。
+                    context.context_stats.update(
+                        {
+                            "provider_input_tokens": int(event.data.get("input_tokens", 0) or 0),
+                            "provider_output_tokens": int(event.data.get("output_tokens", 0) or 0),
+                            "provider_cached_input_tokens": int(event.data.get("cached_input_tokens", 0) or 0),
+                            "provider_cache_creation_input_tokens": int(
+                                event.data.get("cache_creation_input_tokens", 0) or 0
+                            ),
+                            "prompt_cache_mode": event.data.get("prompt_cache_mode", "none"),
+                            "prompt_cache_request_key_sent": int(
+                                bool(event.data.get("prompt_cache_request_key_sent", False))
+                            ),
+                            "prompt_cache_usage_available": int(
+                                bool(event.data.get("prompt_cache_usage_available", False))
+                            ),
+                            "prompt_cache_usage_support": event.data.get(
+                                "prompt_cache_usage_support", "none"
+                            ),
+                        }
+                    )
+                    if event_stream:
+                        yield _encode_stream_event("provider_usage", **event.data)
 
             # 模型正常结束后，一次性把完整 answer/reasoning/sources 写回 assistant 消息。
             _persist_stream_result(

@@ -39,6 +39,8 @@ class ChatExecutionContext:
     thinking_budget: int | None
     tool_events: list[dict[str, Any]]
     external_sources: list[dict[str, Any]]
+    prompt_cache_key: str | None = None
+    prompt_cache_breakpoint: int = 0
 
 
 @dataclass

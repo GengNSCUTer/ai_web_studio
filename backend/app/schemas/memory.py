@@ -37,6 +37,15 @@ class UserMemoryResponse(BaseModel):
     source_message_ids: str | None = None
     confidence: str | None = None
     is_enabled: bool
+    status: str = "active"
+    project_id: str | None = None
+    importance: float = 0.5
+    sensitivity: str = "normal"
+    risk_level: str = "safe"
+    candidate_reason: str | None = None
+    supersedes_memory_id: str | None = None
+    expires_at: datetime | None = None
+    review_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -62,3 +71,23 @@ class MemorySuggestion(BaseModel):
 
 class MemorySuggestResponse(BaseModel):
     suggestions: list[MemorySuggestion]
+
+
+class MemoryReviewRequest(BaseModel):
+    expires_at: datetime | None = None
+
+
+class MemoryExtractionJobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    conversation_id: str
+    project_id: str | None = None
+    status: str
+    attempts: int
+    max_attempts: int
+    result_count: int
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+    finished_at: datetime | None = None

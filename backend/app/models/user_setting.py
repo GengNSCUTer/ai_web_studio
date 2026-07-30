@@ -29,6 +29,8 @@ class UserSetting(Base):
     context_mode: Mapped[str] = mapped_column(String(32), default="balanced")
     memory_enabled: Mapped[bool] = mapped_column(default=True)
     memory_max_chars: Mapped[int] = mapped_column(Integer, default=4000)
+    memory_auto_candidate_enabled: Mapped[bool] = mapped_column(default=False)
+    memory_auto_candidate_turn_interval: Mapped[int] = mapped_column(Integer, default=4)
     ui_language: Mapped[str] = mapped_column(String(16), default="zh-CN")
     theme_mode: Mapped[str] = mapped_column(String(16), default="system")
     knowledge_parser_provider: Mapped[str] = mapped_column(String(32), default="local_basic")

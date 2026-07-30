@@ -14,21 +14,23 @@ class PromptBuildResult:
 
 
 class ContextPromptBuilder:
-    TEMPLATE_VERSION = "context_prompt_v1"
+    TEMPLATE_VERSION = "context_prompt_v2_cache_stable"
     REFERENCE_CONTEXT_LAYER = "reference_context_prefix"
     # Governance 从 reference 尾部裁剪，因此这里按业务优先级从高到低排列。
     # 当前 query 产生的 RAG/Tool 证据优先于会话摘要和全局 Memory。
     REFERENCE_PRIORITY_ORDER = (
         "knowledge_context",
         "external_context",
-        "conversation_summary",
+        "attachment_context",
         "long_term_memory",
+        "conversation_summary",
     )
 
     PROVIDER_TEMPLATES = {
         "ollama": "ollama_chat_v1",
         "openai-compatible": "openai_chat_completions_v1",
         "vllm": "openai_chat_completions_v1",
+        "anthropic": "anthropic_messages_v1",
     }
 
     def build_chat_messages(
@@ -50,29 +52,35 @@ class ContextPromptBuilder:
         # 只有平台模板和用户显式配置的 system prompt 可以进入 system role。
         # 长期记忆、知识库、外部网页/工具结果都可能包含用户上传或第三方文本，必须作为“资料”而不是“指令”处理。
         system_sections = [self._build_system_instruction(system_prompt)]
-        reference_sections: list[str] = []
+        # 会话摘要只在达到压缩阈值时变化，适合放在历史之前；当前轮 RAG、Tool、附件和
+        # query-aware Memory 每轮都会变化，必须跟随当前 user message 放到 prompt 尾部，
+        # 否则 Provider 的最长公共前缀会在第二条消息处失效。
+        summary_sections: list[str] = []
+        current_evidence_sections: list[str] = []
         layers.append("system")
 
         if knowledge_context:
-            reference_sections.append(self._wrap_layer("知识库片段", knowledge_context))
+            current_evidence_sections.append(self._wrap_layer("知识库片段", knowledge_context))
             layers.append("knowledge_context")
 
         if external_context:
-            reference_sections.append(self._wrap_layer("外部信息源", external_context))
+            current_evidence_sections.append(self._wrap_layer("外部信息源", external_context))
             layers.append("external_context")
 
         if context_summary:
-            reference_sections.append(
+            summary_sections.append(
                 self._wrap_layer(
                     "会话滚动摘要",
                     "以下是本会话较早历史的压缩摘要，请作为长期上下文参考：\n"
-                    f"{context_summary}",
+                    f"{context_summary}\n\n"
+                    "【压缩边界】摘要只保留较早历史中的高价值信息；若当前任务依赖摘要中没有的原文、"
+                    "文件内容或工具结果，请重新检索或读取，不要根据摘要猜测细节。",
                 )
             )
             layers.append("conversation_summary")
 
         if memory_context:
-            reference_sections.append(self._wrap_layer("长期记忆", memory_context))
+            current_evidence_sections.append(self._wrap_layer("长期记忆", memory_context))
             layers.append("long_term_memory")
 
         # Some OpenAI-compatible providers only accept one leading system message.
@@ -83,11 +91,11 @@ class ContextPromptBuilder:
                 "_context_layer": "system_prefix",
             }
         )
-        if reference_sections:
+        if summary_sections:
             prompt_messages.append(
                 {
                     "role": "user",
-                    "content": self._build_reference_context(reference_sections),
+                    "content": self._build_reference_context(summary_sections),
                     "_context_layer": self.REFERENCE_CONTEXT_LAYER,
                 }
             )
@@ -97,8 +105,6 @@ class ContextPromptBuilder:
             context_summary=context_summary,
             summary_boundary_message_id=summary_boundary_message_id,
         )
-
-        stable_prefix_messages = [self._strip_internal_fields(message) for message in prompt_messages]
 
         attachment_context_injected = 0
         image_messages = 0
@@ -119,22 +125,41 @@ class ContextPromptBuilder:
 
             provider_message = self._build_provider_message(message=message, provider_type=provider_type)
             provider_message["_context_layer"] = "recent_history"
-            if (
-                attachment_context
-                and provider_message.get("role") == "user"
+            is_current_user = (
+                provider_message.get("role") == "user"
                 and getattr(message, "id", None) == last_user_message_id
-            ):
+            )
+            if attachment_context and is_current_user:
+                current_evidence_sections.insert(
+                    len(current_evidence_sections) - (1 if memory_context else 0),
+                    self._wrap_layer(
+                        "当前轮附件片段",
+                        f"以下是按当前问题筛选出的附件片段，请结合它回答：\n{attachment_context}",
+                    ),
+                )
+                layers.append("attachment_context")
+                attachment_context_injected = 1
+
+            if current_evidence_sections and is_current_user:
                 provider_message = self._append_text_to_provider_message(
                     provider_message,
-                    self._wrap_layer("当前轮附件片段", f"以下是按当前问题筛选出的附件片段，请结合它回答：\n{attachment_context}"),
+                    self._build_reference_context(current_evidence_sections),
                 )
-                provider_message["_context_layer"] = "recent_history_with_attachment"
-                attachment_context_injected = 1
+                provider_message["_context_layer"] = "current_user_with_evidence"
 
             if self._has_images(provider_message):
                 image_messages += 1
             history_messages += 1
             prompt_messages.append(provider_message)
+
+        # Provider 缓存只可能复用当前请求之前的连续前缀。最后一个 user message 包含
+        # 本轮 query/evidence，不能计入稳定前缀；此前的 system、周期性摘要和历史均可复用。
+        stable_prefix_end = len(prompt_messages)
+        if prompt_messages and prompt_messages[-1].get("role") == "user":
+            stable_prefix_end -= 1
+        stable_prefix_messages = [
+            self._strip_internal_fields(message) for message in prompt_messages[:stable_prefix_end]
+        ]
 
         return PromptBuildResult(
             # messages 保留 _context_layer 给治理层使用；真正发给 provider 前由治理层统一剥离内部字段。
@@ -145,11 +170,12 @@ class ContextPromptBuilder:
                 "model_family": self._resolve_model_family(model_name),
                 "prompt_layers": ",".join(layers + (["recent_history"] if history_messages else [])),
                 "prompt_system_layers": len(system_sections),
-                "prompt_reference_layers": len(reference_sections),
+                "prompt_reference_layers": len(summary_sections) + len(current_evidence_sections),
                 "prompt_reference_priority_order": ",".join(
                     layer for layer in self.REFERENCE_PRIORITY_ORDER if layer in layers
                 ),
-                "prompt_reference_context_injected": int(bool(reference_sections)),
+                "prompt_reference_context_injected": int(bool(summary_sections or current_evidence_sections)),
+                "prompt_dynamic_evidence_at_tail": int(bool(current_evidence_sections)),
                 "prompt_history_messages": history_messages,
                 "prompt_attachment_context_injected": attachment_context_injected,
                 "prompt_external_context_injected": int(bool(external_context)),
@@ -250,6 +276,22 @@ class ContextPromptBuilder:
                 "content": content_parts or [{"type": "text", "text": content}],
             }
 
+        if provider_type == "anthropic":
+            content_parts = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime_type,
+                        "data": encoded,
+                    },
+                }
+                for encoded, mime_type in image_payloads
+            ]
+            if content.strip():
+                content_parts.append({"type": "text", "text": content})
+            return {"role": role, "content": content_parts}
+
         return {"role": role, "content": content}
 
     @staticmethod
@@ -273,7 +315,10 @@ class ContextPromptBuilder:
         content = message.get("content")
         if not isinstance(content, list):
             return False
-        return any(isinstance(part, dict) and part.get("type") == "image_url" for part in content)
+        return any(
+            isinstance(part, dict) and part.get("type") in {"image_url", "image"}
+            for part in content
+        )
 
     @staticmethod
     def _load_image_base64(storage_path: str) -> str | None:

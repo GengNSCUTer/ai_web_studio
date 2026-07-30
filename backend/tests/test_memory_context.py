@@ -4,6 +4,7 @@ import unittest
 from types import SimpleNamespace
 
 from app.services.memory_service import MemoryService
+from app.schemas.memory import MemorySuggestion
 
 
 class FakeMemoryRepository:
@@ -14,7 +15,96 @@ class FakeMemoryRepository:
         return self.memories
 
 
+class FakeConversationRepository:
+    def __init__(self, conversations: dict[str, object]):
+        self.conversations = conversations
+
+    def get_by_user(self, conversation_id: str, user_id: str) -> object | None:
+        return self.conversations.get(conversation_id)
+
+
 class MemoryContextTest(unittest.TestCase):
+    def test_conversation_sourced_project_memory_isolated_by_project(self) -> None:
+        memories = [
+            SimpleNamespace(
+                memory_type="project",
+                title="项目 A 架构",
+                content="Agent 使用 PostgreSQL",
+                source_conversation_id="conversation-a",
+            ),
+            SimpleNamespace(
+                memory_type="project",
+                title="项目 B 架构",
+                content="Agent 使用 MongoDB",
+                source_conversation_id="conversation-b",
+            ),
+        ]
+        conversations = {
+            "conversation-a": SimpleNamespace(project_id="project-a"),
+            "conversation-b": SimpleNamespace(project_id="project-b"),
+        }
+        service = MemoryService(
+            FakeMemoryRepository(memories),
+            FakeConversationRepository(conversations),
+        )
+
+        context, count, _ = service.build_memory_context(
+            "u1",
+            max_chars=1000,
+            query="Agent 项目架构",
+            project_id="project-a",
+        )
+
+        self.assertIn("PostgreSQL", context or "")
+        self.assertNotIn("MongoDB", context or "")
+        self.assertEqual(count, 1)
+
+    def test_memory_candidates_classify_sensitive_volatile_and_instruction_risks(self) -> None:
+        suggestions = [
+            MemorySuggestion(
+                memory_type="fact",
+                title="测试凭证",
+                content="api_key: top-secret-value",
+            ),
+            MemorySuggestion(
+                memory_type="project",
+                title="临时发布",
+                content="本周使用灰度环境",
+            ),
+            MemorySuggestion(
+                memory_type="instruction",
+                title="长期回答规则",
+                content="每次都先输出完整推理过程",
+            ),
+        ]
+
+        enriched = MemoryService.enrich_suggestion_risks(
+            suggestions=suggestions,
+            existing_memories=[],
+        )
+
+        self.assertEqual([item.risk_level for item in enriched], ["sensitive", "volatile", "review_required"])
+
+    def test_duplicate_risk_takes_precedence_over_content_review(self) -> None:
+        existing = SimpleNamespace(
+            id="memory-existing",
+            memory_type="instruction",
+            title="长期回答规则",
+            content="每次回答都使用中文",
+        )
+        suggestion = MemorySuggestion(
+            memory_type="instruction",
+            title="长期回答规则",
+            content="每次回答都使用中文",
+        )
+
+        enriched = MemoryService.enrich_suggestion_risks(
+            suggestions=[suggestion],
+            existing_memories=[existing],
+        )
+
+        self.assertEqual(enriched[0].risk_level, "duplicate")
+
     def test_query_selection_keeps_preferences_but_drops_irrelevant_facts(self) -> None:
         repo = FakeMemoryRepository(
             [

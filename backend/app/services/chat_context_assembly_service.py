@@ -21,6 +21,7 @@ from app.services.external_context_service import ExternalContextService
 from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import ContextPromptBuilder
+from app.services.provider_capabilities import resolve_provider_capabilities
 from app.services.tools.planner import PlannerRuntime
 
 
@@ -56,16 +57,19 @@ def build_summary_prompt(
 
     system_prompt = (
         "你是一个对话上下文压缩器。你的任务是把较早历史压缩成后续问答可用的滚动摘要，"
-        "不要回答用户问题，不要新增不存在的信息。"
+        "不要回答用户问题，不要调用任何工具，不要新增不存在的信息。"
     )
     user_prompt = f"""请基于已有摘要和新增历史，生成一份可继续用于后续对话的中文滚动摘要。
 
 要求：
-- 保留用户目标、偏好、明确约束、重要事实、已经做过的决定、待办事项。
+- 固定使用以下五个小节：用户目标与原话约束、关键事实与术语、已完成工作与决策、错误与解决方式、未完成事项与下一步。
+- 用户明确表达的要求、禁止项和验收标准尽量保留原句，不要改写成模糊偏好。
+- 保留涉及的资源 ID、文件名、接口名、关键参数和仍有效的错误信息；不要保留密钥或认证凭证。
 - 删除寒暄、重复表达、无关过程和低价值细节。
 - 如果已有摘要与新增历史冲突，以新增历史为准，并在摘要中体现最新状态。
 - 输出使用简洁 Markdown，最多约 {target_chars} 个中文字符。
 - 只输出摘要正文，不要输出解释。
+- 不要调用工具；如果缺少细节就明确写“需重新读取/检索”，不要猜测。
 
 【已有滚动摘要】
 {existing or "无"}
@@ -103,7 +107,13 @@ class ChatContextAssemblyService:
         self.tool_trace_repo = tool_trace_repo
         self.memory_service = memory_service
 
-    def build_memory_context(self, settings: object, *, query: str | None = None) -> MemoryContextBundle:
+    def build_memory_context(
+        self,
+        settings: object,
+        *,
+        query: str | None = None,
+        project_id: str | None = None,
+    ) -> MemoryContextBundle:
         # 长期记忆是用户级上下文，不属于单个 conversation；是否注入由用户设置控制。
         if not getattr(settings, "memory_enabled", True):
             return MemoryContextBundle(context_text=None, count=0, chars=0)
@@ -112,6 +122,7 @@ class ChatContextAssemblyService:
             self.user_id,
             max_chars=int(getattr(settings, "memory_max_chars", 4000) or 4000),
             query=query,
+            project_id=project_id,
         )
         return MemoryContextBundle(context_text=context_text, count=count, chars=chars)
 
@@ -131,7 +142,11 @@ class ChatContextAssemblyService:
     ) -> ChatExecutionContext:
         # 这是 Chat prepare 阶段的核心方法：收集所有上下文来源，构造最终 prompt，并返回给流式执行层。
         query = getattr(user_message, "content", "") or ""
-        memory_bundle = self.build_memory_context(runtime.settings, query=query)
+        memory_bundle = self.build_memory_context(
+            runtime.settings,
+            query=query,
+            project_id=getattr(conversation, "project_id", None),
+        )
 
         # 当前轮附件上下文只围绕本轮 user_message 选择，不扫描全部历史附件。
         attachment_context_result = AttachmentContextService().build_context(
@@ -234,6 +249,10 @@ class ChatContextAssemblyService:
         attachment_context_tokens = runtime.tokenizer.estimate_text_tokens(attachment_context_result.context_text or "")
         knowledge_context_tokens = runtime.tokenizer.estimate_text_tokens(knowledge_context_result.context_text or "")
         combined_sources = [*external_context_result.sources, *knowledge_context_result.sources]
+        provider_capabilities = resolve_provider_capabilities(
+            provider_type=runtime.provider_type,
+            base_url=runtime.base_url,
+        )
         combined_public_sources = [source.to_public_dict() for source in combined_sources]
         context_details = {
             "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
@@ -259,6 +278,17 @@ class ChatContextAssemblyService:
             top_p=runtime.settings.top_p,
             # Provider 输出上限必须与预算预留一致，否则输入合规后仍可能在生成阶段挤爆窗口。
             max_tokens=runtime.budget.reserved_output_tokens,
+            # cache key 只用于 Provider 路由/缓存分片，不暴露原始 user/conversation id。
+            prompt_cache_key=hashlib.sha256(
+                f"{self.user_id}:{conversation.id}:{ContextPromptBuilder.TEMPLATE_VERSION}".encode("utf-8")
+            ).hexdigest()[:32],
+            # Govern 后最后一条是包含当前 query/evidence 的 user message；之前的连续消息
+            # 是 Anthropic 可设置 cache_control 的稳定断点。
+            prompt_cache_breakpoint=max(
+                0,
+                len(governed_context.messages)
+                - int(bool(governed_context.messages and governed_context.messages[-1].get("role") == "user")),
+            ),
             context_notices=[
                 *external_context_result.notices,
                 *knowledge_context_result.notices,
@@ -301,6 +331,10 @@ class ChatContextAssemblyService:
                 "prompt_total_tokens": prompt_diagnostics.prompt_total_tokens,
                 "prompt_recent_history_tokens": prompt_diagnostics.prompt_recent_history_tokens,
                 "prompt_prefix_reused_last_turn": prompt_diagnostics.prompt_prefix_reused_last_turn,
+                "prompt_cache_provider_enabled": int(provider_capabilities.prompt_cache_mode != "none"),
+                "prompt_cache_mode": provider_capabilities.prompt_cache_mode,
+                "prompt_cache_provider_family": provider_capabilities.family,
+                "prompt_cache_usage_support": provider_capabilities.cache_usage_support,
                 **attachment_context_result.diagnostics,
                 **external_context_result.diagnostics,
                 **knowledge_context_result.diagnostics,
@@ -328,11 +362,18 @@ class ChatContextAssemblyService:
     ) -> object:
         # 工具层的输入不只是当前 query，还包含 recent_messages 和 planner_runtime。
         # 这让 LLM planner 可以根据上下文判断是否需要多工具调用，而不是纯正则匹配。
-        external_context_result = await ExternalContextService(
+        external_service = ExternalContextService(
             db=self.db,
             user_id=self.user_id,
             project_id=getattr(conversation, "project_id", None),
-        ).build_context(
+        )
+        # 将聊天归属附加到真实 Executor；测试替身和自定义 ExternalContextService
+        # 可以不实现该内部属性，保持旧扩展接口兼容。
+        executor = getattr(external_service, "executor", None)
+        if executor is not None:
+            executor.conversation_id = getattr(conversation, "id", None)
+            executor.assistant_message_id = getattr(assistant_message, "id", None)
+        external_context_result = await external_service.build_context(
             query=query,
             enabled=web_search_enabled,
             max_chars=max(1200, min(max_attachment_chars, 6000)),

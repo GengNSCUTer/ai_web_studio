@@ -21,6 +21,7 @@
 2. 启动 PostgreSQL + pgvector 与 Redis。
 3. 执行 `backend/scripts/run_dev.sh` 启动 API。
 4. 执行 `backend/scripts/run_knowledge_worker.sh` 启动知识库 Worker。
+5. 若在设置中启用“自动生成待审核记忆候选”，执行 `backend/scripts/run_memory_candidate_worker.sh` 启动 Memory Worker。
 5. 在 `frontend` 下执行 `npm run dev -- --hostname 127.0.0.1 --port 32008`。
 
 后端默认地址为 `http://127.0.0.1:32007`，接口文档位于 `/docs`。

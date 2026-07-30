@@ -1,8 +1,10 @@
 import difflib
+import hashlib
 import json
 import re
 from dataclasses import dataclass
 from typing import Any
+from datetime import datetime, timezone
 
 from app.models.user_memory import UserMemory
 from app.repositories.conversation_repo import ConversationRepository
@@ -32,6 +34,19 @@ class MemoryService:
         "fact": "重要事实",
         "instruction": "长期指令",
     }
+    SENSITIVE_VALUE_PATTERN = re.compile(
+        r"(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|passwd|密码|密钥|令牌)"
+        r"\s*[:=：]\s*[^\s,，;；]{6,}",
+        flags=re.IGNORECASE,
+    )
+    EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", flags=re.IGNORECASE)
+    PHONE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
+    ID_CARD_PATTERN = re.compile(r"(?<!\d)\d{17}[0-9Xx](?!\d)")
+    VOLATILE_TIME_PATTERN = re.compile(
+        r"(?:今天|明天|后天|本周|这周|下周|这个月|下个月|当前临时|暂时|最近|"
+        r"today|tomorrow|this week|next week|currently|temporary)",
+        flags=re.IGNORECASE,
+    )
 
     def __init__(self, repo: UserMemoryRepository, conversation_repo: ConversationRepository | None = None):
         self.repo = repo
@@ -57,22 +72,97 @@ class MemoryService:
         return response
 
     def list_memories(self, user_id: str) -> list[UserMemoryResponse]:
+        expire_due = getattr(self.repo, "expire_due", None)
+        if expire_due:
+            expire_due(user_id)
         return [self._memory_response(item, user_id) for item in self.repo.list_by_user(user_id)]
 
     def create_memory(self, user_id: str, payload: UserMemoryCreate) -> UserMemoryResponse:
+        normalized_content = self.normalize_text(payload.content)
+        project_id = None
+        if payload.source_conversation_id and self.conversation_repo:
+            conversation = self.conversation_repo.get_by_user(payload.source_conversation_id, user_id)
+            project_id = getattr(conversation, "project_id", None) if conversation else None
         memory = UserMemory(
             user_id=user_id,
             memory_type=self.normalize_memory_type(payload.memory_type),
             title=self.normalize_text(payload.title)[:120] or "未命名记忆",
-            content=self.normalize_text(payload.content),
+            content=normalized_content,
             source="manual",
             source_conversation_id=self.normalize_text(payload.source_conversation_id) or None,
             source_message_ids=self.normalize_text(payload.source_message_ids) or None,
             confidence=self.normalize_text(payload.confidence) or None,
             is_enabled=payload.is_enabled,
+            status="active",
+            project_id=project_id,
+            content_hash=self.memory_content_hash(
+                user_id=user_id,
+                memory_type=self.normalize_memory_type(payload.memory_type),
+                content=normalized_content,
+                project_id=project_id,
+            ),
         )
         saved = self.repo.save(memory)
         return self._memory_response(saved, user_id)
+
+    @classmethod
+    def memory_content_hash(
+        cls,
+        *,
+        user_id: str,
+        memory_type: str,
+        content: str,
+        project_id: str | None,
+    ) -> str:
+        canonical = "|".join(
+            (user_id, cls.normalize_memory_type(memory_type), project_id or "global", cls.normalize_text(content).lower())
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def approve_candidate(
+        self,
+        *,
+        memory: UserMemory,
+        expires_at: datetime | None = None,
+    ) -> UserMemoryResponse:
+        if memory.status == "active":
+            return self._memory_response(memory, memory.user_id)
+        if memory.status != "pending":
+            raise ValueError("只有 pending 候选可以确认")
+        if memory.risk_level == "duplicate":
+            raise ValueError("重复候选没有激活价值，请直接拒绝")
+        if memory.risk_level == "volatile" and expires_at is None:
+            raise ValueError("短期候选必须设置 expires_at")
+        if expires_at is not None:
+            normalized_expiry = expires_at
+            if normalized_expiry.tzinfo is None:
+                normalized_expiry = normalized_expiry.replace(tzinfo=timezone.utc)
+            if normalized_expiry <= datetime.now(timezone.utc):
+                raise ValueError("expires_at 必须晚于当前时间")
+            memory.expires_at = normalized_expiry
+
+        if memory.supersedes_memory_id:
+            previous = self.repo.get_by_user(memory.supersedes_memory_id, memory.user_id)
+            if previous and previous.status == "active":
+                previous.status = "superseded"
+                previous.is_enabled = False
+                self.repo.flush(previous)
+        memory.status = "active"
+        memory.is_enabled = True
+        memory.review_at = datetime.now(timezone.utc)
+        saved = self.repo.save(memory)
+        return self._memory_response(saved, memory.user_id)
+
+    def reject_candidate(self, *, memory: UserMemory) -> UserMemoryResponse:
+        if memory.status == "rejected":
+            return self._memory_response(memory, memory.user_id)
+        if memory.status != "pending":
+            raise ValueError("只有 pending 候选可以拒绝")
+        memory.status = "rejected"
+        memory.is_enabled = False
+        memory.review_at = datetime.now(timezone.utc)
+        saved = self.repo.save(memory)
+        return self._memory_response(saved, memory.user_id)
 
     def update_memory(
         self,
@@ -88,6 +178,8 @@ class MemoryService:
         if "content" in data and data["content"] is not None:
             memory.content = self.normalize_text(data["content"])
         if "is_enabled" in data and data["is_enabled"] is not None:
+            if memory.status != "active" and data["is_enabled"]:
+                raise ValueError("非 active 记忆不能直接启用，请使用候选审核接口")
             memory.is_enabled = data["is_enabled"]
         if "source_conversation_id" in data:
             memory.source_conversation_id = self.normalize_text(data["source_conversation_id"]) or None
@@ -104,9 +196,18 @@ class MemoryService:
         user_id: str,
         *,
         query: str | None,
+        project_id: str | None = None,
         max_memories: int = 8,
     ) -> MemoryContextSelection:
+        expire_due = getattr(self.repo, "expire_due", None)
+        if expire_due:
+            expire_due(user_id)
         memories = self.repo.list_by_user(user_id, enabled_only=True)
+        memories = [
+            memory
+            for memory in memories
+            if self._memory_matches_project_scope(memory=memory, user_id=user_id, project_id=project_id)
+        ]
         if not memories:
             return MemoryContextSelection(memories=[], relevant_count=0, always_on_count=0)
 
@@ -151,8 +252,9 @@ class MemoryService:
         *,
         max_chars: int,
         query: str | None = None,
+        project_id: str | None = None,
     ) -> tuple[str | None, int, int]:
-        selection = self.select_memories_for_query(user_id, query=query)
+        selection = self.select_memories_for_query(user_id, query=query, project_id=project_id)
         memories = selection.memories
         if not memories:
             return None, 0, 0
@@ -181,6 +283,36 @@ class MemoryService:
 
         context = header + "\n" + "\n".join(chunks)
         return context, len(chunks), len(context)
+
+    def _memory_matches_project_scope(
+        self,
+        *,
+        memory: UserMemory,
+        user_id: str,
+        project_id: str | None,
+    ) -> bool:
+        """Keep conversation-sourced project memories inside their project.
+
+        Legacy manually-created project memories have no source conversation and
+        therefore retain their historical global behavior. New suggested project
+        memories carry source_conversation_id and fail closed when their source
+        can no longer be resolved.
+        """
+
+        if getattr(memory, "memory_type", None) != "project":
+            return True
+        explicit_project_id = self.normalize_text(getattr(memory, "project_id", None))
+        if explicit_project_id:
+            return explicit_project_id == project_id
+        source_conversation_id = self.normalize_text(getattr(memory, "source_conversation_id", None))
+        if not source_conversation_id:
+            return True
+        if not self.conversation_repo:
+            return False
+        conversation = self.conversation_repo.get_by_user(source_conversation_id, user_id)
+        if not conversation:
+            return False
+        return getattr(conversation, "project_id", None) == project_id
 
     @classmethod
     def _query_relevance_score(cls, query: str, candidate: str) -> float:
@@ -216,7 +348,13 @@ class MemoryService:
         return terms
 
     def build_existing_memory_text(self, user_id: str, *, max_chars: int = 4000) -> str:
-        memories = self.repo.list_by_user(user_id)
+        # rejected/pending/sensitive candidates must not be echoed back to a model
+        # merely for dedupe. Only already-approved active memories are provider input.
+        memories = [
+            memory
+            for memory in self.repo.list_by_user(user_id, enabled_only=True)
+            if getattr(memory, "sensitivity", "normal") != "sensitive"
+        ]
         lines: list[str] = []
         total = 0
         for memory in memories:
@@ -248,6 +386,7 @@ class MemoryService:
 
             suggestion_title = cls.normalize_text(suggestion.title).lower()
             suggestion_content = cls.normalize_text(suggestion.content).lower()
+            content_risk, content_risk_reason = cls._candidate_content_risk(suggestion)
             for memory in existing_memories:
                 if memory.memory_type != suggestion.memory_type:
                     continue
@@ -267,6 +406,16 @@ class MemoryService:
                     risk_reason = f"与已有记忆“{memory.title}”标题相近但内容差异较大"
                     break
 
+            # Duplicate means the candidate has no persistence value. Otherwise
+            # sensitivity outranks semantic conflict because a conflict review
+            # must never become a shortcut for activating a secret or identifier.
+            if risk_level != "duplicate" and content_risk in {"sensitive", "volatile"}:
+                risk_level = content_risk
+                risk_reason = content_risk_reason
+            elif risk_level == "safe" and content_risk == "review_required":
+                risk_level = content_risk
+                risk_reason = content_risk_reason
+
             enriched.append(
                 suggestion.model_copy(
                     update={
@@ -278,6 +427,22 @@ class MemoryService:
                 )
             )
         return enriched
+
+    @classmethod
+    def _candidate_content_risk(cls, suggestion: MemorySuggestion) -> tuple[str, str | None]:
+        text = f"{cls.normalize_text(suggestion.title)}\n{cls.normalize_text(suggestion.content)}"
+        if (
+            cls.SENSITIVE_VALUE_PATTERN.search(text)
+            or cls.EMAIL_PATTERN.search(text)
+            or cls.PHONE_PATTERN.search(text)
+            or cls.ID_CARD_PATTERN.search(text)
+        ):
+            return "sensitive", "候选中可能包含凭证或直接个人标识，不能自动激活"
+        if cls.VOLATILE_TIME_PATTERN.search(text):
+            return "volatile", "候选包含明显的短期时间表达，需确认有效期后再保存"
+        if suggestion.memory_type == "instruction":
+            return "review_required", "长期指令会持续影响后续回答，必须由用户确认"
+        return "safe", None
 
     @classmethod
     def normalize_suggestions(

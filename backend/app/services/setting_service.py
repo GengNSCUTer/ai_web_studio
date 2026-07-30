@@ -20,11 +20,16 @@ class SettingService:
     DEFAULT_VLLM_BASE_URL = "http://127.0.0.1:8000/v1"
     DEFAULT_VLLM_MODEL = "Qwen/Qwen3-8B"
     DEFAULT_VLLM_CONTEXT_WINDOW = 32768
-    ALLOWED_CHAT_PROVIDERS = {"ollama", "openai-compatible", "vllm"}
+    DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+    DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5"
+    DEFAULT_ANTHROPIC_CONTEXT_WINDOW = 200000
+    ALLOWED_CHAT_PROVIDERS = {"ollama", "openai-compatible", "vllm", "anthropic"}
     DEFAULT_UI_LANGUAGE = "zh-CN"
     DEFAULT_THEME_MODE = "system"
     DEFAULT_MEMORY_ENABLED = True
     DEFAULT_MEMORY_MAX_CHARS = 4000
+    DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED = False
+    DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL = 4
     DEFAULT_KNOWLEDGE_PARSER_PROVIDER = "local_basic"
     DEFAULT_KNOWLEDGE_MODEL_BASE_URL = "https://api.siliconflow.cn/v1"
     DEFAULT_KNOWLEDGE_EMBEDDING_PROVIDER = "siliconflow"
@@ -110,12 +115,16 @@ class SettingService:
             return cls.DEFAULT_OLLAMA_CONTEXT_WINDOW
         if provider_type == "vllm":
             return cls.DEFAULT_VLLM_CONTEXT_WINDOW
+        if provider_type == "anthropic":
+            return cls.DEFAULT_ANTHROPIC_CONTEXT_WINDOW
         return cls.DEFAULT_OPENAI_CONTEXT_WINDOW
 
     @classmethod
     def default_api_base_url_for_provider(cls, provider_type: str) -> str:
         if provider_type == "vllm":
             return cls.DEFAULT_VLLM_BASE_URL
+        if provider_type == "anthropic":
+            return cls.DEFAULT_ANTHROPIC_BASE_URL
         return cls.DEFAULT_OPENAI_BASE_URL
 
     @classmethod
@@ -124,6 +133,8 @@ class SettingService:
             return app_settings.ollama_default_model
         if provider_type == "vllm":
             return cls.DEFAULT_VLLM_MODEL
+        if provider_type == "anthropic":
+            return cls.DEFAULT_ANTHROPIC_MODEL
         return cls.DEFAULT_OPENAI_MODEL
 
     @classmethod
@@ -144,6 +155,8 @@ class SettingService:
             context_mode=cls.DEFAULT_CONTEXT_MODE,
             memory_enabled=cls.DEFAULT_MEMORY_ENABLED,
             memory_max_chars=cls.DEFAULT_MEMORY_MAX_CHARS,
+            memory_auto_candidate_enabled=cls.DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED,
+            memory_auto_candidate_turn_interval=cls.DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL,
             ui_language=cls.DEFAULT_UI_LANGUAGE,
             theme_mode=cls.DEFAULT_THEME_MODE,
             knowledge_parser_provider=cls.DEFAULT_KNOWLEDGE_PARSER_PROVIDER,
@@ -226,6 +239,12 @@ class SettingService:
                 should_save = True
             if not getattr(setting, "memory_max_chars", None):
                 setting.memory_max_chars = self.DEFAULT_MEMORY_MAX_CHARS
+                should_save = True
+            if getattr(setting, "memory_auto_candidate_enabled", None) is None:
+                setting.memory_auto_candidate_enabled = self.DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED
+                should_save = True
+            if not getattr(setting, "memory_auto_candidate_turn_interval", None):
+                setting.memory_auto_candidate_turn_interval = self.DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL
                 should_save = True
             if not getattr(setting, "knowledge_parser_provider", None):
                 setting.knowledge_parser_provider = self.DEFAULT_KNOWLEDGE_PARSER_PROVIDER
@@ -373,6 +392,18 @@ class SettingService:
         if not getattr(setting, "memory_max_chars", None):
             setting.memory_max_chars = self.DEFAULT_MEMORY_MAX_CHARS
         setting.memory_max_chars = max(500, min(int(setting.memory_max_chars), 20000))
+        if getattr(setting, "memory_auto_candidate_enabled", None) is None:
+            setting.memory_auto_candidate_enabled = self.DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED
+        setting.memory_auto_candidate_turn_interval = max(
+            1,
+            min(
+                int(
+                    getattr(setting, "memory_auto_candidate_turn_interval", None)
+                    or self.DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL
+                ),
+                50,
+            ),
+        )
         setting.knowledge_parser_provider = self.normalize_knowledge_parser_provider(
             getattr(setting, "knowledge_parser_provider", None)
         )
@@ -445,6 +476,14 @@ class SettingService:
                 "context_mode": setting.context_mode,
                 "memory_enabled": setting.memory_enabled,
                 "memory_max_chars": setting.memory_max_chars,
+                "memory_auto_candidate_enabled": getattr(
+                    setting, "memory_auto_candidate_enabled", self.DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED
+                ),
+                "memory_auto_candidate_turn_interval": getattr(
+                    setting,
+                    "memory_auto_candidate_turn_interval",
+                    self.DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL,
+                ),
                 "ui_language": setting.ui_language,
                 "theme_mode": setting.theme_mode,
                 "knowledge_parser_provider": getattr(

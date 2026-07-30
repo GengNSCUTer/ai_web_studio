@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import type { UILanguage } from "@/lib/settings";
 import type { ToolTraceEvent } from "@/lib/types";
 
@@ -80,8 +82,8 @@ export function formatToolEvent(event: ToolTraceEvent, uiLanguage: UILanguage) {
   }
   if (event.type === "tool_confirmation_required") {
     return isChinese
-      ? `需要用户确认：${event.display_name ?? event.tool_key ?? "工具"} 已被阻断`
-      : `Confirmation required: ${event.display_name ?? event.tool_key ?? "tool"} was blocked`;
+      ? `需要用户确认：${event.display_name ?? event.tool_key ?? "工具"}${event.status === "waiting_approval" ? " 已生成持久化 Diff" : " 已被阻断"}`
+      : `Confirmation required: ${event.display_name ?? event.tool_key ?? "tool"}${event.status === "waiting_approval" ? " has a durable Diff" : " was blocked"}`;
   }
   if (event.type === "tool_query_rewrite") {
     return isChinese
@@ -176,6 +178,18 @@ function toolEventDetails(event: ToolTraceEvent, uiLanguage: UILanguage) {
   if (event.risk_level) {
     rows.push([isChinese ? "风险等级" : "Risk", event.risk_level]);
   }
+  if (event.run_id) {
+    rows.push(["Agent Run", event.run_id]);
+  }
+  if (event.approval_id) {
+    rows.push([isChinese ? "审批 ID" : "Approval ID", event.approval_id]);
+  }
+  if (event.file_name) {
+    rows.push([isChinese ? "文件" : "File", event.file_name]);
+  }
+  if (event.diff_text) {
+    rows.push(["Diff", event.diff_text]);
+  }
   if (typeof event.read_only === "boolean") {
     rows.push([isChinese ? "只读工具" : "Read only", event.read_only ? (isChinese ? "是" : "yes") : isChinese ? "否" : "no"]);
   }
@@ -202,6 +216,84 @@ function toolEventDetails(event: ToolTraceEvent, uiLanguage: UILanguage) {
     rows.push([isChinese ? "LLM 原始输出" : "LLM output", event.raw_preview]);
   }
   return rows;
+}
+
+function ApprovalActions({ event, uiLanguage }: { event: ToolTraceEvent; uiLanguage: UILanguage }) {
+  const [state, setState] = useState<"pending" | "working" | "applied" | "rejected" | "error">("pending");
+  const [message, setMessage] = useState("");
+  const approvalId = typeof event.approval_id === "string" ? event.approval_id : "";
+  if (event.type !== "tool_confirmation_required" || !approvalId || event.status !== "waiting_approval") {
+    return null;
+  }
+
+  async function request(path: string, init?: RequestInit) {
+    const response = await fetch(path, { ...init, cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = payload?.detail?.message || payload?.detail || `HTTP ${response.status}`;
+      throw new Error(String(detail));
+    }
+    return payload;
+  }
+
+  async function approve() {
+    setState("working");
+    setMessage("");
+    try {
+      const challenge = await request(`/api/backend/agent-runtime/approvals/${approvalId}/challenge`, {
+        method: "POST",
+      });
+      await request(`/api/backend/agent-runtime/approvals/${approvalId}/apply`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ approval_token: challenge.approval_token }),
+      });
+      setState("applied");
+      setMessage(uiLanguage === "zh-CN" ? "已通过版本 CAS 应用修改" : "Edit applied with revision CAS");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "Approval failed");
+    }
+  }
+
+  async function reject() {
+    setState("working");
+    setMessage("");
+    try {
+      await request(`/api/backend/agent-runtime/approvals/${approvalId}/reject`, { method: "POST" });
+      setState("rejected");
+      setMessage(uiLanguage === "zh-CN" ? "已拒绝修改" : "Edit rejected");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "Rejection failed");
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-lg border border-[var(--hairline)] bg-[var(--soft-bg)] p-2">
+      {state === "pending" || state === "working" ? (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={state === "working"}
+            onClick={() => void approve()}
+            className="rounded-full bg-[var(--accent-strong)] px-3 py-1 text-[10px] text-white disabled:opacity-50"
+          >
+            {uiLanguage === "zh-CN" ? "确认并应用 Diff" : "Approve and apply"}
+          </button>
+          <button
+            type="button"
+            disabled={state === "working"}
+            onClick={() => void reject()}
+            className="rounded-full border border-[var(--hairline)] px-3 py-1 text-[10px] disabled:opacity-50"
+          >
+            {uiLanguage === "zh-CN" ? "拒绝" : "Reject"}
+          </button>
+        </div>
+      ) : null}
+      {message ? <p className={`mt-1 text-[10px] ${state === "error" ? "text-[var(--danger-text)]" : ""}`}>{message}</p> : null}
+    </div>
+  );
 }
 
 export function ToolTracePanel({
@@ -260,6 +352,7 @@ export function ToolTracePanel({
                 </div>
               </details>
             ) : null}
+            <ApprovalActions event={event} uiLanguage={uiLanguage} />
           </div>
         ))}
       </div>

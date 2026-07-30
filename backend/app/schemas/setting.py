@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-ChatProviderType = Literal["ollama", "openai-compatible", "vllm"]
+ChatProviderType = Literal["ollama", "openai-compatible", "vllm", "anthropic"]
 
 
 class UserSettingResponse(BaseModel):
@@ -28,6 +28,8 @@ class UserSettingResponse(BaseModel):
     context_mode: str
     memory_enabled: bool
     memory_max_chars: int
+    memory_auto_candidate_enabled: bool
+    memory_auto_candidate_turn_interval: int
     ui_language: str
     theme_mode: str
     knowledge_parser_provider: str
@@ -64,6 +66,8 @@ class UserSettingUpdate(BaseModel):
     context_mode: str | None = Field(default=None, max_length=32)
     memory_enabled: bool | None = None
     memory_max_chars: int | None = None
+    memory_auto_candidate_enabled: bool | None = None
+    memory_auto_candidate_turn_interval: int | None = Field(default=None, ge=1, le=50)
     ui_language: str | None = Field(default=None, max_length=16)
     theme_mode: str | None = Field(default=None, max_length=16)
     knowledge_parser_provider: str | None = Field(default=None, max_length=32)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import re
 from typing import Any
 
@@ -7,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.project_file import ProjectFile
-from app.services.tools.schemas import ExternalSource, PlannedToolCall
+from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolExecutionFeedbackError
 
 
 class WorkspaceFileToolProvider:
@@ -30,18 +31,20 @@ class WorkspaceFileToolProvider:
 
     async def run(self, *, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
         if not self.db or not self.user_id:
-            raise RuntimeError("工作区文件工具缺少用户数据库上下文。")
+            raise ToolExecutionFeedbackError("工作区文件工具缺少用户数据库上下文。")
         if not self.project_id:
             # ProjectFile is a project-scoped resource. Falling back to every
             # file owned by the user would silently widen the workspace boundary.
-            raise RuntimeError("工作区文件工具需要关联项目后才能使用。")
+            raise ToolExecutionFeedbackError("工作区文件工具需要关联项目后才能使用。")
         if call.tool_key == "workspace.files.list":
             return self._list_files(call)
         if call.tool_key == "workspace.files.search":
             return self._search_files(call)
         if call.tool_key == "workspace.files.read":
             return self._read_file(call)
-        raise RuntimeError(f"未知工作区文件工具：{call.tool_key}")
+        if call.tool_key == "workspace.files.propose_edit":
+            return self._propose_edit(call)
+        raise ToolExecutionFeedbackError("未知工作区文件工具。")
 
     def _base_statement(self):
         return select(ProjectFile).where(
@@ -88,7 +91,7 @@ class WorkspaceFileToolProvider:
     def _search_files(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
         query = str(call.arguments.get("query") or "").strip()
         if not query:
-            raise RuntimeError("文件搜索缺少 query。")
+            raise ToolExecutionFeedbackError("文件搜索缺少 query。")
         candidates = list(self.db.scalars(self._base_statement().order_by(ProjectFile.created_at.desc()).limit(120)).all())
         query_terms = self._search_terms(query)
         ranked: list[tuple[float, ProjectFile, str]] = []
@@ -127,11 +130,11 @@ class WorkspaceFileToolProvider:
     def _read_file(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
         file_id = str(call.arguments.get("file_id") or "").strip()
         if not file_id:
-            raise RuntimeError("读取文件缺少 file_id。")
+            raise ToolExecutionFeedbackError("读取文件缺少 file_id。")
         item = self.db.scalars(self._base_statement().where(ProjectFile.id == file_id).limit(1)).first()
         if not item:
             # Do not distinguish an absent file from another user's file.
-            raise RuntimeError("工作区中未找到该文件。")
+            raise ToolExecutionFeedbackError("工作区中未找到该文件。")
         text = (item.parsed_text or "").strip()
         if not text:
             return [], {"adapter_type": "workspace_file", "operation": "read", "file_id": item.id, "empty": True}
@@ -182,6 +185,75 @@ class WorkspaceFileToolProvider:
                 "line_end": min(end_index, start_index + len(rendered_lines)),
             },
         )
+
+    def _propose_edit(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
+        """Validate one exact replacement and return a diff without mutating data."""
+
+        file_id = str(call.arguments.get("file_id") or "").strip()
+        old_string = str(call.arguments.get("old_string") or "")
+        new_string = str(call.arguments.get("new_string") or "")
+        if not file_id:
+            raise ToolExecutionFeedbackError("编辑预览缺少 file_id。")
+        if not old_string:
+            raise ToolExecutionFeedbackError("编辑预览的 old_string 不能为空。")
+        item = self.db.scalars(self._base_statement().where(ProjectFile.id == file_id).limit(1)).first()
+        if not item:
+            raise ToolExecutionFeedbackError("工作区中未找到该文件。")
+
+        original = item.parsed_text or ""
+        matches = original.count(old_string)
+        if matches == 0:
+            raise ToolExecutionFeedbackError("old_string 未在当前文件版本中找到；请先重新读取相关行。")
+        if matches > 1:
+            raise ToolExecutionFeedbackError(
+                f"old_string 在当前文件版本中出现 {matches} 次；请提供更多上下文使其唯一。"
+            )
+
+        updated = original.replace(old_string, new_string, 1)
+        diff_lines = list(
+            difflib.unified_diff(
+                original.splitlines(),
+                updated.splitlines(),
+                fromfile=f"a/{item.file_name}",
+                tofile=f"b/{item.file_name}",
+                lineterm="",
+                n=3,
+            )
+        )
+        diff_text = "\n".join(diff_lines)
+        if len(diff_text) > self.MAX_SOURCE_CHARS:
+            diff_text = diff_text[: self.MAX_SOURCE_CHARS].rstrip() + "\n[Diff 已达安全输出上限]"
+        start_line = original[: original.index(old_string)].count("\n") + 1
+        end_line = start_line + old_string.count("\n")
+        source = ExternalSource(
+            source_type="workspace_file_edit_preview",
+            provider="workspace",
+            title=f"{item.file_name} 编辑预览（尚未写入）",
+            display_text=(
+                "以下内容只是经过服务端唯一匹配校验的 Diff 预览，未修改源文件：\n"
+                f"{diff_text or '[替换后文本无可见差异]'}"
+            ),
+            metadata={
+                "file_id": item.id,
+                "mime_type": item.mime_type or item.kind,
+                "line_start": start_line,
+                "line_end": end_line,
+                "raw": {
+                    "file_id": item.id,
+                    "line_start": start_line,
+                    "line_end": end_line,
+                    "applied": False,
+                },
+            },
+        )
+        return [source], {
+            "adapter_type": "workspace_file",
+            "operation": "propose_edit",
+            "file_id": item.id,
+            "line_start": start_line,
+            "line_end": end_line,
+            "applied": False,
+        }
 
     @staticmethod
     def _bounded_int(value: Any, *, default: int, lower: int, upper: int) -> int:

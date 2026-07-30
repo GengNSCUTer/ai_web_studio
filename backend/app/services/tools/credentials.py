@@ -92,3 +92,12 @@ class ToolCredentialResolver:
         if not setting:
             return True
         return bool(setting.is_enabled)
+
+    def get_workspace_permission_mode(self, *, project_id: str | None) -> str:
+        repo = getattr(self, "repo", None)
+        if not repo or not project_id:
+            return "ask"
+        policy = repo.get_workspace_policy(project_id)
+        if not policy or policy.permission_mode not in {"read_only", "ask", "full_workspace"}:
+            return "ask"
+        return policy.permission_mode

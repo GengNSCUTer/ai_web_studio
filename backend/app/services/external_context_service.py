@@ -30,6 +30,8 @@ class ExternalContextService:
         db: Session | None = None,
         user_id: str | None = None,
         project_id: str | None = None,
+        conversation_id: str | None = None,
+        assistant_message_id: str | None = None,
         registry: ToolCatalog | None = None,
         router: object | None = None,
         executor: ToolExecutor | None = None,
@@ -52,6 +54,8 @@ class ExternalContextService:
             db=db,
             user_id=user_id,
             project_id=project_id,
+            conversation_id=conversation_id,
+            assistant_message_id=assistant_message_id,
         )
         self.assembler = assembler or ExternalContextAssembler()
         self.query_rewriter = query_rewriter or QueryRewriteService()
@@ -162,6 +166,20 @@ class ExternalContextService:
             selected_tool = workflow_result.selected_tool
             error_message = workflow_result.error_message or error_message
             observations.extend(self._build_observations(round_index=round_index, sources=workflow_result.sources))
+            if workflow_result.error_message:
+                # Expected tool failures are useful observations. They allow the
+                # bounded second planning round to repair an ambiguous file edit
+                # or stale file id instead of turning it into an opaque app error.
+                observations.append(
+                    {
+                        "round": round_index,
+                        "source_type": "tool_error_feedback",
+                        "provider": "tool_runtime",
+                        "title": "工具执行反馈",
+                        "display_text": workflow_result.error_message[:500],
+                        "metadata": {},
+                    }
+                )
             events.append(
                 ToolTraceEvent(
                     type="tool_agent_round_end",
@@ -173,7 +191,7 @@ class ExternalContextService:
                     },
                 )
             )
-            if not plan.need_more_rounds or not workflow_result.sources:
+            if not plan.need_more_rounds or (not workflow_result.sources and not workflow_result.error_message):
                 break
 
         if not last_plan:

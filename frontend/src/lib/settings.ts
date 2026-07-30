@@ -22,6 +22,12 @@ export const PROVIDER_PRESETS = {
     model: "Qwen/Qwen3-8B",
     modelContextWindow: 32768,
   },
+  anthropic: {
+    ollamaBaseUrl: "http://127.0.0.1:11435",
+    apiBaseUrl: "https://api.anthropic.com",
+    model: "claude-sonnet-4-5",
+    modelContextWindow: 200000,
+  },
 } as const;
 
 export function buildProviderPreset(providerType: string) {
@@ -38,6 +44,8 @@ export function normalizeUserSettings(settings: UserSettings): UserSettings {
     api_base_url: settings.api_base_url || preset.apiBaseUrl,
     memory_enabled: settings.memory_enabled ?? true,
     memory_max_chars: settings.memory_max_chars || 4000,
+    memory_auto_candidate_enabled: settings.memory_auto_candidate_enabled ?? false,
+    memory_auto_candidate_turn_interval: settings.memory_auto_candidate_turn_interval || 4,
     theme_mode: settings.theme_mode || "system",
     knowledge_parser_provider: settings.knowledge_parser_provider || "local_basic",
     knowledge_embedding_provider: settings.knowledge_embedding_provider || "siliconflow",
@@ -76,6 +84,8 @@ export function buildSettingsPayload(settings: UserSettings) {
     context_mode: settings.context_mode,
     memory_enabled: settings.memory_enabled,
     memory_max_chars: settings.memory_max_chars,
+    memory_auto_candidate_enabled: settings.memory_auto_candidate_enabled,
+    memory_auto_candidate_turn_interval: settings.memory_auto_candidate_turn_interval,
     ui_language: settings.ui_language,
     theme_mode: settings.theme_mode,
     knowledge_parser_provider: settings.knowledge_parser_provider,

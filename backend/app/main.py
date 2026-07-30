@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # 导入项目所有业务路由模块
 from app.api.routes import (
+    agent_runtime,       # 可恢复 Agent Run/Step/Approval 控制面
     auth,                # 认证/登录授权相关接口
     chat,                # 对话聊天核心接口
     conversations,      # 会话管理接口
@@ -50,6 +51,7 @@ app.add_middleware(
 app.include_router(health.router)
 # 注册认证模块路由，统一接口前缀/api
 app.include_router(auth.router, prefix="/api")
+app.include_router(agent_runtime.router, prefix="/api")
 # 注册会话管理路由
 app.include_router(conversations.router, prefix="/api")
 # 注册知识库基础管理路由

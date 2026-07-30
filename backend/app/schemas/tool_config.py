@@ -47,10 +47,20 @@ class WorkspaceToolSettingUpdate(BaseModel):
     is_enabled: bool
 
 
+class WorkspaceAgentPolicyResponse(BaseModel):
+    project_id: str
+    permission_mode: Literal["read_only", "ask", "full_workspace"] = "ask"
+
+
+class WorkspaceAgentPolicyUpdate(BaseModel):
+    permission_mode: Literal["read_only", "ask", "full_workspace"]
+
+
 class ToolSettingsResponse(BaseModel):
     tools: list[ToolDefinitionResponse]
     credentials: list[UserToolCredentialResponse]
     workspace_settings: list[WorkspaceToolSettingResponse] = []
+    workspace_policy: WorkspaceAgentPolicyResponse | None = None
     mcp_servers: list["McpServerResponse"] = []
     mcp_tools: list["McpToolResponse"] = []
 

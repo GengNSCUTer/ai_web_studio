@@ -3,6 +3,12 @@ from sqlalchemy import text
 from app.core.database import Base, engine
 from app.models import (  # noqa: F401
     Attachment,
+    AgentApproval,
+    AgentCheckpoint,
+    AgentRun,
+    AgentStep,
+    FileRevision,
+    PatchDraft,
     Conversation,
     ConversationShare,
     KnowledgeBase,
@@ -27,8 +33,10 @@ from app.models import (  # noqa: F401
     UserToolCredential,
     User,
     UserMemory,
+    MemoryExtractionJob,
     UserSetting,
     WorkspaceToolSetting,
+    WorkspaceAgentPolicy,
 )
 
 
@@ -139,6 +147,38 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table user_settings add column memory_enabled boolean default true")
     if "memory_max_chars" not in columns:
         statements.append("alter table user_settings add column memory_max_chars integer default 4000")
+    if "memory_auto_candidate_enabled" not in columns:
+        statements.append(
+            "alter table user_settings add column memory_auto_candidate_enabled boolean default false"
+        )
+    if "memory_auto_candidate_turn_interval" not in columns:
+        statements.append(
+            "alter table user_settings add column memory_auto_candidate_turn_interval integer default 4"
+        )
+
+    memory_columns = _get_column_names("user_memories")
+    memory_additions = {
+        "status": "varchar(24) not null default 'active'",
+        "project_id": "varchar(36)",
+        "importance": "double precision not null default 0.5",
+        "sensitivity": "varchar(24) not null default 'normal'",
+        "risk_level": "varchar(32) not null default 'safe'",
+        "candidate_reason": "text",
+        "content_hash": "varchar(64)",
+        "supersedes_memory_id": "varchar(36)",
+        "expires_at": "timestamptz",
+        "review_at": "timestamptz",
+    }
+    for column_name, column_type in memory_additions.items():
+        if memory_columns and column_name not in memory_columns:
+            statements.append(f"alter table user_memories add column {column_name} {column_type}")
+
+    approval_columns = _get_column_names("agent_approvals")
+    if approval_columns and "decision_mode" not in approval_columns:
+        statements.append(
+            "alter table agent_approvals add column decision_mode varchar(32) "
+            "not null default 'user_confirmation'"
+        )
     if "ui_language" not in columns:
         statements.append("alter table user_settings add column ui_language varchar(16) default 'zh-CN'")
     if "theme_mode" not in columns:

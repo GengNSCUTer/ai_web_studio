@@ -288,17 +288,20 @@ class ToolWorkflowService:
             )
             return ToolStepResult(call=call, events=events, error_message=safe_error)
         events.extend(call_events)
-        if call_result.sources:
-            return ToolStepResult(call=call, succeeded=True, sources=call_result.sources, events=events)
-
         error_message = call_result.error_message or ""
         if any(event.type == "tool_confirmation_required" for event in call_events):
             return ToolStepResult(
                 call=call,
+                # Diff 作为 evidence 告知最终模型“等待确认”，但该 Step 仍失败关闭，
+                # 依赖实际写入结果的下游步骤不会被解锁。
+                sources=call_result.sources,
                 notices=[f"{call.display_name}需要用户确认，已跳过执行。"],
                 events=events,
                 error_message=error_message,
             )
+
+        if call_result.sources:
+            return ToolStepResult(call=call, succeeded=True, sources=call_result.sources, events=events)
 
         if not plan.fallback_tool_key or not allow_fallback:
             return ToolStepResult(call=call, events=events, error_message=error_message)

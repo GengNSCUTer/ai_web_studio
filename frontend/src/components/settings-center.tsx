@@ -102,6 +102,14 @@ const TEXT = {
     toolEnabled: "启用工具",
     credentialSource: "凭证来源",
     workspaceToolOverrides: "当前工作区工具开关",
+    workspacePermissionMode: "Agent 权限模式",
+    permissionReadOnly: "只读",
+    permissionAsk: "操作前询问",
+    permissionFullWorkspace: "完全访问工作区",
+    permissionReadOnlyHint: "只允许低风险读取，不执行文件修改或外部副作用。",
+    permissionAskHint: "读取自动执行；文件修改生成 Diff，确认后再应用。",
+    permissionFullWorkspaceHint: "仅自动应用受 ACL、版本 CAS 和审计约束的工作区文件修改。",
+    permissionBoundaryHint: "完全访问工作区不包含服务器 Shell、任意路径、SQL、支付、发布或任意 HTTP 写入。",
     noWorkspaceSelected: "当前未选择具体工作区，仅显示用户级凭证。",
     saveToolSettings: "保存工具设置",
     toolSettingsSaved: "工具设置已保存",
@@ -216,6 +224,14 @@ const TEXT = {
     toolEnabled: "Enable tool",
     credentialSource: "Credential source",
     workspaceToolOverrides: "Workspace tool switches",
+    workspacePermissionMode: "Agent permission mode",
+    permissionReadOnly: "Read only",
+    permissionAsk: "Ask before actions",
+    permissionFullWorkspace: "Full workspace access",
+    permissionReadOnlyHint: "Allow low-risk reads only; block file changes and external side effects.",
+    permissionAskHint: "Run reads automatically; apply file diffs only after confirmation.",
+    permissionFullWorkspaceHint: "Auto-apply only ACL-scoped, CAS-protected and audited workspace file edits.",
+    permissionBoundaryHint: "Full workspace access never includes host shell, arbitrary paths, SQL, payment, publishing or arbitrary HTTP writes.",
     noWorkspaceSelected: "No workspace selected. Showing user-level credentials only.",
     saveToolSettings: "Save tool settings",
     toolSettingsSaved: "Tool settings saved",
@@ -408,17 +424,21 @@ export function SettingsCenter({
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(initialProviderInfo);
   const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [toolSettings, setToolSettings] = useState<ToolSettings | null>(initialToolSettings);
-  const [memories] = useState<UserMemory[]>(initialMemories);
+  const [memories, setMemories] = useState<UserMemory[]>(initialMemories);
   const [promptTemplates] = useState<PromptTemplate[]>(initialPromptTemplates);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjects[0]?.id ?? "");
   const [activeTab, setActiveTab] = useState<SettingsTab>("provider");
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [reviewingMemoryId, setReviewingMemoryId] = useState<string | null>(null);
   const [isTestingProvider, setIsTestingProvider] = useState(false);
   const [toolCredentialDrafts, setToolCredentialDrafts] = useState<Record<string, string>>({});
   const [toolEnabledDrafts, setToolEnabledDrafts] = useState<Record<string, boolean>>({});
   const [workspaceToolEnabledDrafts, setWorkspaceToolEnabledDrafts] = useState<Record<string, boolean>>({});
+  const [workspacePermissionMode, setWorkspacePermissionMode] = useState<
+    "read_only" | "ask" | "full_workspace"
+  >("ask");
   const [providerApiKeyDraft, setProviderApiKeyDraft] = useState("");
   const [clearProviderApiKey, setClearProviderApiKey] = useState(false);
   const [knowledgeEmbeddingApiKeyDraft, setKnowledgeEmbeddingApiKeyDraft] = useState("");
@@ -517,6 +537,7 @@ export function SettingsCenter({
     setWorkspaceToolEnabledDrafts(
       Object.fromEntries(toolSettings.tools.map((tool) => [tool.tool_key, workspaceMap.get(tool.tool_key) ?? true]))
     );
+    setWorkspacePermissionMode(toolSettings.workspace_policy?.permission_mode ?? "ask");
     setMcpToolDrafts(
       Object.fromEntries(
         toolSettings.mcp_tools.map((tool) => [
@@ -660,6 +681,44 @@ export function SettingsCenter({
       setErrorMessage(`${text.settingsSaveFailed}${message}`);
     } finally {
       setIsSavingSettings(false);
+    }
+  }
+
+  async function reviewMemory(memory: UserMemory, action: "approve" | "reject") {
+    setReviewingMemoryId(memory.id);
+    setErrorMessage(null);
+    try {
+      let body: string | undefined;
+      if (action === "approve") {
+        let expiresAt: string | null = null;
+        if (memory.risk_level === "volatile") {
+          const input = window.prompt(
+            uiLanguage === "zh-CN"
+              ? "该候选包含短期信息，请输入过期时间（ISO 8601，例如 2026-08-30T00:00:00+08:00）"
+              : "Enter an ISO 8601 expiry for this volatile memory"
+          );
+          if (!input) {
+            return;
+          }
+          expiresAt = input;
+        }
+        body = JSON.stringify({ expires_at: expiresAt });
+      }
+      const updated = await requestJson<UserMemory>(`/api/backend/memories/${memory.id}/${action}`, {
+        method: "POST",
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body,
+      });
+      setMemories((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setSettingsMessage(
+        uiLanguage === "zh-CN"
+          ? action === "approve" ? "候选记忆已确认并启用" : "候选记忆已拒绝"
+          : action === "approve" ? "Memory candidate approved" : "Memory candidate rejected"
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Memory review failed");
+    } finally {
+      setReviewingMemoryId(null);
     }
   }
 
@@ -816,6 +875,11 @@ export function SettingsCenter({
         });
       }
       if (selectedProject) {
+        await requestJson(`/api/backend/tools/workspace-policies/${selectedProject.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ permission_mode: workspacePermissionMode }),
+        });
         for (const tool of toolSettings.tools) {
           await requestJson(`/api/backend/tools/workspaces/${selectedProject.id}/${encodeURIComponent(tool.tool_key)}`, {
             method: "PATCH",
@@ -1101,6 +1165,7 @@ export function SettingsCenter({
                       <option value="ollama">ollama</option>
                       <option value="openai-compatible">openai-compatible</option>
                       <option value="vllm">vllm</option>
+                      <option value="anthropic">anthropic</option>
                     </select>
                   </label>
                   <label className="block text-sm">
@@ -1633,6 +1698,37 @@ export function SettingsCenter({
                         className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
                       />
                     </label>
+                    <label className="flex items-center gap-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(userSettings.memory_auto_candidate_enabled)}
+                        onChange={(event) =>
+                          setUserSettings((current) => ({
+                            ...current,
+                            memory_auto_candidate_enabled: event.target.checked,
+                          }))
+                        }
+                      />
+                      {uiLanguage === "zh-CN" ? "自动生成待审核记忆候选" : "Auto-create reviewable memory candidates"}
+                    </label>
+                    <label className="block text-sm">
+                      <span className="mb-2 block text-[var(--ink-soft)]">
+                        {uiLanguage === "zh-CN" ? "每多少轮生成一次候选" : "Candidate interval (turns)"}
+                      </span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={userSettings.memory_auto_candidate_turn_interval}
+                        onChange={(event) =>
+                          setUserSettings((current) => ({
+                            ...current,
+                            memory_auto_candidate_turn_interval: Number(event.target.value),
+                          }))
+                        }
+                        className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 outline-none focus:border-[var(--accent-strong)]"
+                      />
+                    </label>
                   </div>
                   <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
                     <div className="mb-3 flex items-center justify-between">
@@ -1651,10 +1747,35 @@ export function SettingsCenter({
                                 <p className="mt-1 text-xs text-[var(--ink-muted)]">{memory.memory_type}</p>
                               </div>
                               <span className="rounded-full bg-[var(--soft-bg)] px-3 py-1 text-xs text-[var(--ink-soft)]">
-                                {memory.is_enabled ? "enabled" : "disabled"}
+                                {memory.status || (memory.is_enabled ? "active" : "disabled")}
                               </span>
                             </div>
                             <p className="mt-2 text-xs leading-6 text-[var(--ink-soft)]">{memory.content}</p>
+                            {memory.candidate_reason ? (
+                              <p className="mt-2 text-xs text-[var(--ink-muted)]">
+                                {memory.risk_level}: {memory.candidate_reason}
+                              </p>
+                            ) : null}
+                            {memory.status === "pending" ? (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={reviewingMemoryId === memory.id}
+                                  onClick={() => void reviewMemory(memory, "approve")}
+                                  className="rounded-full bg-[var(--accent-strong)] px-3 py-1 text-xs text-white disabled:opacity-50"
+                                >
+                                  {uiLanguage === "zh-CN" ? "确认启用" : "Approve"}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={reviewingMemoryId === memory.id}
+                                  onClick={() => void reviewMemory(memory, "reject")}
+                                  className="rounded-full border border-[var(--hairline)] px-3 py-1 text-xs disabled:opacity-50"
+                                >
+                                  {uiLanguage === "zh-CN" ? "拒绝" : "Reject"}
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -2010,6 +2131,44 @@ export function SettingsCenter({
                         ))}
                       </select>
                     </div>
+                    {selectedProject ? (
+                      <fieldset className="mb-4 border-0 p-0">
+                        <legend className="mb-2 text-xs font-semibold text-[var(--ink-strong)]">
+                          {text.workspacePermissionMode}
+                        </legend>
+                        <div className="grid grid-cols-1 gap-1 rounded-lg border border-[var(--control-border)] bg-[var(--control-bg)] p-1 sm:grid-cols-3">
+                          {(
+                            [
+                              ["read_only", text.permissionReadOnly, text.permissionReadOnlyHint],
+                              ["ask", text.permissionAsk, text.permissionAskHint],
+                              [
+                                "full_workspace",
+                                text.permissionFullWorkspace,
+                                text.permissionFullWorkspaceHint,
+                              ],
+                            ] as const
+                          ).map(([mode, label, hint]) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setWorkspacePermissionMode(mode)}
+                              className={`min-h-16 px-3 py-2 text-left text-xs transition ${
+                                workspacePermissionMode === mode
+                                  ? "bg-[var(--accent-strong)] text-white"
+                                  : "text-[var(--ink-soft)] hover:bg-[var(--soft-bg)]"
+                              }`}
+                              title={hint}
+                            >
+                              <span className="block font-semibold">{label}</span>
+                              <span className="mt-1 block leading-4 opacity-80">{hint}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-xs leading-5 text-[var(--ink-soft)]">
+                          {text.permissionBoundaryHint}
+                        </p>
+                      </fieldset>
+                    ) : null}
                     {selectedProject ? (
                       <div className="grid gap-2">
                         {(toolSettings?.tools ?? []).map((tool) => (

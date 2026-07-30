@@ -5,7 +5,7 @@ import unittest
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.credentials import ToolCredential, ToolCredentialResolver
 from app.services.tools.executor import ToolExecutor
-from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolDefinition
+from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolDefinition, ToolExecutionFeedbackError
 
 
 class FakeCredentialResolver(ToolCredentialResolver):
@@ -47,9 +47,19 @@ class FailingAdapterRunner:
         raise RuntimeError("https://mcp.internal/call?api_key=secret-value")
 
 
+class FeedbackAdapterRunner:
+    async def run(self, *, definition, call, api_key):
+        raise ToolExecutionFeedbackError("old_string 出现 2 次，请提供更多上下文。")
+
+
 class DisabledCredentialResolver(FakeCredentialResolver):
     def resolve(self, *, user_id: str | None, provider_key: str) -> ToolCredential:
         return ToolCredential(provider_key=provider_key, api_key=None, source="missing", is_enabled=False)
+
+
+class FullWorkspaceCredentialResolver(FakeCredentialResolver):
+    def get_workspace_permission_mode(self, *, project_id: str | None) -> str:
+        return "full_workspace"
 
 
 class ToolExecutorTest(unittest.TestCase):
@@ -165,6 +175,40 @@ class ToolExecutorTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_full_workspace_does_not_bypass_arbitrary_external_write(self) -> None:
+        async def run_test() -> None:
+            catalog = ToolCatalog()
+            definition = catalog.get("web.tavily.search")
+            definition.risk_level = "high"
+            definition.read_only = False
+            adapter_runner = FakeAdapterRunner()
+            executor = ToolExecutor(
+                credential_resolver=FullWorkspaceCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=adapter_runner,
+                project_id="workspace-1",
+            )
+            call = PlannedToolCall(
+                call_id="call-external-write",
+                tool_key="web.tavily.search",
+                provider="tavily",
+                category="external_write",
+                display_name="External write",
+                confidence=0.9,
+                reason="must remain blocked",
+                arguments={"query": "write"},
+            )
+
+            result, events = await executor.execute(call)
+
+            self.assertEqual(result.status, "skipped")
+            self.assertIsNone(adapter_runner.call)
+            confirmation = [event for event in events if event.type == "tool_confirmation_required"][0]
+            self.assertEqual(confirmation.payload["permission_mode"], "full_workspace")
+            self.assertEqual(confirmation.payload["status"], "blocked")
+
+        asyncio.run(run_test())
+
     def test_executor_does_not_expose_adapter_exception_text_in_trace(self) -> None:
         async def run_test() -> None:
             executor = ToolExecutor(
@@ -190,6 +234,33 @@ class ToolExecutorTest(unittest.TestCase):
             serialized = " ".join(str(event.payload) for event in events)
             self.assertNotIn("mcp.internal", serialized)
             self.assertNotIn("secret-value", serialized)
+
+        asyncio.run(run_test())
+
+    def test_executor_preserves_sanitized_tool_feedback(self) -> None:
+        async def run_test() -> None:
+            executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=ToolCatalog(),
+                adapter_runner=FeedbackAdapterRunner(),
+            )
+            call = PlannedToolCall(
+                call_id="call-feedback",
+                tool_key="workspace.files.propose_edit",
+                provider="workspace",
+                category="workspace_file",
+                display_name="编辑预览",
+                confidence=0.9,
+                reason="test feedback",
+                arguments={"file_id": "file", "old_string": "x", "new_string": "y"},
+            )
+
+            result, events = await executor.execute(call)
+
+            self.assertEqual(result.status, "error")
+            self.assertIn("出现 2 次", result.error_message or "")
+            error_event = [event for event in events if event.type == "tool_call_error"][-1]
+            self.assertEqual(error_event.payload["error_kind"], "tool_feedback")
 
         asyncio.run(run_test())
 

@@ -3,7 +3,13 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models.tool_config import McpServer, McpTool, UserToolCredential, WorkspaceToolSetting
+from app.models.tool_config import (
+    McpServer,
+    McpTool,
+    UserToolCredential,
+    WorkspaceAgentPolicy,
+    WorkspaceToolSetting,
+)
 
 
 class ToolConfigRepository:
@@ -53,6 +59,15 @@ class ToolConfigRepository:
         self.db.commit()
         self.db.refresh(setting)
         return setting
+
+    def get_workspace_policy(self, project_id: str) -> WorkspaceAgentPolicy | None:
+        return self.db.get(WorkspaceAgentPolicy, project_id)
+
+    def save_workspace_policy(self, policy: WorkspaceAgentPolicy) -> WorkspaceAgentPolicy:
+        self.db.add(policy)
+        self.db.commit()
+        self.db.refresh(policy)
+        return policy
 
     def list_mcp_servers(self, user_id: str) -> list[McpServer]:
         stmt = (

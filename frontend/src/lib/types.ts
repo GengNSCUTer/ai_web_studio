@@ -56,10 +56,16 @@ export type WorkspaceToolSetting = {
   is_enabled: boolean;
 };
 
+export type WorkspaceAgentPolicy = {
+  project_id: string;
+  permission_mode: "read_only" | "ask" | "full_workspace";
+};
+
 export type ToolSettings = {
   tools: ToolDefinition[];
   credentials: UserToolCredential[];
   workspace_settings: WorkspaceToolSetting[];
+  workspace_policy: WorkspaceAgentPolicy | null;
   mcp_servers: McpServer[];
   mcp_tools: McpTool[];
 };
@@ -427,6 +433,15 @@ export type ToolTraceEvent = {
   status?: string;
   error?: string;
   reason?: string;
+  run_id?: string;
+  step_id?: string;
+  patch_draft_id?: string;
+  approval_id?: string;
+  file_id?: string;
+  file_name?: string;
+  diff_text?: string;
+  arguments_hash?: string;
+  expires_at?: string;
   planner?: string;
   strategy?: string;
   confidence?: number;
@@ -539,6 +554,8 @@ export type UserSettings = {
   context_mode: string;
   memory_enabled: boolean;
   memory_max_chars: number;
+  memory_auto_candidate_enabled: boolean;
+  memory_auto_candidate_turn_interval: number;
   ui_language: string;
   theme_mode: string;
   knowledge_parser_provider: string;
@@ -606,6 +623,15 @@ export type UserMemory = {
   source_message_ids: string | null;
   confidence: string | null;
   is_enabled: boolean;
+  status: string;
+  project_id: string | null;
+  importance: number;
+  sensitivity: string;
+  risk_level: string;
+  candidate_reason: string | null;
+  supersedes_memory_id: string | null;
+  expires_at: string | null;
+  review_at: string | null;
   created_at: string;
   updated_at: string | null;
 };
