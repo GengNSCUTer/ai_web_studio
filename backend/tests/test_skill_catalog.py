@@ -226,6 +226,30 @@ class SkillCatalogTest(unittest.TestCase):
             self.assertEqual(assessment["tool_recall"], 1.0)
             self.assertEqual(assessment["task_success"], 1)
 
+            batch = SkillGoldSetEvaluator().assess_batch(
+                db=db,
+                user_id=self.user_id,
+                project_id="project-1",
+                observations=[
+                    {
+                        "case_id": "workspace-review",
+                        "selected_skill_key": "workspace.document-review",
+                        "plan": {
+                            "execution_status": "success",
+                            "latency_ms": 22,
+                            "calls": [
+                                {"tool_key": "workspace.files.list", "arguments": {}},
+                                {"tool_key": "workspace.files.search", "arguments": {}},
+                                {"tool_key": "workspace.files.read", "arguments": {}},
+                            ],
+                        },
+                    }
+                ],
+            )
+            self.assertEqual(batch["summary"]["case_count"], 1)
+            self.assertEqual(batch["summary"]["metrics"]["task_success_rate"], 1.0)
+            self.assertEqual(batch["summary"]["metrics"]["latency_ms_p50"], 22.0)
+
 
 if __name__ == "__main__":
     unittest.main()

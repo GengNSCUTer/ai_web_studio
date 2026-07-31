@@ -33,6 +33,7 @@ from app.schemas.tool_config import (
     SkillInstallationResponse,
     SkillInstallationUpdate,
     SkillGoldSetAssessmentRequest,
+    SkillGoldSetBatchAssessmentRequest,
     SkillRecommendationResponse,
     UserToolCredentialResponse,
     UserToolCredentialUpdate,
@@ -400,6 +401,26 @@ def assess_skill_gold_set_case(
             case_id=payload.case_id,
             selected_skill_key=payload.selected_skill_key,
             plan=payload.plan,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/skill-gold-set/assess-batch")
+def assess_skill_gold_set_batch(
+    payload: SkillGoldSetBatchAssessmentRequest,
+    project_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    if project_id and not ProjectRepository(db).get_by_user(project_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    try:
+        return SkillGoldSetEvaluator().assess_batch(
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            observations=[item.model_dump() for item in payload.observations],
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

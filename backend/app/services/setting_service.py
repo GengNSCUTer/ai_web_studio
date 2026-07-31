@@ -28,7 +28,9 @@ class SettingService:
     DEFAULT_THEME_MODE = "system"
     DEFAULT_MEMORY_ENABLED = True
     DEFAULT_MEMORY_MAX_CHARS = 4000
-    DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED = False
+    # Auto mode creates pending candidates only. It never activates a memory
+    # or injects it into a prompt before the user approves it.
+    DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED = True
     DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL = 4
     DEFAULT_KNOWLEDGE_PARSER_PROVIDER = "local_basic"
     DEFAULT_KNOWLEDGE_MODEL_BASE_URL = "https://api.siliconflow.cn/v1"

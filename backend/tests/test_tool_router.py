@@ -298,7 +298,7 @@ class ToolRouterTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_second_round_continuation_is_observable_but_not_executed(self) -> None:
+    def test_fifth_round_continuation_is_observable_but_not_executed(self) -> None:
         async def run_test() -> None:
             service = ExternalContextService(planner=AlwaysContinuePlanner(), workflow=FakeLoopWorkflow())
             result = await service.build_context(
@@ -312,7 +312,8 @@ class ToolRouterTest(unittest.TestCase):
             self.assertTrue(any("轮次上限" in notice for notice in result.notices))
             terminal = [event for event in result.tool_events if event.type == "tool_agent_terminal"]
             self.assertEqual(len(terminal), 1)
-            self.assertEqual(terminal[0].payload["round"], 2)
+            self.assertEqual(terminal[0].payload["round"], 5)
+            self.assertEqual(terminal[0].payload["max_rounds"], 5)
 
         import asyncio
 

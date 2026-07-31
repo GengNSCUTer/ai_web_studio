@@ -117,6 +117,10 @@ class SkillGoldSetAssessmentRequest(BaseModel):
     plan: dict = Field(default_factory=dict)
 
 
+class SkillGoldSetBatchAssessmentRequest(BaseModel):
+    observations: list[SkillGoldSetAssessmentRequest] = Field(min_length=1, max_length=200)
+
+
 class ToolConnectionTestResponse(BaseModel):
     ok: bool
     provider_key: str

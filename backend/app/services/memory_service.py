@@ -371,6 +371,17 @@ class MemoryService:
         return difflib.SequenceMatcher(None, left, right).ratio()
 
     @classmethod
+    def _term_similarity(cls, left: str, right: str) -> float:
+        """Model-independent duplicate check for reordered Chinese/English text."""
+        left_terms = cls._search_terms(left)
+        right_terms = cls._search_terms(right)
+        if not left_terms or not right_terms:
+            return 0.0
+        # Containment is safer than Jaccard for a concise candidate versus an
+        # older, more detailed version of the same fact.
+        return len(left_terms & right_terms) / min(len(left_terms), len(right_terms))
+
+    @classmethod
     def enrich_suggestion_risks(
         cls,
         *,
@@ -393,14 +404,15 @@ class MemoryService:
                 memory_title = cls.normalize_text(memory.title).lower()
                 memory_content = cls.normalize_text(memory.content).lower()
                 content_similarity = cls._similarity(suggestion_content, memory_content)
+                term_similarity = cls._term_similarity(suggestion_content, memory_content)
                 title_similarity = cls._similarity(suggestion_title, memory_title)
 
-                if content_similarity >= 0.82:
+                if content_similarity >= 0.82 or term_similarity >= 0.6:
                     duplicate_memory_id = memory.id
                     risk_level = "duplicate"
                     risk_reason = f"与已有记忆“{memory.title}”内容高度相似"
                     break
-                if title_similarity >= 0.72 and content_similarity <= 0.55:
+                if title_similarity >= 0.72 and max(content_similarity, term_similarity) <= 0.55:
                     conflict_memory_id = memory.id
                     risk_level = "conflict"
                     risk_reason = f"与已有记忆“{memory.title}”标题相近但内容差异较大"
@@ -442,6 +454,8 @@ class MemoryService:
             return "volatile", "候选包含明显的短期时间表达，需确认有效期后再保存"
         if suggestion.memory_type == "instruction":
             return "review_required", "长期指令会持续影响后续回答，必须由用户确认"
+        if suggestion.confidence == "low":
+            return "review_required", "模型置信度较低，只能作为人工审核候选"
         return "safe", None
 
     @classmethod

@@ -20,10 +20,12 @@ class ExternalContextService:
     """Chat 侧外部上下文门面。
 
     Chat 只依赖这一层；Catalog、Planner、Workflow、Executor 和结果组装都收在 tools 包内。
-    每轮先规划再执行，并把结果作为 observations 交给下一轮，但最多两轮，避免开放式 Agent 无限循环。
+    每轮先规划再执行，并把结果作为 observations 交给下一轮，但最多五轮，避免开放式 Agent 无限循环。
     """
 
-    max_agent_rounds = 2
+    # Chat has a hard five-round observe -> re-plan cap. Each plan remains
+    # separately call-limited and every Tool still passes Executor policy.
+    max_agent_rounds = 5
 
     def __init__(
         self,
@@ -191,7 +193,7 @@ class ExternalContextService:
             observations.extend(self._build_observations(round_index=round_index, sources=workflow_result.sources))
             if workflow_result.error_message:
                 # Expected tool failures are useful observations. They allow the
-                # bounded second planning round to repair an ambiguous file edit
+                # bounded follow-up planning round to repair an ambiguous file edit
                 # or stale file id instead of turning it into an opaque app error.
                 observations.append(
                     {

@@ -165,6 +165,37 @@ class SkillGoldSetEvaluator:
             "note": "尚未提交带 execution_status 的观测计划；评测器已就绪，不会把未运行样本伪计为成功。",
         }
 
+    def assess_batch(
+        self,
+        *,
+        db: Any,
+        user_id: str,
+        project_id: str | None,
+        observations: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Aggregate recorded plans without silently issuing provider calls."""
+        results: list[dict[str, Any]] = []
+        for observation in observations:
+            case_id = str(observation.get("case_id") or "") if isinstance(observation, dict) else ""
+            if not case_id:
+                continue
+            plan = observation.get("plan") if isinstance(observation.get("plan"), dict) else {}
+            results.append(
+                self.assess_case(
+                    db=db,
+                    user_id=user_id,
+                    project_id=project_id,
+                    case_id=case_id,
+                    selected_skill_key=(
+                        str(observation["selected_skill_key"])
+                        if observation.get("selected_skill_key") is not None
+                        else None
+                    ),
+                    plan=plan,
+                )
+            )
+        return {"results": results, "summary": self.aggregate(results)}
+
     @staticmethod
     def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         if not results:

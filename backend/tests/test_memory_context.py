@@ -105,6 +105,34 @@ class MemoryContextTest(unittest.TestCase):
 
         self.assertEqual(enriched[0].risk_level, "duplicate")
 
+    def test_reordered_terms_are_detected_as_duplicate_candidate(self) -> None:
+        existing = SimpleNamespace(
+            id="memory-existing",
+            memory_type="project",
+            title="项目技术栈",
+            content="Agent 项目使用 PostgreSQL 和 RAG 检索",
+        )
+        suggestion = MemorySuggestion(
+            memory_type="project",
+            title="项目技术栈补充",
+            content="RAG 检索与 PostgreSQL 是 Agent 项目的技术基础",
+        )
+        enriched = MemoryService.enrich_suggestion_risks(
+            suggestions=[suggestion],
+            existing_memories=[existing],
+        )
+        self.assertEqual(enriched[0].risk_level, "duplicate")
+
+    def test_low_confidence_candidate_requires_explicit_review(self) -> None:
+        suggestion = MemorySuggestion(
+            memory_type="fact",
+            title="不确定偏好",
+            content="用户可能偏好简短回答",
+            confidence="low",
+        )
+        enriched = MemoryService.enrich_suggestion_risks(suggestions=[suggestion], existing_memories=[])
+        self.assertEqual(enriched[0].risk_level, "review_required")
+
     def test_query_selection_keeps_preferences_but_drops_irrelevant_facts(self) -> None:
         repo = FakeMemoryRepository(
             [
