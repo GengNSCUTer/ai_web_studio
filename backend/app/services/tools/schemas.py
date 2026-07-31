@@ -152,6 +152,9 @@ class ToolCallResult:
     sources: list[ExternalSource]
     elapsed_ms: int
     error_message: str | None = None
+    # Expected validation/resource failures are terminal. Unexpected provider or
+    # transport failures remain retryable for a durable read-only workflow.
+    retryable: bool = True
 
 
 @dataclass

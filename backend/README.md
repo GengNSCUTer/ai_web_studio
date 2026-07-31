@@ -24,6 +24,9 @@
 - OpenAI/Anthropic Prompt Cache 参数与真实 cached-token usage 观测
 - 长期记忆 pending/active 审核生命周期与持久化候选 Worker
 - 文件修改 Agent Run/Step/Checkpoint、Diff 审批与 FileRevision CAS
+- 低风险只读 Tool DAG 的 PostgreSQL Outbox、Lease/Fencing、有限重试、DLQ 与 Artifact
+- 内置声明式 Skill manifest、用户启用状态与依赖能力检查
+- 会话 Markdown / JSON / JSONL 导出
 - 文本流聊天接口
 - 文件上传落盘
 
@@ -67,6 +70,7 @@ conda activate ai_web_studio
 ```bash
 ./scripts/run_knowledge_worker.sh
 ./scripts/run_memory_candidate_worker.sh
+./scripts/run_agent_tool_worker.sh
 ```
 
 ## 主要接口
@@ -88,9 +92,14 @@ conda activate ai_web_studio
 - `GET /api/memories?status=pending`
 - `GET /api/memories/extraction-jobs`
 - `GET /api/agent-runtime/runs/{run_id}`
+- `POST /api/agent-runtime/tool-runs`
+- `GET /api/agent-runtime/metrics`
+- `GET /api/agent-runtime/files/{file_id}/revisions`
 - `POST /api/agent-runtime/approvals/{approval_id}/challenge`
 - `POST /api/agent-runtime/approvals/{approval_id}/apply`
 - `GET /api/tools/settings?project_id={project_id}`
+- `GET /api/tools/skills`
+- `PUT /api/tools/skills/{skill_key}`
 - `PATCH /api/tools/workspace-policies/{project_id}`
 - `POST /api/uploads`
 
@@ -102,6 +111,13 @@ vllm serve <model> --enable-prefix-caching --enable-prompt-tokens-details
 
 工具权限默认是 `ask`。`full_workspace` 只允许当前项目内经过 ACL、Diff、版本 CAS
 和 Revision 审计的文件修改自动应用，不代表宿主机、Shell、SQL 或外部写接口权限。
+
+Durable Tool Worker 当前只接受 `low-risk + read-only` 工具。完整 Tool Result 保存为
+`AgentArtifact` 并按需读取，不默认全部注入 Prompt。声明式 Skill 只能编排现有已审核能力，
+不等于第三方插件市场，也不能带来额外权限。
+
+会话在线数据仍以 PostgreSQL 为真相源。`format=jsonl` 仅用于可移植导出、冷存档、
+调试回放和离线评测，不替代多用户事务存储。
 
 ## 近期待做
 

@@ -7,14 +7,21 @@ from typing import Any
 from app.services.tools.mcp_client import McpHttpClient
 from app.services.tools.mcp_security import enforce_mcp_endpoint_target_policy, validate_mcp_endpoint_url
 from app.services.tools.providers.amap import AmapToolProvider
+from app.services.tools.providers.agent_artifacts import AgentArtifactToolProvider
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.tools.result_mappers import map_mcp_result
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolDefinition, redact_sensitive_arguments
 
 
 class ToolAdapterRunner:
-    def __init__(self, *, workspace_file_provider: WorkspaceFileToolProvider | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        workspace_file_provider: WorkspaceFileToolProvider | None = None,
+        agent_artifact_provider: AgentArtifactToolProvider | None = None,
+    ) -> None:
         self.workspace_file_provider = workspace_file_provider
+        self.agent_artifact_provider = agent_artifact_provider
 
     async def run(
         self,
@@ -29,6 +36,10 @@ class ToolAdapterRunner:
             if not self.workspace_file_provider:
                 raise RuntimeError("工作区文件工具未初始化。")
             return await self.workspace_file_provider.run(call=call)
+        if definition.adapter_type == "agent_artifact":
+            if not self.agent_artifact_provider:
+                raise RuntimeError("Agent Artifact 工具未初始化。")
+            return await self.agent_artifact_provider.run(call=call)
         raise RuntimeError(f"未知工具 adapter 类型：{definition.adapter_type}")
 
     async def _run_mcp_http(

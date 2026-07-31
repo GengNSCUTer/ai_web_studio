@@ -4,7 +4,9 @@ from app.core.database import Base, engine
 from app.models import (  # noqa: F401
     Attachment,
     AgentApproval,
+    AgentArtifact,
     AgentCheckpoint,
+    AgentOutboxEvent,
     AgentRun,
     AgentStep,
     FileRevision,
@@ -23,6 +25,7 @@ from app.models import (  # noqa: F401
     KnowledgeRetrievalLog,
     OutboxEvent,
     Message,
+    ChatRuntimeMetric,
     Project,
     ProjectFile,
     PromptTemplate,
@@ -31,6 +34,7 @@ from app.models import (  # noqa: F401
     McpServer,
     McpTool,
     UserToolCredential,
+    UserSkillInstallation,
     User,
     UserMemory,
     MemoryExtractionJob,
@@ -179,6 +183,22 @@ def ensure_runtime_schema() -> None:
             "alter table agent_approvals add column decision_mode varchar(32) "
             "not null default 'user_confirmation'"
         )
+    agent_run_columns = _get_column_names("agent_runs")
+    if agent_run_columns and "runtime_kind" not in agent_run_columns:
+        statements.append(
+            "alter table agent_runs add column runtime_kind varchar(48) not null default 'file_edit'"
+        )
+    agent_step_columns = _get_column_names("agent_steps")
+    agent_step_additions = {
+        "result_bindings_json": "text not null default '[]'",
+        "available_at": "timestamptz",
+        "max_attempts": "integer not null default 3",
+        "heartbeat_at": "timestamptz",
+        "dead_lettered_at": "timestamptz",
+    }
+    for column_name, column_type in agent_step_additions.items():
+        if agent_step_columns and column_name not in agent_step_columns:
+            statements.append(f"alter table agent_steps add column {column_name} {column_type}")
     if "ui_language" not in columns:
         statements.append("alter table user_settings add column ui_language varchar(16) default 'zh-CN'")
     if "theme_mode" not in columns:

@@ -1,5 +1,6 @@
 import json
 import re
+from copy import deepcopy
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -65,6 +66,7 @@ def _build_export_payload(
         "messages": [
             {
                 "id": message.id,
+                "sequence": message.sequence,
                 "role": message.role,
                 "content": message.content,
                 "status": message.status,
@@ -86,6 +88,79 @@ def _build_export_payload(
             for message in messages
         ],
     }
+
+
+def _build_jsonl_export(payload: dict[str, Any]) -> str:
+    """Build a portable append-only event stream without server-local paths."""
+
+    conversation = payload["conversation"]
+    schema_version = "aiws.conversation.v1"
+    records: list[dict[str, Any]] = [
+        {
+            "schema_version": schema_version,
+            "event_id": f"conversation:{conversation['id']}",
+            "event_type": "conversation.snapshot",
+            "timestamp": conversation.get("created_at"),
+            "conversation_id": conversation["id"],
+            "data": {
+                "title": conversation.get("title"),
+                "model_name": conversation.get("model_name"),
+                "system_prompt": conversation.get("system_prompt"),
+                "created_at": conversation.get("created_at"),
+                "updated_at": conversation.get("updated_at"),
+            },
+        }
+    ]
+    if conversation.get("context_summary"):
+        records.append(
+            {
+                "schema_version": schema_version,
+                "event_id": f"context-summary:{conversation['id']}:{conversation.get('context_summary_boundary_message_id') or 'latest'}",
+                "event_type": "context_summary.snapshot",
+                "timestamp": conversation.get("updated_at"),
+                "conversation_id": conversation["id"],
+                "data": {
+                    "content": conversation["context_summary"],
+                    "boundary_message_id": conversation.get("context_summary_boundary_message_id"),
+                },
+            }
+        )
+    for message in payload["messages"]:
+        records.append(
+            {
+                "schema_version": schema_version,
+                "event_id": f"message:{message['id']}",
+                "event_type": "message.snapshot",
+                "timestamp": message.get("created_at"),
+                "conversation_id": conversation["id"],
+                "message_id": message["id"],
+                "data": {
+                    "sequence": message.get("sequence"),
+                    "role": message.get("role"),
+                    "content": message.get("content"),
+                    "status": message.get("status"),
+                    "created_at": message.get("created_at"),
+                    "updated_at": message.get("updated_at"),
+                    "attachments": [
+                        {
+                            key: value
+                            for key, value in attachment.items()
+                            if key != "storage_path"
+                        }
+                        for attachment in message.get("attachments") or []
+                    ],
+                },
+            }
+        )
+    return "\n".join(json.dumps(record, ensure_ascii=False, separators=(",", ":")) for record in records) + "\n"
+
+
+def _public_export_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    public_payload = deepcopy(payload)
+    for message in public_payload["messages"]:
+        for attachment in message.get("attachments") or []:
+            attachment.pop("storage_path", None)
+    return public_payload
 
 
 def _build_markdown_export(payload: dict[str, Any]) -> str:
@@ -171,12 +246,14 @@ def _build_zip_export(
     include_attachment_files: bool = True,
 ) -> bytes:
     buffer = BytesIO()
+    public_payload = _public_export_payload(payload)
     with ZipFile(buffer, mode="w", compression=ZIP_DEFLATED) as archive:
         archive.writestr("conversation.md", markdown)
         archive.writestr(
             "conversation.json",
-            json.dumps(payload, ensure_ascii=False, indent=2),
+            json.dumps(public_payload, ensure_ascii=False, indent=2),
         )
+        archive.writestr("conversation.jsonl", _build_jsonl_export(public_payload))
         if not include_attachment_files:
             return buffer.getvalue()
 
@@ -240,7 +317,7 @@ def get_conversation(
 @router.get("/{conversation_id}/export")
 def export_conversation(
     conversation_id: str,
-    export_format: str = Query(default="markdown", alias="format", pattern="^(markdown|json)$"),
+    export_format: str = Query(default="markdown", alias="format", pattern="^(markdown|json|jsonl)$"),
     message_ids: str | None = Query(default=None, max_length=8000),
     include_attachments: bool = Query(default=True),
     include_attachment_files: bool = Query(default=True),
@@ -279,15 +356,18 @@ def export_conversation(
         )
 
     if export_format == "json":
-        # Internal filesystem paths are only used for optional zip packaging.
-        for message in payload["messages"]:
-            for attachment in message.get("attachments") or []:
-                attachment.pop("storage_path", None)
-        content = json.dumps(payload, ensure_ascii=False, indent=2)
+        content = json.dumps(_public_export_payload(payload), ensure_ascii=False, indent=2)
         return Response(
             content=content,
             media_type="application/json; charset=utf-8",
             headers={"content-disposition": _content_disposition(filename, "json")},
+        )
+
+    if export_format == "jsonl":
+        return Response(
+            content=_build_jsonl_export(payload),
+            media_type="application/x-ndjson; charset=utf-8",
+            headers={"content-disposition": _content_disposition(filename, "jsonl")},
         )
 
     return Response(

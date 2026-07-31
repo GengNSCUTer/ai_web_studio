@@ -1,7 +1,9 @@
 from app.models.attachment import Attachment
 from app.models.agent_runtime import (
     AgentApproval,
+    AgentArtifact,
     AgentCheckpoint,
+    AgentOutboxEvent,
     AgentRun,
     AgentStep,
     FileRevision,
@@ -23,6 +25,7 @@ from app.models.knowledge import (
     OutboxEvent,
 )
 from app.models.message import Message
+from app.models.observability import ChatRuntimeMetric
 from app.models.project import Project
 from app.models.project_file import ProjectFile
 from app.models.prompt_template import PromptTemplate
@@ -30,6 +33,7 @@ from app.models.tool_config import (
     McpServer,
     McpTool,
     UserToolCredential,
+    UserSkillInstallation,
     WorkspaceAgentPolicy,
     WorkspaceToolSetting,
 )
@@ -44,6 +48,8 @@ __all__ = [
     "AgentStep",
     "AgentCheckpoint",
     "AgentApproval",
+    "AgentArtifact",
+    "AgentOutboxEvent",
     "PatchDraft",
     "FileRevision",
     "Conversation",
@@ -60,6 +66,7 @@ __all__ = [
     "KnowledgeRetrievalLog",
     "OutboxEvent",
     "Message",
+    "ChatRuntimeMetric",
     "McpServer",
     "McpTool",
     "Project",
@@ -68,6 +75,7 @@ __all__ = [
     "ToolCallRun",
     "ToolRouteRun",
     "UserToolCredential",
+    "UserSkillInstallation",
     "User",
     "UserMemory",
     "MemoryExtractionJob",

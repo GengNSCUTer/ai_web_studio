@@ -1,6 +1,8 @@
 "use client";
 
-import type { Conversation, Project, ProjectFile, ProjectStats } from "@/lib/types";
+import { useRef, useState } from "react";
+
+import type { Conversation, FileRevision, Project, ProjectFile, ProjectStats } from "@/lib/types";
 
 type WorkspaceModalMode = "create" | "edit" | "move" | null;
 
@@ -27,10 +29,21 @@ type WorkspaceText = {
   workspaceTotalFileSize: string;
   delete: string;
   workspaceFileEmpty: string;
+  workspaceFileVersions: string;
+  workspaceNoRevisions: string;
   deleteWorkspace: string;
   cancel: string;
   saveWorkspace: string;
 };
+
+async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const response = await fetch(input, { cache: "no-store", ...init });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Request failed: ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
 
 type WorkspaceDraft = {
   id: string;
@@ -91,6 +104,43 @@ export function WorkspaceModal({
   onAddProjectFiles,
   onDeleteProjectFile,
 }: WorkspaceModalProps) {
+  const [revisionFileId, setRevisionFileId] = useState<string | null>(null);
+  const [revisions, setRevisions] = useState<FileRevision[]>([]);
+  const [revisionError, setRevisionError] = useState<string | null>(null);
+  const [isLoadingRevisions, setIsLoadingRevisions] = useState(false);
+  const revisionRequestId = useRef(0);
+
+  async function showRevisionHistory(fileId: string) {
+    if (revisionFileId === fileId) {
+      revisionRequestId.current += 1;
+      setRevisionFileId(null);
+      setRevisions([]);
+      return;
+    }
+    setRevisionFileId(fileId);
+    setIsLoadingRevisions(true);
+    setRevisionError(null);
+    const requestId = revisionRequestId.current + 1;
+    revisionRequestId.current = requestId;
+    try {
+      const loaded = await requestJson<FileRevision[]>(
+        `/api/backend/agent-runtime/files/${fileId}/revisions`
+      );
+      if (revisionRequestId.current === requestId) {
+        setRevisions(loaded);
+      }
+    } catch (error) {
+      if (revisionRequestId.current === requestId) {
+        setRevisions([]);
+        setRevisionError(error instanceof Error ? error.message : "Failed to load revisions");
+      }
+    } finally {
+      if (revisionRequestId.current === requestId) {
+        setIsLoadingRevisions(false);
+      }
+    }
+  }
+
   if (!mode) {
     return null;
   }
@@ -250,25 +300,61 @@ export function WorkspaceModal({
                   <div className="space-y-2">
                     {projectFiles.length > 0 ? (
                       projectFiles.map((file) => (
-                        <div
-                          key={file.id}
-                          className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-[var(--ink-strong)]">
-                              {file.file_name}
-                            </p>
-                            <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                              {file.kind} · {formatBytes(file.file_size ?? 0)}
-                            </p>
+                        <div key={file.id} className="rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-[var(--ink-strong)]">
+                                {file.file_name}
+                              </p>
+                              <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                                {file.kind} · {formatBytes(file.file_size ?? 0)}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void showRevisionHistory(file.id)}
+                                className="rounded-full border border-[var(--control-border)] px-3 py-1 text-xs text-[var(--ink-soft)]"
+                              >
+                                {revisionFileId === file.id
+                                  ? (text.cancel)
+                                  : text.workspaceFileVersions}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void onDeleteProjectFile(file.id)}
+                                className="rounded-full border border-[rgba(174,65,45,0.22)] px-3 py-1 text-xs text-[#9f3a2b]"
+                              >
+                                {text.delete}
+                              </button>
+                            </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => void onDeleteProjectFile(file.id)}
-                            className="shrink-0 rounded-full border border-[rgba(174,65,45,0.22)] px-3 py-1 text-xs text-[#9f3a2b]"
-                          >
-                            {text.delete}
-                          </button>
+                          {revisionFileId === file.id ? (
+                            <div className="mt-3 border-t border-[var(--hairline)] pt-3">
+                              {isLoadingRevisions ? (
+                                <p className="text-xs text-[var(--ink-soft)]">{text.saving}</p>
+                              ) : revisionError ? (
+                                <p className="break-all text-xs text-[var(--danger-text)]">{revisionError}</p>
+                              ) : revisions.length === 0 ? (
+                                <p className="text-xs text-[var(--ink-soft)]">
+                                  {text.workspaceNoRevisions}
+                                </p>
+                              ) : (
+                                <ol className="space-y-2">
+                                  {revisions.map((revision) => (
+                                    <li key={revision.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                      <span className="font-medium text-[var(--ink-strong)]">
+                                        v{revision.revision_number} · {revision.created_by}
+                                      </span>
+                                      <span className="text-[var(--ink-muted)]">
+                                        {new Date(revision.created_at).toLocaleString()}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ol>
+                              )}
+                            </div>
+                          ) : null}
                         </div>
                       ))
                     ) : (

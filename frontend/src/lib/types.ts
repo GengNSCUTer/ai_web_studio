@@ -61,6 +61,19 @@ export type WorkspaceAgentPolicy = {
   permission_mode: "read_only" | "ask" | "full_workspace";
 };
 
+export type SkillInstallation = {
+  skill_key: string;
+  version: string;
+  display_name: string;
+  description: string;
+  required_tool_keys: string[];
+  risk_declaration: string;
+  is_installed: boolean;
+  is_enabled: boolean;
+  installed_version: string | null;
+  missing_tool_keys: string[];
+};
+
 export type ToolSettings = {
   tools: ToolDefinition[];
   credentials: UserToolCredential[];
@@ -68,6 +81,7 @@ export type ToolSettings = {
   workspace_policy: WorkspaceAgentPolicy | null;
   mcp_servers: McpServer[];
   mcp_tools: McpTool[];
+  skills: SkillInstallation[];
 };
 
 export type ToolConnectionTestResult = {
@@ -129,6 +143,17 @@ export type ProjectFile = {
   kind: string;
   storage_key: string;
   parsed_text: string | null;
+  created_at: string;
+};
+
+export type FileRevision = {
+  id: string;
+  project_file_id: string;
+  revision_number: number;
+  content_hash: string;
+  created_by: string;
+  source_run_id: string | null;
+  source_step_id: string | null;
   created_at: string;
 };
 

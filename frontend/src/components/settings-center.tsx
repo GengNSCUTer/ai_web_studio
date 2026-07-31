@@ -125,6 +125,10 @@ const TEXT = {
     noMcpServers: "还没有自定义 MCP Server。",
     mcpTools: "MCP 工具",
     noMcpTools: "同步后会在这里显示 MCP 工具。新工具默认不启用。",
+    skills: "Skills",
+    skillsHint: "Skill 只能编排已审核的 Tool/MCP 能力，不包含可执行代码、凭证或额外权限。",
+    requiredTools: "依赖工具",
+    missingTools: "缺少能力",
     enabled: "已启用",
     disabled: "未启用",
     providerConnectionSuccess: "连接成功",
@@ -247,6 +251,10 @@ const TEXT = {
     noMcpServers: "No custom MCP Server yet.",
     mcpTools: "MCP tools",
     noMcpTools: "MCP tools will appear here after sync. New tools are disabled by default.",
+    skills: "Skills",
+    skillsHint: "Skills only compose reviewed Tool/MCP capabilities. They contain no executable code, credentials, or extra permissions.",
+    requiredTools: "Required tools",
+    missingTools: "Missing capabilities",
     enabled: "Enabled",
     disabled: "Disabled",
     providerConnectionSuccess: "Connection succeeded",
@@ -484,6 +492,7 @@ export function SettingsCenter({
   const [isCreatingMcpServer, setIsCreatingMcpServer] = useState(false);
   const [testingMcpServerId, setTestingMcpServerId] = useState<string | null>(null);
   const [syncingMcpServerId, setSyncingMcpServerId] = useState<string | null>(null);
+  const [updatingSkillKey, setUpdatingSkillKey] = useState<string | null>(null);
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
 
   const uiLanguage = userSettings.ui_language === "en-US" ? "en-US" : "zh-CN";
@@ -929,6 +938,26 @@ export function SettingsCenter({
       setErrorMessage(`${text.toolSettingsFailed}${message}`);
     } finally {
       setTestingToolProvider(null);
+    }
+  }
+
+  async function handleToggleSkill(skillKey: string, isEnabled: boolean) {
+    setUpdatingSkillKey(skillKey);
+    setErrorMessage(null);
+    setSettingsMessage(null);
+    try {
+      await requestJson(`/api/backend/tools/skills/${encodeURIComponent(skillKey)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ is_enabled: isEnabled }),
+      });
+      await reloadToolSettings(selectedProject?.id);
+      setSettingsMessage(text.toolSettingsSaved);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      setErrorMessage(`${text.toolSettingsFailed}${message}`);
+    } finally {
+      setUpdatingSkillKey(null);
     }
   }
 
@@ -1806,6 +1835,58 @@ export function SettingsCenter({
                 <div className="space-y-4">
                   <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
                     <p className="text-sm leading-6 text-[var(--ink-soft)]">{text.toolsHint}</p>
+                  </div>
+                  <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--ink-strong)]">{text.skills}</p>
+                        <p className="mt-1 text-xs leading-5 text-[var(--ink-soft)]">{text.skillsHint}</p>
+                      </div>
+                      <span className="rounded-full bg-[var(--control-bg)] px-3 py-1 text-xs text-[var(--ink-soft)]">
+                        {(toolSettings?.skills ?? []).filter((skill) => skill.is_enabled).length}/
+                        {(toolSettings?.skills ?? []).length}
+                      </span>
+                    </div>
+                    <div className="grid gap-2">
+                      {(toolSettings?.skills ?? []).map((skill) => {
+                        const missingCapabilities = skill.missing_tool_keys.length > 0;
+                        return (
+                          <div
+                            key={skill.skill_key}
+                            className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-4 py-3"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-[var(--ink-strong)]">
+                                {skill.display_name} · v{skill.version}
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-[var(--ink-soft)]">{skill.description}</p>
+                              <p className="mt-2 break-words text-[10px] leading-4 text-[var(--ink-muted)]">
+                                {text.requiredTools}: {skill.required_tool_keys.join(", ") || "--"}
+                              </p>
+                              {missingCapabilities ? (
+                                <p className="mt-1 break-words text-[10px] leading-4 text-[var(--danger-text)]">
+                                  {text.missingTools}: {skill.missing_tool_keys.join(", ")}
+                                </p>
+                              ) : null}
+                            </div>
+                            <label className="flex shrink-0 items-center gap-2 text-xs text-[var(--ink-soft)]">
+                              <input
+                                type="checkbox"
+                                checked={skill.is_enabled}
+                                disabled={
+                                  (missingCapabilities && !skill.is_enabled) ||
+                                  updatingSkillKey === skill.skill_key
+                                }
+                                onChange={(event) =>
+                                  void handleToggleSkill(skill.skill_key, event.target.checked)
+                                }
+                              />
+                              {skill.is_enabled ? text.enabled : text.disabled}
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">

@@ -15,6 +15,9 @@ class AgentRun(Base):
     project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id"), nullable=True, index=True)
     assistant_message_id: Mapped[str | None] = mapped_column(ForeignKey("messages.id"), nullable=True, index=True)
+    # file_edit / durable_tool_workflow。运行类型让恢复器知道如何解释 checkpoint，
+    # 不能再把所有 Run 都假定为单一文件 Diff。
+    runtime_kind: Mapped[str] = mapped_column(String(48), default="file_edit", index=True)
     status: Mapped[str] = mapped_column(String(32), default="running", index=True)
     input_json: Mapped[str] = mapped_column(Text, default="{}")
     planner_state_json: Mapped[str] = mapped_column(Text, default="{}")
@@ -49,9 +52,14 @@ class AgentStep(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     depends_on_json: Mapped[str] = mapped_column(Text, default="[]")
+    result_bindings_json: Mapped[str] = mapped_column(Text, default="[]")
+    available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
     lease_owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
     lease_version: Mapped[int] = mapped_column(Integer, default=0)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dead_lettered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -121,3 +129,57 @@ class PatchDraft(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentArtifact(Base):
+    """Immutable structured result of a durable Tool Step.
+
+    Prompt only receives a compact summary or a later explicit read. The complete,
+    redacted result remains tied to Run/Step for result binding and recovery.
+    """
+
+    __tablename__ = "agent_artifacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True)
+    step_id: Mapped[str] = mapped_column(ForeignKey("agent_steps.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    artifact_type: Mapped[str] = mapped_column(String(64), default="tool_result")
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    preview: Mapped[str] = mapped_column(Text)
+    content_json: Mapped[str] = mapped_column(Text)
+    char_count: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_state: Mapped[str] = mapped_column(String(32), default="stored", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentOutboxEvent(Base):
+    """PostgreSQL-backed delivery intent for an Agent Step.
+
+    A later Redis/Kafka publisher can consume this table at-least-once. The first
+    durable slice intentionally has the worker claim it directly, so creation of a
+    Run, Step and delivery intent still commits atomically.
+    """
+
+    __tablename__ = "agent_outbox_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    event_key: Mapped[str] = mapped_column(String(192), unique=True, index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True)
+    step_id: Mapped[str] = mapped_column(ForeignKey("agent_steps.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(64), default="agent_step.requested")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    lease_version: Mapped[int] = mapped_column(Integer, default=0)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dead_lettered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

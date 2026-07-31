@@ -10,6 +10,8 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401
 from app.core.database import Base
 from app.models.agent_runtime import AgentApproval, AgentCheckpoint, AgentRun, AgentStep, FileRevision, PatchDraft
+from app.models.conversation import Conversation
+from app.models.message import Message
 from app.models.project import Project
 from app.models.project_file import ProjectFile
 from app.models.tool_config import WorkspaceAgentPolicy
@@ -232,6 +234,101 @@ class AgentRuntimeServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "skipped")
         self.assertEqual(self.db.query(AgentRun).count(), 0)
         self.assertTrue(any(event.payload.get("permission_mode") == "read_only" for event in events))
+
+    def test_revision_restore_is_an_approval_proposal_not_a_direct_write(self) -> None:
+        service = AgentRuntimeService(self.db)
+        proposal = self._propose()
+        token = service.issue_approval_challenge(approval_id=proposal.approval_id, user_id=self.user.id)
+        service.apply_approved_file_edit(
+            approval_id=proposal.approval_id,
+            user_id=self.user.id,
+            approval_token=token,
+        )
+        revisions = service.list_file_revisions(file_id=self.file.id, user_id=self.user.id)
+        baseline = revisions[-1]
+
+        restore = service.propose_file_restore(
+            file_id=self.file.id,
+            revision_id=baseline.id,
+            user_id=self.user.id,
+        )
+        self.db.refresh(self.file)
+        self.assertIn("new value", self.file.parsed_text)
+        self.assertIn("-new value", restore.diff_text)
+        restore_token = service.issue_approval_challenge(
+            approval_id=restore.approval_id,
+            user_id=self.user.id,
+        )
+        restored = service.apply_approved_file_edit(
+            approval_id=restore.approval_id,
+            user_id=self.user.id,
+            approval_token=restore_token,
+        )
+        self.db.refresh(self.file)
+        self.assertEqual(restored.revision_number, 3)
+        self.assertEqual(self.file.parsed_text, "title\nold value\nend")
+
+    def test_empty_file_can_restore_a_non_empty_revision(self) -> None:
+        service = AgentRuntimeService(self.db)
+        baseline = service._ensure_current_revision(self.file)
+        self.db.commit()
+        self.file.parsed_text = ""
+        self.db.commit()
+
+        restore = service.propose_file_restore(
+            file_id=self.file.id,
+            revision_id=baseline.id,
+            user_id=self.user.id,
+        )
+        self.db.refresh(self.file)
+        self.assertEqual(self.file.parsed_text, "")
+        token = service.issue_approval_challenge(
+            approval_id=restore.approval_id,
+            user_id=self.user.id,
+        )
+        applied = service.apply_approved_file_edit(
+            approval_id=restore.approval_id,
+            user_id=self.user.id,
+            approval_token=token,
+        )
+        self.db.refresh(self.file)
+        self.assertEqual(applied.status, "applied")
+        self.assertEqual(self.file.parsed_text, "title\nold value\nend")
+
+    def test_file_proposal_rejects_foreign_conversation_context(self) -> None:
+        foreign_project = Project(user_id=self.other.id, name="foreign-workspace")
+        self.db.add(foreign_project)
+        self.db.flush()
+        foreign_conversation = Conversation(
+            user_id=self.other.id,
+            project_id=foreign_project.id,
+            title="foreign-conversation",
+            model_name="test-model",
+        )
+        self.db.add(foreign_conversation)
+        self.db.flush()
+        foreign_message = Message(
+            conversation_id=foreign_conversation.id,
+            sequence=1,
+            role="assistant",
+            content="",
+            status="done",
+        )
+        self.db.add(foreign_message)
+        self.db.commit()
+
+        with self.assertRaisesRegex(AgentRuntimeError, "未找到该会话"):
+            AgentRuntimeService(self.db).propose_file_edit(
+                user_id=self.user.id,
+                project_id=self.project.id,
+                call_id="cross-tenant-context",
+                file_id=self.file.id,
+                old_string="old value",
+                new_string="new value",
+                conversation_id=foreign_conversation.id,
+                assistant_message_id=foreign_message.id,
+            )
+        self.assertEqual(self.db.query(AgentRun).count(), 0)
 
 
 if __name__ == "__main__":

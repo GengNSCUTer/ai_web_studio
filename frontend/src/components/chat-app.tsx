@@ -84,6 +84,8 @@ const APP_TEXT = {
     workspaceStats: "项目统计",
     workspaceAddFiles: "添加文件到工作区",
     workspaceFileEmpty: "当前工作区还没有文件。",
+    workspaceFileVersions: "版本",
+    workspaceNoRevisions: "暂无修订记录",
     workspaceFileAddFailed: "工作区文件添加失败：",
     workspaceFileDeleteFailed: "工作区文件删除失败：",
     workspaceConversationCount: "会话数",
@@ -305,6 +307,8 @@ const APP_TEXT = {
     workspaceStats: "Project stats",
     workspaceAddFiles: "Add files to workspace",
     workspaceFileEmpty: "No files in this workspace yet.",
+    workspaceFileVersions: "Versions",
+    workspaceNoRevisions: "No revisions yet",
     workspaceFileAddFailed: "Add workspace file failed: ",
     workspaceFileDeleteFailed: "Delete workspace file failed: ",
     workspaceConversationCount: "Conversations",
@@ -572,7 +576,7 @@ export function ChatApp({
   const [shareCopied, setShareCopied] = useState(false);
   const [exportModalConversation, setExportModalConversation] = useState<Conversation | null>(null);
   const [exportOptions, setExportOptions] = useState({
-    format: "markdown" as "markdown" | "json",
+    format: "markdown" as "markdown" | "json" | "jsonl",
     range: "all" as "all" | "loaded",
     include_attachments: true,
     include_attachment_files: true,
@@ -1104,7 +1108,7 @@ export function ChatApp({
       }
 
       const blob = await response.blob();
-      const extension = exportOptions.as_zip ? "zip" : exportOptions.format === "json" ? "json" : "md";
+      const extension = exportOptions.as_zip ? "zip" : exportOptions.format === "markdown" ? "md" : exportOptions.format;
       const safeTitle =
         exportModalConversation.title.replace(/[^\w\u4e00-\u9fff.-]+/g, "_").slice(0, 80) || "conversation";
       const url = URL.createObjectURL(blob);

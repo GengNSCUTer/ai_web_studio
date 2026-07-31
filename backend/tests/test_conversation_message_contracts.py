@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import json
 import unittest
+from io import BytesIO
+from zipfile import ZipFile
 
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes.conversations import _parse_requested_message_ids
+from app.api.routes.conversations import (
+    _build_jsonl_export,
+    _build_zip_export,
+    _parse_requested_message_ids,
+)
 from app.core.database import Base
 from app.models import *  # noqa: F403 - register all SQLAlchemy metadata for FK creation.
 from app.models.conversation import Conversation
@@ -84,6 +91,58 @@ class ConversationMessageContractTest(unittest.TestCase):
 
         with self.assertRaises(HTTPException):
             _parse_requested_message_ids("x" * 65)
+
+    def test_jsonl_export_has_stable_event_ids_and_no_storage_paths(self) -> None:
+        payload = {
+            "conversation": {
+                "id": "conversation-1",
+                "title": "Portable history",
+                "model_name": "model",
+                "system_prompt": None,
+                "context_summary": "Earlier context",
+                "context_summary_boundary_message_id": "message-0",
+                "created_at": "2026-07-31T10:00:00+00:00",
+                "updated_at": "2026-07-31T10:01:00+00:00",
+            },
+            "messages": [
+                {
+                    "id": "message-1",
+                    "sequence": 1,
+                    "role": "user",
+                    "content": "hello",
+                    "status": "done",
+                    "created_at": "2026-07-31T10:00:01+00:00",
+                    "updated_at": None,
+                    "attachments": [
+                        {
+                            "id": "attachment-1",
+                            "file_name": "note.md",
+                            "storage_path": "/private/server/path/note.md",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        records = [json.loads(line) for line in _build_jsonl_export(payload).splitlines()]
+
+        self.assertEqual(
+            [record["event_id"] for record in records],
+            [
+                "conversation:conversation-1",
+                "context-summary:conversation-1:message-0",
+                "message:message-1",
+            ],
+        )
+        self.assertEqual({record["schema_version"] for record in records}, {"aiws.conversation.v1"})
+        self.assertNotIn("storage_path", records[-1]["data"]["attachments"][0])
+
+        archive_bytes = _build_zip_export(payload, "# Portable history", "json")
+        with ZipFile(BytesIO(archive_bytes)) as archive:
+            archived_json = json.loads(archive.read("conversation.json"))
+            archived_jsonl = archive.read("conversation.jsonl").decode("utf-8")
+        self.assertNotIn("storage_path", archived_json["messages"][0]["attachments"][0])
+        self.assertNotIn("storage_path", archived_jsonl)
 
     def test_bulk_delete_is_scoped_to_conversation_id(self) -> None:
         first_conversation = Conversation(user_id=self.user.id, title="A", model_name="model")

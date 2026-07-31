@@ -505,6 +505,55 @@
     "read_only": true
   },
   {
+    "tool_key": "agent.artifacts.list",
+    "provider": "agent_runtime",
+    "category": "agent_artifact",
+    "display_name": "Agent 运行产物列表",
+    "description": "List bounded metadata and previews for durable Tool artifacts owned by the current user and project.",
+    "when_to_use": ["需要定位此前可恢复 Tool Run 生成的结构化结果时使用。"],
+    "when_not_to_use": ["不能读取其他用户或其他项目的 Artifact；不能把预览当作完整原文。"],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "run_id": {"type": "string", "maxLength": 36},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10}
+      },
+      "additionalProperties": false
+    },
+    "output_schema": {},
+    "adapter_type": "agent_artifact",
+    "adapter": {"auth_type": "none"},
+    "source_type": "agent_runtime",
+    "risk_level": "low",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
+    "tool_key": "agent.artifacts.read",
+    "provider": "agent_runtime",
+    "category": "agent_artifact",
+    "display_name": "Agent 运行产物按需读取",
+    "description": "Read a bounded structured artifact by opaque ID after tenant and project authorization.",
+    "when_to_use": ["已经拿到 artifact_id，且当前回答确实需要此前工具结果细节时使用。"],
+    "when_not_to_use": ["不能传文件路径、URL 或其他用户的 ID；单次不会返回无限长度内容。"],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "artifact_id": {"type": "string", "minLength": 1, "maxLength": 36},
+        "max_chars": {"type": "integer", "minimum": 200, "maximum": 12000, "default": 6000}
+      },
+      "required": ["artifact_id"],
+      "additionalProperties": false
+    },
+    "output_schema": {},
+    "adapter_type": "agent_artifact",
+    "adapter": {"auth_type": "none"},
+    "source_type": "agent_runtime",
+    "risk_level": "low",
+    "enabled_by_default": true,
+    "read_only": true
+  },
+  {
     "tool_key": "workspace.files.list",
     "provider": "workspace",
     "category": "workspace_file",

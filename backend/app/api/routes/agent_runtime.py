@@ -7,14 +7,21 @@ from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.schemas.agent_runtime import (
     AgentApprovalResponse,
+    AgentArtifactResponse,
+    AgentOutboxEventResponse,
     AgentRunResponse,
     AgentRunSnapshotResponse,
     AgentStepResponse,
     ApprovalApplyRequest,
     ApprovalChallengeResponse,
+    DurableToolRunRequest,
     FileEditApplyResponse,
+    FileEditProposalResponse,
+    FileRevisionResponse,
+    FileRevisionRestoreRequest,
     PatchDraftResponse,
 )
+from app.services.durable_tool_runtime import DurableToolRunService, DurableToolRuntimeError
 from app.services.agent_runtime_service import AgentRuntimeError, AgentRuntimeService
 
 
@@ -22,7 +29,25 @@ router = APIRouter(prefix="/agent-runtime", tags=["agent-runtime"])
 
 
 def _http_error(exc: AgentRuntimeError) -> HTTPException:
-    not_found = {"approval_not_found", "run_not_found", "draft_missing"}
+    not_found = {
+        "approval_not_found",
+        "run_not_found",
+        "draft_missing",
+        "file_not_found",
+        "conversation_not_found",
+        "assistant_message_not_found",
+    }
+    code = status.HTTP_404_NOT_FOUND if exc.code in not_found else status.HTTP_409_CONFLICT
+    return HTTPException(status_code=code, detail={"code": exc.code, "message": str(exc)})
+
+
+def _durable_http_error(exc: DurableToolRuntimeError) -> HTTPException:
+    not_found = {
+        "unknown_tool",
+        "project_not_found",
+        "conversation_not_found",
+        "assistant_message_not_found",
+    }
     code = status.HTTP_404_NOT_FOUND if exc.code in not_found else status.HTTP_409_CONFLICT
     return HTTPException(status_code=code, detail={"code": exc.code, "message": str(exc)})
 
@@ -44,7 +69,9 @@ def get_agent_run(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AgentRunSnapshotResponse:
-    snapshot = AgentRuntimeService(db).get_run_snapshot(run_id=run_id, user_id=current_user.id)
+    snapshot = DurableToolRunService(db).get_run_snapshot(run_id=run_id, user_id=current_user.id)
+    if snapshot is None:
+        snapshot = AgentRuntimeService(db).get_run_snapshot(run_id=run_id, user_id=current_user.id)
     if not snapshot:
         raise HTTPException(status_code=404, detail="Agent Run not found")
     checkpoint = snapshot["checkpoint"]
@@ -63,9 +90,78 @@ def get_agent_run(
         run=AgentRunResponse.model_validate(snapshot["run"]),
         steps=[AgentStepResponse.model_validate(item) for item in snapshot["steps"]],
         checkpoint=checkpoint_payload,
-        approvals=[AgentApprovalResponse.model_validate(item) for item in snapshot["approvals"]],
-        drafts=[PatchDraftResponse.model_validate(item) for item in snapshot["drafts"]],
+        approvals=[AgentApprovalResponse.model_validate(item) for item in snapshot.get("approvals", [])],
+        drafts=[PatchDraftResponse.model_validate(item) for item in snapshot.get("drafts", [])],
+        artifacts=[AgentArtifactResponse.model_validate(item) for item in snapshot.get("artifacts", [])],
+        outbox_events=[AgentOutboxEventResponse.model_validate(item) for item in snapshot.get("outbox_events", [])],
     )
+
+
+@router.post("/tool-runs", response_model=AgentRunResponse, status_code=status.HTTP_202_ACCEPTED)
+def enqueue_durable_tool_run(
+    payload: DurableToolRunRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AgentRunResponse:
+    try:
+        run = DurableToolRunService(db).enqueue(
+            user_id=current_user.id,
+            project_id=payload.project_id,
+            conversation_id=payload.conversation_id,
+            assistant_message_id=payload.assistant_message_id,
+            idempotency_key=payload.idempotency_key,
+            max_attempts=payload.max_attempts,
+            calls=[call.model_dump() for call in payload.calls],
+        )
+    except DurableToolRuntimeError as exc:
+        raise _durable_http_error(exc) from exc
+    return AgentRunResponse.model_validate(run)
+
+
+@router.get("/metrics")
+def get_agent_runtime_metrics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    return DurableToolRunService(db).metrics(user_id=current_user.id)
+
+
+@router.get("/files/{file_id}/revisions", response_model=list[FileRevisionResponse])
+def list_file_revisions(
+    file_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[FileRevisionResponse]:
+    try:
+        revisions = AgentRuntimeService(db).list_file_revisions(file_id=file_id, user_id=current_user.id)
+    except AgentRuntimeError as exc:
+        raise _http_error(exc) from exc
+    return [FileRevisionResponse.model_validate(item) for item in revisions]
+
+
+@router.post(
+    "/files/{file_id}/revisions/{revision_id}/restore",
+    response_model=FileEditProposalResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def propose_file_revision_restore(
+    file_id: str,
+    revision_id: str,
+    payload: FileRevisionRestoreRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FileEditProposalResponse:
+    try:
+        proposal = AgentRuntimeService(db).propose_file_restore(
+            file_id=file_id,
+            revision_id=revision_id,
+            user_id=current_user.id,
+            conversation_id=payload.conversation_id,
+            assistant_message_id=payload.assistant_message_id,
+        )
+    except AgentRuntimeError as exc:
+        raise _http_error(exc) from exc
+    return FileEditProposalResponse(**proposal.__dict__)
 
 
 @router.post(

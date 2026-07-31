@@ -3,7 +3,7 @@
 import type { Conversation } from "@/lib/types";
 
 type ExportOptions = {
-  format: "markdown" | "json";
+  format: "markdown" | "json" | "jsonl";
   range: "all" | "loaded";
   include_attachments: boolean;
   include_attachment_files: boolean;
@@ -82,7 +82,7 @@ export function ConversationExportModal({
               <option value="loaded">{text.exportRangeSelected}</option>
             </select>
           </label>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <button
               type="button"
               onClick={() => onOptionsChange((current) => ({ ...current, format: "markdown" }))}
@@ -104,6 +104,17 @@ export function ConversationExportModal({
               }`}
             >
               JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => onOptionsChange((current) => ({ ...current, format: "jsonl" }))}
+              className={`rounded-2xl border px-4 py-3 text-sm ${
+                exportOptions.format === "jsonl"
+                  ? "border-[var(--accent-strong)] bg-[var(--soft-bg)]"
+                  : "border-[var(--control-border)] bg-[var(--control-bg)]"
+              }`}
+            >
+              JSONL
             </button>
           </div>
           {[

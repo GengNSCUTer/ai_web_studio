@@ -63,6 +63,24 @@ class ToolSettingsResponse(BaseModel):
     workspace_policy: WorkspaceAgentPolicyResponse | None = None
     mcp_servers: list["McpServerResponse"] = []
     mcp_tools: list["McpToolResponse"] = []
+    skills: list["SkillInstallationResponse"] = Field(default_factory=list)
+
+
+class SkillInstallationResponse(BaseModel):
+    skill_key: str
+    version: str
+    display_name: str
+    description: str
+    required_tool_keys: list[str]
+    risk_declaration: str
+    is_installed: bool
+    is_enabled: bool
+    installed_version: str | None = None
+    missing_tool_keys: list[str] = Field(default_factory=list)
+
+
+class SkillInstallationUpdate(BaseModel):
+    is_enabled: bool = True
 
 
 class ToolConnectionTestResponse(BaseModel):

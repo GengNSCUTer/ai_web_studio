@@ -1,0 +1,18 @@
+[
+  {
+    "skill_key": "research.web-brief",
+    "version": "1.0.0",
+    "display_name": "联网研究简报",
+    "description": "基于已审核的联网搜索能力收集来源，并按结论、证据和不确定性生成简报。",
+    "required_tool_keys": ["web.tavily.search"],
+    "risk_declaration": "uses_existing_read_only_capabilities_only"
+  },
+  {
+    "skill_key": "workspace.document-review",
+    "version": "1.0.0",
+    "display_name": "项目文档审阅",
+    "description": "在工作区内按需搜索和读取项目文件，先给出带来源的审阅结论；修改仍需独立 Diff 审批。",
+    "required_tool_keys": ["workspace.files.list", "workspace.files.search", "workspace.files.read"],
+    "risk_declaration": "read_only_analysis; edits_require_separate_approval"
+  }
+]

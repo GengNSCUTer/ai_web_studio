@@ -16,6 +16,7 @@ from app.services.tools.schemas import (
     redact_sensitive_arguments,
 )
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
+from app.services.tools.providers.agent_artifacts import AgentArtifactToolProvider
 
 
 class ToolExecutor:
@@ -37,7 +38,12 @@ class ToolExecutor:
                 db=db,
                 user_id=user_id,
                 project_id=project_id,
-            )
+            ),
+            agent_artifact_provider=AgentArtifactToolProvider(
+                db=db,
+                user_id=user_id,
+                project_id=project_id,
+            ),
         )
         self.credential_resolver = credential_resolver or ToolCredentialResolver(db)
         self.user_id = user_id
@@ -376,6 +382,7 @@ class ToolExecutor:
                 sources=[],
                 elapsed_ms=elapsed_ms,
                 error_message=safe_error,
+                retryable=False,
             )
             events.append(
                 ToolTraceEvent(
@@ -388,6 +395,7 @@ class ToolExecutor:
                         "display_name": call.display_name,
                         "status": "error",
                         "error_kind": "tool_feedback",
+                        "retryable": False,
                         "elapsed_ms": elapsed_ms,
                         "error": safe_error,
                     },
@@ -404,6 +412,7 @@ class ToolExecutor:
                 sources=[],
                 elapsed_ms=elapsed_ms,
                 error_message=safe_error,
+                retryable=True,
             )
             events.append(
                 ToolTraceEvent(
@@ -417,6 +426,7 @@ class ToolExecutor:
                         "status": "error",
                         "elapsed_ms": elapsed_ms,
                         "error": safe_error,
+                        "retryable": True,
                     },
                 )
             )

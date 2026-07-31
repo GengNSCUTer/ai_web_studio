@@ -70,8 +70,7 @@ class ToolResultBindingResolver:
             if sources is None:
                 raise ToolResultBindingError("绑定来源尚未产生结果。")
             try:
-                value = self._resolve_pointer(self._binding_envelope(sources), binding.source_path)
-                value = self._validate_bound_value(value)
+                value = self.resolve_bound_value(self._binding_envelope(sources), binding.source_path)
             except ToolResultBindingError:
                 if binding.required:
                     raise
@@ -112,6 +111,12 @@ class ToolResultBindingResolver:
                 for source in sources
             ]
         }
+
+    @classmethod
+    def resolve_bound_value(cls, document: Any, pointer: str) -> Any:
+        """Resolve one bounded scalar/array from a previously validated pointer."""
+
+        return cls._validate_bound_value(cls._resolve_pointer(document, pointer))
 
     @classmethod
     def _validate_bound_value(cls, value: Any) -> Any:

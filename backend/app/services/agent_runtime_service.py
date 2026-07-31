@@ -21,6 +21,8 @@ from app.models.agent_runtime import (
     FileRevision,
     PatchDraft,
 )
+from app.models.conversation import Conversation
+from app.models.message import Message
 from app.models.project_file import ProjectFile
 
 
@@ -106,10 +108,11 @@ class AgentRuntimeService:
         depends_on: list[str] | None = None,
         conversation_id: str | None = None,
         assistant_message_id: str | None = None,
+        replace_entire_content: bool = False,
     ) -> FileEditProposal:
         if not project_id:
             raise AgentRuntimeError("project_required", "文件写入必须关联当前工作区。")
-        if not file_id or not old_string:
+        if not file_id or (not old_string and not replace_entire_content):
             raise AgentRuntimeError("invalid_arguments", "file_id 和非空 old_string 为必填项。")
         project_file = self.db.scalars(
             select(ProjectFile)
@@ -122,14 +125,23 @@ class AgentRuntimeService:
         ).first()
         if not project_file:
             raise AgentRuntimeError("file_not_found", "工作区中未找到该文件。")
+        self._validate_context_scope(
+            user_id=user_id,
+            project_id=project_id,
+            conversation_id=conversation_id,
+            assistant_message_id=assistant_message_id,
+        )
 
         original = project_file.parsed_text or ""
-        matches = original.count(old_string)
-        if matches == 0:
-            raise AgentRuntimeError("stale_edit", "old_string 未在当前版本中找到，请重新读取文件。")
-        if matches > 1:
-            raise AgentRuntimeError("ambiguous_edit", f"old_string 出现 {matches} 次，请提供更多上下文。")
-        updated = original.replace(old_string, new_string, 1)
+        if replace_entire_content:
+            updated = new_string
+        else:
+            matches = original.count(old_string)
+            if matches == 0:
+                raise AgentRuntimeError("stale_edit", "old_string 未在当前版本中找到，请重新读取文件。")
+            if matches > 1:
+                raise AgentRuntimeError("ambiguous_edit", f"old_string 出现 {matches} 次，请提供更多上下文。")
+            updated = original.replace(old_string, new_string, 1)
         arguments_hash = self._arguments_hash(
             user_id=user_id,
             project_id=project_id,
@@ -364,9 +376,14 @@ class AgentRuntimeService:
             self._checkpoint(run, step, [{"type": "file_revision_conflict", "draft_id": draft.id}])
             self.db.commit()
             raise AgentRuntimeError("file_revision_conflict", "文件已变化，请重新读取并生成 Diff。")
-        if current.count(draft.old_string) != 1:
-            raise AgentRuntimeError("edit_no_longer_unique", "old_string 已不再唯一，拒绝写入。")
-        updated = current.replace(draft.old_string, draft.new_string, 1)
+        if draft.old_string:
+            if current.count(draft.old_string) != 1:
+                raise AgentRuntimeError("edit_no_longer_unique", "old_string 已不再唯一，拒绝写入。")
+            updated = current.replace(draft.old_string, draft.new_string, 1)
+        else:
+            # 只有历史版本恢复可以创建空 old_string 的完整替换提案；
+            # base_content_hash 与 proposed_content_hash 仍提供双重 CAS 校验。
+            updated = draft.new_string
         if self._hash_text(updated) != draft.proposed_content_hash:
             raise AgentRuntimeError("proposed_hash_mismatch", "提案内容哈希不一致，拒绝写入。")
 
@@ -455,6 +472,97 @@ class AgentRuntimeService:
                 .limit(limit)
             ).all()
         )
+
+    def list_file_revisions(self, *, file_id: str, user_id: str, limit: int = 50) -> list[FileRevision]:
+        project_file = self.db.scalars(
+            select(ProjectFile).where(ProjectFile.id == file_id, ProjectFile.user_id == user_id).limit(1)
+        ).first()
+        if not project_file:
+            raise AgentRuntimeError("file_not_found", "工作区中未找到该文件。")
+        return list(
+            self.db.scalars(
+                select(FileRevision)
+                .where(FileRevision.project_file_id == project_file.id)
+                .order_by(FileRevision.revision_number.desc())
+                .limit(max(1, min(limit, 100)))
+            ).all()
+        )
+
+    def propose_file_restore(
+        self,
+        *,
+        file_id: str,
+        revision_id: str,
+        user_id: str,
+        conversation_id: str | None = None,
+        assistant_message_id: str | None = None,
+    ) -> FileEditProposal:
+        project_file = self.db.scalars(
+            select(ProjectFile).where(ProjectFile.id == file_id, ProjectFile.user_id == user_id).limit(1)
+        ).first()
+        revision = self.db.scalars(
+            select(FileRevision)
+            .where(FileRevision.id == revision_id, FileRevision.project_file_id == file_id)
+            .limit(1)
+        ).first()
+        if not project_file or not revision:
+            raise AgentRuntimeError("file_not_found", "工作区文件或历史版本不存在。")
+        if not project_file.project_id:
+            raise AgentRuntimeError("project_required", "恢复历史版本必须关联当前工作区。")
+        current = project_file.parsed_text or ""
+        if self._hash_text(current) == revision.content_hash:
+            raise AgentRuntimeError("already_current_revision", "该历史版本已经是文件当前内容。")
+        # 恢复是一次完整内容替换，但依然走审批 token、完整内容哈希和基线 CAS。
+        return self.propose_file_edit(
+            user_id=user_id,
+            project_id=project_file.project_id,
+            call_id=f"restore:{revision.id}",
+            file_id=file_id,
+            old_string=current,
+            new_string=revision.parsed_text,
+            depends_on=[],
+            conversation_id=conversation_id,
+            assistant_message_id=assistant_message_id,
+            replace_entire_content=True,
+        )
+
+    def _validate_context_scope(
+        self,
+        *,
+        user_id: str,
+        project_id: str,
+        conversation_id: str | None,
+        assistant_message_id: str | None,
+    ) -> None:
+        if assistant_message_id and not conversation_id:
+            raise AgentRuntimeError("context_scope_mismatch", "关联 Assistant 消息时必须同时提供会话。")
+        conversation = (
+            self.db.scalars(
+                select(Conversation)
+                .where(
+                    Conversation.id == conversation_id,
+                    Conversation.user_id == user_id,
+                    Conversation.project_id == project_id,
+                )
+                .limit(1)
+            ).first()
+            if conversation_id
+            else None
+        )
+        if conversation_id and not conversation:
+            raise AgentRuntimeError("conversation_not_found", "当前工作区中未找到该会话。")
+        if assistant_message_id:
+            message = self.db.scalars(
+                select(Message)
+                .where(
+                    Message.id == assistant_message_id,
+                    Message.conversation_id == conversation_id,
+                    Message.role == "assistant",
+                )
+                .limit(1)
+            ).first()
+            if not message:
+                raise AgentRuntimeError("assistant_message_not_found", "当前会话中未找到 Assistant 消息。")
 
     def get_run_snapshot(self, *, run_id: str, user_id: str) -> dict[str, Any] | None:
         run = self.db.scalars(

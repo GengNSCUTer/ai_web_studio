@@ -102,3 +102,24 @@ class McpTool(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class UserSkillInstallation(Base):
+    """Per-user enable state for a reviewed Skill manifest.
+
+    Skills are instructions/workflows over existing capabilities, not a way to
+    add arbitrary executable code or bypass the workspace policy.
+    """
+
+    __tablename__ = "user_skill_installations"
+    __table_args__ = (UniqueConstraint("user_id", "skill_key", name="uq_user_skill_installation"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    skill_key: Mapped[str] = mapped_column(String(128), index=True)
+    manifest_version: Mapped[str] = mapped_column(String(32))
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

@@ -8,10 +8,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.api.deps import get_current_user, get_db
 from app.core.config import settings
 from app.models.user import User
+from app.models.observability import ChatRuntimeMetric
 from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.message_repo import MessageRepository
@@ -219,6 +221,33 @@ def _persist_stream_result(
     )
     context.assistant_message.status = status_value
     context.message_service.save_message(context.assistant_message)
+    # Observability is a separate best-effort record. The assistant message is
+    # already committed above; metric persistence must never change chat outcome.
+    try:
+        metric_db = context.message_service.repo.db
+        metric = metric_db.scalars(
+            select(ChatRuntimeMetric)
+            .where(ChatRuntimeMetric.assistant_message_id == context.assistant_message.id)
+            .limit(1)
+        ).first()
+        if not metric:
+            metric = ChatRuntimeMetric(
+                user_id=context.conversation.user_id,
+                conversation_id=context.conversation.id,
+                assistant_message_id=context.assistant_message.id,
+                provider_type=context.provider_type,
+                model_name=context.resolved_model,
+                status=status_value,
+            )
+            metric_db.add(metric)
+        metric.provider_type = context.provider_type
+        metric.model_name = context.resolved_model
+        metric.status = status_value
+        metric.stats_json = json.dumps(context.context_stats, ensure_ascii=False, default=str)
+        metric_db.commit()
+    except Exception:
+        context.message_service.repo.db.rollback()
+        logger.warning("Failed to persist chat runtime metrics")
     if status_value == "done":
         # 自动记忆只落一个持久化 extraction job；真正的 LLM 提取由独立 worker
         # 完成并生成 pending 候选，不延长当前 HTTP 流，也不会直接激活记忆。

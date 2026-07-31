@@ -30,6 +30,8 @@ from app.schemas.tool_config import (
     ToolConnectionTestResponse,
     ToolDefinitionResponse,
     ToolSettingsResponse,
+    SkillInstallationResponse,
+    SkillInstallationUpdate,
     UserToolCredentialResponse,
     UserToolCredentialUpdate,
     WorkspaceAgentPolicyResponse,
@@ -49,6 +51,7 @@ from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.tavily import TavilySearchProvider
 from app.services.tools.catalog import ToolCatalog
 from app.services.secret_service import SecretService
+from app.services.skill_catalog import SkillCatalog, SkillCatalogError
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 secret_service = SecretService()
@@ -238,7 +241,42 @@ def get_tool_settings(
         ),
         mcp_servers=[_server_response(server) for server in mcp_servers],
         mcp_tools=[_tool_response(tool, server) for tool, server in mcp_tool_pairs],
+        skills=[SkillInstallationResponse(**item) for item in SkillCatalog().list_for_user(db=db, user_id=current_user.id)],
     )
+
+
+@router.get("/skills", response_model=list[SkillInstallationResponse])
+def list_skills(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[SkillInstallationResponse]:
+    return [SkillInstallationResponse(**item) for item in SkillCatalog().list_for_user(db=db, user_id=current_user.id)]
+
+
+@router.put("/skills/{skill_key}", response_model=SkillInstallationResponse)
+def install_or_update_skill(
+    skill_key: str,
+    payload: SkillInstallationUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SkillInstallationResponse:
+    try:
+        installation = SkillCatalog().install_or_update(
+            db=db,
+            user_id=current_user.id,
+            skill_key=skill_key,
+            is_enabled=payload.is_enabled,
+        )
+    except SkillCatalogError as exc:
+        status_code = status.HTTP_404_NOT_FOUND if "不存在" in str(exc) else status.HTTP_409_CONFLICT
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    item = next(
+        (entry for entry in SkillCatalog().list_for_user(db=db, user_id=current_user.id) if entry["skill_key"] == installation.skill_key),
+        None,
+    )
+    if not item:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Skill 安装状态读取失败")
+    return SkillInstallationResponse(**item)
 
 
 @router.patch("/credentials/{provider_key}", response_model=UserToolCredentialResponse)
