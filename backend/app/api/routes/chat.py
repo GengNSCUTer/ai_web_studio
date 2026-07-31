@@ -190,6 +190,18 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
             ],
         }
 
+    active_skill = details.get("active_skill")
+    if isinstance(active_skill, dict):
+        compact["active_skill"] = {
+            "skill_key": active_skill.get("skill_key"),
+            "version": active_skill.get("version"),
+            "display_name": _truncate_header_text(active_skill.get("display_name"), 80),
+            "allowed_tool_keys": [
+                str(tool_key)[:128]
+                for tool_key in (active_skill.get("allowed_tool_keys") or [])[:16]
+            ],
+        }
+
     return compact
 
 
@@ -479,6 +491,7 @@ async def regenerate_last_answer_stream(
             web_search_enabled=payload.web_search_enabled,
             knowledge_base_id=payload.knowledge_base_id,
             knowledge_base_ids=payload.knowledge_base_ids,
+            skill_key=payload.skill_key,
         )
     )
     return _build_streaming_response(context, provider_service, event_stream=True)
@@ -543,6 +556,7 @@ async def edit_last_user_stream(
             web_search_enabled=payload.web_search_enabled,
             knowledge_base_id=payload.knowledge_base_id,
             knowledge_base_ids=payload.knowledge_base_ids,
+            skill_key=payload.skill_key,
         )
     )
     return _build_streaming_response(context, provider_service, event_stream=True)

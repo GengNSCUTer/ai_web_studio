@@ -34,6 +34,7 @@ from app.services.tools.bindings import ToolResultBindingError, ToolResultBindin
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.schemas import PlannedToolCall, ToolResultBinding
 from app.services.tools.validation import ToolSchemaValidationError, ToolSchemaValidator
+from app.services.skill_catalog import SkillCatalog, SkillCatalogError, SkillExecutionContext
 
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ class DurableToolRunService:
         assistant_message_id: str | None,
         calls: list[dict[str, Any]],
         idempotency_key: str | None = None,
+        skill_key: str | None = None,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     ) -> AgentRun:
         if not calls or len(calls) > self.MAX_STEPS:
@@ -94,6 +96,19 @@ class DurableToolRunService:
             conversation_id=conversation_id,
             assistant_message_id=assistant_message_id,
         )
+        skill_context: SkillExecutionContext | None = None
+        if skill_key:
+            try:
+                skill_context = SkillCatalog().resolve_for_execution(
+                    db=self.db,
+                    user_id=user_id,
+                    project_id=project_id,
+                    skill_key=skill_key,
+                )
+            except SkillCatalogError as exc:
+                raise DurableToolRuntimeError("skill_not_ready", str(exc)) from exc
+            if not skill_context.durable_eligible:
+                raise DurableToolRuntimeError("skill_not_durable", "该 Skill 不允许进入可恢复只读工作流。")
         catalog = ToolCatalog(db=self.db, user_id=user_id)
         validator = ToolSchemaValidator()
         normalized_calls: list[dict[str, Any]] = []
@@ -111,6 +126,8 @@ class DurableToolRunService:
                     "unsafe_tool_not_supported",
                     f"可恢复队列当前只接受低风险只读工具，{tool_key} 必须走专用审批链路。",
                 )
+            if skill_context and tool_key not in skill_context.allowed_tool_keys:
+                raise DurableToolRuntimeError("skill_scope_violation", f"{tool_key} 不在当前 Skill 的允许范围内。")
             arguments = raw.get("arguments") or {}
             if not isinstance(arguments, dict):
                 raise DurableToolRuntimeError("invalid_arguments", f"{tool_key} 的 arguments 必须是对象。")
@@ -194,6 +211,9 @@ class DurableToolRunService:
                 "conversation_id": conversation_id,
                 "assistant_message_id": assistant_message_id,
                 "calls": normalized_calls,
+                "skill_key": skill_context.skill_key if skill_context else None,
+                "skill_version": skill_context.version if skill_context else None,
+                "skill_manifest_digest": skill_context.manifest_digest if skill_context else None,
                 "max_attempts": max_attempts,
             }
         )
@@ -224,6 +244,7 @@ class DurableToolRunService:
                     "mode": "read_only_durable",
                     "call_ids": [item["call_id"] for item in normalized_calls],
                     "request_hash": request_hash,
+                    "skill": skill_context.to_public_dict() if skill_context else None,
                 }
             ),
             idempotency_key=scoped_key,
@@ -426,6 +447,134 @@ class DurableToolRunService:
             "outbox_events": list(self.db.scalars(select(AgentOutboxEvent).where(AgentOutboxEvent.run_id == run.id).order_by(AgentOutboxEvent.created_at)).all()),
         }
 
+    def replay_dead_letter(self, *, run_id: str, step_id: str, user_id: str) -> AgentRun:
+        """Explicitly replay one read-only dead-letter Step with a new event.
+
+        This is deliberately user-triggered. A permanent Tool/schema failure must
+        not be silently reintroduced into the worker queue.
+        """
+        run = self.db.scalars(
+            select(AgentRun)
+            .where(
+                AgentRun.id == run_id,
+                AgentRun.user_id == user_id,
+                AgentRun.runtime_kind == "durable_tool_workflow",
+            )
+            .with_for_update()
+            .limit(1)
+        ).first()
+        step = self.db.scalars(
+            select(AgentStep).where(AgentStep.id == step_id, AgentStep.run_id == run_id).with_for_update().limit(1)
+        ).first()
+        if not run or not step:
+            raise DurableToolRuntimeError("run_or_step_not_found", "Tool Run 或 Step 不存在。")
+        if step.status != "dead_letter":
+            raise DurableToolRuntimeError("step_not_dead_letter", "只有 dead-letter Step 可以受控重放。")
+        state = self._safe_json(run.planner_state_json)
+        skill = state.get("skill") if isinstance(state, dict) else None
+        if isinstance(skill, dict):
+            allowed = set(skill.get("allowed_tool_keys") or [])
+            if step.tool_key not in allowed:
+                raise DurableToolRuntimeError("skill_scope_violation", "历史 Step 已不在 Skill 审核范围内。")
+        definition = ToolCatalog(db=self.db, user_id=user_id).get_or_none(step.tool_key)
+        if not definition or not definition.read_only or definition.risk_level != "low":
+            raise DurableToolRuntimeError("unsafe_or_missing_tool", "工具已失效或不再满足只读低风险约束。")
+        next_version = int(run.state_version or 0) + 1
+        event = AgentOutboxEvent(
+            event_key=f"agent-step:{run.id}:{step.id}:replay:{next_version}",
+            run_id=run.id,
+            step_id=step.id,
+            event_type="agent_step.replay_requested",
+            payload_json=self._json({"run_id": run.id, "step_id": step.id, "replay": True}),
+            status="pending",
+            available_at=utcnow(),
+        )
+        step.status = "pending"
+        step.attempts = 0
+        step.error_code = None
+        step.error_message = None
+        step.dead_lettered_at = None
+        step.finished_at = None
+        step.lease_owner = None
+        step.lease_expires_at = None
+        run.status = "queued"
+        run.finished_at = None
+        run.state_version = next_version
+        self.db.add(event)
+        self.db.flush()
+        self._checkpoint(run, step=step, observations=[{"type": "step_replay_requested", "event_id": event.id}])
+        self.db.commit()
+        self.db.refresh(run)
+        return run
+
+    def reconcile_orphaned_steps(self, *, user_id: str | None = None, limit: int = 100) -> int:
+        """Recreate a delivery intent when non-terminal durable state lost its event.
+
+        It closes the database-side crash/manual-removal window. Existing pending
+        or leased events always win, so repeated reconciliation is idempotent.
+        """
+        now = utcnow()
+        query = (
+            select(AgentStep)
+            .join(AgentRun, AgentRun.id == AgentStep.run_id)
+            .where(
+                AgentRun.runtime_kind == "durable_tool_workflow",
+                AgentStep.status.in_(["pending", "running"]),
+            )
+            .order_by(AgentStep.created_at.asc())
+            .with_for_update(skip_locked=True)
+            .limit(max(1, min(int(limit), 500)))
+        )
+        if user_id:
+            query = query.where(AgentRun.user_id == user_id)
+        restored = 0
+        for step in self.db.scalars(query).all():
+            run = self.db.get(AgentRun, step.run_id)
+            if not run:
+                continue
+            events = list(
+                self.db.scalars(
+                    select(AgentOutboxEvent)
+                    .where(AgentOutboxEvent.step_id == step.id)
+                    .order_by(AgentOutboxEvent.created_at.desc())
+                ).all()
+            )
+            # A running outbox event remains the single delivery intent even
+            # after its lease expires: claim_next() can fence and reclaim it.
+            # Creating a second event here would make two events eligible and
+            # duplicate an otherwise recoverable read-only execution.
+            active = any(event.status in {"pending", "running"} for event in events)
+            if active:
+                continue
+            if step.status == "running" and step.lease_expires_at and step.lease_expires_at >= now:
+                continue
+            next_version = int(run.state_version or 0) + 1
+            event = AgentOutboxEvent(
+                event_key=f"agent-step:{run.id}:{step.id}:reconcile:{next_version}",
+                run_id=run.id,
+                step_id=step.id,
+                event_type="agent_step.reconciled",
+                payload_json=self._json({"run_id": run.id, "step_id": step.id, "reason": "missing_delivery_intent"}),
+                status="pending",
+                available_at=now,
+            )
+            step.status = "pending"
+            step.lease_owner = None
+            step.lease_expires_at = None
+            step.heartbeat_at = now
+            run.status = "queued"
+            run.finished_at = None
+            run.state_version = next_version
+            self.db.add(event)
+            self.db.flush()
+            self._checkpoint(run, step=step, observations=[{"type": "step_reconciled", "event_id": event.id}])
+            restored += 1
+        if restored:
+            self.db.commit()
+        else:
+            self.db.rollback()
+        return restored
+
     def metrics(self, *, user_id: str) -> dict[str, Any]:
         def grouped(model: Any, column: Any) -> dict[str, int]:
             rows = self.db.execute(
@@ -455,6 +604,55 @@ class DurableToolRunService:
             .where(ToolRouteRun.user_id == user_id)
             .group_by(ToolCallRun.status)
         ).all()
+        skill_route_runs = list(
+            self.db.scalars(
+                select(ToolRouteRun)
+                .where(ToolRouteRun.user_id == user_id)
+                .order_by(ToolRouteRun.created_at.desc())
+                .limit(500)
+            ).all()
+        )
+        skill_runs_by_key: dict[str, int] = {}
+        skill_runs_by_status: dict[str, int] = {}
+        skill_tool_calls_by_status: dict[str, int] = {}
+        for route_run in skill_route_runs:
+            try:
+                route_events = json.loads(route_run.events_json or "[]")
+            except json.JSONDecodeError:
+                route_events = []
+            if not isinstance(route_events, list):
+                continue
+            activation = next(
+                (
+                    event
+                    for event in route_events
+                    if isinstance(event, dict) and event.get("type") == "skill_activation"
+                ),
+                None,
+            )
+            if not activation:
+                continue
+            skill_key = str(activation.get("skill_key") or "unknown")
+            skill_runs_by_key[skill_key] = skill_runs_by_key.get(skill_key, 0) + 1
+            result_event = next(
+                (
+                    event
+                    for event in reversed(route_events)
+                    if isinstance(event, dict) and event.get("type") == "skill_result"
+                ),
+                None,
+            )
+            skill_status = str((result_event or {}).get("status") or route_run.status or "unknown")
+            skill_runs_by_status[skill_status] = skill_runs_by_status.get(skill_status, 0) + 1
+            for event in route_events:
+                if not isinstance(event, dict) or event.get("type") not in {"tool_call_end", "tool_call_error"}:
+                    continue
+                call_status = (
+                    "success"
+                    if event.get("type") == "tool_call_end"
+                    else str(event.get("status") or "error")
+                )
+                skill_tool_calls_by_status[call_status] = skill_tool_calls_by_status.get(call_status, 0) + 1
         rag_logs = list(
             self.db.scalars(
                 select(KnowledgeRetrievalLog)
@@ -477,10 +675,47 @@ class DurableToolRunService:
         def sum_stat(key: str) -> int:
             return sum(int(item.get(key, 0) or 0) for item in parsed_stats)
 
+        now = utcnow()
+        dead_letter_steps = int(
+            self.db.scalar(
+                select(func.count()).select_from(AgentStep)
+                .join(AgentRun, AgentRun.id == AgentStep.run_id)
+                .where(AgentRun.user_id == user_id, AgentStep.status == "dead_letter")
+            )
+            or 0
+        )
+        expired_running_events = int(
+            self.db.scalar(
+                select(func.count()).select_from(AgentOutboxEvent)
+                .join(AgentRun, AgentRun.id == AgentOutboxEvent.run_id)
+                .where(
+                    AgentRun.user_id == user_id,
+                    AgentOutboxEvent.status == "running",
+                    AgentOutboxEvent.lease_expires_at < now,
+                )
+            )
+            or 0
+        )
+        durable_skill_runs: dict[str, int] = {}
+        for run in self.db.scalars(
+            select(AgentRun).where(AgentRun.user_id == user_id, AgentRun.runtime_kind == "durable_tool_workflow")
+        ).all():
+            state = self._safe_json(run.planner_state_json)
+            skill = state.get("skill") if isinstance(state, dict) else None
+            if isinstance(skill, dict) and skill.get("skill_key"):
+                key = str(skill["skill_key"])
+                durable_skill_runs[key] = durable_skill_runs.get(key, 0) + 1
+        alerts: list[dict[str, Any]] = []
+        if dead_letter_steps:
+            alerts.append({"code": "durable_dlq_nonempty", "severity": "warning", "count": dead_letter_steps})
+        if expired_running_events:
+            alerts.append({"code": "durable_lease_expired", "severity": "warning", "count": expired_running_events})
+
         return {
             "observation_window": {
                 "chat_runtime_metrics_max_records": 500,
                 "knowledge_retrieval_logs_max_records": 500,
+                "skill_route_runs_max_records": 500,
             },
             "runs_by_status": {
                 str(status): int(count)
@@ -494,6 +729,17 @@ class DurableToolRunService:
                 self.db.scalar(select(func.count()).select_from(AgentArtifact).where(AgentArtifact.user_id == user_id)) or 0
             ),
             "tool_calls_by_status": {str(status): int(count) for status, count in tool_status_rows},
+            "skill": {
+                "runs_by_key": skill_runs_by_key,
+                "runs_by_status": skill_runs_by_status,
+                "tool_calls_by_status": skill_tool_calls_by_status,
+                "durable_runs_by_key": durable_skill_runs,
+            },
+            "durable_health": {
+                "dead_letter_steps": dead_letter_steps,
+                "expired_running_events": expired_running_events,
+                "alerts": alerts,
+            },
             "rag": {
                 "retrieval_runs": len(rag_logs),
                 "chunks_retrieved": rag_retrieved,
@@ -510,6 +756,14 @@ class DurableToolRunService:
                 "knowledge_chunks_injected": sum_stat("knowledge_chunks_injected"),
             },
         }
+
+    @staticmethod
+    def _safe_json(value: str | None) -> dict[str, Any]:
+        try:
+            parsed = json.loads(value or "{}")
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     def _checkpoint(self, run: AgentRun, *, step: AgentStep | None, observations: list[dict[str, Any]]) -> None:
         self.db.add(
@@ -528,6 +782,7 @@ class DurableToolWorker:
     """A small worker that can be run repeatedly or under a process supervisor."""
 
     HEARTBEAT_SECONDS = 30
+    RECONCILE_INTERVAL_SECONDS = 30
 
     def __init__(
         self,
@@ -539,6 +794,7 @@ class DurableToolWorker:
         self.session_factory = session_factory
         self.owner = owner or f"agent-worker:{socket.gethostname()}"
         self.executor_factory = executor_factory
+        self._last_reconcile_at = 0.0
 
     async def run_once(self) -> bool:
         with self.session_factory() as db:
@@ -555,6 +811,11 @@ class DurableToolWorker:
         delay = max(0.1, float(poll_interval_seconds))
         while True:
             try:
+                loop_time = asyncio.get_running_loop().time()
+                if loop_time - self._last_reconcile_at >= self.RECONCILE_INTERVAL_SECONDS:
+                    with self.session_factory() as reconcile_db:
+                        DurableToolRunService(reconcile_db).reconcile_orphaned_steps(limit=100)
+                    self._last_reconcile_at = loop_time
                 worked = await self.run_once()
             except asyncio.CancelledError:
                 raise
@@ -689,6 +950,12 @@ class DurableToolWorker:
         definition = catalog.get_or_none(step.tool_key)
         if not definition or not definition.read_only or definition.risk_level != "low":
             raise DurableToolRuntimeError("unsafe_or_missing_tool", "工具已失效或不再满足只读低风险约束。")
+        state = DurableToolRunService._safe_json(run.planner_state_json)
+        skill = state.get("skill") if isinstance(state, dict) else None
+        if isinstance(skill, dict):
+            allowed = skill.get("allowed_tool_keys")
+            if not isinstance(allowed, list) or step.tool_key not in {str(item) for item in allowed}:
+                raise DurableToolRuntimeError("skill_scope_violation", "持久化 Step 超出当前 Skill 审核范围。")
         try:
             arguments = json.loads(step.arguments_json or "{}")
             bindings = json.loads(step.result_bindings_json or "[]")

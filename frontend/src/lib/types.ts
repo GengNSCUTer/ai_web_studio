@@ -66,12 +66,40 @@ export type SkillInstallation = {
   version: string;
   display_name: string;
   description: string;
+  instructions: string[];
+  output_contract: string[];
   required_tool_keys: string[];
+  optional_tool_keys: string[];
+  requires_project: boolean;
+  requires_tool_execution: boolean;
+  activation_examples: string[];
   risk_declaration: string;
   is_installed: boolean;
   is_enabled: boolean;
   installed_version: string | null;
   missing_tool_keys: string[];
+  available_optional_tool_keys: string[];
+  is_ready: boolean;
+  unavailable_reason: string | null;
+  installed_manifest_digest?: string | null;
+  manifest_digest?: string | null;
+  source_kind?: string;
+  source_publisher?: string;
+  signature_status?: string;
+  security_review_status?: string;
+  compatibility?: Record<string, string>;
+  durable_eligible?: boolean;
+  update_available?: boolean;
+};
+
+export type SkillRecommendation = {
+  skill_key: string;
+  display_name: string;
+  description: string;
+  score: number;
+  reasons: string[];
+  requires_confirmation: boolean;
+  is_ready: boolean;
 };
 
 export type ToolSettings = {
@@ -508,6 +536,12 @@ export type ToolPlanPayload = {
 export type ContextDiagnosticDetails = {
   attachment_chunks?: ContextAttachmentChunk[];
   external_sources?: ExternalSource[];
+  active_skill?: {
+    skill_key?: string;
+    version?: string;
+    display_name?: string;
+    allowed_tool_keys?: string[];
+  } | null;
 };
 
 export type ContextGovernanceInfo = {

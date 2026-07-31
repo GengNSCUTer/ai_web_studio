@@ -1,0 +1,30 @@
+[
+  {
+    "case_id": "research-current-version",
+    "query": "核查 Python 当前最新稳定版本，并给出来源和不确定性",
+    "expected_skill_key": "research.web-brief",
+    "expected_tool_keys": ["web.tavily.search"],
+    "expected_arguments": []
+  },
+  {
+    "case_id": "workspace-review",
+    "query": "审阅当前工作区的项目文档，找出实现矛盾但不要修改文件",
+    "expected_skill_key": "workspace.document-review",
+    "expected_tool_keys": ["workspace.files.list", "workspace.files.search", "workspace.files.read"],
+    "expected_arguments": []
+  },
+  {
+    "case_id": "travel-route",
+    "query": "规划深圳到广州的驾车路线并查看天气",
+    "expected_skill_key": "travel.route-planner",
+    "expected_tool_keys": ["amap.maps.geo", "amap.maps.direction.driving", "amap.maps.weather"],
+    "expected_arguments": []
+  },
+  {
+    "case_id": "artifact-review",
+    "query": "复盘当前项目最近一次 Agent 工具运行产物和失败点",
+    "expected_skill_key": "agent.artifact-review",
+    "expected_tool_keys": ["agent.artifacts.list", "agent.artifacts.read"],
+    "expected_arguments": []
+  }
+]

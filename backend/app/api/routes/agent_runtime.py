@@ -110,12 +110,39 @@ def enqueue_durable_tool_run(
             conversation_id=payload.conversation_id,
             assistant_message_id=payload.assistant_message_id,
             idempotency_key=payload.idempotency_key,
+            skill_key=payload.skill_key,
             max_attempts=payload.max_attempts,
             calls=[call.model_dump() for call in payload.calls],
         )
     except DurableToolRuntimeError as exc:
         raise _durable_http_error(exc) from exc
     return AgentRunResponse.model_validate(run)
+
+
+@router.post("/tool-runs/{run_id}/steps/{step_id}/replay", response_model=AgentRunResponse)
+def replay_durable_dead_letter(
+    run_id: str,
+    step_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AgentRunResponse:
+    try:
+        run = DurableToolRunService(db).replay_dead_letter(
+            run_id=run_id,
+            step_id=step_id,
+            user_id=current_user.id,
+        )
+    except DurableToolRuntimeError as exc:
+        raise _durable_http_error(exc) from exc
+    return AgentRunResponse.model_validate(run)
+
+
+@router.post("/tool-runs/reconcile")
+def reconcile_durable_tool_runs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, int]:
+    return {"restored_steps": DurableToolRunService(db).reconcile_orphaned_steps(user_id=current_user.id)}
 
 
 @router.get("/metrics")

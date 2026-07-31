@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from app.services.external_context_service import ExternalContextService
+from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.planner import DeterministicToolPlanner
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolCallResult, ToolPlan, ToolTraceEvent
 from app.services.tools.workflow import ToolWorkflowResult
@@ -71,6 +72,29 @@ class FakeLoopPlanner:
         )
 
 
+class AlwaysContinuePlanner:
+    async def plan(self, *, query, enabled, runtime, recent_messages=None, observations=None):
+        return ToolPlan(
+            plan_id=f"continue-{len(observations or [])}",
+            router="fake",
+            external_context_allowed=True,
+            should_use_tools=True,
+            need_more_rounds=True,
+            calls=[
+                PlannedToolCall(
+                    call_id=f"route-{len(observations or [])}",
+                    tool_key="amap.maps.direction.driving",
+                    provider="amap",
+                    category="map_route",
+                    display_name="高德路线",
+                    confidence=0.9,
+                    reason="route",
+                    arguments={"origin": "深圳", "destination": "汕头"},
+                )
+            ],
+        )
+
+
 class FakeLoopWorkflow:
     async def run(self, *, plan, query):
         return ToolWorkflowResult(
@@ -100,6 +124,50 @@ class FakeErrorFeedbackWorkflow:
 
 
 class ToolRouterTest(unittest.TestCase):
+    def test_explicit_skill_is_traced_through_planner_and_result(self) -> None:
+        async def run_test() -> None:
+            skill = SkillExecutionContext(
+                skill_key="workspace.document-review",
+                version="1.1.0",
+                display_name="项目文档审阅",
+                description="review",
+                planner_instructions=("只读审阅。",),
+                output_contract=("给出来源。",),
+                allowed_tool_keys=(
+                    "workspace.files.list",
+                    "workspace.files.search",
+                    "workspace.files.read",
+                ),
+                required_tool_keys=(
+                    "workspace.files.list",
+                    "workspace.files.search",
+                    "workspace.files.read",
+                ),
+                optional_tool_keys=(),
+                requires_tool_execution=True,
+            )
+            service = ExternalContextService(workflow=FakeLoopWorkflow())
+            result = await service.build_context(
+                query="审阅当前工作区文档",
+                enabled=True,
+                max_chars=2000,
+                recent_messages=[],
+                skill_context=skill,
+            )
+
+            event_types = [event.type for event in result.tool_events]
+            self.assertEqual(event_types[0], "skill_activation")
+            self.assertIn("skill_result", event_types)
+            self.assertEqual(result.details["active_skill"]["skill_key"], skill.skill_key)
+            self.assertEqual(result.diagnostics["skill_active"], 1)
+            self.assertTrue(
+                {call.tool_key for call in result.tool_plan.calls}.issubset(set(skill.allowed_tool_keys))
+            )
+
+        import asyncio
+
+        asyncio.run(run_test())
+
     def test_distance_queries_route_to_amap_map(self) -> None:
         router = DeterministicToolPlanner()
         queries = [
@@ -225,6 +293,26 @@ class ToolRouterTest(unittest.TestCase):
             self.assertEqual(planner.observations_seen[1][0]["source_type"], "tool_error_feedback")
             self.assertIn("出现 2 次", planner.observations_seen[1][0]["display_text"])
             self.assertTrue(result.diagnostics["external_context_error"])
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_second_round_continuation_is_observable_but_not_executed(self) -> None:
+        async def run_test() -> None:
+            service = ExternalContextService(planner=AlwaysContinuePlanner(), workflow=FakeLoopWorkflow())
+            result = await service.build_context(
+                query="深圳到汕头的路线和服务区",
+                enabled=True,
+                max_chars=2000,
+                recent_messages=[],
+            )
+
+            self.assertEqual(result.diagnostics["external_agent_terminal_reason"], "max_rounds_reached")
+            self.assertTrue(any("轮次上限" in notice for notice in result.notices))
+            terminal = [event for event in result.tool_events if event.type == "tool_agent_terminal"]
+            self.assertEqual(len(terminal), 1)
+            self.assertEqual(terminal[0].payload["round"], 2)
 
         import asyncio
 

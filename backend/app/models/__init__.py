@@ -32,6 +32,7 @@ from app.models.prompt_template import PromptTemplate
 from app.models.tool_config import (
     McpServer,
     McpTool,
+    SkillInstallationRevision,
     UserToolCredential,
     UserSkillInstallation,
     WorkspaceAgentPolicy,
@@ -69,6 +70,7 @@ __all__ = [
     "ChatRuntimeMetric",
     "McpServer",
     "McpTool",
+    "SkillInstallationRevision",
     "Project",
     "ProjectFile",
     "PromptTemplate",

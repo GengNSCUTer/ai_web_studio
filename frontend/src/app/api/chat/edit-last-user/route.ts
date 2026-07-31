@@ -25,6 +25,7 @@ type EditLastUserRequestPayload = {
   webSearchEnabled?: boolean;
   knowledgeBaseId?: string | null;
   knowledgeBaseIds?: string[];
+  skillKey?: string | null;
 };
 
 export async function POST(request: NextRequest) {
@@ -72,5 +73,6 @@ export async function POST(request: NextRequest) {
     web_search_enabled: Boolean(payload.webSearchEnabled),
     knowledge_base_id: payload.knowledgeBaseId || null,
     knowledge_base_ids: payload.knowledgeBaseIds ?? [],
+    skill_key: payload.skillKey || null,
   }, request.signal);
 }

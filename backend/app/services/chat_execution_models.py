@@ -61,6 +61,7 @@ class ExistingTurnExecutionInput:
     web_search_enabled: bool
     knowledge_base_id: str | None = None
     knowledge_base_ids: list[str] | None = None
+    skill_key: str | None = None
 
 
 @dataclass

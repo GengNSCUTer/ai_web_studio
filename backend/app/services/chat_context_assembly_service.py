@@ -22,6 +22,7 @@ from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import ContextPromptBuilder
 from app.services.provider_capabilities import resolve_provider_capabilities
+from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.planner import PlannerRuntime
 
 
@@ -139,6 +140,7 @@ class ChatContextAssemblyService:
         web_search_enabled: bool,
         knowledge_base_id: str | None = None,
         knowledge_base_ids: list[str] | None = None,
+        skill_context: SkillExecutionContext | None = None,
     ) -> ChatExecutionContext:
         # 这是 Chat prepare 阶段的核心方法：收集所有上下文来源，构造最终 prompt，并返回给流式执行层。
         query = getattr(user_message, "content", "") or ""
@@ -164,6 +166,7 @@ class ChatContextAssemblyService:
             web_search_enabled=web_search_enabled,
             max_attachment_chars=runtime.budget.max_attachment_chars,
             runtime=runtime,
+            skill_context=skill_context,
         )
         # 知识库上下文来自用户显式选择的知识库；检索日志会在后面绑定到本轮 user/assistant message。
         knowledge_context_result = await KnowledgeContextService(
@@ -224,6 +227,9 @@ class ChatContextAssemblyService:
             knowledge_context=knowledge_context_result.context_text,
             provider_type=runtime.provider_type,
             model_name=runtime.resolved_model,
+            skill_instructions=(
+                skill_context.final_answer_instructions if skill_context else None
+            ),
         )
         governed_context = runtime.governance_service.govern_messages(prompt_result.messages)
         prompt_diagnostics = self._build_prompt_diagnostics(
@@ -261,6 +267,7 @@ class ChatContextAssemblyService:
             "knowledge_query_rewrite": knowledge_context_result.details.get("knowledge_query_rewrite"),
             "tool_plan": external_context_result.details.get("tool_plan"),
             "tool_events": external_context_result.details.get("tool_events", []),
+            "active_skill": external_context_result.details.get("active_skill"),
         }
 
         return ChatExecutionContext(
@@ -305,6 +312,9 @@ class ChatContextAssemblyService:
                 "total_chars_estimate": governed_context.stats.total_chars_estimate,
                 "total_tokens_estimate": governed_context.stats.total_tokens_estimate,
                 "truncated_history_messages": governed_context.stats.truncated_history_messages,
+                "dropped_reference_layers": governed_context.stats.dropped_reference_layers,
+                "truncated_reference_layers": governed_context.stats.truncated_reference_layers,
+                "retained_reference_tokens": governed_context.stats.retained_reference_tokens,
                 "summary_chars": len(
                     summary_bundle.summary or clean_optional_str(getattr(conversation, "context_summary", None)) or ""
                 ),
@@ -325,6 +335,9 @@ class ChatContextAssemblyService:
                 "memory_count": memory_bundle.count,
                 "memory_chars": memory_bundle.chars,
                 "thinking_enabled": int(bool(thinking_enabled)),
+                "skill_active": int(bool(skill_context)),
+                "skill_key": skill_context.skill_key if skill_context else "none",
+                "skill_version": skill_context.version if skill_context else "none",
                 "tokenizer_encoding": runtime.tokenizer.estimate.encoding_name,
                 "prompt_prefix_hash": prompt_diagnostics.prompt_prefix_hash,
                 "prompt_prefix_tokens": prompt_diagnostics.prompt_prefix_tokens,
@@ -359,6 +372,7 @@ class ChatContextAssemblyService:
         web_search_enabled: bool,
         max_attachment_chars: int,
         runtime: ChatRuntimeConfig,
+        skill_context: SkillExecutionContext | None = None,
     ) -> object:
         # 工具层的输入不只是当前 query，还包含 recent_messages 和 planner_runtime。
         # 这让 LLM planner 可以根据上下文判断是否需要多工具调用，而不是纯正则匹配。
@@ -373,17 +387,22 @@ class ChatContextAssemblyService:
         if executor is not None:
             executor.conversation_id = getattr(conversation, "id", None)
             executor.assistant_message_id = getattr(assistant_message, "id", None)
-        external_context_result = await external_service.build_context(
-            query=query,
-            enabled=web_search_enabled,
-            max_chars=max(1200, min(max_attachment_chars, 6000)),
-            recent_messages=list(history_rows),
-            planner_runtime=PlannerRuntime(
+        external_context_kwargs = {
+            "query": query,
+            "enabled": bool(web_search_enabled or skill_context),
+            "max_chars": max(1200, min(max_attachment_chars, 6000)),
+            "recent_messages": list(history_rows),
+            "planner_runtime": PlannerRuntime(
                 provider_type=runtime.provider_type,
                 base_url=runtime.base_url,
                 api_key=runtime.provider_api_key,
                 model_name=runtime.resolved_model,
             ),
+        }
+        if skill_context:
+            external_context_kwargs["skill_context"] = skill_context
+        external_context_result = await external_service.build_context(
+            **external_context_kwargs,
         )
         self.tool_trace_repo.replace_for_assistant_message(
             user_id=self.user_id,

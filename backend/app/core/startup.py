@@ -33,6 +33,7 @@ from app.models import (  # noqa: F401
     ToolRouteRun,
     McpServer,
     McpTool,
+    SkillInstallationRevision,
     UserToolCredential,
     UserSkillInstallation,
     User,
@@ -372,6 +373,10 @@ def ensure_runtime_schema() -> None:
         statements.append(
             "update mcp_tools set is_enabled = false, read_only = false, risk_level = 'high'"
         )
+
+    skill_installation_columns = _get_column_names("user_skill_installations")
+    if skill_installation_columns and "manifest_digest" not in skill_installation_columns:
+        statements.append("alter table user_skill_installations add column manifest_digest varchar(64)")
 
     if not statements:
         return

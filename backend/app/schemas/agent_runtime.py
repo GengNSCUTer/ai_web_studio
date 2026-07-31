@@ -160,6 +160,7 @@ class DurableToolRunRequest(BaseModel):
     conversation_id: str | None = Field(default=None, max_length=36)
     assistant_message_id: str | None = Field(default=None, max_length=36)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
+    skill_key: str | None = Field(default=None, min_length=2, max_length=128)
     max_attempts: int = Field(default=3, ge=1, le=5)
     calls: list[DurableToolCallRequest] = Field(min_length=1, max_length=12)
 

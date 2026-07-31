@@ -32,6 +32,8 @@ from app.schemas.tool_config import (
     ToolSettingsResponse,
     SkillInstallationResponse,
     SkillInstallationUpdate,
+    SkillGoldSetAssessmentRequest,
+    SkillRecommendationResponse,
     UserToolCredentialResponse,
     UserToolCredentialUpdate,
     WorkspaceAgentPolicyResponse,
@@ -52,6 +54,7 @@ from app.services.tools.providers.tavily import TavilySearchProvider
 from app.services.tools.catalog import ToolCatalog
 from app.services.secret_service import SecretService
 from app.services.skill_catalog import SkillCatalog, SkillCatalogError
+from app.services.skill_recommendation_service import SkillGoldSetEvaluator, SkillRecommendationService
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 secret_service = SecretService()
@@ -241,16 +244,33 @@ def get_tool_settings(
         ),
         mcp_servers=[_server_response(server) for server in mcp_servers],
         mcp_tools=[_tool_response(tool, server) for tool, server in mcp_tool_pairs],
-        skills=[SkillInstallationResponse(**item) for item in SkillCatalog().list_for_user(db=db, user_id=current_user.id)],
+        skills=[
+            SkillInstallationResponse(**item)
+            for item in SkillCatalog().list_for_user(
+                db=db,
+                user_id=current_user.id,
+                project_id=project_id,
+            )
+        ],
     )
 
 
 @router.get("/skills", response_model=list[SkillInstallationResponse])
 def list_skills(
+    project_id: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[SkillInstallationResponse]:
-    return [SkillInstallationResponse(**item) for item in SkillCatalog().list_for_user(db=db, user_id=current_user.id)]
+    if project_id and not ProjectRepository(db).get_by_user(project_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return [
+        SkillInstallationResponse(**item)
+        for item in SkillCatalog().list_for_user(
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+        )
+    ]
 
 
 @router.put("/skills/{skill_key}", response_model=SkillInstallationResponse)
@@ -271,12 +291,118 @@ def install_or_update_skill(
         status_code = status.HTTP_404_NOT_FOUND if "不存在" in str(exc) else status.HTTP_409_CONFLICT
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     item = next(
-        (entry for entry in SkillCatalog().list_for_user(db=db, user_id=current_user.id) if entry["skill_key"] == installation.skill_key),
+        (
+            entry
+            for entry in SkillCatalog().list_for_user(db=db, user_id=current_user.id)
+            if entry["skill_key"] == installation.skill_key
+        ),
         None,
     )
     if not item:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Skill 安装状态读取失败")
     return SkillInstallationResponse(**item)
+
+
+@router.post("/skills/{skill_key}/upgrade", response_model=SkillInstallationResponse)
+def upgrade_skill(
+    skill_key: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SkillInstallationResponse:
+    catalog = SkillCatalog()
+    existing = next(
+        (
+            item
+            for item in catalog.list_for_user(db=db, user_id=current_user.id)
+            if item["skill_key"] == skill_key and item["is_installed"]
+        ),
+        None,
+    )
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill 尚未安装。")
+    try:
+        catalog.install_or_update(
+            db=db,
+            user_id=current_user.id,
+            skill_key=skill_key,
+            is_enabled=bool(existing["is_enabled"]),
+        )
+    except SkillCatalogError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    item = next(
+        entry for entry in catalog.list_for_user(db=db, user_id=current_user.id) if entry["skill_key"] == skill_key
+    )
+    return SkillInstallationResponse(**item)
+
+
+@router.post("/skills/{skill_key}/rollback", response_model=SkillInstallationResponse)
+def rollback_skill(
+    skill_key: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SkillInstallationResponse:
+    catalog = SkillCatalog()
+    try:
+        catalog.rollback(db=db, user_id=current_user.id, skill_key=skill_key)
+    except SkillCatalogError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    item = next(
+        entry for entry in catalog.list_for_user(db=db, user_id=current_user.id) if entry["skill_key"] == skill_key
+    )
+    return SkillInstallationResponse(**item)
+
+
+@router.get("/skill-recommendations", response_model=list[SkillRecommendationResponse])
+def recommend_skills(
+    query: str,
+    project_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[SkillRecommendationResponse]:
+    if project_id and not ProjectRepository(db).get_by_user(project_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return [
+        SkillRecommendationResponse(**item)
+        for item in SkillRecommendationService().recommend(
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            query=query,
+        )
+    ]
+
+
+@router.get("/skill-gold-set")
+def get_skill_gold_set_report(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    # The catalog is loaded here as a readiness check for the current account;
+    # no Provider call is made by merely viewing the evaluation baseline.
+    SkillCatalog().list_for_user(db=db, user_id=current_user.id)
+    return SkillGoldSetEvaluator().empty_report()
+
+
+@router.post("/skill-gold-set/assess")
+def assess_skill_gold_set_case(
+    payload: SkillGoldSetAssessmentRequest,
+    project_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    if project_id and not ProjectRepository(db).get_by_user(project_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    try:
+        return SkillGoldSetEvaluator().assess_case(
+            db=db,
+            user_id=current_user.id,
+            project_id=project_id,
+            case_id=payload.case_id,
+            selected_skill_key=payload.selected_skill_key,
+            plan=payload.plan,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.patch("/credentials/{provider_key}", response_model=UserToolCredentialResponse)

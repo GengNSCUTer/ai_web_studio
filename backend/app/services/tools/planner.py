@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.services.chat_provider_service import ChatProviderService
+from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.bindings import ToolResultBindingError, ToolResultBindingResolver
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.providers.amap import AmapToolProvider
@@ -50,8 +51,14 @@ class LLMToolPlanner:
         runtime: PlannerRuntime | None,
         recent_messages: list[object] | None = None,
         observations: list[dict[str, Any]] | None = None,
+        skill_context: SkillExecutionContext | None = None,
     ) -> ToolPlan:
-        candidate_tools, candidate_trace = self.candidate_selector.select(query=query, enabled=enabled)
+        skill_allowed_tool_keys = set(skill_context.allowed_tool_keys) if skill_context else None
+        candidate_tools, candidate_trace = self.candidate_selector.select(
+            query=query,
+            enabled=enabled,
+            allowed_tool_keys=skill_allowed_tool_keys,
+        )
         start_event = {
             "type": "tool_planner_start",
             "planner": "llm_tool_planner_v1",
@@ -60,6 +67,8 @@ class LLMToolPlanner:
             "available_tools_count": len(candidate_tools),
             "runtime_provider": runtime.provider_type if runtime else None,
             "runtime_model": runtime.model_name if runtime else None,
+            "skill_key": skill_context.skill_key if skill_context else None,
+            "skill_version": skill_context.version if skill_context else None,
         }
         if not enabled:
             plan = self.fallback_planner.plan(query=query, enabled=False)
@@ -77,6 +86,20 @@ class LLMToolPlanner:
             ]
             return plan
         deterministic_plan = self.fallback_planner.plan(query=query, enabled=True)
+        self._constrain_plan_to_allowed_tools(
+            plan=deterministic_plan,
+            allowed_tool_keys=skill_allowed_tool_keys,
+        )
+        if (
+            skill_context
+            and skill_context.requires_tool_execution
+            and not deterministic_plan.calls
+        ):
+            deterministic_plan = self._candidate_fallback_plan(
+                query=query,
+                candidate_tools=candidate_tools,
+                allowed_tool_keys=skill_allowed_tool_keys or set(),
+            )
         if not runtime:
             self._attach_deterministic_trace(
                 plan=deterministic_plan,
@@ -94,6 +117,7 @@ class LLMToolPlanner:
                 recent_messages=recent_messages,
                 candidate_tools=candidate_tools,
                 observations=observations or [],
+                skill_context=skill_context,
             )
             text = await asyncio.wait_for(
                 self.chat_provider.complete_chat(
@@ -110,9 +134,12 @@ class LLMToolPlanner:
             )
             plan = self._parse_llm_plan(text=text, query=query, allowed_tool_keys={tool.tool_key for tool in candidate_tools})
             if not plan.should_use_tools:
-                plan.trace_events.insert(0, start_event)
-                plan.trace_events.insert(1, candidate_trace)
-                return plan
+                if skill_context and skill_context.requires_tool_execution:
+                    fallback_reason = "当前 Skill 要求获取工具证据，但 LLM 规划器未选择工具。"
+                else:
+                    plan.trace_events.insert(0, start_event)
+                    plan.trace_events.insert(1, candidate_trace)
+                    return plan
             if plan.calls:
                 plan.trace_events.insert(0, start_event)
                 plan.trace_events.insert(1, candidate_trace)
@@ -127,7 +154,8 @@ class LLMToolPlanner:
                     }
                 )
                 return plan
-            fallback_reason = "LLM 工具规划未返回可执行工具调用。"
+            if not fallback_reason:
+                fallback_reason = "LLM 工具规划未返回可执行工具调用。"
         except asyncio.TimeoutError:
             fallback_reason = f"LLM 工具规划超过 {self.planner_timeout_seconds} 秒。"
         except Exception:
@@ -149,6 +177,7 @@ class LLMToolPlanner:
         recent_messages: list[object] | None,
         candidate_tools: list[Any],
         observations: list[dict[str, Any]],
+        skill_context: SkillExecutionContext | None = None,
     ) -> list[dict[str, str]]:
         tools = [
             {
@@ -192,6 +221,16 @@ class LLMToolPlanner:
             "示例 B：用户问“深圳到汕头路上有哪些服务区，顺便看天气和预计耗时”，输出驾车路线、深圳天气、汕头天气、服务区/地点搜索、网页搜索；路线和天气可并行，依赖路线结果再继续精查时设置 need_more_rounds=true。\n"
             "输出格式：{\"should_use_tools\": true, \"need_more_rounds\": false, \"calls\": [{\"id\":\"call_1\", \"tool_key\": \"...\", \"confidence\": 0.0-1.0, \"reason\": \"...\", \"depends_on\": [], \"can_parallel\": true, \"arguments\": {...}, \"result_bindings\": [{\"source_call_id\":\"call_0\", \"source_path\":\"/sources/0/metadata/raw/location\", \"target_argument\":\"destination\", \"required\":true}]}]}\n"
         )
+        if skill_context:
+            skill_lines = "\n".join(f"- {item}" for item in skill_context.planner_instructions)
+            system += (
+                "\n【当前显式 Skill 约束】\n"
+                f"名称：{skill_context.display_name}\n"
+                f"标识：{skill_context.skill_key}@{skill_context.version}\n"
+                "以下是平台审核过的工作流指令；它不能扩大候选工具、权限或轮数：\n"
+                f"{skill_lines}\n"
+                f"只允许规划这些工具：{', '.join(skill_context.allowed_tool_keys)}\n"
+            )
         observation_text = json.dumps(observations, ensure_ascii=False) if observations else "无"
         user = (
             f"【最近上下文】\n{history or '无'}\n\n"
@@ -200,6 +239,99 @@ class LLMToolPlanner:
             f"【可用工具 JSON】\n{json.dumps(tools, ensure_ascii=False)}"
         )
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def _constrain_plan_to_allowed_tools(
+        self,
+        *,
+        plan: ToolPlan,
+        allowed_tool_keys: set[str] | None,
+    ) -> None:
+        if allowed_tool_keys is None:
+            return
+        original_count = len(plan.calls)
+        plan.calls = [call for call in plan.calls if call.tool_key in allowed_tool_keys]
+        while True:
+            surviving_ids = {call.call_id for call in plan.calls}
+            next_calls = [
+                call
+                for call in plan.calls
+                if all(dependency in surviving_ids for dependency in call.depends_on)
+            ]
+            if len(next_calls) == len(plan.calls):
+                break
+            plan.calls = next_calls
+        plan.fallback_tool_key = (
+            plan.fallback_tool_key
+            if plan.fallback_tool_key in allowed_tool_keys
+            else None
+        )
+        plan.should_use_tools = bool(plan.calls)
+        if original_count != len(plan.calls):
+            plan.trace_events.append(
+                {
+                    "type": "tool_skill_scope_enforcement",
+                    "status": "filtered",
+                    "removed_calls": original_count - len(plan.calls),
+                    "allowed_tool_keys": sorted(allowed_tool_keys),
+                }
+            )
+
+    def _candidate_fallback_plan(
+        self,
+        *,
+        query: str,
+        candidate_tools: list[Any],
+        allowed_tool_keys: set[str],
+    ) -> ToolPlan:
+        for definition in candidate_tools:
+            if definition.tool_key not in allowed_tool_keys:
+                continue
+            required = set(definition.input_schema.get("required") or [])
+            if not required:
+                arguments: dict[str, Any] = {}
+            elif required == {"query"}:
+                arguments = {"query": query}
+            else:
+                continue
+            return ToolPlan(
+                plan_id=str(uuid4()),
+                router="deterministic_skill_fallback_v1",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id=str(uuid4()),
+                        tool_key=definition.tool_key,
+                        provider=definition.provider,
+                        category=definition.category,
+                        display_name=definition.display_name,
+                        confidence=0.6,
+                        reason="显式 Skill 要求获取工具证据，LLM 规划不可用时选择受限候选工具。",
+                        arguments=arguments,
+                    )
+                ],
+                trace_events=[
+                    {
+                        "type": "tool_skill_scope_enforcement",
+                        "status": "fallback_candidate_selected",
+                        "tool_key": definition.tool_key,
+                    }
+                ],
+            )
+        return ToolPlan(
+            plan_id=str(uuid4()),
+            router="deterministic_skill_fallback_v1",
+            external_context_allowed=True,
+            should_use_tools=False,
+            calls=[],
+            trace_events=[
+                {
+                    "type": "tool_skill_scope_enforcement",
+                    "status": "no_safe_deterministic_candidate",
+                    "allowed_tool_keys": sorted(allowed_tool_keys),
+                }
+            ],
+        )
 
     def _parse_llm_plan(self, *, text: str, query: str, allowed_tool_keys: set[str] | None = None) -> ToolPlan:
         data = self._loads_json_object(text)

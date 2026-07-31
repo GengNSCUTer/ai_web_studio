@@ -38,12 +38,33 @@ class ToolCandidateSelector:
         if max_candidates is not None:
             self.max_candidates = max_candidates
 
-    def select(self, *, query: str, enabled: bool) -> tuple[list[ToolDefinition], dict]:
-        definitions = [tool for tool in self.catalog.list_definitions() if tool.enabled_by_default]
+    def select(
+        self,
+        *,
+        query: str,
+        enabled: bool,
+        allowed_tool_keys: set[str] | None = None,
+    ) -> tuple[list[ToolDefinition], dict]:
+        definitions = [
+            tool
+            for tool in self.catalog.list_definitions()
+            if tool.enabled_by_default
+            and (allowed_tool_keys is None or tool.tool_key in allowed_tool_keys)
+        ]
         if not enabled:
-            return [], self._trace(query=query, candidates=[], reason="external_tools_disabled")
+            return [], self._trace(
+                query=query,
+                candidates=[],
+                reason="external_tools_disabled",
+                allowed_tool_keys=allowed_tool_keys,
+            )
         if not definitions:
-            return [], self._trace(query=query, candidates=[], reason="empty_catalog")
+            return [], self._trace(
+                query=query,
+                candidates=[],
+                reason="empty_allowed_catalog" if allowed_tool_keys is not None else "empty_catalog",
+                allowed_tool_keys=allowed_tool_keys,
+            )
 
         scored = [self._score_tool(tool=tool, query=query) for tool in definitions]
         scored.sort(key=lambda candidate: (-candidate.score, candidate.definition.tool_key))
@@ -51,7 +72,11 @@ class ToolCandidateSelector:
         # Web search is the cross-domain fallback. Reserve one slot for it instead
         # of letting same-category map variants fill the whole candidate budget.
         web_fallback = self.catalog.get_or_none("web.tavily.search")
-        reserve_web_slot = bool(web_fallback and web_fallback.enabled_by_default)
+        reserve_web_slot = bool(
+            web_fallback
+            and web_fallback.enabled_by_default
+            and (allowed_tool_keys is None or web_fallback.tool_key in allowed_tool_keys)
+        )
         specialized_budget = max(0, self.max_candidates - int(reserve_web_slot))
         selected: list[ToolCandidate] = []
         seen: set[str] = set()
@@ -111,7 +136,12 @@ class ToolCandidateSelector:
         return [candidate.definition for candidate in selected], self._trace(
             query=query,
             candidates=selected,
-            reason="ranked_by_query_and_tool_metadata",
+            reason=(
+                "ranked_within_explicit_skill_allowlist"
+                if allowed_tool_keys is not None
+                else "ranked_by_query_and_tool_metadata"
+            ),
+            allowed_tool_keys=allowed_tool_keys,
         )
 
     def _score_tool(self, *, tool: ToolDefinition, query: str) -> ToolCandidate:
@@ -161,13 +191,21 @@ class ToolCandidateSelector:
         return ToolCandidate(definition=tool, score=round(score, 3), reasons=reasons)
 
     @staticmethod
-    def _trace(*, query: str, candidates: list[ToolCandidate], reason: str) -> dict:
+    def _trace(
+        *,
+        query: str,
+        candidates: list[ToolCandidate],
+        reason: str,
+        allowed_tool_keys: set[str] | None = None,
+    ) -> dict:
         return {
             "type": "tool_candidate_selection",
             "selector": "tool_candidate_selector_v1",
             "reason": reason,
             "query_preview": query[:240],
             "selected_count": len(candidates),
+            "scope": "explicit_skill" if allowed_tool_keys is not None else "catalog",
+            "allowed_tool_keys": sorted(allowed_tool_keys) if allowed_tool_keys is not None else None,
             "candidates": [
                 {
                     "tool_key": candidate.definition.tool_key,

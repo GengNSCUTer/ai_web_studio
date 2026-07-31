@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.credentials import ToolCredentialResolver
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.executor import ToolExecutor
@@ -69,6 +70,7 @@ class ExternalContextService:
         max_chars: int,
         recent_messages: list[object] | None = None,
         planner_runtime: PlannerRuntime | None = None,
+        skill_context: SkillExecutionContext | None = None,
     ) -> ExternalContextResult:
         if not enabled:
             return ExternalContextResult(
@@ -98,21 +100,41 @@ class ExternalContextService:
         routed_query = rewrite.rewritten_query
         observations: list[dict] = []
         events: list[ToolTraceEvent] = []
+        if skill_context:
+            events.append(
+                ToolTraceEvent(
+                    type="skill_activation",
+                    payload={
+                        "skill_key": skill_context.skill_key,
+                        "version": skill_context.version,
+                        "display_name": skill_context.display_name,
+                        "activation_mode": "explicit",
+                        "allowed_tool_keys": list(skill_context.allowed_tool_keys),
+                        "requires_tool_execution": skill_context.requires_tool_execution,
+                    },
+                )
+            )
         sources = []
         notices: list[str] = []
         last_plan = None
         total_elapsed_ms = 0
         selected_tool = "none"
         error_message = ""
+        terminal_reason = "no_tool_needed"
 
         # 这是有硬上限的 observe -> re-plan，而不是可无限自主运行的 ReAct loop。
         for round_index in range(1, self.max_agent_rounds + 1):
+            planner_kwargs = {
+                "query": routed_query,
+                "enabled": enabled,
+                "runtime": planner_runtime or self.planner_runtime,
+                "recent_messages": recent_messages,
+                "observations": observations,
+            }
+            if skill_context:
+                planner_kwargs["skill_context"] = skill_context
             plan = await self.planner.plan(
-                query=routed_query,
-                enabled=enabled,
-                runtime=planner_runtime or self.planner_runtime,
-                recent_messages=recent_messages,
-                observations=observations,
+                **planner_kwargs,
             )
             last_plan = plan
             plan.original_query = rewrite.original_query
@@ -137,6 +159,7 @@ class ExternalContextService:
             )
             events.extend(plan_events)
             if not enabled or not plan.should_use_tools:
+                terminal_reason = "no_tool_needed"
                 break
 
             events.append(
@@ -191,7 +214,30 @@ class ExternalContextService:
                     },
                 )
             )
-            if not plan.need_more_rounds or (not workflow_result.sources and not workflow_result.error_message):
+            if not plan.need_more_rounds:
+                terminal_reason = "completed_no_followup"
+                break
+            if not workflow_result.sources and not workflow_result.error_message:
+                terminal_reason = "no_evidence_or_error"
+                break
+            if round_index >= self.max_agent_rounds:
+                # The Planner may request another observation, but synchronous
+                # Chat intentionally stops here. Long read-only workflows have
+                # an explicit Durable Run path instead of silently expanding
+                # this request into an autonomous loop.
+                terminal_reason = "max_rounds_reached"
+                notices.append("工具观察已达到同步对话轮次上限；如需更长的只读任务，请显式发起可恢复工作流。")
+                events.append(
+                    ToolTraceEvent(
+                        type="tool_agent_terminal",
+                        payload={
+                            "reason": terminal_reason,
+                            "round": round_index,
+                            "max_rounds": self.max_agent_rounds,
+                            "need_more_rounds": True,
+                        },
+                    )
+                )
                 break
 
         if not last_plan:
@@ -219,6 +265,31 @@ class ExternalContextService:
         if error_message and not sources:
             notices.append(f"外部信息工具调用失败：{error_message}")
 
+        if skill_context:
+            events.append(
+                ToolTraceEvent(
+                    type="skill_result",
+                    payload={
+                        "skill_key": skill_context.skill_key,
+                        "version": skill_context.version,
+                        "status": (
+                            "success"
+                            if sources
+                            else "error"
+                            if error_message
+                            else "empty"
+                        ),
+                        "planner": last_plan.router,
+                        "planned_tool_keys": [call.tool_key for call in last_plan.calls],
+                        "sources_count": len(sources),
+                        "rounds_observed": sum(
+                            1 for event in events if event.type == "tool_agent_round_end"
+                        ),
+                        "terminal_reason": terminal_reason,
+                    },
+                )
+            )
+
         context_text = self.assembler.format_sources_for_prompt(sources, max_chars=max_chars)
         included_sources = [source for source in sources if source.used_in_prompt]
         public_sources = [source.to_public_dict() for source in sources]
@@ -237,11 +308,16 @@ class ExternalContextService:
                 "external_context_latency_ms": total_elapsed_ms,
                 "external_context_error": int(bool(error_message and not sources)),
                 "external_tool_events_total": len(events),
+                "external_agent_terminal_reason": terminal_reason,
+                "skill_active": int(bool(skill_context)),
+                "skill_key": skill_context.skill_key if skill_context else "none",
+                "skill_version": skill_context.version if skill_context else "none",
             },
             details={
                 "external_sources": public_sources,
                 "tool_plan": last_plan.to_public_dict(),
                 "tool_events": public_events,
+                "active_skill": skill_context.to_public_dict() if skill_context else None,
             },
             tool_plan=last_plan,
             tool_events=events,

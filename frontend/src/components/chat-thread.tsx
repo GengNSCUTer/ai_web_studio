@@ -21,6 +21,8 @@ import type {
   KnowledgeMarkdownPreview,
   KnowledgeRetrievalLog,
   Message,
+  SkillInstallation,
+  SkillRecommendation,
   ToolTraceEvent,
   UploadItem,
 } from "@/lib/types";
@@ -88,6 +90,8 @@ const THREAD_TEXT = {
     webSearch: "联网搜索",
     knowledgeBase: "知识库",
     noKnowledgeBase: "不使用知识库",
+    skill: "Skill",
+    noSkill: "不使用 Skill",
     reasoningTitle: "思考过程",
     toolTraceTitle: "工具过程",
     sourcesTitle: "来源",
@@ -209,6 +213,8 @@ const THREAD_TEXT = {
     webSearch: "Web search",
     knowledgeBase: "Knowledge",
     noKnowledgeBase: "No knowledge base",
+    skill: "Skill",
+    noSkill: "No Skill",
     reasoningTitle: "Reasoning",
     toolTraceTitle: "Tool trace",
     sourcesTitle: "Sources",
@@ -601,6 +607,10 @@ export function ChatThread({
     toThreadMessages(initialMessages)
   );
   const [isGenerating, setIsGenerating] = useState(false);
+  const [skills, setSkills] = useState<SkillInstallation[]>([]);
+  const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
+  const [skillRecommendations, setSkillRecommendations] = useState<SkillRecommendation[]>([]);
+  const [skillRecommendationQuery, setSkillRecommendationQuery] = useState("");
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -904,6 +914,65 @@ export function ChatThread({
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    if (projectId) {
+      params.set("project_id", projectId);
+    }
+    const query = params.toString();
+    void requestJson<SkillInstallation[]>(`/api/backend/tools/skills${query ? `?${query}` : ""}`, {
+      signal: controller.signal,
+    })
+      .then((items) => {
+        setSkills(items);
+        setSelectedSkillKey((current) =>
+          current && items.some((item) => item.skill_key === current && item.is_ready)
+            ? current
+            : null
+        );
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        setSkills([]);
+        setSelectedSkillKey(null);
+      });
+    return () => controller.abort();
+  }, [projectId]);
+
+  useEffect(() => {
+    const query = composer.trim();
+    if (!query || isGenerating || editingUserMessageId) {
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ query });
+      if (projectId) {
+        params.set("project_id", projectId);
+      }
+      void requestJson<SkillRecommendation[]>(`/api/backend/tools/skill-recommendations?${params.toString()}`, {
+        signal: controller.signal,
+      })
+        .then((items) => {
+          setSkillRecommendations(items.filter((item) => item.is_ready));
+          setSkillRecommendationQuery(query);
+        })
+        .catch((error: unknown) => {
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            setSkillRecommendations([]);
+            setSkillRecommendationQuery(query);
+          }
+        });
+    }, 350);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [composer, editingUserMessageId, isGenerating, projectId]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({
@@ -1428,6 +1497,7 @@ export function ChatThread({
         webSearchEnabled: isWebSearchEnabled,
         knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
         knowledgeBaseIds: selectedKnowledgeBaseIds,
+        skillKey: selectedSkillKey,
       }, assistantMessageId);
     } catch {
       // localError 已在 helper 中设置
@@ -1509,6 +1579,7 @@ export function ChatThread({
         webSearchEnabled: isWebSearchEnabled,
         knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
         knowledgeBaseIds: selectedKnowledgeBaseIds,
+        skillKey: selectedSkillKey,
       }, latestAssistantMessageId);
     } catch {
       // 用户消息在后端已被更新，失败时保留编辑结果，只标记回答失败。
@@ -1603,6 +1674,7 @@ export function ChatThread({
           webSearchEnabled: isWebSearchEnabled,
           knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
           knowledgeBaseIds: selectedKnowledgeBaseIds,
+          skillKey: selectedSkillKey,
           messages: [
             {
               role: "user",
@@ -1860,6 +1932,10 @@ export function ChatThread({
           streamingStatusLabel={streamingStatusLabel}
           knowledgeBases={knowledgeBases}
           selectedKnowledgeBaseIds={selectedKnowledgeBaseIds}
+          skills={skills}
+          skillRecommendations={skillRecommendations}
+          skillRecommendationQuery={skillRecommendationQuery}
+          selectedSkillKey={selectedSkillKey}
           isWebSearchEnabled={isWebSearchEnabled}
           isDeepThinkingEnabled={isDeepThinkingEnabled}
           contextInfo={contextInfo}
@@ -1878,6 +1954,7 @@ export function ChatThread({
           onPreviewAttachment={setPreviewItem}
           onRemoveUploadedItem={removeUploadedItem}
           onSelectedKnowledgeBaseIdsChange={onSelectedKnowledgeBaseIdsChange}
+          onSelectedSkillKeyChange={setSelectedSkillKey}
           onWebSearchEnabledChange={onWebSearchEnabledChange}
           onDeepThinkingEnabledChange={onDeepThinkingEnabledChange}
           onToggleContextPanel={() => setIsContextPanelOpen((current) => !current)}

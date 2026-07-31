@@ -56,6 +56,7 @@ class ChatStreamRequest(BaseModel):
     web_search_enabled: bool = False
     knowledge_base_id: str | None = Field(default=None, max_length=36)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
+    skill_key: str | None = Field(default=None, max_length=128)
 
     @field_validator("content")
     @classmethod
@@ -76,6 +77,7 @@ class ChatRegenerateRequest(BaseModel):
     web_search_enabled: bool = False
     knowledge_base_id: str | None = Field(default=None, max_length=36)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
+    skill_key: str | None = Field(default=None, max_length=128)
 
 
 class ChatEditLastUserRequest(BaseModel):
@@ -91,6 +93,7 @@ class ChatEditLastUserRequest(BaseModel):
     web_search_enabled: bool = False
     knowledge_base_id: str | None = Field(default=None, max_length=36)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
+    skill_key: str | None = Field(default=None, max_length=128)
 
     @field_validator("content")
     @classmethod

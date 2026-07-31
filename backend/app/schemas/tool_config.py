@@ -71,16 +71,50 @@ class SkillInstallationResponse(BaseModel):
     version: str
     display_name: str
     description: str
+    instructions: list[str]
+    output_contract: list[str]
     required_tool_keys: list[str]
+    optional_tool_keys: list[str] = Field(default_factory=list)
+    requires_project: bool = False
+    requires_tool_execution: bool = True
+    activation_examples: list[str] = Field(default_factory=list)
     risk_declaration: str
     is_installed: bool
     is_enabled: bool
     installed_version: str | None = None
     missing_tool_keys: list[str] = Field(default_factory=list)
+    available_optional_tool_keys: list[str] = Field(default_factory=list)
+    is_ready: bool = False
+    unavailable_reason: str | None = None
+    installed_manifest_digest: str | None = None
+    manifest_digest: str | None = None
+    source_kind: str = "builtin"
+    source_publisher: str = "AI Web Studio"
+    signature_status: str = "repository_attested"
+    security_review_status: str = "approved"
+    compatibility: dict[str, str] = Field(default_factory=dict)
+    durable_eligible: bool = False
+    update_available: bool = False
 
 
 class SkillInstallationUpdate(BaseModel):
     is_enabled: bool = True
+
+
+class SkillRecommendationResponse(BaseModel):
+    skill_key: str
+    display_name: str
+    description: str
+    score: float
+    reasons: list[str] = Field(default_factory=list)
+    requires_confirmation: bool = True
+    is_ready: bool = False
+
+
+class SkillGoldSetAssessmentRequest(BaseModel):
+    case_id: str = Field(min_length=1, max_length=96)
+    selected_skill_key: str | None = Field(default=None, max_length=128)
+    plan: dict = Field(default_factory=dict)
 
 
 class ToolConnectionTestResponse(BaseModel):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -23,6 +24,7 @@ from app.services.context_governance_service import ContextBudgetPlanner, Contex
 from app.services.memory_service import MemoryService
 from app.services.message_service import MessageService
 from app.services.setting_service import SettingService
+from app.services.skill_catalog import SkillCatalog, SkillCatalogError, SkillExecutionContext
 from app.services.tokenizer_service import TokenizerEstimator
 
 
@@ -75,6 +77,10 @@ class ChatExecutionService:
         turn = self.turn_bootstrapper.bootstrap_new_turn(payload=payload, default_settings=default_settings)
         try:
             runtime = self._build_runtime_config(turn.conversation)
+            skill_context = self._resolve_skill_execution_context(
+                skill_key=payload.skill_key,
+                conversation=turn.conversation,
+            )
             return await self.context_assembly_service.build_execution_context(
                 conversation=turn.conversation,
                 history_rows=turn.history_rows,
@@ -86,6 +92,7 @@ class ChatExecutionService:
                 web_search_enabled=payload.web_search_enabled,
                 knowledge_base_id=payload.knowledge_base_id,
                 knowledge_base_ids=payload.knowledge_base_ids,
+                skill_context=skill_context,
             )
         except Exception:
             # StreamingResponse 尚未创建，generator 的异常收口不会执行。
@@ -111,6 +118,10 @@ class ChatExecutionService:
             # 不让后续外部 Tool/RAG 调用持有未提交数据库事务。
             self.db.commit()
             runtime = self._build_runtime_config(execution_input.conversation)
+            skill_context = self._resolve_skill_execution_context(
+                skill_key=execution_input.skill_key,
+                conversation=execution_input.conversation,
+            )
             return await self.context_assembly_service.build_execution_context(
                 conversation=execution_input.conversation,
                 history_rows=execution_input.history_rows,
@@ -122,6 +133,7 @@ class ChatExecutionService:
                 web_search_enabled=execution_input.web_search_enabled,
                 knowledge_base_id=execution_input.knowledge_base_id,
                 knowledge_base_ids=execution_input.knowledge_base_ids,
+                skill_context=skill_context,
             )
         except Exception:
             self._mark_prepare_failed(execution_input.assistant_message)
@@ -170,3 +182,22 @@ class ChatExecutionService:
             tokenizer=tokenizer,
             governance_service=governance_service,
         )
+
+    def _resolve_skill_execution_context(
+        self,
+        *,
+        skill_key: str | None,
+        conversation: object,
+    ) -> SkillExecutionContext | None:
+        normalized = clean_optional_str(skill_key)
+        if not normalized:
+            return None
+        try:
+            return SkillCatalog().resolve_for_execution(
+                db=self.db,
+                user_id=self.current_user.id,
+                project_id=getattr(conversation, "project_id", None),
+                skill_key=normalized,
+            )
+        except SkillCatalogError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

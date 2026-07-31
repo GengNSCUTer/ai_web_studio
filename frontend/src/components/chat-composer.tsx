@@ -15,6 +15,8 @@ import type {
   ContextAttachmentChunk,
   ContextGovernanceInfo,
   KnowledgeBase,
+  SkillInstallation,
+  SkillRecommendation,
   UploadItem,
 } from "@/lib/types";
 
@@ -32,6 +34,8 @@ type ChatComposerText = {
   deepThinking: string;
   knowledgeBase: string;
   noKnowledgeBase: string;
+  skill: string;
+  noSkill: string;
   stopGenerating: string;
   sending: string;
   send: string;
@@ -58,6 +62,10 @@ type ChatComposerProps = {
   streamingStatusLabel: string | null;
   knowledgeBases: KnowledgeBase[];
   selectedKnowledgeBaseIds: string[];
+  skills: SkillInstallation[];
+  skillRecommendations: SkillRecommendation[];
+  skillRecommendationQuery: string;
+  selectedSkillKey: string | null;
   isWebSearchEnabled: boolean;
   isDeepThinkingEnabled: boolean;
   contextInfo: ContextGovernanceInfo | null;
@@ -76,6 +84,7 @@ type ChatComposerProps = {
   onPreviewAttachment: (item: UploadItem) => void;
   onRemoveUploadedItem: (itemId: string) => void;
   onSelectedKnowledgeBaseIdsChange: (knowledgeBaseIds: string[]) => void;
+  onSelectedSkillKeyChange: (skillKey: string | null) => void;
   onWebSearchEnabledChange: (enabled: boolean) => void;
   onDeepThinkingEnabledChange: (enabled: boolean) => void;
   onToggleContextPanel: () => void;
@@ -97,6 +106,10 @@ export function ChatComposer({
   streamingStatusLabel,
   knowledgeBases,
   selectedKnowledgeBaseIds,
+  skills,
+  skillRecommendations,
+  skillRecommendationQuery,
+  selectedSkillKey,
   isWebSearchEnabled,
   isDeepThinkingEnabled,
   contextInfo,
@@ -115,6 +128,7 @@ export function ChatComposer({
   onPreviewAttachment,
   onRemoveUploadedItem,
   onSelectedKnowledgeBaseIdsChange,
+  onSelectedSkillKeyChange,
   onWebSearchEnabledChange,
   onDeepThinkingEnabledChange,
   onToggleContextPanel,
@@ -125,6 +139,7 @@ export function ChatComposer({
   onStopGenerating,
 }: ChatComposerProps) {
   const [isKnowledgePickerOpen, setIsKnowledgePickerOpen] = useState(false);
+  const [isSkillPickerOpen, setIsSkillPickerOpen] = useState(false);
   const selectedKnowledgeBaseSet = useMemo(() => new Set(selectedKnowledgeBaseIds), [selectedKnowledgeBaseIds]);
   const selectedKnowledgeBaseNames = knowledgeBases
     .filter((knowledgeBase) => selectedKnowledgeBaseSet.has(knowledgeBase.id))
@@ -136,6 +151,13 @@ export function ChatComposer({
         ? selectedKnowledgeBaseNames[0]
         : `已选 ${selectedKnowledgeBaseNames.length} 个知识库`;
   const canPickKnowledgeBase = !isEditingUserMessage && !isGenerating && knowledgeBases.length > 0;
+  const readySkills = skills.filter((skill) => skill.is_ready);
+  const selectedSkill = readySkills.find((skill) => skill.skill_key === selectedSkillKey) ?? null;
+  const canPickSkill = !isEditingUserMessage && !isGenerating && readySkills.length > 0;
+  const visibleRecommendations =
+    skillRecommendationQuery === composer.trim()
+      ? skillRecommendations.filter((skill) => skill.skill_key !== selectedSkillKey).slice(0, 2)
+      : [];
 
   function toggleKnowledgeBase(knowledgeBaseId: string) {
     if (!canPickKnowledgeBase) {
@@ -201,6 +223,19 @@ export function ChatComposer({
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {visibleRecommendations.map((recommendation) => (
+                <button
+                  key={recommendation.skill_key}
+                  type="button"
+                  title={uiLanguage === "zh-CN" ? "选择推荐 Skill" : "Select recommended Skill"}
+                  onClick={() => onSelectedSkillKeyChange(recommendation.skill_key)}
+                  disabled={isEditingUserMessage || isGenerating}
+                  className="tool-chip max-w-[14rem] truncate rounded-full border px-3 py-1.5 text-xs transition hover:border-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-55"
+                >
+                  {uiLanguage === "zh-CN" ? "推荐：" : "Suggested: "}
+                  {recommendation.display_name}
+                </button>
+              ))}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -253,6 +288,58 @@ export function ChatComposer({
                           </label>
                         );
                       })}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => canPickSkill && setIsSkillPickerOpen((current) => !current)}
+                  disabled={!canPickSkill}
+                  aria-label={text.skill}
+                  data-testid="skill-selector"
+                  className={`tool-chip max-w-[14rem] truncate rounded-full border px-3 py-1.5 text-xs transition ${
+                    selectedSkill ? "is-active" : "hover:border-[var(--accent-strong)]"
+                  } disabled:cursor-not-allowed disabled:opacity-55`}
+                >
+                  {selectedSkill?.display_name ?? text.noSkill}
+                </button>
+                {isSkillPickerOpen && canPickSkill ? (
+                  <div className="absolute bottom-full right-0 z-30 mb-2 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-[var(--hairline-strong)] bg-[var(--panel-bg)] p-2 shadow-[var(--shadow-float)]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectedSkillKeyChange(null);
+                        setIsSkillPickerOpen(false);
+                      }}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-[var(--ink-soft)] transition hover:bg-[var(--soft-bg)]"
+                    >
+                      <span>{text.noSkill}</span>
+                      {!selectedSkill ? <span>✓</span> : null}
+                    </button>
+                    <div className="my-1 h-px bg-[var(--hairline)]" />
+                    <div className="max-h-64 overflow-y-auto pr-1">
+                      {readySkills.map((skill) => (
+                        <button
+                          key={skill.skill_key}
+                          type="button"
+                          data-testid={`skill-option-${skill.skill_key}`}
+                          onClick={() => {
+                            onSelectedSkillKeyChange(skill.skill_key);
+                            setIsSkillPickerOpen(false);
+                          }}
+                          className="w-full rounded-xl px-3 py-2 text-left transition hover:bg-[var(--soft-bg)]"
+                        >
+                          <span className="flex items-center justify-between gap-2 text-xs font-medium text-[var(--ink)]">
+                            <span>{skill.display_name}</span>
+                            {selectedSkillKey === skill.skill_key ? <span>✓</span> : null}
+                          </span>
+                          <span className="mt-1 block text-[11px] leading-4 text-[var(--ink-muted)]">
+                            {skill.description}
+                          </span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 ) : null}

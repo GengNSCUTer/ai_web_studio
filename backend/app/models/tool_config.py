@@ -118,8 +118,34 @@ class UserSkillInstallation(Base):
     user_id: Mapped[str] = mapped_column(String(36), index=True)
     skill_key: Mapped[str] = mapped_column(String(128), index=True)
     manifest_version: Mapped[str] = mapped_column(String(32))
+    # 版本号不足以防止“同版本内容被静默替换”。安装时同时锁定审核过的
+    # canonical manifest digest；执行时按这个快照解析，而不是自动漂移到最新文件。
+    manifest_digest: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class SkillInstallationRevision(Base):
+    """Append-only Skill release snapshot for explicit upgrade and rollback.
+
+    The current manifest remains the platform's published catalog. A user may
+    continue running a previously reviewed snapshot until they explicitly
+    upgrade, provided all referenced tools still pass today's runtime checks.
+    This is release history, not arbitrary user-supplied executable content.
+    """
+
+    __tablename__ = "skill_installation_revisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), index=True)
+    skill_key: Mapped[str] = mapped_column(String(128), index=True)
+    manifest_version: Mapped[str] = mapped_column(String(32), index=True)
+    manifest_digest: Mapped[str] = mapped_column(String(64), index=True)
+    manifest_json: Mapped[str] = mapped_column(Text)
+    source_kind: Mapped[str] = mapped_column(String(32), default="builtin")
+    security_review_status: Mapped[str] = mapped_column(String(32), default="approved")
+    action: Mapped[str] = mapped_column(String(32), default="install", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
 from datetime import timedelta
 
@@ -21,6 +22,7 @@ from app.services.durable_tool_runtime import (
     DurableToolWorker,
     utcnow,
 )
+from app.services.skill_catalog import SkillCatalog
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolCallResult, ToolTraceEvent
 
@@ -548,6 +550,100 @@ class DurableToolRuntimeTest(unittest.TestCase):
             )
             self.assertEqual(run.status, "dead_letter")
             self.assertIsNotNone(run.finished_at)
+
+    def test_dead_letter_replay_is_owner_scoped_and_persists_new_event_id(self) -> None:
+        run_id = self._enqueue(
+            [{"call_id": "search", "tool_key": "workspace.files.search", "arguments": {"query": "test"}}],
+            attempts=1,
+        )
+        failing_worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-dlq",
+            executor_factory=FailingExecutor,
+        )
+        self.assertTrue(asyncio.run(failing_worker.run_once()))
+
+        with self.SessionLocal() as db:
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id))
+            self.assertEqual(step.status, "dead_letter")
+            replayed = DurableToolRunService(db).replay_dead_letter(
+                run_id=run_id,
+                step_id=step.id,
+                user_id=self.user_id,
+            )
+            self.assertEqual(replayed.status, "queued")
+            checkpoint = db.scalar(
+                select(AgentCheckpoint)
+                .where(AgentCheckpoint.run_id == run_id)
+                .order_by(AgentCheckpoint.state_version.desc())
+            )
+            self.assertNotIn('"event_id":null', checkpoint.observations_json)
+            self.assertEqual(db.query(AgentOutboxEvent).filter_by(run_id=run_id).count(), 2)
+
+        successful_worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-replay",
+            executor_factory=SuccessfulExecutor,
+        )
+        self.assertTrue(asyncio.run(successful_worker.run_once()))
+        with self.SessionLocal() as db:
+            self.assertEqual(db.get(AgentRun, run_id).status, "succeeded")
+
+    def test_reconcile_restores_missing_delivery_intent_once_but_not_expired_event(self) -> None:
+        run_id = self._enqueue([{"call_id": "list", "tool_key": "workspace.files.list", "arguments": {}}])
+        with self.SessionLocal() as db:
+            event = db.scalar(select(AgentOutboxEvent).where(AgentOutboxEvent.run_id == run_id))
+            db.delete(event)
+            db.commit()
+            service = DurableToolRunService(db)
+            self.assertEqual(service.reconcile_orphaned_steps(user_id=self.user_id), 1)
+            self.assertEqual(service.reconcile_orphaned_steps(user_id=self.user_id), 0)
+            self.assertEqual(db.query(AgentOutboxEvent).filter_by(run_id=run_id).count(), 1)
+
+        second_run_id = self._enqueue([{"call_id": "again", "tool_key": "workspace.files.list", "arguments": {}}])
+        with self.SessionLocal() as db:
+            claim = DurableToolRunService(db).claim_next(owner="worker-expired", lease_seconds=15)
+            event = db.get(AgentOutboxEvent, claim.outbox_event_id)
+            event.lease_expires_at = utcnow() - timedelta(seconds=1)
+            db.commit()
+            self.assertEqual(DurableToolRunService(db).reconcile_orphaned_steps(user_id=self.user_id), 0)
+            self.assertEqual(db.query(AgentOutboxEvent).filter_by(run_id=second_run_id).count(), 1)
+
+    def test_worker_rechecks_persisted_skill_allowlist(self) -> None:
+        with self.SessionLocal() as db:
+            SkillCatalog().install_or_update(
+                db=db,
+                user_id=self.user_id,
+                skill_key="workspace.document-review",
+                is_enabled=True,
+            )
+            # Model a stale/tampered durable envelope after a valid enqueue.
+            # Worker-side scope enforcement must still fail closed.
+            run = DurableToolRunService(db).enqueue(
+                user_id=self.user_id,
+                project_id=self.project_id,
+                conversation_id=None,
+                assistant_message_id=None,
+                skill_key="workspace.document-review",
+                calls=[{"call_id": "list", "tool_key": "workspace.files.list", "arguments": {}}],
+            )
+            state = json.loads(run.planner_state_json)
+            state["skill"]["allowed_tool_keys"] = []
+            run.planner_state_json = json.dumps(state)
+            db.commit()
+            run_id = run.id
+
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-skill-scope",
+            executor_factory=SuccessfulExecutor,
+        )
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id))
+            self.assertEqual(step.status, "skipped")
+            self.assertEqual(step.error_code, "skill_scope_violation")
+            self.assertEqual(db.query(AgentArtifact).filter_by(run_id=run_id).count(), 0)
 
     def test_artifact_tool_requires_an_explicit_project_scope(self) -> None:
         run_id = self._enqueue(

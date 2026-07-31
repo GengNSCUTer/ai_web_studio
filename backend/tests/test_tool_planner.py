@@ -6,9 +6,10 @@ import unittest
 
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.planner import DeterministicToolPlanner, LLMToolPlanner, PlannerRuntime
-from app.services.tools.schemas import ToolDefinition
+from app.services.tools.schemas import PlannedToolCall, ToolDefinition, ToolPlan
 from app.services.tools.selector import ToolCandidateSelector
 from app.services.tools.validation import ToolSchemaValidationError, ToolSchemaValidator
+from app.services.skill_catalog import SkillExecutionContext
 
 
 class FakeChatProvider:
@@ -22,6 +23,29 @@ class FakeChatProvider:
 
 
 class ToolPlannerTest(unittest.TestCase):
+    @staticmethod
+    def _document_review_skill() -> SkillExecutionContext:
+        return SkillExecutionContext(
+            skill_key="workspace.document-review",
+            version="1.1.0",
+            display_name="项目文档审阅",
+            description="review",
+            planner_instructions=("只读审阅当前工作区文件。",),
+            output_contract=("列出有来源的发现。",),
+            allowed_tool_keys=(
+                "workspace.files.list",
+                "workspace.files.search",
+                "workspace.files.read",
+            ),
+            required_tool_keys=(
+                "workspace.files.list",
+                "workspace.files.search",
+                "workspace.files.read",
+            ),
+            optional_tool_keys=(),
+            requires_tool_execution=True,
+        )
+
     def test_candidate_selector_picks_relevant_map_and_weather_tools(self) -> None:
         catalog = ToolCatalog()
         candidates, trace = ToolCandidateSelector(catalog, max_candidates=5).select(
@@ -55,6 +79,95 @@ class ToolPlannerTest(unittest.TestCase):
 
         self.assertLessEqual(len(candidates), 4)
         self.assertIn("web.tavily.search", {tool.tool_key for tool in candidates})
+
+    def test_candidate_selector_never_leaks_outside_skill_allowlist(self) -> None:
+        allowed = {"workspace.files.list", "workspace.files.search", "workspace.files.read"}
+        candidates, trace = ToolCandidateSelector(ToolCatalog()).select(
+            query="搜索今天的新闻",
+            enabled=True,
+            allowed_tool_keys=allowed,
+        )
+
+        self.assertTrue({tool.tool_key for tool in candidates}.issubset(allowed))
+        self.assertNotIn("web.tavily.search", {tool.tool_key for tool in candidates})
+        self.assertEqual(trace["scope"], "explicit_skill")
+
+    def test_skill_constrains_deterministic_fallback_and_enters_prompt(self) -> None:
+        async def run_test() -> None:
+            planner = LLMToolPlanner()
+            skill = self._document_review_skill()
+            plan = await planner.plan(
+                query="搜索今天的新闻",
+                enabled=True,
+                runtime=None,
+                skill_context=skill,
+            )
+
+            self.assertTrue(plan.calls)
+            self.assertTrue({call.tool_key for call in plan.calls}.issubset(set(skill.allowed_tool_keys)))
+            messages = planner._build_planner_messages(
+                query="审阅项目文档",
+                recent_messages=[],
+                candidate_tools=[planner.catalog.get("workspace.files.list")],
+                observations=[],
+                skill_context=skill,
+            )
+            self.assertIn("当前显式 Skill 约束", messages[0]["content"])
+            self.assertIn("只读审阅当前工作区文件", messages[0]["content"])
+            self.assertNotIn("workspace.files.apply_edit", messages[0]["content"].split("只允许规划这些工具：", 1)[1])
+
+        asyncio.run(run_test())
+
+    def test_skill_scope_filter_recursively_removes_invalid_dependency_chain(self) -> None:
+        planner = LLMToolPlanner()
+        plan = ToolPlan(
+            plan_id="dependency-scope",
+            router="test",
+            external_context_allowed=True,
+            should_use_tools=True,
+            calls=[
+                PlannedToolCall(
+                    call_id="outside",
+                    tool_key="web.tavily.search",
+                    provider="tavily",
+                    category="web_search",
+                    display_name="web",
+                    confidence=1,
+                    reason="outside",
+                    arguments={"query": "x"},
+                ),
+                PlannedToolCall(
+                    call_id="middle",
+                    tool_key="workspace.files.read",
+                    provider="workspace",
+                    category="workspace_file",
+                    display_name="read",
+                    confidence=1,
+                    reason="depends outside",
+                    arguments={"file_id": "x"},
+                    depends_on=["outside"],
+                ),
+                PlannedToolCall(
+                    call_id="tail",
+                    tool_key="workspace.files.list",
+                    provider="workspace",
+                    category="workspace_file",
+                    display_name="list",
+                    confidence=1,
+                    reason="depends middle",
+                    arguments={},
+                    depends_on=["middle"],
+                ),
+            ],
+        )
+
+        planner._constrain_plan_to_allowed_tools(
+            plan=plan,
+            allowed_tool_keys={"workspace.files.read", "workspace.files.list"},
+        )
+
+        self.assertEqual(plan.calls, [])
+        self.assertFalse(plan.should_use_tools)
 
     def test_schema_validator_normalizes_array_and_enum_defaults(self) -> None:
         catalog = ToolCatalog()

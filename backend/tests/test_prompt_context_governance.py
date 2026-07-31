@@ -21,6 +21,24 @@ class DummyMessage:
 
 
 class PromptContextGovernanceTest(unittest.TestCase):
+    def test_skill_output_contract_is_trusted_system_instruction(self) -> None:
+        result = ContextPromptBuilder().build_chat_messages(
+            messages=[DummyMessage(id="u1", role="user", content="请审阅")],
+            system_prompt=None,
+            memory_context=None,
+            context_summary=None,
+            summary_boundary_message_id=None,
+            external_context=None,
+            attachment_context=None,
+            provider_type="openai-compatible",
+            skill_instructions="只输出带文件来源的审阅结论。",
+        )
+
+        self.assertEqual(result.messages[0]["role"], "system")
+        self.assertIn("已启用 Skill 的可信输出约束", result.messages[0]["content"])
+        self.assertIn("只输出带文件来源的审阅结论", result.messages[0]["content"])
+        self.assertEqual(result.diagnostics["prompt_skill_instructions_injected"], 1)
+
     def test_summary_prompt_preserves_decisions_and_forbids_tool_calls(self) -> None:
         prompt = build_summary_prompt(
             existing_summary=None,
@@ -200,6 +218,42 @@ class PromptContextGovernanceTest(unittest.TestCase):
         self.assertIn("RAG_EVIDENCE", joined)
         self.assertIn("CURRENT_QUERY", joined)
         self.assertNotIn("MEMORY_TAIL", joined)
+
+    def test_structured_reference_budget_drops_low_priority_layer_without_cutting_query(self) -> None:
+        built = ContextPromptBuilder().build_chat_messages(
+            messages=[DummyMessage(id="u1", role="user", content="CURRENT_QUERY_MUST_SURVIVE")],
+            system_prompt="SYSTEM",
+            memory_context="MEMORY_LOW_PRIORITY " + ("M" * 900),
+            context_summary="SUMMARY_LOW_PRIORITY " + ("S" * 300),
+            summary_boundary_message_id=None,
+            external_context="TOOL_MEDIUM_PRIORITY " + ("T" * 220),
+            attachment_context="ATTACHMENT_MEDIUM_PRIORITY " + ("A" * 220),
+            knowledge_context="RAG_HIGH_PRIORITY " + ("R" * 260),
+            provider_type="openai-compatible",
+        )
+        budget = ContextBudgetConfig(
+            model_context_window=8192,
+            context_mode="balanced",
+            reserved_output_tokens=2048,
+            max_history_messages=8,
+            max_total_tokens=100000,
+            max_attachment_tokens=1000,
+            max_image_equiv_tokens=300,
+            max_summary_tokens=600,
+            max_total_chars=1000,
+            max_attachment_chars=4000,
+            max_image_equiv_chars=1200,
+            max_summary_chars=2000,
+        )
+        governed = ContextGovernanceService(budget=budget).govern_messages(built.messages)
+        joined = "\n".join(str(message.get("content", "")) for message in governed.messages)
+
+        self.assertIn("CURRENT_QUERY_MUST_SURVIVE", joined)
+        self.assertIn("RAG_HIGH_PRIORITY", joined)
+        self.assertNotIn("MEMORY_LOW_PRIORITY", joined)
+        self.assertIn("long_term_memory", governed.stats.dropped_reference_layers)
+        self.assertNotIn("knowledge_context", governed.stats.dropped_reference_layers)
+        self.assertTrue(all(not key.startswith("_") for message in governed.messages for key in message))
 
     def test_budget_clipping_does_not_claim_unused_emergency_summary(self) -> None:
         budget = ContextBudgetConfig(
