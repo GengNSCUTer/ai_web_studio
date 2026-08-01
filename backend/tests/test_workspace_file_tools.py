@@ -117,6 +117,47 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
         self.assertEqual(read_sources[0].display_text, "2: Durable checkpoint and tool approval design.")
         self.assertNotIn("storage_key", str(read_sources[0].metadata))
 
+    def test_sensitive_files_are_hidden_and_secret_values_are_redacted(self) -> None:
+        self.db.add_all(
+            [
+                ProjectFile(
+                    id="sensitive-file",
+                    project_id="project-current",
+                    user_id="user-1",
+                    kind="file",
+                    file_name=".env",
+                    mime_type="text/plain",
+                    storage_key="user-1/.env",
+                    parsed_text="API_KEY=sk-test-12345678901234567890\npassword=hunter2",
+                ),
+                ProjectFile(
+                    id="safe-file",
+                    project_id="project-current",
+                    user_id="user-1",
+                    kind="file",
+                    file_name="config-notes.md",
+                    mime_type="text/markdown",
+                    storage_key="user-1/config-notes.md",
+                    parsed_text="API_KEY=sk-test-12345678901234567890",
+                ),
+            ]
+        )
+        self.db.commit()
+
+        listed_sources, _ = asyncio.run(self.provider.run(call=build_call("workspace.files.list", {})))
+        listed_text = listed_sources[0].display_text if listed_sources else ""
+        self.assertNotIn(".env", listed_text)
+        self.assertIn("config-notes.md", listed_text)
+
+        read_sources, _ = asyncio.run(
+            self.provider.run(call=build_call("workspace.files.read", {"file_id": "safe-file"}))
+        )
+        self.assertNotIn("sk-test-12345678901234567890", read_sources[0].display_text)
+        self.assertIn("API_KEY=***", read_sources[0].display_text)
+
+        with self.assertRaisesRegex(ToolExecutionFeedbackError, "敏感文件"):
+            asyncio.run(self.provider.run(call=build_call("workspace.files.read", {"file_id": "sensitive-file"})))
+
     def test_reading_other_project_or_user_file_fails_closed(self) -> None:
         for file_id in ("file-other-project", "file-other-user"):
             with self.assertRaisesRegex(RuntimeError, "未找到"):

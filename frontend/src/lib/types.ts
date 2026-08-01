@@ -128,6 +128,7 @@ export type McpServer = {
   transport_type: string;
   auth_type: string;
   credential_provider: string | null;
+  project_id: string | null;
   trust_level: string;
   is_enabled: boolean;
   last_sync_at: string | null;

@@ -109,6 +109,7 @@ def _server_response(server: McpServer) -> McpServerResponse:
         transport_type=server.transport_type,
         auth_type=server.auth_type,
         credential_provider=server.credential_provider,
+        project_id=server.project_id,
         trust_level=server.trust_level,
         is_enabled=server.is_enabled,
         last_sync_at=_dt(server.last_sync_at),
@@ -182,12 +183,12 @@ def get_tool_settings(
     if project_id and not ProjectRepository(db).get_by_user(project_id, current_user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-    registry = ToolCatalog(db=db, user_id=current_user.id)
+    registry = ToolCatalog(db=db, user_id=current_user.id, project_id=project_id)
     repo = ToolConfigRepository(db)
     resolver = ToolCredentialResolver(db)
     credentials = {item.provider_key: item for item in repo.list_credentials(current_user.id)}
-    mcp_servers = repo.list_mcp_servers(current_user.id)
-    mcp_tool_pairs = repo.list_mcp_tools(user_id=current_user.id)
+    mcp_servers = repo.list_mcp_servers(current_user.id, project_id=project_id)
+    mcp_tool_pairs = repo.list_mcp_tools(user_id=current_user.id, project_id=project_id)
     provider_keys = sorted(
         {tool.credential_provider for tool in registry.list_definitions() if tool.credential_required}
         | {
@@ -575,6 +576,7 @@ def create_mcp_server(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     server = McpServer(
         user_id=current_user.id,
+        project_id=(payload.project_id.strip() if payload.project_id else None),
         server_key=server_key,
         name=payload.name.strip(),
         description=(payload.description or "").strip() or None,
@@ -584,6 +586,8 @@ def create_mcp_server(
         credential_provider=(payload.credential_provider or server_key).strip(),
         is_enabled=payload.is_enabled,
     )
+    if server.project_id and not ProjectRepository(db).get_by_user(server.project_id, current_user.id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     return _server_response(repo.save_mcp_server(server))
 
 
@@ -617,6 +621,11 @@ def update_mcp_server(
         server.auth_type = data["auth_type"]
     if "credential_provider" in data and data["credential_provider"] is not None:
         server.credential_provider = data["credential_provider"].strip() or server.server_key
+    if "project_id" in data:
+        project_id = (str(data["project_id"]).strip() if data["project_id"] else None)
+        if project_id and not ProjectRepository(db).get_by_user(project_id, current_user.id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        server.project_id = project_id
     if "is_enabled" in data and data["is_enabled"] is not None:
         server.is_enabled = bool(data["is_enabled"])
     return _server_response(repo.save_mcp_server(server))

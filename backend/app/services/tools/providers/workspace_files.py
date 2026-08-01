@@ -23,6 +23,18 @@ class WorkspaceFileToolProvider:
     MAX_SEARCH_RESULTS = 5
     MAX_READ_LINES = 200
     MAX_SOURCE_CHARS = 12_000
+    # ProjectFile IDs are scoped, but a scoped file can still contain a secret
+    # that should never be sent to an LLM/provider.
+    SENSITIVE_FILE_NAME_PATTERN = re.compile(
+        r"(^|/)(\.env(?:\..*)?|.*(?:credentials?|secrets?|id_rsa|\.pem|\.key))$",
+        flags=re.IGNORECASE,
+    )
+    SENSITIVE_CONTENT_PATTERNS = (
+        re.compile(
+            r"(?i)\b(api[_-]?key|access[_-]?token|password|passwd|secret|authorization)\b\s*[:=]\s*[^\s,;]+"
+        ),
+        re.compile(r"(?i)\b(?:sk-[a-z0-9_-]{16,}|ghp_[a-z0-9]{20,}|AKIA[0-9A-Z]{16})\b"),
+    )
 
     def __init__(self, *, db: Session | None, user_id: str | None, project_id: str | None) -> None:
         self.db = db
@@ -53,9 +65,13 @@ class WorkspaceFileToolProvider:
         )
 
     def _list_files(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
-        files = list(
-            self.db.scalars(self._base_statement().order_by(ProjectFile.created_at.desc()).limit(self.MAX_LIST_RESULTS)).all()
-        )
+        files = [
+            item
+            for item in self.db.scalars(
+                self._base_statement().order_by(ProjectFile.created_at.desc()).limit(self.MAX_LIST_RESULTS * 4)
+            ).all()
+            if not self.is_sensitive_file_name(item.file_name)
+        ][: self.MAX_LIST_RESULTS]
         if not files:
             return [], {"adapter_type": "workspace_file", "operation": "list", "files_count": 0}
 
@@ -92,7 +108,11 @@ class WorkspaceFileToolProvider:
         query = str(call.arguments.get("query") or "").strip()
         if not query:
             raise ToolExecutionFeedbackError("文件搜索缺少 query。")
-        candidates = list(self.db.scalars(self._base_statement().order_by(ProjectFile.created_at.desc()).limit(120)).all())
+        candidates = [
+            item
+            for item in self.db.scalars(self._base_statement().order_by(ProjectFile.created_at.desc()).limit(480)).all()
+            if not self.is_sensitive_file_name(item.file_name)
+        ][:120]
         query_terms = self._search_terms(query)
         ranked: list[tuple[float, ProjectFile, str]] = []
         for item in candidates:
@@ -101,7 +121,7 @@ class WorkspaceFileToolProvider:
             score = self._score(query_terms, haystack)
             if score <= 0:
                 continue
-            ranked.append((score, item, self._snippet(text=text, query_terms=query_terms)))
+            ranked.append((score, item, self._redact_text(self._snippet(text=text, query_terms=query_terms))))
 
         ranked.sort(key=lambda entry: (-entry[0], entry[1].file_name, entry[1].id))
         sources: list[ExternalSource] = []
@@ -135,6 +155,7 @@ class WorkspaceFileToolProvider:
         if not item:
             # Do not distinguish an absent file from another user's file.
             raise ToolExecutionFeedbackError("工作区中未找到该文件。")
+        self._ensure_agent_file_allowed(item.file_name)
         text = (item.parsed_text or "").strip()
         if not text:
             return [], {"adapter_type": "workspace_file", "operation": "read", "file_id": item.id, "empty": True}
@@ -149,7 +170,7 @@ class WorkspaceFileToolProvider:
         rendered_lines: list[str] = []
         chars = 0
         for index, line in enumerate(lines[start_index:end_index], start=start_index + 1):
-            rendered = f"{index}: {line}"
+            rendered = f"{index}: {self._redact_text(line)}"
             if chars + len(rendered) + 1 > self.MAX_SOURCE_CHARS:
                 rendered_lines.append("[文件片段已达安全输出上限]")
                 break
@@ -199,6 +220,7 @@ class WorkspaceFileToolProvider:
         item = self.db.scalars(self._base_statement().where(ProjectFile.id == file_id).limit(1)).first()
         if not item:
             raise ToolExecutionFeedbackError("工作区中未找到该文件。")
+        self._ensure_agent_file_allowed(item.file_name)
 
         original = item.parsed_text or ""
         matches = original.count(old_string)
@@ -220,7 +242,7 @@ class WorkspaceFileToolProvider:
                 n=3,
             )
         )
-        diff_text = "\n".join(diff_lines)
+        diff_text = self._redact_text("\n".join(diff_lines))
         if len(diff_text) > self.MAX_SOURCE_CHARS:
             diff_text = diff_text[: self.MAX_SOURCE_CHARS].rstrip() + "\n[Diff 已达安全输出上限]"
         start_line = original[: original.index(old_string)].count("\n") + 1
@@ -262,6 +284,25 @@ class WorkspaceFileToolProvider:
         except (TypeError, ValueError):
             return default
         return max(lower, min(parsed, upper))
+
+    @classmethod
+    def is_sensitive_file_name(cls, file_name: str | None) -> bool:
+        return bool(cls.SENSITIVE_FILE_NAME_PATTERN.search((file_name or "").strip()))
+
+    @classmethod
+    def _ensure_agent_file_allowed(cls, file_name: str | None) -> None:
+        if cls.is_sensitive_file_name(file_name):
+            raise ToolExecutionFeedbackError("出于安全原因，该敏感文件不允许通过 Agent 工具读取或修改。")
+
+    @classmethod
+    def _redact_text(cls, text: str) -> str:
+        redacted = text
+        for pattern in cls.SENSITIVE_CONTENT_PATTERNS:
+            redacted = pattern.sub(
+                lambda match: f"{match.group(1) if match.lastindex else '敏感值'}=***",
+                redacted,
+            )
+        return redacted
 
     @staticmethod
     def _search_terms(value: str) -> set[str]:

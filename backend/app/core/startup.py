@@ -374,6 +374,15 @@ def ensure_runtime_schema() -> None:
             "update mcp_tools set is_enabled = false, read_only = false, risk_level = 'high'"
         )
 
+    mcp_server_columns = _get_column_names("mcp_servers")
+    if mcp_server_columns and "project_id" not in mcp_server_columns:
+        # MCP Server 作用域是权限边界的一部分。create_all 只补新表，不能为
+        # 已有部署自动补列，因此这里保持升级路径幂等。
+        statements.append("alter table mcp_servers add column project_id varchar(36)")
+    mcp_server_indexes = _get_index_names("mcp_servers")
+    if mcp_server_columns and "ix_mcp_servers_project_id" not in mcp_server_indexes:
+        statements.append("create index if not exists ix_mcp_servers_project_id on mcp_servers (project_id)")
+
     skill_installation_columns = _get_column_names("user_skill_installations")
     if skill_installation_columns and "manifest_digest" not in skill_installation_columns:
         statements.append("alter table user_skill_installations add column manifest_digest varchar(64)")

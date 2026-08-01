@@ -136,6 +136,7 @@ class McpServerCreate(BaseModel):
     transport_type: Literal["streamable_http"] = "streamable_http"
     auth_type: Literal["none", "api_key", "bearer", "api_key_header"] = "none"
     credential_provider: str | None = Field(default=None, max_length=96)
+    project_id: str | None = Field(default=None, max_length=36)
     is_enabled: bool = True
 
 
@@ -146,6 +147,7 @@ class McpServerUpdate(BaseModel):
     transport_type: Literal["streamable_http"] | None = None
     auth_type: Literal["none", "api_key", "bearer", "api_key_header"] | None = None
     credential_provider: str | None = Field(default=None, max_length=96)
+    project_id: str | None = Field(default=None, max_length=36)
     is_enabled: bool | None = None
 
 
@@ -158,6 +160,7 @@ class McpServerResponse(BaseModel):
     transport_type: str
     auth_type: str
     credential_provider: str | None = None
+    project_id: str | None = None
     trust_level: str
     is_enabled: bool
     last_sync_at: str | None = None

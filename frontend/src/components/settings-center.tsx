@@ -153,6 +153,9 @@ const TEXT = {
     testResult: "测试结果",
     addMcpServerTitle: "添加 MCP Server",
     mcpServerDialogHint: "填写 Streamable HTTP / SSE MCP Server 地址。需要 API Key 时，先在工具凭证里配置对应 provider。",
+    mcpServerScopeWorkspace: "作用域：当前工作区",
+    mcpServerScopeUser: "作用域：当前用户的所有工作区",
+    mcpServerScopeHint: "选择了工作区时，Server 只会在该工作区的工具目录中出现；未选择工作区时，作为当前用户级 Server 复用。",
     knowledgeSettingsHint:
       "知识库模型服务独立于聊天模型服务：Embedding/Rerank 可使用云端 API，也可后续切到本地模型服务。新建知识库时会默认带入这里的配置。",
     parserProvider: "默认解析器",
@@ -279,6 +282,9 @@ const TEXT = {
     testResult: "Test result",
     addMcpServerTitle: "Add MCP Server",
     mcpServerDialogHint: "Fill in a Streamable HTTP / SSE MCP Server URL. If it needs an API key, configure its provider credential first.",
+    mcpServerScopeWorkspace: "Scope: current workspace",
+    mcpServerScopeUser: "Scope: all workspaces for this user",
+    mcpServerScopeHint: "With a workspace selected, the Server is visible only in that workspace. Without one, it is reusable across this user's workspaces.",
     knowledgeSettingsHint:
       "Knowledge model services are separate from chat model services. Embedding/Rerank can use cloud APIs and can later be switched to local model services. New knowledge bases use these defaults.",
     parserProvider: "Default parser",
@@ -973,6 +979,7 @@ export function SettingsCenter({
         auth_type: mcpServerDraft.auth_type,
         transport_type: "streamable_http",
         credential_provider: mcpServerDraft.credential_provider.trim() || mcpServerDraft.server_key.trim(),
+        project_id: selectedProject?.id ?? null,
         is_enabled: true,
       };
       if (!payload.server_key || !payload.name || !payload.url) {
@@ -1915,6 +1922,9 @@ export function SettingsCenter({
                                   auth={server.auth_type} · credential={server.credential_provider ?? server.server_key}
                                   {server.last_error ? ` · error=${server.last_error}` : ""}
                                 </p>
+                                <p className="mt-1 text-[10px] text-[var(--ink-muted)]">
+                                  {server.project_id ? text.mcpServerScopeWorkspace : text.mcpServerScopeUser}
+                                </p>
                               </div>
                               <div className="flex flex-wrap gap-2">
                                 <button
@@ -2476,6 +2486,12 @@ export function SettingsCenter({
               </button>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-sm text-[var(--ink-soft)] sm:col-span-2">
+                <p className="font-medium text-[var(--ink-strong)]">
+                  {selectedProject ? text.mcpServerScopeWorkspace : text.mcpServerScopeUser}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">{text.mcpServerScopeHint}</p>
+              </div>
               <input
                 value={mcpServerDraft.server_key}
                 onChange={(event) =>

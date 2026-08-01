@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.tool_config import (
@@ -69,12 +69,14 @@ class ToolConfigRepository:
         self.db.refresh(policy)
         return policy
 
-    def list_mcp_servers(self, user_id: str) -> list[McpServer]:
+    def list_mcp_servers(self, user_id: str, *, project_id: str | None = None) -> list[McpServer]:
         stmt = (
             select(McpServer)
             .where(McpServer.user_id == user_id)
             .order_by(McpServer.created_at.asc(), McpServer.name.asc())
         )
+        if project_id:
+            stmt = stmt.where(or_(McpServer.project_id.is_(None), McpServer.project_id == project_id))
         return list(self.db.scalars(stmt).all())
 
     def get_mcp_server(self, *, user_id: str, server_id: str) -> McpServer | None:
@@ -96,13 +98,24 @@ class ToolConfigRepository:
         self.db.delete(server)
         self.db.commit()
 
-    def list_mcp_tools(self, *, user_id: str, enabled_only: bool = False) -> list[tuple[McpTool, McpServer]]:
+    def list_mcp_tools(
+        self,
+        *,
+        user_id: str,
+        enabled_only: bool = False,
+        project_id: str | None = None,
+    ) -> list[tuple[McpTool, McpServer]]:
         stmt = (
             select(McpTool, McpServer)
             .join(McpServer, McpServer.id == McpTool.server_id)
             .where(McpServer.user_id == user_id)
             .order_by(McpServer.name.asc(), McpTool.display_name.asc())
         )
+        if project_id:
+            # A user-scoped server (NULL project_id) is available to all of the
+            # user's projects; a project-scoped server must never leak into a
+            # different workspace's catalog.
+            stmt = stmt.where(or_(McpServer.project_id.is_(None), McpServer.project_id == project_id))
         if enabled_only:
             stmt = stmt.where(
                 McpServer.is_enabled.is_(True),

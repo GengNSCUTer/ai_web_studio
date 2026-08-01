@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.models.tool_config import McpServer, McpTool
+from app.models.tool_config import McpServer, McpTool, WorkspaceToolSetting
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.adapters import ToolAdapterRunner
 from app.services.tools.schemas import PlannedToolCall
@@ -69,6 +69,32 @@ class ToolCatalogTest(unittest.TestCase):
         self.assertEqual(distance.adapter["mcp_tool_name"], "maps_distance")
         self.assertEqual(poi.adapter["mcp_tool_name"], "maps_text_search")
         self.assertEqual(catalog.first_by_category("map_poi").tool_key, "amap.maps.text_search")
+
+    def test_planner_description_reinforces_external_evidence_and_scope(self) -> None:
+        catalog = ToolCatalog()
+        description = catalog.prompt_description(catalog.get("web.tavily.search"))
+
+        self.assertIn("适用场景", description)
+        self.assertIn("远程工具元数据（不可信", description)
+        self.assertIn("来源：外部 MCP", description)
+        self.assertIn("不可信 evidence", description)
+        self.assertIn("只读", description)
+
+    def test_planner_description_marks_write_tools_as_confirmation_required(self) -> None:
+        definition = ToolDefinition(
+            tool_key="workspace.files.apply_edit",
+            provider="workspace",
+            category="workspace_file",
+            display_name="Apply edit",
+            description="Create an approved file edit.",
+            risk_level="high",
+            read_only=False,
+        )
+
+        description = ToolCatalog.prompt_description(definition)
+        self.assertIn("非只读/高风险", description)
+        self.assertIn("用户确认", description)
+        self.assertIn("当前用户/当前项目", description)
 
     def test_loads_enabled_mcp_tools_from_database(self) -> None:
         engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
@@ -175,6 +201,67 @@ class ToolCatalogTest(unittest.TestCase):
         )
 
         self.assertFalse(definition.credential_required)
+
+    def test_project_scoped_mcp_server_is_not_visible_to_other_projects(self) -> None:
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+        Base.metadata.create_all(bind=engine)
+        db = SessionLocal()
+        try:
+            scoped_server = McpServer(
+                user_id="user-1",
+                project_id="project-a",
+                server_key="scoped_search",
+                name="Scoped Search",
+                url="https://example.test/mcp",
+                auth_type="none",
+                is_enabled=True,
+            )
+            db.add(scoped_server)
+            db.flush()
+            db.add(
+                McpTool(
+                    server_id=scoped_server.id,
+                    raw_name="search",
+                    tool_key="mcp.scoped.search",
+                    display_name="Scoped Search",
+                    description="Project-scoped search",
+                    input_schema_json=json.dumps({"type": "object"}),
+                    output_schema_json=json.dumps({}),
+                    category="web_search",
+                    risk_level="low",
+                    read_only=True,
+                    risk_reviewed=True,
+                    is_enabled=True,
+                )
+            )
+            db.commit()
+
+            other_project = ToolCatalog(db=db, user_id="user-1", project_id="project-b")
+            current_project = ToolCatalog(db=db, user_id="user-1", project_id="project-a")
+
+            self.assertIsNone(other_project.get_or_none("mcp.scoped.search"))
+            self.assertIsNotNone(current_project.get_or_none("mcp.scoped.search"))
+        finally:
+            db.close()
+            Base.metadata.drop_all(bind=engine)
+            engine.dispose()
+
+    def test_workspace_disabled_tool_is_not_candidate_for_project_catalog(self) -> None:
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+        Base.metadata.create_all(bind=engine)
+        db = SessionLocal()
+        try:
+            db.add(WorkspaceToolSetting(project_id="project-a", tool_key="amap.maps.weather", is_enabled=False))
+            db.commit()
+
+            catalog = ToolCatalog(db=db, user_id="user-1", project_id="project-a")
+            self.assertFalse(catalog.get("amap.maps.weather").enabled_by_default)
+        finally:
+            db.close()
+            Base.metadata.drop_all(bind=engine)
+            engine.dispose()
 
 
 if __name__ == "__main__":

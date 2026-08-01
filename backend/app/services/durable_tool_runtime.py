@@ -109,7 +109,7 @@ class DurableToolRunService:
                 raise DurableToolRuntimeError("skill_not_ready", str(exc)) from exc
             if not skill_context.durable_eligible:
                 raise DurableToolRuntimeError("skill_not_durable", "该 Skill 不允许进入可恢复只读工作流。")
-        catalog = ToolCatalog(db=self.db, user_id=user_id)
+        catalog = ToolCatalog(db=self.db, user_id=user_id, project_id=project_id)
         validator = ToolSchemaValidator()
         normalized_calls: list[dict[str, Any]] = []
         call_ids: set[str] = set()
@@ -476,7 +476,7 @@ class DurableToolRunService:
             allowed = set(skill.get("allowed_tool_keys") or [])
             if step.tool_key not in allowed:
                 raise DurableToolRuntimeError("skill_scope_violation", "历史 Step 已不在 Skill 审核范围内。")
-        definition = ToolCatalog(db=self.db, user_id=user_id).get_or_none(step.tool_key)
+        definition = ToolCatalog(db=self.db, user_id=user_id, project_id=run.project_id).get_or_none(step.tool_key)
         if not definition or not definition.read_only or definition.risk_level != "low":
             raise DurableToolRuntimeError("unsafe_or_missing_tool", "工具已失效或不再满足只读低风险约束。")
         next_version = int(run.state_version or 0) + 1
@@ -873,7 +873,7 @@ class DurableToolWorker:
             project_id=run.project_id,
             conversation_id=run.conversation_id,
             assistant_message_id=run.assistant_message_id,
-            catalog=ToolCatalog(db=db, user_id=run.user_id),
+            catalog=ToolCatalog(db=db, user_id=run.user_id, project_id=run.project_id),
         )
         result, events = await self._execute_with_heartbeat(executor, call, claim)
         if result.status == "success":
@@ -946,7 +946,7 @@ class DurableToolWorker:
                     return
 
     def _build_call(self, db: Session, run: AgentRun, step: AgentStep) -> PlannedToolCall:
-        catalog = ToolCatalog(db=db, user_id=run.user_id)
+        catalog = ToolCatalog(db=db, user_id=run.user_id, project_id=run.project_id)
         definition = catalog.get_or_none(step.tool_key)
         if not definition or not definition.read_only or definition.risk_level != "low":
             raise DurableToolRuntimeError("unsafe_or_missing_tool", "工具已失效或不再满足只读低风险约束。")

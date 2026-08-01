@@ -44,7 +44,7 @@ class ExternalContextService:
         planner_runtime: PlannerRuntime | None = None,
         workflow: ToolWorkflowService | None = None,
     ) -> None:
-        self.registry = registry or ToolCatalog(db=db, user_id=user_id)
+        self.registry = registry or ToolCatalog(db=db, user_id=user_id, project_id=project_id)
         deterministic = router or DeterministicToolPlanner(self.registry)
         self.planner = planner or LLMToolPlanner(
             catalog=self.registry,

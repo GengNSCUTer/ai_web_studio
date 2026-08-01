@@ -185,7 +185,7 @@ class LLMToolPlanner:
                 "provider": tool.provider,
                 "category": tool.category,
                 "display_name": tool.display_name,
-                "description": tool.description,
+                "description": self.catalog.prompt_description(tool),
                 "when_to_use": tool.when_to_use,
                 "when_not_to_use": tool.when_not_to_use,
                 "input_schema": tool.input_schema,
