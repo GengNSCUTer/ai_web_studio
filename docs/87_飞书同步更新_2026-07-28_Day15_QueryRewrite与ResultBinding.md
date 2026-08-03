@@ -18,7 +18,7 @@ Knowledge Job 已经具备稳定 event ID、Job 状态幂等、Lease Version、H
 
 高风险 Tool 的用户确认后 continuation、外部副作用跨请求持久化幂等、Agent Run/Step Checkpoint、崩溃后从某个 Tool Step 恢复，以及 Knowledge Job 周期对账、DLQ 受控重放和跨系统补偿仍未完成。这些能力需要持久数据库状态机、参数哈希、审批协议、lease/version 和外部副作用核对，不能靠内存 Map 正确解决。
 
-该阶段的历史实现是：最多两轮、每份计划最多五次调用的 Bounded Tool Workflow，支持受控结构化 Result Binding；不是任意 DAG 编排平台或 Durable Agent Runtime。后续已将同步 Chat 上限升级为五轮，当前口径以 `ExternalContextService.max_agent_rounds = 5` 为准。
+该阶段记录的是较早版本的 Bounded Tool Workflow 与受控结构化 Result Binding；不是任意 DAG 编排平台或 Durable Agent Runtime。后续已将同步 Chat 上限统一为五轮，当前口径以 `ExternalContextService.max_agent_rounds = 5` 为准。
 
 ## 验证结果
 
