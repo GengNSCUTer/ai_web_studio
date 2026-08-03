@@ -36,7 +36,7 @@ class ToolWorkflowService:
     """执行一份 ToolPlan 内有上限的调用图。
 
     这里负责依赖顺序、并行、单次计划的重复调用抑制、fallback 和 Trace。
-    外层 ExternalContextService 才负责最多两轮的 observe -> re-plan。
+    外层 ExternalContextService 才负责最多五轮的 observe -> re-plan。
     """
 
     max_tool_calls = 5
