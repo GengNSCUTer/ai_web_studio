@@ -162,6 +162,11 @@ class ChatTurnBootstrapper:
             conversation.title = derive_title(payload.title, payload.content)
             self.conversation_repo.save(conversation)
 
+        # 先把超过自愈阈值的残留流标记为失败，再在会话锁内检查是否仍有
+        # 活跃 generation。锁只覆盖本次准备事务，不会跨越模型调用。
+        self.message_repo.mark_stale_streaming_messages(conversation.id)
+        self.message_repo.ensure_no_active_streaming(conversation.id)
+
         self.apply_turn_overrides(
             conversation=conversation,
             model_name=payload.model_name,

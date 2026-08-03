@@ -17,6 +17,7 @@ from app.models.observability import ChatRuntimeMetric
 from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.message_repo import MessageRepository
+from app.repositories.message_repo import MessageGenerationConflict
 from app.schemas.message import ChatEditLastUserRequest, ChatRegenerateRequest, ChatStreamRequest
 from app.services.chat_execution_service import (
     ChatExecutionContext,
@@ -224,15 +225,25 @@ def _persist_stream_result(
     status_value: str,
     content_parts: list[str],
     reasoning_parts: list[str],
-) -> None:
+) -> bool:
     """统一收口流式结果，避免完成、取消和失败分支写出不同的消息字段。"""
-    context.assistant_message.content = "".join(content_parts)
-    context.assistant_message.reasoning_content = "".join(reasoning_parts) or None
-    context.assistant_message.external_sources = (
+    content = "".join(content_parts)
+    reasoning_content = "".join(reasoning_parts) or None
+    external_sources = (
         json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
     )
-    context.assistant_message.status = status_value
-    context.message_service.save_message(context.assistant_message)
+    persisted = context.message_service.save_generation_result(
+        message=context.assistant_message,
+        generation_id=getattr(context, "generation_id", None),
+        content=content,
+        reasoning_content=reasoning_content,
+        external_sources=external_sources,
+        status=status_value,
+    )
+    if not persisted:
+        # 另一个请求已经换代并接管了同一条 assistant。旧请求可以结束，
+        # 但不能再写消息、指标或自动记忆任务。
+        return False
     # Observability is a separate best-effort record. The assistant message is
     # already committed above; metric persistence must never change chat outcome.
     try:
@@ -274,6 +285,7 @@ def _persist_stream_result(
         except Exception:
             context.message_service.repo.db.rollback()
             logger.warning("Failed to enqueue memory candidate extraction job")
+    return True
 
 
 def _build_streaming_response(
@@ -362,12 +374,21 @@ def _build_streaming_response(
                         yield _encode_stream_event("provider_usage", **event.data)
 
             # 模型正常结束后，一次性把完整 answer/reasoning/sources 写回 assistant 消息。
-            _persist_stream_result(
+            persisted = _persist_stream_result(
                 context,
                 status_value="done",
                 content_parts=content_parts,
                 reasoning_parts=reasoning_parts,
             )
+            if not persisted:
+                if event_stream:
+                    yield _encode_stream_event(
+                        "model_error",
+                        error="该回答已被新的生成请求接管。",
+                        error_code="generation_superseded",
+                        assistant_message_id=context.assistant_message.id,
+                    )
+                return
             if event_stream:
                 yield _encode_stream_event("done", assistant_message_id=context.assistant_message.id)
         except asyncio.CancelledError:
@@ -386,12 +407,21 @@ def _build_streaming_response(
                 logger.warning("Chat provider stream timed out: %s", exc.timeout_kind)
             else:
                 logger.error("Chat provider stream failed: %s", type(exc).__name__)
-            _persist_stream_result(
+            persisted = _persist_stream_result(
                 context,
                 status_value="failed",
                 content_parts=content_parts,
                 reasoning_parts=reasoning_parts,
             )
+            if not persisted:
+                if event_stream:
+                    yield _encode_stream_event(
+                        "model_error",
+                        error="该回答已被新的生成请求接管。",
+                        error_code="generation_superseded",
+                        assistant_message_id=context.assistant_message.id,
+                    )
+                return
             if event_stream:
                 error_code, public_error = _public_stream_error(exc)
                 yield _encode_stream_event(
@@ -476,7 +506,10 @@ async def regenerate_last_answer_stream(
     if not user_message:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未找到对应的上一条用户消息")
 
-    message_service.reset_assistant_for_regeneration(assistant_message)
+    try:
+        message_service.reset_assistant_for_regeneration(assistant_message)
+    except MessageGenerationConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     context = await ChatExecutionService(db=db, current_user=current_user).prepare_existing_turn_execution(
         ExistingTurnExecutionInput(
@@ -535,13 +568,16 @@ async def edit_last_user_stream(
 
     if payload.attachments is not None:
         ChatExecutionService.validate_attachment_context_inputs(payload.attachments)
-    message_service.edit_and_reset_for_regeneration(
-        user_message=user_message,
-        assistant_message=assistant_message,
-        content=content,
-        uploads=payload.attachments,
-        user_id=current_user.id,
-    )
+    try:
+        message_service.edit_and_reset_for_regeneration(
+            user_message=user_message,
+            assistant_message=assistant_message,
+            content=content,
+            uploads=payload.attachments,
+            user_id=current_user.id,
+        )
+    except MessageGenerationConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     context = await ChatExecutionService(db=db, current_user=current_user).prepare_existing_turn_execution(
         ExistingTurnExecutionInput(

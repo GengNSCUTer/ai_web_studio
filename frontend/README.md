@@ -28,7 +28,7 @@
 
 - 前端 `fetch + ReadableStream`
 - Next BFF `/api/chat`
-- FastAPI `/api/chat/text-stream`
+- FastAPI `/api/chat/events-stream`（`/api/chat/text-stream` 仅保留为旧的纯文本兼容入口）
 
 不再使用旧的 AI SDK `useChat / TextStreamChatTransport` 方案，也不再使用旧的手写 SSE 主链路。
 

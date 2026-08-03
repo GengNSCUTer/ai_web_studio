@@ -138,6 +138,10 @@
       "result_mapper": "tavily_search"
     },
     "source_type": "mcp",
+    "quality_contract": {
+      "min_sources": 1,
+      "non_empty_paths": ["/sources/0/display_text"]
+    },
     "risk_level": "low",
     "fallback_tool_key": null,
     "enabled_by_default": true,
@@ -179,6 +183,10 @@
       "result_mapper": "amap_map"
     },
     "source_type": "mcp",
+    "quality_contract": {
+      "min_sources": 1,
+      "non_empty_paths": ["/sources/0/display_text"]
+    },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
     "enabled_by_default": true,
@@ -216,6 +224,10 @@
       "result_mapper": "amap_weather"
     },
     "source_type": "mcp",
+    "quality_contract": {
+      "min_sources": 1,
+      "non_empty_paths": ["/sources/0/display_text"]
+    },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
     "enabled_by_default": true,
@@ -264,6 +276,10 @@
       "result_mapper": "amap_distance"
     },
     "source_type": "mcp",
+    "quality_contract": {
+      "min_sources": 1,
+      "non_empty_paths": ["/sources/0/display_text"]
+    },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
     "enabled_by_default": true,

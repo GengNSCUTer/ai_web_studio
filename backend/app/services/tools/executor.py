@@ -7,12 +7,15 @@ from sqlalchemy.orm import Session
 from app.services.tools.adapters import ToolAdapterRunner
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.credentials import ToolCredentialResolver
+from app.services.tools.quality import evaluate_tool_result_quality
+from app.services.tools.validation import ToolSchemaValidationError, ToolSchemaValidator
 from app.services.tools.schemas import (
     ExternalSource,
     PlannedToolCall,
     ToolCallResult,
     ToolExecutionFeedbackError,
     ToolTraceEvent,
+    redact_sensitive_text,
     redact_sensitive_arguments,
 )
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
@@ -57,6 +60,51 @@ class ToolExecutor:
         if not definition:
             return self._skipped(call, f"未知工具：{call.tool_key}")
 
+        # Planner and Durable Runtime both validate arguments, but Executor is
+        # the final boundary shared by fallback calls and direct internal callers.
+        # Revalidate before permission/credential resolution or any network side effect.
+        try:
+            validator = ToolSchemaValidator()
+            raw_arguments = call.arguments
+            if isinstance(raw_arguments, dict):
+                defaults = dict(definition.adapter.get("default_arguments") or {})
+                fixed_arguments = dict(definition.adapter.get("fixed_arguments") or {})
+                effective_arguments = {**defaults, **raw_arguments, **fixed_arguments}
+                validated_arguments = validator.validate(
+                    definition=definition,
+                    arguments=effective_arguments,
+                )
+                # Fixed arguments are trusted adapter-owned values. Keep them
+                # out of model-controlled calls and public traces after the
+                # effective input has been validated.
+                call.arguments = {
+                    key: value
+                    for key, value in validated_arguments.items()
+                    if key not in fixed_arguments
+                }
+            else:
+                # Preserve the fail-closed non-object check without attempting
+                # to merge adapter-owned mappings into an invalid value.
+                call.arguments = validator.validate(
+                    definition=definition,
+                    arguments=raw_arguments,
+                )
+        except ToolSchemaValidationError as exc:
+            reason = f"工具参数校验失败：{str(exc)[:400]}"
+            result, skipped_events = self._skipped(call, reason)
+            return result, [
+                ToolTraceEvent(
+                    type="tool_schema_validation",
+                    payload={
+                        "call_id": call.call_id,
+                        "tool_key": call.tool_key,
+                        "status": "failed",
+                        "reason": reason,
+                    },
+                ),
+                *skipped_events,
+            ]
+
         permission_resolver = getattr(self.credential_resolver, "get_workspace_permission_mode", None)
         permission_mode = (
             permission_resolver(project_id=self.project_id)
@@ -65,6 +113,16 @@ class ToolExecutor:
         )
 
         events: list[ToolTraceEvent] = []
+        events.append(
+            ToolTraceEvent(
+                type="tool_schema_validation",
+                payload={
+                    "call_id": call.call_id,
+                    "tool_key": call.tool_key,
+                    "status": "passed",
+                },
+            )
+        )
         events.append(
             ToolTraceEvent(
                 type="tool_policy_check",
@@ -153,6 +211,37 @@ class ToolExecutor:
                     except AgentRuntimeError as exc:
                         result, skipped_events = self._skipped(call, str(exc))
                         return result, [*events, *skipped_events]
+                    applied_result = ToolCallResult(
+                        call=call,
+                        status="success",
+                        sources=[
+                            ExternalSource(
+                                source_type="workspace_file_revision",
+                                provider="workspace",
+                                title=f"{proposal.file_name} 已更新",
+                                display_text=(
+                                    "修改已按工作区权限策略应用，并生成可审计的文件版本。"
+                                ),
+                                metadata={
+                                    "call_id": call.call_id,
+                                    "tool_key": call.tool_key,
+                                    "file_id": applied.file_id,
+                                    "run_id": applied.run_id,
+                                    "step_id": applied.step_id,
+                                    "revision_id": applied.revision_id,
+                                    "revision_number": applied.revision_number,
+                                    "applied": True,
+                                    "permission_mode": permission_mode,
+                                },
+                            )
+                        ],
+                        elapsed_ms=0,
+                    )
+                    self._apply_quality(
+                        result=applied_result,
+                        definition=definition,
+                        events=events,
+                    )
                     events.append(
                         ToolTraceEvent(
                             type="tool_call_end",
@@ -160,6 +249,7 @@ class ToolExecutor:
                                 "call_id": call.call_id,
                                 "tool_key": call.tool_key,
                                 "status": "success",
+                                "quality_status": applied_result.quality_status,
                                 "permission_mode": permission_mode,
                                 "run_id": applied.run_id,
                                 "step_id": applied.step_id,
@@ -171,35 +261,7 @@ class ToolExecutor:
                             },
                         )
                     )
-                    return (
-                        ToolCallResult(
-                            call=call,
-                            status="success",
-                            sources=[
-                                ExternalSource(
-                                    source_type="workspace_file_revision",
-                                    provider="workspace",
-                                    title=f"{proposal.file_name} 已更新",
-                                    display_text=(
-                                        "修改已按工作区权限策略应用，并生成可审计的文件版本。"
-                                    ),
-                                    metadata={
-                                        "call_id": call.call_id,
-                                        "tool_key": call.tool_key,
-                                        "file_id": applied.file_id,
-                                        "run_id": applied.run_id,
-                                        "step_id": applied.step_id,
-                                        "revision_id": applied.revision_id,
-                                        "revision_number": applied.revision_number,
-                                        "applied": True,
-                                        "permission_mode": permission_mode,
-                                    },
-                                )
-                            ],
-                            elapsed_ms=0,
-                        ),
-                        events,
-                    )
+                    return applied_result, events
                 events.append(
                     ToolTraceEvent(
                         type="tool_confirmation_required",
@@ -344,6 +406,13 @@ class ToolExecutor:
                 api_key=credential.api_key if credential else None,
             )
             for source_index, source in enumerate(sources, start=1):
+                # Adapter output is untrusted evidence. Sanitize before it can
+                # reach observations, result bindings, public responses, or a
+                # durable Artifact.
+                source.display_text = redact_sensitive_text(source.display_text)
+                source.title = redact_sensitive_text(source.title)
+                source.url = redact_sensitive_text(source.url) if source.url else None
+                source.metadata = redact_sensitive_arguments(source.metadata or {})
                 source.metadata.setdefault("call_id", call.call_id)
                 source.metadata.setdefault("tool_key", call.tool_key)
                 source.metadata.setdefault("tool_display_name", call.display_name)
@@ -356,6 +425,11 @@ class ToolExecutor:
                 sources=sources,
                 elapsed_ms=elapsed_ms,
             )
+            quality = self._apply_quality(
+                result=result,
+                definition=definition,
+                events=events,
+            )
             events.append(
                 ToolTraceEvent(
                     type="tool_call_end",
@@ -366,6 +440,7 @@ class ToolExecutor:
                         "category": call.category,
                         "display_name": call.display_name,
                         "status": "success",
+                        "quality_status": quality.status,
                         "elapsed_ms": elapsed_ms,
                         "sources_count": len(sources),
                         "adapter": adapter_metadata,
@@ -402,6 +477,7 @@ class ToolExecutor:
                 )
             )
             return result, events
+
         except Exception:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             # Adapter/MCP 的底层异常可能带 endpoint、query 参数或远端响应正文，不能进入 Trace。
@@ -431,6 +507,34 @@ class ToolExecutor:
                 )
             )
             return result, events
+
+    @staticmethod
+    def _apply_quality(
+        *,
+        result: ToolCallResult,
+        definition,
+        events: list[ToolTraceEvent],
+    ):
+        quality = evaluate_tool_result_quality(
+            sources=result.sources,
+            contract=definition.quality_contract,
+        )
+        result.quality_status = quality.status
+        result.quality_reasons = list(quality.reasons)
+        result.quality_metadata = dict(quality.metadata)
+        events.append(
+            ToolTraceEvent(
+                type="tool_result_quality",
+                payload={
+                    "call_id": result.call.call_id,
+                    "tool_key": result.call.tool_key,
+                    "status": quality.status,
+                    "reasons": list(quality.reasons),
+                    "metadata": dict(quality.metadata),
+                },
+            )
+        )
+        return quality
 
     @staticmethod
     def _skipped(call: PlannedToolCall, reason: str) -> tuple[ToolCallResult, list[ToolTraceEvent]]:

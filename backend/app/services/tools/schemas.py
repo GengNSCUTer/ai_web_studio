@@ -6,9 +6,64 @@ from typing import Any
 
 
 SENSITIVE_ARGUMENT_PATTERN = re.compile(
-    r"(^|[_-])(api[_-]?key|token|password|passwd|secret|credential|authorization|auth)([_-]|$)",
+    r"(^|[_\-.])(api[_-]?key|token|password|passwd|secret|credential|authorization|auth)([_\-.]|$)",
     flags=re.IGNORECASE,
 )
+SENSITIVE_TEXT_PATTERNS = (
+    re.compile(
+        r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|key|password|passwd|secret|authorization)\b\s*[:=]\s*[^\s,;&]+"
+    ),
+    re.compile(r"(?i)\b(?:sk-[a-z0-9_-]{16,}|ghp_[a-z0-9]{20,}|AKIA[0-9A-Z]{16})\b"),
+)
+
+
+def _is_sensitive_argument_key(key: Any) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+    exact = {
+        "auth",
+        "apikey",
+        "accesstoken",
+        "refreshtoken",
+        "token",
+        "password",
+        "passwd",
+        "secret",
+        "credential",
+        "authorization",
+        "authorizationheader",
+        "authheader",
+    }
+    prefixes = (
+        "apikey",
+        "accesstoken",
+        "refreshtoken",
+        "password",
+        "passwd",
+        "secret",
+        "credential",
+        "authorization",
+        "authheader",
+    )
+    suffixes = ("token", "password", "passwd", "secret", "credential")
+    return (
+        normalized in exact
+        or normalized.startswith(prefixes)
+        or normalized.endswith(suffixes)
+    )
+
+
+def redact_sensitive_text(value: Any) -> str:
+    """Redact common secret-shaped values from display text and URLs."""
+    text = str(value or "")
+    for pattern in SENSITIVE_TEXT_PATTERNS:
+        def replace(match: re.Match[str]) -> str:
+            matched = match.group(0)
+            separator = "=" if "=" in matched else ":"
+            prefix, _, _ = matched.partition(separator)
+            return f"{prefix}{separator}***"
+
+        text = pattern.sub(replace, text)
+    return text
 
 
 class ToolExecutionFeedbackError(RuntimeError):
@@ -23,7 +78,7 @@ def redact_sensitive_arguments(value: Any) -> Any:
     """Redact model/tool arguments before Trace, API responses and persistence."""
     if isinstance(value, dict):
         return {
-            str(key): "***" if SENSITIVE_ARGUMENT_PATTERN.search(str(key)) else redact_sensitive_arguments(item)
+            str(key): "***" if _is_sensitive_argument_key(key) else redact_sensitive_arguments(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
@@ -45,7 +100,12 @@ class ExternalSource:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_public_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["title"] = redact_sensitive_text(payload.get("title"))
+        payload["display_text"] = redact_sensitive_text(payload.get("display_text"))
+        payload["url"] = redact_sensitive_text(payload.get("url")) if payload.get("url") else None
+        payload["metadata"] = redact_sensitive_arguments(payload.get("metadata") or {})
+        return payload
 
 
 @dataclass
@@ -66,6 +126,7 @@ class ToolDefinition:
     fallback_tool_key: str | None = None
     enabled_by_default: bool = True
     read_only: bool = True
+    quality_contract: dict[str, Any] = field(default_factory=dict)
 
     @property
     def credential_provider(self) -> str:
@@ -155,6 +216,9 @@ class ToolCallResult:
     # Expected validation/resource failures are terminal. Unexpected provider or
     # transport failures remain retryable for a durable read-only workflow.
     retryable: bool = True
+    quality_status: str = "unknown"
+    quality_reasons: list[str] = field(default_factory=list)
+    quality_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

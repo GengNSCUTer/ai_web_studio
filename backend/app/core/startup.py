@@ -1,3 +1,6 @@
+from contextlib import contextmanager
+from collections.abc import Iterator
+
 from sqlalchemy import text
 
 from app.core.database import Base, engine
@@ -58,6 +61,65 @@ def _get_column_names(table_name: str) -> set[str]:
         return {row[0] for row in result}
 
 
+def _get_column_metadata(table_name: str, column_name: str) -> tuple[str, str | None] | None:
+    """Return nullability and default for an existing PostgreSQL column.
+
+    Runtime DDL can be interrupted between statements. Reading this metadata lets
+    the next startup finish a partially applied migration without repeating an
+    expensive ``SET NOT NULL`` scan on every healthy boot.
+    """
+    query = text(
+        """
+        select is_nullable, column_default
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = :table_name
+          and column_name = :column_name
+        limit 1
+        """
+    )
+    with engine.begin() as connection:
+        row = connection.execute(
+            query,
+            {"table_name": table_name, "column_name": column_name},
+        ).first()
+        if not row:
+            return None
+        return str(row[0]), str(row[1]) if row[1] is not None else None
+
+
+def _generation_id_migration_statements(
+    message_columns: set[str],
+    generation_metadata: tuple[str, str | None] | None,
+) -> list[str]:
+    """Build an idempotent generation_id migration, including interrupted states."""
+    statements: list[str] = []
+    column_missing = "generation_id" not in message_columns
+    metadata_unknown = generation_metadata is None
+    nullable = metadata_unknown or generation_metadata[0].upper() == "YES"
+    default_missing = metadata_unknown or generation_metadata[1] is None
+
+    if column_missing:
+        # Existing rows receive a distinct token before the column becomes NOT NULL;
+        # md5 avoids requiring a PostgreSQL UUID extension during in-place upgrades.
+        statements.append("alter table messages add column generation_id varchar(36)")
+    if column_missing or nullable:
+        # This also completes a migration interrupted after ADD COLUMN but before
+        # backfill/default/NOT NULL were applied.
+        statements.append(
+            "update messages set generation_id = md5(random()::text || clock_timestamp()::text || id) "
+            "where generation_id is null"
+        )
+    if default_missing:
+        statements.append(
+            "alter table messages alter column generation_id "
+            "set default md5(random()::text || clock_timestamp()::text)"
+        )
+    if nullable:
+        statements.append("alter table messages alter column generation_id set not null")
+    return statements
+
+
 def _get_index_names(table_name: str) -> set[str]:
     query = text(
         """
@@ -101,7 +163,41 @@ def _ensure_pgvector_extension() -> None:
         connection.execute(text("create extension if not exists vector"))
 
 
+@contextmanager
+def _runtime_schema_lock() -> Iterator[None]:
+    """Serialize startup DDL across PostgreSQL application instances.
+
+    The lock is held on a dedicated connection for the entire schema check and
+    DDL sequence. Other instances block before inspecting metadata, so a stale
+    "column missing" observation cannot lead to duplicate ALTER statements.
+    SQLite and other development backends retain the existing no-op behavior.
+    """
+
+    if engine.dialect.name != "postgresql":
+        yield
+        return
+
+    lock_key = "ai_web_studio:runtime_schema"
+    with engine.connect() as connection:
+        connection.execute(
+            text("select pg_advisory_lock(hashtext(:lock_key))"),
+            {"lock_key": lock_key},
+        )
+        try:
+            yield
+        finally:
+            connection.execute(
+                text("select pg_advisory_unlock(hashtext(:lock_key))"),
+                {"lock_key": lock_key},
+            )
+
+
 def ensure_runtime_schema() -> None:
+    with _runtime_schema_lock():
+        _ensure_runtime_schema_unlocked()
+
+
+def _ensure_runtime_schema_unlocked() -> None:
     _ensure_pgvector_extension()
     Base.metadata.create_all(bind=engine)
 
@@ -349,6 +445,12 @@ def ensure_runtime_schema() -> None:
         statements.append("alter table messages add column external_sources text")
     if "sequence" not in message_columns:
         statements.append("alter table messages add column sequence integer")
+    generation_metadata = (
+        _get_column_metadata("messages", "generation_id")
+        if "generation_id" in message_columns
+        else None
+    )
+    statements.extend(_generation_id_migration_statements(message_columns, generation_metadata))
 
     memory_columns = _get_column_names("user_memories")
     if "source_conversation_id" not in memory_columns:

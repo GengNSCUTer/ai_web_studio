@@ -9,7 +9,19 @@ from uuid import uuid4
 from app.services.tools.bindings import ToolResultBindingError, ToolResultBindingResolver
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.catalog import ToolCatalog
-from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolPlan, ToolTraceEvent
+from app.services.tools.quality import (
+    evaluate_tool_result_quality,
+    is_usable_tool_result,
+    quality_error_for_result,
+    quality_status_for_result,
+)
+from app.services.tools.schemas import (
+    ExternalSource,
+    PlannedToolCall,
+    ToolCallResult,
+    ToolPlan,
+    ToolTraceEvent,
+)
 
 
 @dataclass
@@ -26,7 +38,12 @@ class ToolWorkflowResult:
 class ToolStepResult:
     call: PlannedToolCall
     succeeded: bool = False
+    quality_status: str = "unknown"
+    quality_reasons: list[str] = field(default_factory=list)
     sources: list[ExternalSource] = field(default_factory=list)
+    # Sources from failed/blocked calls stay available for trace/debugging, but
+    # only an explicitly approved result may enter the final answer context.
+    expose_sources_to_prompt: bool = False
     notices: list[str] = field(default_factory=list)
     events: list[ToolTraceEvent] = field(default_factory=list)
     error_message: str = ""
@@ -93,6 +110,8 @@ class ToolWorkflowService:
             pending[call.call_id] = call
         completed: set[str] = set()
         failed: set[str] = set()
+        quality_by_call_id: dict[str, str] = {}
+        quality_reasons_by_call_id: dict[str, list[str]] = {}
         sources_by_call_id: dict[str, list[ExternalSource]] = {}
         step = 0
         while pending:
@@ -125,16 +144,29 @@ class ToolWorkflowService:
             for call in ready:
                 failed_dependencies = sorted(dep for dep in call.depends_on if dep in failed)
                 if failed_dependencies:
+                    dependency_quality = {
+                        dep: quality_by_call_id.get(dep, "unknown") for dep in failed_dependencies
+                    }
+                    quality_blocked = any(
+                        status in {"invalid", "uncertain"} for status in dependency_quality.values()
+                    )
                     result.events.append(
                         ToolTraceEvent(
-                            type="tool_workflow_step_skipped",
+                            type="quality_gate_blocked" if quality_blocked else "tool_workflow_step_skipped",
                             payload={
                                 "workflow": "tool_workflow_v1",
                                 "call_id": call.call_id,
                                 "tool_key": call.tool_key,
                                 "depends_on": call.depends_on,
                                 "failed_dependencies": failed_dependencies,
-                                "reason": "failed_dependencies",
+                                "dependency_quality": dependency_quality,
+                                "dependency_quality_reasons": {
+                                    dep: quality_reasons_by_call_id.get(dep, [])
+                                    for dep in failed_dependencies
+                                },
+                                "reason": "upstream_quality_not_usable"
+                                if quality_blocked
+                                else "failed_dependencies",
                             },
                         )
                     )
@@ -217,13 +249,41 @@ class ToolWorkflowService:
             )
             for step_result in step_results:
                 result.events.extend(step_result.events)
-                result.sources.extend(step_result.sources)
+                if step_result.sources and not step_result.expose_sources_to_prompt:
+                    suppression_type = (
+                        "quality_evidence_suppressed"
+                        if step_result.quality_status in {"invalid", "uncertain"}
+                        else "tool_evidence_suppressed"
+                    )
+                    result.events.append(
+                        ToolTraceEvent(
+                            type=suppression_type,
+                            payload={
+                                "workflow": "tool_workflow_v1",
+                                "call_id": step_result.call.call_id,
+                                "tool_key": step_result.call.tool_key,
+                                "status": step_result.quality_status,
+                                "reasons": list(step_result.quality_reasons),
+                                "sources_count": len(step_result.sources),
+                                "exposed_to_prompt": False,
+                                "reason": (
+                                    "quality_gate"
+                                    if suppression_type == "quality_evidence_suppressed"
+                                    else "non_success_result"
+                                ),
+                            },
+                        )
+                    )
+                elif step_result.expose_sources_to_prompt:
+                    result.sources.extend(step_result.sources)
                 result.notices.extend(step_result.notices)
                 result.selected_tool = step_result.call.category
                 result.error_message = step_result.error_message or result.error_message
                 completed.add(step_result.call.call_id)
                 if not step_result.succeeded:
                     failed.add(step_result.call.call_id)
+                quality_by_call_id[step_result.call.call_id] = step_result.quality_status
+                quality_reasons_by_call_id[step_result.call.call_id] = list(step_result.quality_reasons)
                 sources_by_call_id[step_result.call.call_id] = list(step_result.sources)
                 pending.pop(step_result.call.call_id, None)
 
@@ -289,22 +349,56 @@ class ToolWorkflowService:
             return ToolStepResult(call=call, events=events, error_message=safe_error)
         events.extend(call_events)
         error_message = call_result.error_message or ""
+        quality_status, quality_reasons = self._quality_for_result(call_result)
         if any(event.type == "tool_confirmation_required" for event in call_events):
             return ToolStepResult(
                 call=call,
                 # Diff 作为 evidence 告知最终模型“等待确认”，但该 Step 仍失败关闭，
                 # 依赖实际写入结果的下游步骤不会被解锁。
                 sources=call_result.sources,
+                expose_sources_to_prompt=True,
+                quality_status=quality_status,
+                quality_reasons=quality_reasons,
                 notices=[f"{call.display_name}需要用户确认，已跳过执行。"],
                 events=events,
                 error_message=error_message,
             )
 
-        if call_result.sources:
-            return ToolStepResult(call=call, succeeded=True, sources=call_result.sources, events=events)
+        if self._result_is_usable(call_result):
+            return ToolStepResult(
+                call=call,
+                succeeded=True,
+                quality_status=quality_status,
+                quality_reasons=quality_reasons,
+                sources=call_result.sources,
+                expose_sources_to_prompt=True,
+                events=events,
+            )
+
+        if call_result.status == "success" and quality_status in {"invalid", "uncertain"}:
+            events.append(
+                ToolTraceEvent(
+                    type="quality_gate_blocked",
+                    payload={
+                        "workflow": "tool_workflow_v1",
+                        "call_id": call.call_id,
+                        "tool_key": call.tool_key,
+                        "status": quality_status,
+                        "reasons": quality_reasons,
+                        "downstream_unlocked": False,
+                    },
+                )
+            )
 
         if not plan.fallback_tool_key or not allow_fallback:
-            return ToolStepResult(call=call, events=events, error_message=error_message)
+            return ToolStepResult(
+                call=call,
+                quality_status=quality_status,
+                quality_reasons=quality_reasons,
+                sources=call_result.sources,
+                events=events,
+                error_message=error_message or self._quality_error(call_result),
+            )
 
         fallback_call = self._build_fallback_call(
             query=query,
@@ -344,7 +438,14 @@ class ToolWorkflowService:
                     ),
                 ]
             )
-            return ToolStepResult(call=call, events=events, error_message=safe_error)
+            return ToolStepResult(
+                call=call,
+                quality_status=quality_status,
+                quality_reasons=quality_reasons,
+                sources=call_result.sources,
+                events=events,
+                error_message=safe_error,
+            )
         events.extend(
             [
                 ToolTraceEvent(
@@ -362,18 +463,57 @@ class ToolWorkflowService:
                 *fallback_events,
             ]
         )
-        notices = [f"{call.display_name}未返回有效结果，已回退到网页搜索。"] if fallback_result.sources else []
+        fallback_quality_status, fallback_quality_reasons = self._quality_for_result(fallback_result)
+        fallback_usable = self._result_is_usable(fallback_result)
+        notices = [f"{call.display_name}未返回可用结果，已回退到网页搜索。"] if fallback_usable else []
         # 网页 fallback 可以给最终回答补充来源，但不等于满足天气/路线等结构化输出合同。
-        # 只有同一 category 的降级工具才允许解锁依赖当前主调用的下游步骤。
-        dependency_contract_satisfied = bool(fallback_result.sources) and fallback_call.category == call.category
+        # 只有同一 category 且通过主工具质量合同的降级工具才允许解锁下游。
+        dependency_contract_satisfied = fallback_usable and fallback_call.category == call.category
+        parent_definition = self.registry.get_or_none(call.tool_key)
+        parent_contract = parent_definition.quality_contract if parent_definition else {}
+        fallback_dependency_quality = evaluate_tool_result_quality(
+            sources=fallback_result.sources,
+            contract=parent_contract,
+        )
+        if dependency_contract_satisfied and fallback_dependency_quality.status != "valid":
+            dependency_contract_satisfied = False
+            events.append(
+                ToolTraceEvent(
+                    type="quality_gate_blocked",
+                    payload={
+                        "workflow": "tool_workflow_v1",
+                        "call_id": call.call_id,
+                        "tool_key": call.tool_key,
+                        "stage": "fallback_dependency_contract",
+                        "status": fallback_dependency_quality.status,
+                        "reasons": list(fallback_dependency_quality.reasons),
+                        "downstream_unlocked": False,
+                    },
+                )
+            )
         return ToolStepResult(
             call=call,
             succeeded=dependency_contract_satisfied,
+            quality_status=fallback_quality_status,
+            quality_reasons=fallback_quality_reasons,
             sources=fallback_result.sources,
+            expose_sources_to_prompt=fallback_usable,
             notices=notices,
             events=events,
-            error_message=fallback_result.error_message or error_message,
+            error_message=fallback_result.error_message or error_message or self._quality_error(fallback_result),
         )
+
+    @staticmethod
+    def _quality_for_result(call_result: ToolCallResult) -> tuple[str, list[str]]:
+        return quality_status_for_result(call_result)
+
+    @classmethod
+    def _result_is_usable(cls, call_result: ToolCallResult) -> bool:
+        return is_usable_tool_result(call_result)
+
+    @staticmethod
+    def _quality_error(call_result: ToolCallResult) -> str:
+        return quality_error_for_result(call_result)
 
     def _select_fallback_call_ids(
         self,

@@ -32,7 +32,17 @@ from app.models.tool_trace import ToolCallRun, ToolRouteRun
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.bindings import ToolResultBindingError, ToolResultBindingResolver
 from app.services.tools.executor import ToolExecutor
-from app.services.tools.schemas import PlannedToolCall, ToolResultBinding
+from app.services.tools.quality import (
+    is_usable_tool_result,
+    quality_error_for_result,
+    quality_status_for_result,
+)
+from app.services.tools.schemas import (
+    PlannedToolCall,
+    ToolResultBinding,
+    redact_sensitive_arguments,
+    redact_sensitive_text,
+)
 from app.services.tools.validation import ToolSchemaValidationError, ToolSchemaValidator
 from app.services.skill_catalog import SkillCatalog, SkillCatalogError, SkillExecutionContext
 
@@ -74,6 +84,18 @@ class DurableToolRunService:
     @staticmethod
     def _json(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    @staticmethod
+    def _adapter_argument_layers(definition: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Return adapter-owned defaults and fixed arguments as safe mappings."""
+
+        adapter = definition.adapter if isinstance(definition.adapter, dict) else {}
+        defaults = adapter.get("default_arguments") or {}
+        fixed = adapter.get("fixed_arguments") or {}
+        return (
+            dict(defaults) if isinstance(defaults, dict) else {},
+            dict(fixed) if isinstance(fixed, dict) else {},
+        )
 
     def enqueue(
         self,
@@ -157,11 +179,20 @@ class DurableToolRunService:
             bindings = normalized_bindings
             binding_targets = {item["target_argument"] for item in bindings}
             try:
+                defaults, fixed_arguments = self._adapter_argument_layers(definition)
+                effective_arguments = {**defaults, **arguments, **fixed_arguments}
                 arguments = validator.validate(
                     definition=definition,
-                    arguments=arguments,
+                    arguments=effective_arguments,
                     deferred_required_fields={item for item in binding_targets if item},
                 )
+                # Adapter-owned fixed values satisfy the schema but must not be
+                # persisted as model-controlled arguments or exposed in traces.
+                arguments = {
+                    key: value
+                    for key, value in arguments.items()
+                    if key not in fixed_arguments
+                }
             except ToolSchemaValidationError as exc:
                 raise DurableToolRuntimeError("schema_invalid", str(exc)) from exc
             call_id = str(raw.get("call_id") or f"step-{index}").strip()
@@ -346,7 +377,13 @@ class DurableToolRunService:
                 AgentRun.status.in_(["queued", "running"]),
                 or_(
                     AgentOutboxEvent.status == "pending",
-                    and_(AgentOutboxEvent.status == "running", AgentOutboxEvent.lease_expires_at < now),
+                    and_(
+                        AgentOutboxEvent.status == "running",
+                        or_(
+                            AgentOutboxEvent.lease_expires_at.is_(None),
+                            AgentOutboxEvent.lease_expires_at < now,
+                        ),
+                    ),
                 ),
                 or_(AgentOutboxEvent.available_at.is_(None), AgentOutboxEvent.available_at <= now),
             )
@@ -479,30 +516,104 @@ class DurableToolRunService:
         definition = ToolCatalog(db=self.db, user_id=user_id, project_id=run.project_id).get_or_none(step.tool_key)
         if not definition or not definition.read_only or definition.risk_level != "low":
             raise DurableToolRuntimeError("unsafe_or_missing_tool", "工具已失效或不再满足只读低风险约束。")
-        next_version = int(run.state_version or 0) + 1
-        event = AgentOutboxEvent(
-            event_key=f"agent-step:{run.id}:{step.id}:replay:{next_version}",
-            run_id=run.id,
-            step_id=step.id,
-            event_type="agent_step.replay_requested",
-            payload_json=self._json({"run_id": run.id, "step_id": step.id, "replay": True}),
-            status="pending",
-            available_at=utcnow(),
+
+        # A failed upstream normally leaves its descendants as dependency_failed
+        # and their original events as succeeded/skipped. Replaying only the
+        # source would therefore leave the Run permanently incomplete. Restore a
+        # dependency closure, but only when every other dependency is already
+        # successful so an unrelated failed branch cannot be bypassed.
+        all_steps = list(
+            self.db.scalars(
+                select(AgentStep)
+                .where(AgentStep.run_id == run.id)
+                .with_for_update()
+            ).all()
         )
-        step.status = "pending"
-        step.attempts = 0
-        step.error_code = None
-        step.error_message = None
-        step.dead_lettered_at = None
-        step.finished_at = None
-        step.lease_owner = None
-        step.lease_expires_at = None
+        steps_by_call = {item.call_id: item for item in all_steps}
+        replay_steps = [step]
+        replay_call_ids = {step.call_id}
+        changed = True
+        while changed:
+            changed = False
+            for candidate in all_steps:
+                if candidate.call_id in replay_call_ids:
+                    continue
+                if candidate.status != "skipped" or candidate.error_code != "dependency_failed":
+                    continue
+                try:
+                    dependencies = json.loads(candidate.depends_on_json or "[]")
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(dependencies, list) or not any(
+                    dependency in replay_call_ids for dependency in dependencies
+                ):
+                    continue
+                dependency_steps = [steps_by_call.get(str(dependency)) for dependency in dependencies]
+                if any(
+                    dependency_step is None
+                    or (
+                        dependency_step.call_id not in replay_call_ids
+                        and dependency_step.status != "succeeded"
+                    )
+                    for dependency_step in dependency_steps
+                ):
+                    continue
+                replay_steps.append(candidate)
+                replay_call_ids.add(candidate.call_id)
+                changed = True
+
+        next_version = int(run.state_version or 0) + 1
+        now = utcnow()
+        observations: list[dict[str, Any]] = []
+        for replay_step in replay_steps:
+            event = AgentOutboxEvent(
+                event_key=f"agent-step:{run.id}:{replay_step.id}:replay:{next_version}",
+                run_id=run.id,
+                step_id=replay_step.id,
+                event_type=(
+                    "agent_step.replay_requested"
+                    if replay_step.id == step.id
+                    else "agent_step.dependency_replay_requested"
+                ),
+                payload_json=self._json(
+                    {
+                        "run_id": run.id,
+                        "step_id": replay_step.id,
+                        "replay": True,
+                        "dependency_replay": replay_step.id != step.id,
+                    }
+                ),
+                status="pending",
+                available_at=now,
+            )
+            replay_step.status = "pending"
+            replay_step.attempts = 0
+            replay_step.error_code = None
+            replay_step.error_message = None
+            replay_step.dead_lettered_at = None
+            replay_step.finished_at = None
+            replay_step.available_at = now
+            replay_step.lease_owner = None
+            replay_step.lease_expires_at = None
+            replay_step.heartbeat_at = None
+            replay_step.result_json = None
+            self.db.add(event)
+            self.db.flush()
+            observations.append(
+                {
+                    "type": (
+                        "step_replay_requested"
+                        if replay_step.id == step.id
+                        else "dependent_step_replay_requested"
+                    ),
+                    "step_id": replay_step.id,
+                    "event_id": event.id,
+                }
+            )
         run.status = "queued"
         run.finished_at = None
         run.state_version = next_version
-        self.db.add(event)
-        self.db.flush()
-        self._checkpoint(run, step=step, observations=[{"type": "step_replay_requested", "event_id": event.id}])
+        self._checkpoint(run, step=step, observations=observations)
         self.db.commit()
         self.db.refresh(run)
         return run
@@ -578,7 +689,13 @@ class DurableToolRunService:
     def metrics(self, *, user_id: str) -> dict[str, Any]:
         def grouped(model: Any, column: Any) -> dict[str, int]:
             rows = self.db.execute(
-                select(column, func.count()).join(AgentRun, AgentRun.id == model.run_id).where(AgentRun.user_id == user_id).group_by(column)
+                select(column, func.count())
+                .join(AgentRun, AgentRun.id == model.run_id)
+                .where(
+                    AgentRun.user_id == user_id,
+                    AgentRun.runtime_kind == "durable_tool_workflow",
+                )
+                .group_by(column)
             ).all()
             return {str(status): int(count) for status, count in rows}
 
@@ -680,7 +797,11 @@ class DurableToolRunService:
             self.db.scalar(
                 select(func.count()).select_from(AgentStep)
                 .join(AgentRun, AgentRun.id == AgentStep.run_id)
-                .where(AgentRun.user_id == user_id, AgentStep.status == "dead_letter")
+                .where(
+                    AgentRun.user_id == user_id,
+                    AgentRun.runtime_kind == "durable_tool_workflow",
+                    AgentStep.status == "dead_letter",
+                )
             )
             or 0
         )
@@ -690,6 +811,7 @@ class DurableToolRunService:
                 .join(AgentRun, AgentRun.id == AgentOutboxEvent.run_id)
                 .where(
                     AgentRun.user_id == user_id,
+                    AgentRun.runtime_kind == "durable_tool_workflow",
                     AgentOutboxEvent.status == "running",
                     AgentOutboxEvent.lease_expires_at < now,
                 )
@@ -720,13 +842,27 @@ class DurableToolRunService:
             "runs_by_status": {
                 str(status): int(count)
                 for status, count in self.db.execute(
-                    select(AgentRun.status, func.count()).where(AgentRun.user_id == user_id).group_by(AgentRun.status)
+                    select(AgentRun.status, func.count())
+                    .where(
+                        AgentRun.user_id == user_id,
+                        AgentRun.runtime_kind == "durable_tool_workflow",
+                    )
+                    .group_by(AgentRun.status)
                 ).all()
             },
             "steps_by_status": grouped(AgentStep, AgentStep.status),
             "outbox_by_status": grouped(AgentOutboxEvent, AgentOutboxEvent.status),
             "artifacts_total": int(
-                self.db.scalar(select(func.count()).select_from(AgentArtifact).where(AgentArtifact.user_id == user_id)) or 0
+                self.db.scalar(
+                    select(func.count())
+                    .select_from(AgentArtifact)
+                    .join(AgentRun, AgentRun.id == AgentArtifact.run_id)
+                    .where(
+                        AgentArtifact.user_id == user_id,
+                        AgentRun.runtime_kind == "durable_tool_workflow",
+                    )
+                )
+                or 0
             ),
             "tool_calls_by_status": {str(status): int(count) for status, count in tool_status_rows},
             "skill": {
@@ -783,6 +919,7 @@ class DurableToolWorker:
 
     HEARTBEAT_SECONDS = 30
     RECONCILE_INTERVAL_SECONDS = 30
+    MAX_ARTIFACT_CHARS = 200_000
 
     def __init__(
         self,
@@ -877,6 +1014,22 @@ class DurableToolWorker:
         )
         result, events = await self._execute_with_heartbeat(executor, call, claim)
         if result.status == "success":
+            if not is_usable_tool_result(result):
+                quality_status, _ = quality_status_for_result(result)
+                if quality_status not in {"invalid", "uncertain"}:
+                    quality_status = "invalid"
+                quality_error = (quality_error_for_result(result) or "工具未返回可用结果。")[:500]
+                self._finish_terminal(
+                    db,
+                    run,
+                    step,
+                    event,
+                    claim,
+                    status="failed",
+                    error_code=f"tool_result_quality_{quality_status}",
+                    error_message=quality_error,
+                )
+                return
             payload = {
                 "call_id": call.call_id,
                 "tool_key": call.tool_key,
@@ -965,7 +1118,17 @@ class DurableToolWorker:
             raise DurableToolRuntimeError("invalid_persisted_state", "持久化 Tool Step 格式损坏。")
         arguments = self._resolve_bindings(db, run, step, arguments, bindings)
         try:
-            arguments = ToolSchemaValidator().validate(definition=definition, arguments=arguments)
+            defaults, fixed_arguments = DurableToolRunService._adapter_argument_layers(definition)
+            effective_arguments = {**defaults, **arguments, **fixed_arguments}
+            validated_arguments = ToolSchemaValidator().validate(
+                definition=definition,
+                arguments=effective_arguments,
+            )
+            arguments = {
+                key: value
+                for key, value in validated_arguments.items()
+                if key not in fixed_arguments
+            }
         except ToolSchemaValidationError as exc:
             raise DurableToolRuntimeError("schema_invalid", str(exc)) from exc
         return PlannedToolCall(
@@ -1029,10 +1192,48 @@ class DurableToolWorker:
         return "ready"
 
     def _finish_success(self, db: Session, run: AgentRun, step: AgentStep, event: AgentOutboxEvent, claim: DurableStepClaim, payload: dict[str, Any]) -> None:
+        safe_payload = redact_sensitive_arguments(payload)
+        for source in safe_payload.get("sources") or []:
+            if not isinstance(source, dict):
+                continue
+            source["title"] = redact_sensitive_text(source.get("title"))
+            source["display_text"] = redact_sensitive_text(source.get("display_text"))
+            if source.get("url"):
+                source["url"] = redact_sensitive_text(source["url"])
+        try:
+            content_json = json.dumps(
+                safe_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                allow_nan=False,
+            )
+        except (TypeError, ValueError):
+            self._finish_terminal(
+                db,
+                run,
+                step,
+                event,
+                claim,
+                status="failed",
+                error_code="artifact_serialization_failed",
+                error_message="工具结果无法安全持久化。",
+            )
+            return
+        if len(content_json) > self.MAX_ARTIFACT_CHARS:
+            self._finish_terminal(
+                db,
+                run,
+                step,
+                event,
+                claim,
+                status="failed",
+                error_code="artifact_too_large",
+                error_message="工具结果超过持久化大小上限。",
+            )
+            return
         if not self._lock_claim(db, run, step, event, claim):
             return
-        content_json = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        preview = self._preview(payload)
+        preview = self._preview(safe_payload)
         artifact = AgentArtifact(
             run_id=run.id,
             step_id=step.id,
@@ -1045,7 +1246,7 @@ class DurableToolWorker:
         db.add(artifact)
         db.flush()
         step.status = "succeeded"
-        step.result_json = json.dumps({"artifact_id": artifact.id, "sources_count": len(payload["sources"])}, ensure_ascii=False)
+        step.result_json = json.dumps({"artifact_id": artifact.id, "sources_count": len(safe_payload["sources"])}, ensure_ascii=False)
         step.finished_at = utcnow()
         step.lease_owner = None
         step.lease_expires_at = None

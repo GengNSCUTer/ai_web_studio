@@ -24,9 +24,14 @@ from app.models.tool_trace import ToolCallRun, ToolRouteRun
 from app.models.user import User
 from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
-from app.repositories.message_repo import MessageRepository
+from app.repositories.message_repo import MessageGenerationConflict, MessageRepository
 from app.repositories.setting_repo import UserSettingRepository
-from app.api.routes.chat import _build_streaming_response, edit_last_user_stream, regenerate_last_answer_stream
+from app.api.routes.chat import (
+    _build_streaming_response,
+    _persist_stream_result,
+    edit_last_user_stream,
+    regenerate_last_answer_stream,
+)
 from app.schemas.message import ChatEditLastUserRequest, ChatRegenerateRequest, ChatStreamRequest
 from app.schemas.upload import UploadItemReference
 from app.services.chat_execution_service import (
@@ -771,6 +776,203 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.assertIsNone(refreshed.external_sources)
 
         asyncio.run(run_test())
+
+    def test_regeneration_rejects_an_already_streaming_assistant(self) -> None:
+        conversation = Conversation(
+            user_id=self.user.id,
+            title="并发生成测试",
+            model_name="qwen-test",
+        )
+        assistant_message = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="partial",
+            status="streaming",
+        )
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        assistant_message.conversation_id = conversation.id
+        self.db.add(assistant_message)
+        self.db.commit()
+        self.db.refresh(assistant_message)
+
+        service = MessageService(
+            MessageRepository(self.db),
+            AttachmentRepository(self.db),
+            ConversationRepository(self.db),
+        )
+        with self.assertRaises(MessageGenerationConflict):
+            service.reset_assistant_for_regeneration(assistant_message)
+
+        self.db.rollback()
+        self.db.refresh(assistant_message)
+        self.assertEqual(assistant_message.status, "streaming")
+
+    def test_regeneration_rejects_when_another_assistant_is_streaming(self) -> None:
+        conversation = Conversation(
+            user_id=self.user.id,
+            title="并发重生成测试",
+            model_name="qwen-test",
+        )
+        target_assistant = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="previous answer",
+            status="done",
+        )
+        active_assistant = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="newer partial answer",
+            status="streaming",
+        )
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        target_assistant.conversation_id = conversation.id
+        active_assistant.conversation_id = conversation.id
+        self.db.add_all([target_assistant, active_assistant])
+        self.db.commit()
+
+        service = MessageService(
+            MessageRepository(self.db),
+            AttachmentRepository(self.db),
+            ConversationRepository(self.db),
+        )
+        with self.assertRaises(MessageGenerationConflict):
+            service.reset_assistant_for_regeneration(target_assistant)
+
+        self.db.refresh(target_assistant)
+        self.assertEqual(target_assistant.status, "done")
+        self.assertEqual(target_assistant.content, "previous answer")
+
+    def test_edit_rejects_when_another_assistant_is_streaming(self) -> None:
+        conversation = Conversation(
+            user_id=self.user.id,
+            title="并发编辑测试",
+            model_name="qwen-test",
+        )
+        user_message = Message(
+            conversation_id=conversation.id,
+            role="user",
+            content="original question",
+            status="done",
+        )
+        target_assistant = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="previous answer",
+            status="done",
+        )
+        active_assistant = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="newer partial answer",
+            status="streaming",
+        )
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        for message in (user_message, target_assistant, active_assistant):
+            message.conversation_id = conversation.id
+        self.db.add_all([user_message, target_assistant, active_assistant])
+        self.db.commit()
+
+        service = MessageService(
+            MessageRepository(self.db),
+            AttachmentRepository(self.db),
+            ConversationRepository(self.db),
+        )
+        with self.assertRaises(MessageGenerationConflict):
+            service.edit_and_reset_for_regeneration(
+                user_message=user_message,
+                assistant_message=target_assistant,
+                content="edited question",
+                uploads=None,
+                user_id=self.user.id,
+            )
+
+        self.db.refresh(user_message)
+        self.db.refresh(target_assistant)
+        self.assertEqual(user_message.content, "original question")
+        self.assertEqual(target_assistant.status, "done")
+
+    def test_new_turn_rejects_an_active_generation_in_the_same_conversation(self) -> None:
+        conversation = Conversation(
+            user_id=self.user.id,
+            title="同会话并发测试",
+            model_name="qwen-test",
+        )
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        self.db.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content="partial",
+                status="streaming",
+            )
+        )
+        self.db.commit()
+
+        async def run_test() -> None:
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+            with self.assertRaises(HTTPException) as raised:
+                await service.prepare_chat_execution(
+                    ChatStreamRequest(
+                        conversation_id=conversation.id,
+                        content="第二个问题",
+                        model_name="qwen-test",
+                    )
+                )
+            self.assertEqual(raised.exception.status_code, 409)
+
+        from fastapi import HTTPException
+
+        asyncio.run(run_test())
+        self.db.rollback()
+        self.assertEqual(
+            self.db.scalar(
+                select(Message.id).where(
+                    Message.conversation_id == conversation.id,
+                    Message.role == "user",
+                )
+            ),
+            None,
+        )
+
+    def test_old_generation_cannot_overwrite_new_generation(self) -> None:
+        context = self._create_stream_context()
+        old_generation_id = context.assistant_message.generation_id
+        context.assistant_message.status = "done"
+        context.message_service.save_message(context.assistant_message)
+        context.message_service.reset_assistant_for_regeneration(context.assistant_message)
+        self.db.refresh(context.assistant_message)
+        self.assertNotEqual(context.assistant_message.generation_id, old_generation_id)
+
+        stale_message = SimpleNamespace(
+            id=context.assistant_message.id,
+            conversation_id=context.assistant_message.conversation_id,
+            generation_id=old_generation_id,
+        )
+        stale_context = SimpleNamespace(
+            assistant_message=stale_message,
+            message_service=context.message_service,
+            external_sources=[],
+        )
+        persisted = _persist_stream_result(
+            stale_context,
+            status_value="done",
+            content_parts=["旧回答"],
+            reasoning_parts=[],
+        )
+
+        self.assertFalse(persisted)
+        self.db.refresh(context.assistant_message)
+        self.assertEqual(context.assistant_message.status, "streaming")
+        self.assertEqual(context.assistant_message.content, "")
 
     def test_edit_last_user_route_updates_message_and_streams_answer(self) -> None:
         async def run_test() -> None:

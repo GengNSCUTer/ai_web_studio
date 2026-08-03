@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.tool_config import McpServer, McpTool
 from app.repositories.tool_config_repo import ToolConfigRepository
+from app.services.tools.quality import validate_quality_contract
 from app.services.tools.schemas import ToolDefinition
 
 
@@ -118,6 +119,15 @@ class ToolCatalog:
         adapter = record.get("adapter") or {}
         if not isinstance(adapter, dict):
             raise ValueError(f"Tool adapter must be an object: {record['tool_key']}")
+        quality_contract = record.get("quality_contract", {})
+        if quality_contract is None:
+            quality_contract = {}
+        if not isinstance(quality_contract, dict):
+            raise ValueError(f"Tool quality_contract must be an object: {record['tool_key']}")
+        try:
+            quality_contract = validate_quality_contract(quality_contract)
+        except ValueError as exc:
+            raise ValueError(f"Invalid tool quality_contract: {record['tool_key']}: {exc}") from exc
 
         return ToolDefinition(
             tool_key=str(record["tool_key"]),
@@ -136,6 +146,7 @@ class ToolCatalog:
             fallback_tool_key=record.get("fallback_tool_key"),
             enabled_by_default=bool(record.get("enabled_by_default", True)),
             read_only=bool(record.get("read_only", True)),
+            quality_contract=dict(quality_contract),
         )
 
     @classmethod
@@ -215,4 +226,5 @@ class ToolCatalog:
             fallback_tool_key=None,
             enabled_by_default=server.is_enabled and tool.is_enabled,
             read_only=tool.read_only,
+            quality_contract={},
         )

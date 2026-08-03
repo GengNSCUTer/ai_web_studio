@@ -34,9 +34,10 @@
 
 当前主链路是：
 
-- `POST /api/chat/text-stream`
+- `POST /api/chat/events-stream`
 
-前端通过 Next BFF `/api/chat` 代理到这个接口，并用纯文本流方式消费。
+前端通过 Next BFF `/api/chat` 代理到这个接口，并用 NDJSON 事件流消费。
+`POST /api/chat/text-stream` 仅保留为旧的纯文本兼容入口，不包含工具事件和 reasoning 增量。
 
 旧的 SSE 方案已经不再作为主链路使用。
 
@@ -88,7 +89,8 @@ conda activate ai_web_studio
 - `PATCH /api/conversations/{conversation_id}`
 - `DELETE /api/conversations/{conversation_id}`
 - `GET /api/conversations/{conversation_id}/messages`
-- `POST /api/chat/text-stream`
+- `POST /api/chat/events-stream`
+- `POST /api/chat/text-stream`（旧的纯文本兼容入口）
 - `GET /api/memories?status=pending`
 - `GET /api/memories/extraction-jobs`
 - `GET /api/agent-runtime/runs/{run_id}`

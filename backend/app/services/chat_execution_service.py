@@ -8,6 +8,7 @@ from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.message_repo import MessageRepository
+from app.repositories.message_repo import MessageGenerationConflict
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.setting_repo import UserSettingRepository
 from app.repositories.tool_trace_repo import ToolTraceRepository
@@ -74,7 +75,12 @@ class ChatExecutionService:
         # 新问题入口：先创建/复用会话并落库本轮消息，再组装上下文。
         # 返回的 ChatExecutionContext 还没有真正调用模型；模型流式调用发生在 route 的 StreamingResponse 中。
         default_settings = self.setting_service.get_or_create_user_settings(self.current_user.id)
-        turn = self.turn_bootstrapper.bootstrap_new_turn(payload=payload, default_settings=default_settings)
+        try:
+            turn = self.turn_bootstrapper.bootstrap_new_turn(payload=payload, default_settings=default_settings)
+        except MessageGenerationConflict as exc:
+            self.db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        generation_id = getattr(turn.assistant_message, "generation_id", None)
         try:
             runtime = self._build_runtime_config(turn.conversation)
             skill_context = self._resolve_skill_execution_context(
@@ -97,7 +103,7 @@ class ChatExecutionService:
         except Exception:
             # StreamingResponse 尚未创建，generator 的异常收口不会执行。
             # 这里必须先把占位消息从 streaming 收口，否则它只能等 15 分钟自愈。
-            self._mark_prepare_failed(turn.assistant_message)
+            self._mark_prepare_failed(turn.assistant_message, generation_id=generation_id)
             raise
 
     async def prepare_existing_turn_execution(
@@ -105,6 +111,7 @@ class ChatExecutionService:
         execution_input: ExistingTurnExecutionInput,
     ) -> ChatExecutionContext:
         # 重生成/编辑重答入口：复用已存在的 user/assistant 消息，只重新组装上下文和模型运行时配置。
+        generation_id = getattr(execution_input.assistant_message, "generation_id", None)
         try:
             self.turn_bootstrapper.apply_turn_overrides(
                 conversation=execution_input.conversation,
@@ -136,10 +143,10 @@ class ChatExecutionService:
                 skill_context=skill_context,
             )
         except Exception:
-            self._mark_prepare_failed(execution_input.assistant_message)
+            self._mark_prepare_failed(execution_input.assistant_message, generation_id=generation_id)
             raise
 
-    def _mark_prepare_failed(self, assistant_message: object) -> None:
+    def _mark_prepare_failed(self, assistant_message: object, *, generation_id: str | None = None) -> None:
         """收口模型调用前失败的 assistant 占位消息。
 
         保存失败时不覆盖原始异常，避免错误收口掩盖真正的 Prepare 故障。
@@ -148,8 +155,10 @@ class ChatExecutionService:
             # Context Assembly 内部可能刚经历过 flush/commit 异常，此时 Session 处于
             # PendingRollbackError 状态；必须先 rollback，才能保存失败状态。
             self.db.rollback()
-            assistant_message.status = "failed"
-            self.message_service.save_message(assistant_message)
+            self.message_service.mark_generation_prepare_failed(
+                assistant_message,
+                generation_id=generation_id,
+            )
         except Exception:
             self.db.rollback()
 

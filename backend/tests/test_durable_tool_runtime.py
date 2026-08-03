@@ -4,6 +4,7 @@ import asyncio
 import json
 import unittest
 from datetime import timedelta
+from unittest.mock import Mock, patch
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -24,7 +25,7 @@ from app.services.durable_tool_runtime import (
 )
 from app.services.skill_catalog import SkillCatalog
 from app.services.tools.executor import ToolExecutor
-from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolCallResult, ToolTraceEvent
+from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolCallResult, ToolDefinition, ToolTraceEvent
 
 
 class SuccessfulExecutor:
@@ -49,6 +50,14 @@ class SuccessfulExecutor:
             ),
             [ToolTraceEvent(type="tool_call_end", payload={"call_id": call.call_id, "status": "success"})],
         )
+
+
+class InvalidQualityExecutor(SuccessfulExecutor):
+    async def execute(self, call):
+        result, events = await super().execute(call)
+        result.quality_status = "invalid"
+        result.quality_reasons = ["test_invalid_quality"]
+        return result, events
 
 
 class FailingExecutor:
@@ -87,6 +96,48 @@ class SelectiveExecutor(SuccessfulExecutor):
         return await super().execute(call)
 
 
+class ReplayableExecutor(SuccessfulExecutor):
+    attempts = {}
+
+    async def execute(self, call):
+        count = self.__class__.attempts.get(call.call_id, 0) + 1
+        self.__class__.attempts[call.call_id] = count
+        if call.call_id == "source" and count == 1:
+            return ToolCallResult(
+                call=call,
+                status="error",
+                elapsed_ms=1,
+                sources=[],
+                error_message="temporary outage",
+            ), []
+        return await super().execute(call)
+
+
+class ReplayWithIndependentFailureExecutor(SuccessfulExecutor):
+    attempts = {}
+
+    async def execute(self, call):
+        count = self.__class__.attempts.get(call.call_id, 0) + 1
+        self.__class__.attempts[call.call_id] = count
+        if call.call_id == "source" and count == 1:
+            return ToolCallResult(
+                call=call,
+                status="error",
+                elapsed_ms=1,
+                sources=[],
+                error_message="temporary outage",
+            ), []
+        if call.call_id == "independent":
+            return ToolCallResult(
+                call=call,
+                status="error",
+                elapsed_ms=1,
+                sources=[],
+                error_message="independent outage",
+            ), []
+        return await super().execute(call)
+
+
 class BindingExecutor(SuccessfulExecutor):
     async def execute(self, call):
         if call.call_id == "source":
@@ -109,6 +160,76 @@ class BindingExecutor(SuccessfulExecutor):
             )
         if call.arguments.get("query") != "bound-value":
             raise AssertionError("durable result binding did not reach the downstream call")
+        return await super().execute(call)
+
+
+class HugeArtifactExecutor(SuccessfulExecutor):
+    async def execute(self, call):
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                elapsed_ms=1,
+                sources=[
+                    ExternalSource(
+                        source_type="test",
+                        provider="test",
+                        title="huge result",
+                        display_text="x" * (DurableToolWorker.MAX_ARTIFACT_CHARS + 1),
+                    )
+                ],
+            ),
+            [],
+        )
+
+
+class SensitiveArtifactExecutor(SuccessfulExecutor):
+    async def execute(self, call):
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                elapsed_ms=1,
+                sources=[
+                    ExternalSource(
+                        source_type="test",
+                        provider="test",
+                        title="remote result",
+                        display_text="API_KEY=secret-value",
+                        metadata={"raw": {"apiKey": "secret-value", "location": "1,2"}},
+                    )
+                ],
+            ),
+            [],
+        )
+
+
+class NonFiniteArtifactExecutor(SuccessfulExecutor):
+    async def execute(self, call):
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                elapsed_ms=1,
+                sources=[
+                    ExternalSource(
+                        source_type="test",
+                        provider="test",
+                        title="non-finite result",
+                        display_text="result",
+                        metadata={"score": float("nan")},
+                    )
+                ],
+            ),
+            [],
+        )
+
+
+class ArgumentCapturingExecutor(SuccessfulExecutor):
+    calls = []
+
+    async def execute(self, call):
+        self.__class__.calls.append(call)
         return await super().execute(call)
 
 
@@ -202,6 +323,149 @@ class DurableToolRuntimeTest(unittest.TestCase):
             )
             self.assertEqual(result.status, "success")
             self.assertIn("safe structured tool result", result.sources[0].display_text)
+
+    def test_durable_runtime_applies_default_and_fixed_arguments_at_both_boundaries(self) -> None:
+        definition = ToolDefinition(
+            tool_key="test.fixed-default",
+            provider="test",
+            category="test",
+            display_name="Fixed/default test tool",
+            description="Tool used to verify adapter-owned arguments.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "minLength": 1},
+                    "limit": {"type": "integer", "minimum": 1},
+                    "tenant_id": {"type": "string", "minLength": 1},
+                },
+                "required": ["query", "limit", "tenant_id"],
+                "additionalProperties": False,
+            },
+            adapter={
+                "default_arguments": {"limit": 5},
+                "fixed_arguments": {"tenant_id": "trusted-tenant"},
+            },
+        )
+        catalog = Mock()
+        catalog.get_or_none.return_value = definition
+        ArgumentCapturingExecutor.calls = []
+
+        with patch("app.services.durable_tool_runtime.ToolCatalog", return_value=catalog):
+            with self.SessionLocal() as db:
+                run = DurableToolRunService(db).enqueue(
+                    user_id=self.user_id,
+                    project_id=self.project_id,
+                    conversation_id=None,
+                    assistant_message_id=None,
+                    calls=[
+                        {
+                            "call_id": "lookup",
+                            "tool_key": definition.tool_key,
+                            "arguments": {"query": "hello", "tenant_id": "attacker"},
+                        }
+                    ],
+                )
+                step = db.scalar(select(AgentStep).where(AgentStep.run_id == run.id))
+                self.assertEqual(json.loads(step.arguments_json), {"limit": 5, "query": "hello"})
+                run_id = run.id
+
+            worker = DurableToolWorker(
+                session_factory=self.SessionLocal,
+                owner="worker-fixed-default",
+                executor_factory=ArgumentCapturingExecutor,
+            )
+            self.assertTrue(asyncio.run(worker.run_once()))
+
+        self.assertEqual(len(ArgumentCapturingExecutor.calls), 1)
+        self.assertEqual(
+            ArgumentCapturingExecutor.calls[0].arguments,
+            {"limit": 5, "query": "hello"},
+        )
+        with self.SessionLocal() as db:
+            self.assertEqual(db.get(AgentRun, run_id).status, "succeeded")
+
+    def test_oversized_artifact_fails_closed_without_persisting_content(self) -> None:
+        run_id = self._enqueue([{"call_id": "huge", "tool_key": "workspace.files.list", "arguments": {}}])
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-huge",
+            executor_factory=HugeArtifactExecutor,
+        )
+
+        self.assertTrue(asyncio.run(worker.run_once()))
+
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id))
+            self.assertEqual(run.status, "failed")
+            self.assertEqual(step.status, "failed")
+            self.assertEqual(step.error_code, "artifact_too_large")
+            self.assertEqual(db.query(AgentArtifact).filter_by(run_id=run_id).count(), 0)
+
+    def test_artifact_persistence_redacts_untrusted_source_payload(self) -> None:
+        run_id = self._enqueue([{"call_id": "secret", "tool_key": "workspace.files.list", "arguments": {}}])
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-secret",
+            executor_factory=SensitiveArtifactExecutor,
+        )
+
+        self.assertTrue(asyncio.run(worker.run_once()))
+
+        with self.SessionLocal() as db:
+            artifact = db.scalar(select(AgentArtifact).where(AgentArtifact.run_id == run_id))
+            self.assertIsNotNone(artifact)
+            assert artifact is not None
+            self.assertNotIn("secret-value", artifact.content_json)
+            self.assertIn('"apiKey": "***"', artifact.content_json)
+            self.assertIn("API_KEY=***", artifact.content_json)
+
+    def test_artifact_persistence_rejects_non_finite_json_values(self) -> None:
+        run_id = self._enqueue([{"call_id": "non-finite", "tool_key": "workspace.files.list", "arguments": {}}])
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-non-finite",
+            executor_factory=NonFiniteArtifactExecutor,
+        )
+
+        self.assertTrue(asyncio.run(worker.run_once()))
+
+        with self.SessionLocal() as db:
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id))
+            self.assertEqual(step.status, "failed")
+            self.assertEqual(step.error_code, "artifact_serialization_failed")
+            self.assertEqual(db.query(AgentArtifact).filter_by(run_id=run_id).count(), 0)
+
+    def test_quality_failure_is_terminal_and_blocks_dependents(self) -> None:
+        run_id = self._enqueue(
+            [
+                {"call_id": "first", "tool_key": "workspace.files.list", "arguments": {}},
+                {
+                    "call_id": "second",
+                    "tool_key": "workspace.files.search",
+                    "arguments": {"query": "follow-up"},
+                    "depends_on": ["first"],
+                },
+            ]
+        )
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-quality-gate",
+            executor_factory=InvalidQualityExecutor,
+        )
+
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            first = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id, AgentStep.call_id == "first"))
+            self.assertEqual(first.status, "failed")
+            self.assertEqual(first.error_code, "tool_result_quality_invalid")
+            self.assertEqual(db.query(AgentArtifact).filter_by(run_id=run_id).count(), 0)
+
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            second = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id, AgentStep.call_id == "second"))
+            self.assertEqual(second.status, "skipped")
+            self.assertEqual(second.error_code, "dependency_failed")
 
     def test_cyclic_dag_is_rejected_before_writing_state(self) -> None:
         with self.SessionLocal() as db:
@@ -588,6 +852,167 @@ class DurableToolRuntimeTest(unittest.TestCase):
         self.assertTrue(asyncio.run(successful_worker.run_once()))
         with self.SessionLocal() as db:
             self.assertEqual(db.get(AgentRun, run_id).status, "succeeded")
+
+    def test_dead_letter_replay_requeues_dependency_failed_descendants(self) -> None:
+        ReplayableExecutor.attempts = {}
+        run_id = self._enqueue(
+            [
+                {"call_id": "source", "tool_key": "workspace.files.list", "arguments": {}},
+                {
+                    "call_id": "dependent",
+                    "tool_key": "workspace.files.list",
+                    "arguments": {},
+                    "depends_on": ["source"],
+                },
+            ],
+            attempts=1,
+        )
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-replay-dag",
+            executor_factory=ReplayableExecutor,
+        )
+        self.assertTrue(asyncio.run(worker.run_once()))
+        self.assertTrue(asyncio.run(worker.run_once()))
+
+        with self.SessionLocal() as db:
+            source = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id, AgentStep.call_id == "source"))
+            dependent = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id, AgentStep.call_id == "dependent"))
+            self.assertEqual(source.status, "dead_letter")
+            self.assertEqual(dependent.status, "skipped")
+            self.assertEqual(dependent.error_code, "dependency_failed")
+            replayed = DurableToolRunService(db).replay_dead_letter(
+                run_id=run_id,
+                step_id=source.id,
+                user_id=self.user_id,
+            )
+            self.assertEqual(replayed.status, "queued")
+            self.assertEqual(db.query(AgentOutboxEvent).filter_by(run_id=run_id).count(), 4)
+            self.assertEqual(source.status, "pending")
+            self.assertEqual(dependent.status, "pending")
+            checkpoint = db.scalar(
+                select(AgentCheckpoint)
+                .where(AgentCheckpoint.run_id == run_id)
+                .order_by(AgentCheckpoint.state_version.desc())
+            )
+            observations = json.loads(checkpoint.observations_json)
+            self.assertEqual(
+                {item["type"] for item in observations},
+                {"step_replay_requested", "dependent_step_replay_requested"},
+            )
+
+        self.assertTrue(asyncio.run(worker.run_once()))
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            statuses = {
+                step.call_id: step.status
+                for step in db.scalars(select(AgentStep).where(AgentStep.run_id == run_id))
+            }
+            self.assertEqual(statuses, {"source": "succeeded", "dependent": "succeeded"})
+            self.assertEqual(run.status, "succeeded")
+
+    def test_metrics_exclude_legacy_file_edit_runs(self) -> None:
+        self._enqueue([{"call_id": "durable", "tool_key": "workspace.files.list", "arguments": {}}])
+        with self.SessionLocal() as db:
+            legacy_run = AgentRun(
+                user_id=self.user_id,
+                runtime_kind="file_edit",
+                status="failed",
+                input_json="{}",
+                planner_state_json="{}",
+                idempotency_key="legacy-file-edit-metrics",
+                max_steps=1,
+            )
+            db.add(legacy_run)
+            db.flush()
+            legacy_step = AgentStep(
+                run_id=legacy_run.id,
+                sequence=1,
+                call_id="legacy",
+                tool_key="workspace.files.list",
+                arguments_json="{}",
+                arguments_hash="legacy",
+                status="dead_letter",
+            )
+            db.add(legacy_step)
+            db.flush()
+            db.add(
+                AgentOutboxEvent(
+                    event_key="legacy-file-edit-event",
+                    run_id=legacy_run.id,
+                    step_id=legacy_step.id,
+                    status="running",
+                    lease_expires_at=utcnow() - timedelta(seconds=1),
+                )
+            )
+            db.add(
+                AgentArtifact(
+                    run_id=legacy_run.id,
+                    step_id=legacy_step.id,
+                    user_id=self.user_id,
+                    content_hash="legacy",
+                    preview="legacy",
+                    content_json="{}",
+                    char_count=2,
+                )
+            )
+            db.commit()
+
+            metrics = DurableToolRunService(db).metrics(user_id=self.user_id)
+
+        self.assertEqual(metrics["runs_by_status"], {"queued": 1})
+        self.assertNotIn("dead_letter", metrics["steps_by_status"])
+        self.assertNotIn("running", metrics["outbox_by_status"])
+        self.assertEqual(metrics["artifacts_total"], 0)
+
+    def test_dead_letter_replay_does_not_bypass_an_independent_failed_dependency(self) -> None:
+        ReplayWithIndependentFailureExecutor.attempts = {}
+        run_id = self._enqueue(
+            [
+                {"call_id": "source", "tool_key": "workspace.files.list", "arguments": {}},
+                {"call_id": "independent", "tool_key": "workspace.files.list", "arguments": {}},
+                {
+                    "call_id": "dependent",
+                    "tool_key": "workspace.files.list",
+                    "arguments": {},
+                    "depends_on": ["source", "independent"],
+                },
+            ],
+            attempts=1,
+        )
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-replay-independent-failure",
+            executor_factory=ReplayWithIndependentFailureExecutor,
+        )
+        self.assertTrue(asyncio.run(worker.run_once()))
+        self.assertTrue(asyncio.run(worker.run_once()))
+        self.assertTrue(asyncio.run(worker.run_once()))
+
+        with self.SessionLocal() as db:
+            source = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id, AgentStep.call_id == "source"))
+            dependent = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id, AgentStep.call_id == "dependent"))
+            self.assertEqual(source.status, "dead_letter")
+            self.assertEqual(dependent.status, "skipped")
+            DurableToolRunService(db).replay_dead_letter(
+                run_id=run_id,
+                step_id=source.id,
+                user_id=self.user_id,
+            )
+            self.assertEqual(dependent.status, "skipped")
+
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            statuses = {
+                step.call_id: step.status
+                for step in db.scalars(select(AgentStep).where(AgentStep.run_id == run_id))
+            }
+            self.assertEqual(
+                statuses,
+                {"source": "succeeded", "independent": "dead_letter", "dependent": "skipped"},
+            )
+            self.assertEqual(db.get(AgentRun, run_id).status, "dead_letter")
 
     def test_reconcile_restores_missing_delivery_intent_once_but_not_expired_event(self) -> None:
         run_id = self._enqueue([{"call_id": "list", "tool_key": "workspace.files.list", "arguments": {}}])

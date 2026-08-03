@@ -24,6 +24,7 @@ from app.models.agent_runtime import (
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.project_file import ProjectFile
+from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 
 
 def utcnow() -> datetime:
@@ -121,10 +122,20 @@ class AgentRuntimeService:
                 ProjectFile.user_id == user_id,
                 ProjectFile.project_id == project_id,
             )
+            .execution_options(populate_existing=True)
+            .with_for_update()
             .limit(1)
         ).first()
         if not project_file:
             raise AgentRuntimeError("file_not_found", "工作区中未找到该文件。")
+        # The high-risk apply_edit path does not go through the read-only
+        # WorkspaceFileToolProvider, so enforce the sensitive-file policy again
+        # at the mutation boundary before producing a Diff or approval record.
+        if WorkspaceFileToolProvider.is_sensitive_file_name(project_file.file_name):
+            raise AgentRuntimeError(
+                "sensitive_file_blocked",
+                "出于安全原因，该敏感文件不允许通过 Agent 工具修改。",
+            )
         self._validate_context_scope(
             user_id=user_id,
             project_id=project_id,

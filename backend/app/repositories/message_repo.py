@@ -1,9 +1,20 @@
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.models.conversation import Conversation
 from app.models.message import Message
+
+
+class MessageGenerationConflict(RuntimeError):
+    """同一会话已有尚未收口的 assistant generation。"""
+
+    code = "generation_in_progress"
+
+    def __init__(self) -> None:
+        super().__init__("当前会话已有回答正在生成，请等待完成或停止后再试。")
 
 
 class MessageRepository:
@@ -22,7 +33,11 @@ class MessageRepository:
         stmt = (
             select(Message)
             .where(Message.conversation_id == conversation_id)
-            .order_by(Message.created_at.asc(), Message.sequence.asc())
+            .order_by(
+                Message.created_at.asc(),
+                Message.sequence.asc().nulls_last(),
+                Message.id.asc(),
+            )
         )
         return list(self.db.scalars(stmt).all())
 
@@ -48,12 +63,105 @@ class MessageRepository:
         conversation_id = getattr(message, "conversation_id", None)
         if not conversation_id:
             return
+        # Message sequence is allocated from MAX()+1. Lock the conversation row
+        # so concurrent requests for the same conversation cannot choose the same
+        # next value. SQLite ignores FOR UPDATE, while PostgreSQL enforces it.
+        self.db.execute(
+            select(Conversation.id)
+            .where(Conversation.id == conversation_id)
+            .with_for_update()
+        ).scalar_one_or_none()
         current_max = self.db.scalar(
             select(func.coalesce(func.max(Message.sequence), 0)).where(
                 Message.conversation_id == conversation_id
             )
         )
         message.sequence = int(current_max or 0) + 1
+
+    def lock_conversation(self, conversation_id: str) -> Conversation | None:
+        """锁定会话聚合根，仅覆盖准备/状态切换的短事务。"""
+
+        return self.db.scalars(
+            select(Conversation)
+            .where(Conversation.id == conversation_id)
+            .execution_options(populate_existing=True)
+            .with_for_update()
+            .limit(1)
+        ).first()
+
+    def lock_message(self, message_id: str, conversation_id: str | None = None) -> Message | None:
+        stmt = select(Message).where(Message.id == message_id)
+        if conversation_id:
+            stmt = stmt.where(Message.conversation_id == conversation_id)
+        return self.db.scalars(
+            stmt.execution_options(populate_existing=True).with_for_update().limit(1)
+        ).first()
+
+    def ensure_no_active_streaming(self, conversation_id: str) -> None:
+        """在创建新轮次前阻止同一会话出现两个并行 generation。"""
+
+        if not self.lock_conversation(conversation_id):
+            return
+        active_ids = list(
+            self.db.scalars(
+                select(Message.id)
+                .where(
+                    Message.conversation_id == conversation_id,
+                    Message.role == "assistant",
+                    Message.status == "streaming",
+                )
+                .with_for_update()
+            ).all()
+        )
+        if active_ids:
+            raise MessageGenerationConflict()
+
+    def save_generation_result(
+        self,
+        *,
+        message_id: str,
+        generation_id: str,
+        content: str,
+        reasoning_content: str | None,
+        external_sources: str | None,
+        status: str,
+    ) -> bool:
+        """使用 message id + generation token 做一次条件更新。
+
+        返回 False 表示该 generation 已被新的请求接管；调用者不得再写消息或
+        为旧 generation 创建完成后的副作用。
+        """
+
+        updated_at = datetime.now(timezone.utc)
+        # Keep a stale generation from rolling back unrelated work already
+        # staged in the caller's unit of work. The outer transaction remains
+        # available for the caller to commit or roll back explicitly.
+        with self.db.begin_nested() as savepoint:
+            result = self.db.execute(
+                update(Message)
+                .where(Message.id == message_id, Message.generation_id == generation_id)
+                .values(
+                    content=content,
+                    reasoning_content=reasoning_content,
+                    external_sources=external_sources,
+                    status=status,
+                    updated_at=updated_at,
+                )
+            )
+            if result.rowcount != 1:
+                savepoint.rollback()
+                return False
+        return True
+
+    def mark_generation_failed(self, *, message_id: str, generation_id: str) -> bool:
+        return self.save_generation_result(
+            message_id=message_id,
+            generation_id=generation_id,
+            content="",
+            reasoning_content=None,
+            external_sources=None,
+            status="failed",
+        )
 
     def get_by_id_and_conversation(self, message_id: str, conversation_id: str) -> Message | None:
         # 永远不要只按 message_id 查公开资源；必须带 conversation_id 防止跨会话访问。
@@ -83,7 +191,7 @@ class MessageRepository:
             Message.conversation_id == conversation_id,
             Message.role == "assistant",
             Message.status == "streaming",
-        )
+        ).with_for_update()
         messages = list(self.db.scalars(stmt).all())
         if not messages:
             return 0
@@ -97,6 +205,10 @@ class MessageRepository:
                 continue
 
             message.status = "failed"
+            # Fence a still-running producer that outlived the self-healing
+            # threshold. Its late completion must fail the generation CAS rather
+            # than resurrecting this message as done.
+            message.generation_id = str(uuid4())
             if not (message.content or "").strip():
                 message.content = ""
             stale_messages.append(message)

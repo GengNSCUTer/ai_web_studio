@@ -80,6 +80,29 @@ class AgentRuntimeServiceTest(unittest.TestCase):
         self.assertEqual(duplicate.run_id, proposal.run_id)
         self.assertEqual(self.db.query(AgentRun).count(), 1)
 
+    def test_direct_apply_edit_path_rejects_sensitive_file(self) -> None:
+        sensitive_file = ProjectFile(
+            project_id=self.project.id,
+            user_id=self.user.id,
+            kind="text",
+            file_name=".env",
+            storage_key="owner/.env",
+            parsed_text="API_KEY=secret-value",
+        )
+        self.db.add(sensitive_file)
+        self.db.commit()
+
+        with self.assertRaisesRegex(AgentRuntimeError, "敏感文件"):
+            AgentRuntimeService(self.db).propose_file_edit(
+                user_id=self.user.id,
+                project_id=self.project.id,
+                call_id="sensitive-edit",
+                file_id=sensitive_file.id,
+                old_string="API_KEY=secret-value",
+                new_string="API_KEY=changed",
+            )
+        self.assertEqual(self.db.query(AgentRun).count(), 0)
+
     def test_approval_token_and_revision_cas_make_apply_idempotent(self) -> None:
         proposal = self._propose()
         service = AgentRuntimeService(self.db)

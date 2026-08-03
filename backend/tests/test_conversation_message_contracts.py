@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -256,6 +257,113 @@ class ConversationMessageContractTest(unittest.TestCase):
         self.assertEqual(first.sequence, 1)
         self.assertEqual(second.sequence, 2)
         self.assertEqual([message.id for message in repo.list_by_conversation(conversation.id)], [first.id, second.id])
+
+    def test_message_listing_uses_sequence_as_created_at_tie_breaker(self) -> None:
+        conversation = Conversation(user_id=self.user.id, title="Ordered", model_name="model")
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+
+        repo = MessageRepository(self.db)
+        later_created = Message(
+            conversation_id=conversation.id,
+            sequence=2,
+            role="assistant",
+            content="second",
+            created_at=datetime(2026, 8, 3, 12, 0, 1, tzinfo=timezone.utc),
+        )
+        earlier_created = Message(
+            conversation_id=conversation.id,
+            sequence=1,
+            role="user",
+            content="first",
+            created_at=datetime(2026, 8, 3, 12, 0, 1, tzinfo=timezone.utc),
+        )
+        self.db.add_all([later_created, earlier_created])
+        self.db.commit()
+
+        ordered = repo.list_by_conversation(conversation.id)
+
+        self.assertEqual([message.sequence for message in ordered], [1, 2])
+        self.assertEqual([message.content for message in ordered], ["first", "second"])
+
+    def test_stale_streaming_message_rotates_generation_to_fence_late_writer(self) -> None:
+        conversation = Conversation(user_id=self.user.id, title="Stale", model_name="model")
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        stale = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="partial",
+            status="streaming",
+            generation_id="old-generation",
+            updated_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+        )
+        self.db.add(stale)
+        self.db.commit()
+
+        changed = MessageRepository(self.db).mark_stale_streaming_messages(conversation.id)
+
+        self.assertEqual(changed, 1)
+        self.assertEqual(stale.status, "failed")
+        self.assertNotEqual(stale.generation_id, "old-generation")
+
+    def test_stale_generation_cas_does_not_rollback_unrelated_unit_of_work(self) -> None:
+        conversation = Conversation(user_id=self.user.id, title="Original", model_name="model")
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        assistant = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="current",
+            status="streaming",
+            generation_id="current-generation",
+        )
+        self.db.add(assistant)
+        self.db.commit()
+        self.db.refresh(assistant)
+
+        conversation.title = "Staged unrelated change"
+        persisted = MessageRepository(self.db).save_generation_result(
+            message_id=assistant.id,
+            generation_id="stale-generation",
+            content="late result",
+            reasoning_content=None,
+            external_sources=None,
+            status="done",
+        )
+
+        self.assertFalse(persisted)
+        self.db.commit()
+        self.db.refresh(conversation)
+        self.db.refresh(assistant)
+        self.assertEqual(conversation.title, "Staged unrelated change")
+        self.assertEqual(assistant.content, "current")
+        self.assertEqual(assistant.status, "streaming")
+
+    def test_stale_cleanup_does_not_touch_completed_message(self) -> None:
+        conversation = Conversation(user_id=self.user.id, title="Completed", model_name="model")
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        completed = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content="complete",
+            status="done",
+            generation_id="completed-generation",
+            updated_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+        )
+        self.db.add(completed)
+        self.db.commit()
+
+        changed = MessageRepository(self.db).mark_stale_streaming_messages(conversation.id)
+
+        self.assertEqual(changed, 0)
+        self.assertEqual(completed.status, "done")
+        self.assertEqual(completed.generation_id, "completed-generation")
 
     def test_conversation_and_message_repositories_do_not_commit_the_unit_of_work(self) -> None:
         conversation_repo = ConversationRepository(self.db)

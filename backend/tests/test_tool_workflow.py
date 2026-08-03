@@ -92,6 +92,115 @@ class RaisingFallbackExecutor(FakeWorkflowExecutor):
         )
 
 
+class QualityGateExecutor(FakeWorkflowExecutor):
+    def __init__(self, quality_status: str) -> None:
+        super().__init__()
+        self.quality_status = quality_status
+
+    async def execute(self, call: PlannedToolCall):
+        self.calls.append(call)
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                sources=[
+                    ExternalSource(
+                        source_type=call.category,
+                        provider=call.provider,
+                        title=f"{call.display_name}结果",
+                        display_text="低质量但非空结果",
+                    )
+                ],
+                elapsed_ms=1,
+                quality_status=self.quality_status,
+                quality_reasons=[f"test_{self.quality_status}"],
+            ),
+            [],
+        )
+
+
+class NonSuccessSourceExecutor(FakeWorkflowExecutor):
+    async def execute(self, call: PlannedToolCall):
+        self.calls.append(call)
+        return (
+            ToolCallResult(
+                call=call,
+                status="failed",
+                sources=[
+                    ExternalSource(
+                        source_type=call.category,
+                        provider=call.provider,
+                        title="failed evidence",
+                        display_text="must not reach the answer prompt",
+                    )
+                ],
+                elapsed_ms=1,
+                error_message="simulated failure",
+            ),
+            [],
+        )
+
+
+class ConfirmationEvidenceExecutor(FakeWorkflowExecutor):
+    async def execute(self, call: PlannedToolCall):
+        self.calls.append(call)
+        return (
+            ToolCallResult(
+                call=call,
+                status="confirmation_required",
+                sources=[
+                    ExternalSource(
+                        source_type="workspace_file_edit_approval",
+                        provider="workspace",
+                        title="pending diff",
+                        display_text="awaiting confirmation",
+                    )
+                ],
+                elapsed_ms=1,
+                error_message="waiting for confirmation",
+            ),
+            [
+                ToolTraceEvent(
+                    type="tool_confirmation_required",
+                    payload={"status": "waiting_approval"},
+                )
+            ],
+        )
+
+
+class SameCategoryFallbackContractExecutor(FakeWorkflowExecutor):
+    async def execute(self, call: PlannedToolCall):
+        self.calls.append(call)
+        if call.tool_key == "test.primary":
+            return (
+                ToolCallResult(
+                    call=call,
+                    status="failed",
+                    sources=[],
+                    elapsed_ms=1,
+                    error_message="primary failed",
+                ),
+                [],
+            )
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                sources=[
+                    ExternalSource(
+                        source_type="lookup",
+                        provider="test",
+                        title="fallback",
+                        display_text="fallback evidence",
+                        metadata={"raw": {"other": "value"}},
+                    )
+                ],
+                elapsed_ms=1,
+            ),
+            [],
+        )
+
+
 class StructuredBindingExecutor(FakeWorkflowExecutor):
     async def execute(self, call: PlannedToolCall):
         self.calls.append(call)
@@ -754,6 +863,285 @@ class ToolWorkflowTest(unittest.TestCase):
             skipped = [event for event in result.events if event.type == "tool_workflow_step_skipped"]
             self.assertEqual(skipped[0].payload["reason"], "failed_dependencies")
             self.assertEqual(skipped[0].payload["failed_dependencies"], ["first"])
+
+        asyncio.run(run_test())
+
+    def test_invalid_quality_blocks_downstream_dependency(self) -> None:
+        async def run_test() -> None:
+            executor = QualityGateExecutor("invalid")
+            workflow = ToolWorkflowService(executor=executor, registry=ToolCatalog())
+            plan = ToolPlan(
+                plan_id="plan-invalid-quality",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="first",
+                        tool_key="amap.maps.weather",
+                        provider="amap",
+                        category="weather",
+                        display_name="First",
+                        confidence=1.0,
+                        reason="invalid result",
+                        arguments={"city": "深圳"},
+                    ),
+                    PlannedToolCall(
+                        call_id="second",
+                        tool_key="web.tavily.search",
+                        provider="tavily",
+                        category="web_search",
+                        display_name="Second",
+                        confidence=1.0,
+                        reason="requires first",
+                        arguments={"query": "深圳天气"},
+                        depends_on=["first"],
+                    ),
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="深圳天气")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["first"])
+            blocked = [event for event in result.events if event.type == "quality_gate_blocked"]
+            self.assertTrue(blocked)
+            self.assertEqual(blocked[-1].payload["dependency_quality"]["first"], "invalid")
+            self.assertEqual(result.sources, [])
+            suppressed = [event for event in result.events if event.type == "quality_evidence_suppressed"]
+            self.assertEqual(suppressed[-1].payload["exposed_to_prompt"], False)
+
+        asyncio.run(run_test())
+
+    def test_uncertain_quality_does_not_unlock_downstream_dependency(self) -> None:
+        async def run_test() -> None:
+            executor = QualityGateExecutor("uncertain")
+            workflow = ToolWorkflowService(executor=executor, registry=ToolCatalog())
+            plan = ToolPlan(
+                plan_id="plan-uncertain-quality",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="first",
+                        tool_key="amap.maps.weather",
+                        provider="amap",
+                        category="weather",
+                        display_name="First",
+                        confidence=1.0,
+                        reason="uncertain result",
+                        arguments={"city": "深圳"},
+                    ),
+                    PlannedToolCall(
+                        call_id="second",
+                        tool_key="web.tavily.search",
+                        provider="tavily",
+                        category="web_search",
+                        display_name="Second",
+                        confidence=1.0,
+                        reason="requires first",
+                        arguments={"query": "深圳天气"},
+                        depends_on=["first"],
+                    ),
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="深圳天气")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["first"])
+            blocked = [event for event in result.events if event.type == "quality_gate_blocked"]
+            self.assertTrue(blocked)
+            self.assertEqual(blocked[-1].payload["dependency_quality"]["first"], "uncertain")
+            self.assertEqual(result.sources, [])
+
+        asyncio.run(run_test())
+
+    def test_unknown_quality_status_is_suppressed_and_blocks_downstream(self) -> None:
+        async def run_test() -> None:
+            executor = QualityGateExecutor("unexpected")
+            workflow = ToolWorkflowService(executor=executor, registry=ToolCatalog())
+            plan = ToolPlan(
+                plan_id="plan-unknown-quality",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="first",
+                        tool_key="amap.maps.weather",
+                        provider="amap",
+                        category="weather",
+                        display_name="First",
+                        confidence=1.0,
+                        reason="unexpected result status",
+                        arguments={"city": "深圳"},
+                    ),
+                    PlannedToolCall(
+                        call_id="second",
+                        tool_key="web.tavily.search",
+                        provider="tavily",
+                        category="web_search",
+                        display_name="Second",
+                        confidence=1.0,
+                        reason="requires first",
+                        arguments={"query": "深圳天气"},
+                        depends_on=["first"],
+                    ),
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="深圳天气")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["first"])
+            self.assertEqual(result.sources, [])
+            blocked = [event for event in result.events if event.type == "quality_gate_blocked"]
+            self.assertEqual(blocked[-1].payload["dependency_quality"]["first"], "invalid")
+            suppressed = [event for event in result.events if event.type == "quality_evidence_suppressed"]
+            self.assertEqual(suppressed[-1].payload["reason"], "quality_gate")
+
+        asyncio.run(run_test())
+
+    def test_non_success_sources_are_not_exposed_to_prompt(self) -> None:
+        async def run_test() -> None:
+            executor = NonSuccessSourceExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=ToolCatalog())
+            plan = ToolPlan(
+                plan_id="plan-failed-evidence",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="failed",
+                        tool_key="web.tavily.search",
+                        provider="tavily",
+                        category="web_search",
+                        display_name="Search",
+                        confidence=1.0,
+                        reason="failed evidence",
+                        arguments={"query": "test"},
+                    )
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="test")
+
+            self.assertEqual(result.sources, [])
+            suppressed = [event for event in result.events if event.type == "tool_evidence_suppressed"]
+            self.assertEqual(len(suppressed), 1)
+            self.assertEqual(suppressed[0].payload["reason"], "non_success_result")
+
+        asyncio.run(run_test())
+
+    def test_confirmation_diff_is_explicitly_exposed_as_evidence(self) -> None:
+        async def run_test() -> None:
+            executor = ConfirmationEvidenceExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=ToolCatalog())
+            plan = ToolPlan(
+                plan_id="plan-confirmation-evidence",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="edit",
+                        tool_key="workspace.files.edit",
+                        provider="workspace",
+                        category="workspace_file_edit",
+                        display_name="Edit",
+                        confidence=1.0,
+                        reason="edit",
+                        arguments={"file_id": "file-1"},
+                    )
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="edit")
+
+            self.assertEqual(len(result.sources), 1)
+            self.assertEqual(result.sources[0].title, "pending diff")
+            self.assertEqual(
+                [event for event in result.events if event.type == "tool_evidence_suppressed"],
+                [],
+            )
+
+        asyncio.run(run_test())
+
+    def test_same_category_fallback_must_satisfy_parent_quality_contract(self) -> None:
+        async def run_test() -> None:
+            catalog = ToolCatalog()
+            catalog._definitions = {
+                "test.primary": ToolDefinition(
+                    tool_key="test.primary",
+                    provider="test",
+                    category="lookup",
+                    display_name="Primary",
+                    description="primary",
+                    quality_contract={
+                        "required_paths": ["/sources/0/metadata/raw/value"],
+                    },
+                    adapter={"auth_type": "none"},
+                ),
+                "test.fallback": ToolDefinition(
+                    tool_key="test.fallback",
+                    provider="test",
+                    category="lookup",
+                    display_name="Fallback",
+                    description="fallback",
+                    adapter={"auth_type": "none"},
+                ),
+                "test.downstream": ToolDefinition(
+                    tool_key="test.downstream",
+                    provider="test",
+                    category="lookup",
+                    display_name="Downstream",
+                    description="downstream",
+                    adapter={"auth_type": "none"},
+                ),
+            }
+            executor = SameCategoryFallbackContractExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=catalog, max_tool_calls=3)
+            plan = ToolPlan(
+                plan_id="plan-fallback-quality-contract",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                fallback_tool_key="test.fallback",
+                calls=[
+                    PlannedToolCall(
+                        call_id="primary",
+                        tool_key="test.primary",
+                        provider="test",
+                        category="lookup",
+                        display_name="Primary",
+                        confidence=1.0,
+                        reason="primary",
+                    ),
+                    PlannedToolCall(
+                        call_id="downstream",
+                        tool_key="test.downstream",
+                        provider="test",
+                        category="lookup",
+                        display_name="Downstream",
+                        confidence=1.0,
+                        reason="requires structured primary result",
+                        depends_on=["primary"],
+                    ),
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="lookup")
+
+            self.assertEqual(executor.calls[0].call_id, "primary")
+            self.assertEqual(executor.calls[1].tool_key, "test.fallback")
+            self.assertEqual(len(executor.calls), 2)
+            blocked = [
+                event
+                for event in result.events
+                if event.type == "quality_gate_blocked"
+                and event.payload.get("stage") == "fallback_dependency_contract"
+            ]
+            self.assertEqual(len(blocked), 1)
 
         asyncio.run(run_test())
 

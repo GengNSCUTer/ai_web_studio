@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 from app.core.config import settings
 from app.models.attachment import Attachment
@@ -7,6 +8,7 @@ from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.knowledge_repo import KnowledgeRetrievalLogRepository
 from app.repositories.message_repo import MessageRepository
+from app.repositories.message_repo import MessageGenerationConflict
 from app.schemas.message import MessageCreate, MessageResponse
 from app.schemas.upload import UploadItemReference
 
@@ -87,6 +89,45 @@ class MessageService:
             self.repo.db.refresh(saved)
         return self._serialize_message(saved)
 
+    def save_generation_result(
+        self,
+        *,
+        message: Message,
+        generation_id: str | None = None,
+        content: str,
+        reasoning_content: str | None,
+        external_sources: str | None,
+        status: str,
+    ) -> bool:
+        """Persist a stream result only if this request still owns the generation."""
+
+        persisted = self.repo.save_generation_result(
+            message_id=message.id,
+            generation_id=generation_id or message.generation_id,
+            content=content,
+            reasoning_content=reasoning_content,
+            external_sources=external_sources,
+            status=status,
+        )
+        if not persisted:
+            return False
+        self._touch_conversation(message.conversation_id)
+        self._commit()
+        return True
+
+    def mark_generation_prepare_failed(self, message: Message, *, generation_id: str | None = None) -> bool:
+        """Close a prepare-time placeholder without clobbering a newer generation."""
+
+        persisted = self.repo.mark_generation_failed(
+            message_id=message.id,
+            generation_id=generation_id or message.generation_id,
+        )
+        if not persisted:
+            return False
+        self._touch_conversation(message.conversation_id)
+        self._commit()
+        return True
+
     def attach_uploaded_items(
         self,
         *,
@@ -156,11 +197,26 @@ class MessageService:
         return attachments
 
     def reset_assistant_for_regeneration(self, assistant_message: Message) -> None:
-        self._reset_assistant(assistant_message)
-        self.repo.save(assistant_message)
-        self._touch_conversation(assistant_message.conversation_id)
-        self._commit()
-        self.repo.db.refresh(assistant_message)
+        conversation_id = assistant_message.conversation_id
+        try:
+            self.repo.lock_conversation(conversation_id)
+            # Regeneration is another way to start a generation. It must use
+            # the same conversation-wide active check as a new turn, otherwise
+            # an already-running newer turn could coexist with this reset.
+            self.repo.ensure_no_active_streaming(conversation_id)
+            locked = self.repo.lock_message(assistant_message.id, conversation_id)
+            if not locked:
+                raise RuntimeError("assistant message not found")
+            if locked.status == "streaming":
+                raise MessageGenerationConflict()
+            self._reset_assistant(locked)
+            self.repo.save(locked)
+            self._touch_conversation(conversation_id)
+            self._commit()
+            self.repo.db.refresh(locked)
+        except Exception:
+            self.repo.db.rollback()
+            raise
 
     def edit_and_reset_for_regeneration(
         self,
@@ -174,6 +230,18 @@ class MessageService:
         """原子保存编辑后的用户消息、附件替换和 assistant 重置。"""
 
         try:
+            self.repo.lock_conversation(user_message.conversation_id)
+            # Editing the previous turn also starts a new generation and must
+            # not race with a newer active turn in the same conversation.
+            self.repo.ensure_no_active_streaming(user_message.conversation_id)
+            locked_assistant = self.repo.lock_message(
+                assistant_message.id,
+                user_message.conversation_id,
+            )
+            if not locked_assistant:
+                raise RuntimeError("assistant message not found")
+            if locked_assistant.status == "streaming":
+                raise MessageGenerationConflict()
             user_message.content = content
             self.repo.save(user_message)
             attachments: list[Attachment] | None = None
@@ -186,12 +254,12 @@ class MessageService:
                 )
                 user_message.attachments = attachments
 
-            self._reset_assistant(assistant_message)
-            self.repo.save(assistant_message)
+            self._reset_assistant(locked_assistant)
+            self.repo.save(locked_assistant)
             self._touch_conversation(user_message.conversation_id)
             self.repo.db.commit()
             self.repo.db.refresh(user_message)
-            self.repo.db.refresh(assistant_message)
+            self.repo.db.refresh(locked_assistant)
             for attachment in attachments or []:
                 self.repo.db.refresh(attachment)
             return attachments
@@ -251,6 +319,7 @@ class MessageService:
 
     @staticmethod
     def _reset_assistant(message: Message) -> None:
+        message.generation_id = str(uuid4())
         message.content = ""
         message.reasoning_content = None
         message.external_sources = None

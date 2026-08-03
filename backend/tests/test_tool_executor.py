@@ -42,6 +42,11 @@ class FakeAdapterRunner:
         )
 
 
+class EmptyAdapterRunner:
+    async def run(self, *, definition, call, api_key):
+        return [], {"adapter_type": definition.adapter_type}
+
+
 class FailingAdapterRunner:
     async def run(self, *, definition, call, api_key):
         raise RuntimeError("https://mcp.internal/call?api_key=secret-value")
@@ -80,6 +85,42 @@ class ToolExecutorTest(unittest.TestCase):
         self.assertEqual(public["arguments"]["query"], "safe")
         self.assertEqual(public["arguments"]["api_key"], "***")
         self.assertEqual(public["arguments"]["nested"]["access_token"], "***")
+        self.assertEqual(
+            PlannedToolCall(
+                call_id="call-count",
+                tool_key="custom.tool",
+                provider="custom",
+                category="custom",
+                display_name="Custom",
+                confidence=1.0,
+                reason="test",
+                arguments={"token_count": 3},
+            ).to_public_dict()["arguments"]["token_count"],
+            3,
+        )
+
+    def test_source_public_payload_redacts_sensitive_metadata_text_and_url(self) -> None:
+        source = ExternalSource(
+            source_type="mcp",
+            provider="test",
+            title="secret title",
+            display_text="API_KEY=secret-value token_count=3&token=another-secret",
+            url="https://example.test/?access_token=secret-value&key=url-secret&next=ok",
+            metadata={"raw": {"apiKey": "secret-value", "location": "1,2"}},
+        )
+
+        public = source.to_public_dict()
+
+        self.assertNotIn("secret-value", str(public))
+        self.assertNotIn("another-secret", str(public))
+        self.assertNotIn("url-secret", str(public))
+        self.assertEqual(public["metadata"]["raw"]["apiKey"], "***")
+        self.assertEqual(public["metadata"]["raw"]["location"], "1,2")
+        self.assertIn("access_token=***", public["url"])
+        self.assertIn("key=***", public["url"])
+        self.assertIn("&next=ok", public["url"])
+        self.assertIn("token_count=3", public["display_text"])
+        self.assertIn("token=***", public["display_text"])
 
     def test_executor_dispatches_by_catalog_definition(self) -> None:
         async def run_test() -> None:
@@ -118,6 +159,181 @@ class ToolExecutorTest(unittest.TestCase):
             call_start = [event for event in events if event.type == "tool_call_start"][0]
             self.assertEqual(call_start.payload["adapter_type"], "mcp_http")
             self.assertEqual(events[-1].payload["adapter"]["adapter_type"], "mcp_http")
+
+        asyncio.run(run_test())
+
+    def test_executor_revalidates_arguments_before_adapter_side_effect(self) -> None:
+        async def run_test() -> None:
+            definition = ToolDefinition(
+                tool_key="test.strict",
+                provider="test",
+                category="lookup",
+                display_name="Strict lookup",
+                description="strict schema test",
+                input_schema={
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+                adapter={"auth_type": "none"},
+            )
+            catalog = ToolCatalog()
+            catalog._definitions = {definition.tool_key: definition}
+            adapter_runner = FakeAdapterRunner()
+            executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=adapter_runner,
+            )
+            call = PlannedToolCall(
+                call_id="call-strict",
+                tool_key=definition.tool_key,
+                provider=definition.provider,
+                category=definition.category,
+                display_name=definition.display_name,
+                confidence=1.0,
+                reason="strict schema test",
+                arguments={"query": "safe", "unexpected": "must be rejected"},
+            )
+
+            result, events = await executor.execute(call)
+
+            self.assertEqual(result.status, "skipped")
+            self.assertIsNone(adapter_runner.call)
+            validation = [event for event in events if event.type == "tool_schema_validation"]
+            self.assertEqual(validation[-1].payload["status"], "failed")
+
+        asyncio.run(run_test())
+
+    def test_executor_validates_required_default_and_fixed_arguments(self) -> None:
+        async def run_test() -> None:
+            definition = ToolDefinition(
+                tool_key="test.tenant_lookup",
+                provider="test",
+                category="lookup",
+                display_name="Tenant lookup",
+                description="schema values owned partly by the adapter",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "tenant_id": {"type": "string"},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": ["query", "tenant_id", "limit"],
+                    "additionalProperties": False,
+                },
+                adapter={
+                    "auth_type": "none",
+                    "default_arguments": {"limit": 5},
+                    "fixed_arguments": {"tenant_id": "trusted-tenant"},
+                },
+            )
+            catalog = ToolCatalog()
+            catalog._definitions = {definition.tool_key: definition}
+            adapter_runner = FakeAdapterRunner()
+            executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=adapter_runner,
+            )
+            call = PlannedToolCall(
+                call_id="call-tenant",
+                tool_key=definition.tool_key,
+                provider=definition.provider,
+                category=definition.category,
+                display_name=definition.display_name,
+                confidence=1.0,
+                reason="fixed argument boundary test",
+                arguments={"query": "safe"},
+            )
+
+            result, events = await executor.execute(call)
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(adapter_runner.call.arguments, {"query": "safe", "limit": 5})
+            self.assertNotIn("tenant_id", adapter_runner.call.arguments)
+            start_event = [event for event in events if event.type == "tool_call_start"][0]
+            self.assertNotIn("tenant_id", start_event.payload["arguments"])
+
+        asyncio.run(run_test())
+
+    def test_executor_rejects_non_object_arguments_before_adapter_side_effect(self) -> None:
+        async def run_test() -> None:
+            definition = ToolDefinition(
+                tool_key="test.object",
+                provider="test",
+                category="lookup",
+                display_name="Object lookup",
+                description="object schema test",
+                input_schema={"type": "object", "additionalProperties": False},
+                adapter={"auth_type": "none"},
+            )
+            catalog = ToolCatalog()
+            catalog._definitions = {definition.tool_key: definition}
+            adapter_runner = FakeAdapterRunner()
+            executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=adapter_runner,
+            )
+            call = PlannedToolCall(
+                call_id="call-object",
+                tool_key=definition.tool_key,
+                provider=definition.provider,
+                category=definition.category,
+                display_name=definition.display_name,
+                confidence=1.0,
+                reason="object schema test",
+                arguments=["not", "an", "object"],
+            )
+
+            result, events = await executor.execute(call)
+
+            self.assertEqual(result.status, "skipped")
+            self.assertIsNone(adapter_runner.call)
+            self.assertEqual(
+                [event for event in events if event.type == "tool_schema_validation"][-1].payload["status"],
+                "failed",
+            )
+
+        asyncio.run(run_test())
+
+    def test_executor_records_quality_gate_for_empty_success(self) -> None:
+        async def run_test() -> None:
+            definition = ToolDefinition(
+                tool_key="test.empty",
+                provider="test",
+                category="test",
+                display_name="Empty test",
+                description="returns no evidence",
+                adapter={"auth_type": "none"},
+            )
+            catalog = ToolCatalog()
+            catalog._definitions = {definition.tool_key: definition}
+            executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=EmptyAdapterRunner(),
+            )
+            call = PlannedToolCall(
+                call_id="call-empty",
+                tool_key=definition.tool_key,
+                provider=definition.provider,
+                category=definition.category,
+                display_name=definition.display_name,
+                confidence=1.0,
+                reason="quality test",
+            )
+
+            result, events = await executor.execute(call)
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.quality_status, "invalid")
+            self.assertIn("no_sources", result.quality_reasons)
+            quality_event = [event for event in events if event.type == "tool_result_quality"]
+            self.assertEqual(quality_event[0].payload["status"], "invalid")
 
         asyncio.run(run_test())
 

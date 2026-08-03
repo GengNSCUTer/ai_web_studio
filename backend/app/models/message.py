@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
@@ -23,6 +23,9 @@ class Message(Base):
     # sequence 是会话内显式消息顺序。created_at 受数据库时间精度影响，同一时间戳下不足以判断最后一轮。
     # 旧数据允许为空；新消息由 MessageRepository.create/save 在写入前分配递增序号。
     sequence: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # 每次重生成/编辑重答都会换一个 opaque generation token。流式收口必须带上
+    # 创建它时看到的 token，避免旧请求在新请求之后覆盖 assistant 内容。
+    generation_id: Mapped[str] = mapped_column(String(36), default=lambda: str(uuid4()), nullable=False)
     # role 会被 prompt builder 原样传给模型。公开入口应只允许用户创建 user 消息；
     # assistant/system 消息只能由聊天编排链路内部创建，避免客户端伪造历史角色。
     role: Mapped[str] = mapped_column(String(32))
@@ -33,7 +36,13 @@ class Message(Base):
     external_sources: Mapped[str | None] = mapped_column(Text, nullable=True)
     # status 至少包含 done/streaming/failed/cancelled 等状态；前端依赖它区分流式中、失败和停止。
     status: Mapped[str] = mapped_column(String(32), default="done")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 应用侧先生成高精度 UTC 时间；数据库默认值保留给 SQL 直写/旧迁移路径兜底。
+    # SQLite 的 CURRENT_TIMESTAMP 只有秒级精度，同一批消息可能因此无法判断先后。
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

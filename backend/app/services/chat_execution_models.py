@@ -41,6 +41,9 @@ class ChatExecutionContext:
     external_sources: list[dict[str, Any]]
     prompt_cache_key: str | None = None
     prompt_cache_breakpoint: int = 0
+    # Captured before external work; it must not be re-read from an expired ORM object
+    # while closing a failed or cancelled request.
+    generation_id: str | None = None
 
 
 @dataclass

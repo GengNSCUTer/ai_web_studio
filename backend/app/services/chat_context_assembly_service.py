@@ -144,6 +144,9 @@ class ChatContextAssemblyService:
     ) -> ChatExecutionContext:
         # 这是 Chat prepare 阶段的核心方法：收集所有上下文来源，构造最终 prompt，并返回给流式执行层。
         query = getattr(user_message, "content", "") or ""
+        # Prepare 过程中会有外部调用和多次 commit；必须固定本次 generation 的 token，
+        # 避免 ORM 刷新后读到后来 generation 的新 token，削弱流式收口的 CAS 保护。
+        assistant_generation_id = getattr(assistant_message, "generation_id", None)
         memory_bundle = self.build_memory_context(
             runtime.settings,
             query=query,
@@ -359,6 +362,7 @@ class ChatContextAssemblyService:
             thinking_budget=thinking_budget,
             tool_events=[event.to_public_dict() for event in external_context_result.tool_events],
             external_sources=combined_public_sources,
+            generation_id=assistant_generation_id,
         )
 
     async def _build_external_context(
