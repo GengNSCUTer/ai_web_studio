@@ -318,6 +318,9 @@ class KnowledgeEvalResultResponse(BaseModel):
     mrr: float | None = None
     context_precision: float | None = None
     context_recall: float | None = None
+    ndcg_at_k: float | None = None
+    expected_keyword_recall: float | None = None
+    expected_keyword_hits: list[str] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -330,3 +333,15 @@ class KnowledgeEvalRunRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=50)
     retrieval_mode: Literal["vector", "lexical", "hybrid"] | None = None
     rerank_enabled: bool | None = None
+
+
+class KnowledgeEvalMatrixRequest(BaseModel):
+    """Request for the fixed retrieval ablation matrix."""
+
+    top_k: int | None = Field(default=None, ge=1, le=50)
+
+
+class KnowledgeEvalMatrixResponse(BaseModel):
+    eval_set_id: str
+    runs: list[KnowledgeEvalRunResponse] = Field(default_factory=list)
+    comparison: dict[str, dict] = Field(default_factory=dict)

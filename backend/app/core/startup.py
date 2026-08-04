@@ -422,6 +422,16 @@ def _ensure_runtime_schema_unlocked() -> None:
             """
         )
 
+    knowledge_eval_result_columns = _get_column_names("knowledge_eval_results")
+    if knowledge_eval_result_columns and "ndcg_at_k" not in knowledge_eval_result_columns:
+        statements.append("alter table knowledge_eval_results add column ndcg_at_k double precision")
+    if knowledge_eval_result_columns and "expected_keyword_recall" not in knowledge_eval_result_columns:
+        statements.append(
+            "alter table knowledge_eval_results add column expected_keyword_recall double precision"
+        )
+    if knowledge_eval_result_columns and "expected_keyword_hits_json" not in knowledge_eval_result_columns:
+        statements.append("alter table knowledge_eval_results add column expected_keyword_hits_json text")
+
     conversation_columns = _get_column_names("conversations")
     if "project_id" not in conversation_columns:
         statements.append("alter table conversations add column project_id varchar(36)")

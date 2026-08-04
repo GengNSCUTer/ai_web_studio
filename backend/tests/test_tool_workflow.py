@@ -735,6 +735,42 @@ class ToolWorkflowTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_high_risk_fallback_is_not_automatically_executed(self) -> None:
+        async def run_test() -> None:
+            catalog = ToolCatalog()
+            fallback = catalog.get("web.tavily.search")
+            fallback.risk_level = "high"
+            fallback.read_only = False
+            executor = FailingFirstExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=catalog, max_tool_calls=2)
+            plan = ToolPlan(
+                plan_id="plan-high-risk-fallback",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                fallback_tool_key="web.tavily.search",
+                calls=[
+                    PlannedToolCall(
+                        call_id="first",
+                        tool_key="amap.maps.weather",
+                        provider="amap",
+                        category="weather",
+                        display_name="Weather",
+                        confidence=1.0,
+                        reason="weather",
+                    )
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="深圳天气")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["first"])
+            decision = [event for event in result.events if event.type == "tool_result_quality_decision"]
+            self.assertEqual(decision[0].payload["fallback_available"], False)
+            self.assertEqual(decision[0].payload["action"], "replan")
+
+        asyncio.run(run_test())
+
     def test_web_fallback_does_not_satisfy_structured_dependency_contract(self) -> None:
         async def run_test() -> None:
             executor = FailingFirstExecutor()
@@ -906,6 +942,8 @@ class ToolWorkflowTest(unittest.TestCase):
             blocked = [event for event in result.events if event.type == "quality_gate_blocked"]
             self.assertTrue(blocked)
             self.assertEqual(blocked[-1].payload["dependency_quality"]["first"], "invalid")
+            decisions = [event for event in result.events if event.type == "tool_result_quality_decision"]
+            self.assertEqual(decisions[0].payload["action"], "replan")
             self.assertEqual(result.sources, [])
             suppressed = [event for event in result.events if event.type == "quality_evidence_suppressed"]
             self.assertEqual(suppressed[-1].payload["exposed_to_prompt"], False)
@@ -952,6 +990,8 @@ class ToolWorkflowTest(unittest.TestCase):
             blocked = [event for event in result.events if event.type == "quality_gate_blocked"]
             self.assertTrue(blocked)
             self.assertEqual(blocked[-1].payload["dependency_quality"]["first"], "uncertain")
+            decisions = [event for event in result.events if event.type == "tool_result_quality_decision"]
+            self.assertEqual(decisions[0].payload["action"], "replan")
             self.assertEqual(result.sources, [])
 
         asyncio.run(run_test())
@@ -1064,6 +1104,9 @@ class ToolWorkflowTest(unittest.TestCase):
                 [event for event in result.events if event.type == "tool_evidence_suppressed"],
                 [],
             )
+            decision = [event for event in result.events if event.type == "tool_result_quality_decision"]
+            self.assertEqual(decision[0].payload["status"], "uncertain")
+            self.assertEqual(decision[0].payload["action"], "clarify")
 
         asyncio.run(run_test())
 
@@ -1142,6 +1185,14 @@ class ToolWorkflowTest(unittest.TestCase):
                 and event.payload.get("stage") == "fallback_dependency_contract"
             ]
             self.assertEqual(len(blocked), 1)
+            fallback_decisions = [
+                event
+                for event in result.events
+                if event.type == "tool_result_quality_decision"
+                and event.payload.get("stage") == "fallback"
+            ]
+            self.assertEqual(fallback_decisions[0].payload["status"], "valid")
+            self.assertEqual(fallback_decisions[0].payload["action"], "continue")
 
         asyncio.run(run_test())
 

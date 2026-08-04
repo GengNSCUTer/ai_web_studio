@@ -699,7 +699,7 @@ export function SettingsCenter({
     }
   }
 
-  async function reviewMemory(memory: UserMemory, action: "approve" | "reject") {
+  async function reviewMemory(memory: UserMemory, action: "approve" | "reject" | "revoke") {
     setReviewingMemoryId(memory.id);
     setErrorMessage(null);
     try {
@@ -727,8 +727,16 @@ export function SettingsCenter({
       setMemories((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       setSettingsMessage(
         uiLanguage === "zh-CN"
-          ? action === "approve" ? "候选记忆已确认并启用" : "候选记忆已拒绝"
-          : action === "approve" ? "Memory candidate approved" : "Memory candidate rejected"
+          ? action === "approve"
+            ? "候选记忆已确认并启用"
+            : action === "reject"
+              ? "候选记忆已拒绝"
+              : "长期记忆已撤销"
+          : action === "approve"
+            ? "Memory candidate approved"
+            : action === "reject"
+              ? "Memory candidate rejected"
+              : "Long-term memory revoked"
       );
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Memory review failed");
@@ -1811,6 +1819,16 @@ export function SettingsCenter({
                                   {uiLanguage === "zh-CN" ? "拒绝" : "Reject"}
                                 </button>
                               </div>
+                            ) : null}
+                            {memory.status === "active" ? (
+                              <button
+                                type="button"
+                                disabled={reviewingMemoryId === memory.id}
+                                onClick={() => void reviewMemory(memory, "revoke")}
+                                className="mt-3 rounded-full border border-[var(--hairline)] px-3 py-1 text-xs text-[var(--ink-soft)] disabled:opacity-50"
+                              >
+                                {uiLanguage === "zh-CN" ? "撤销记忆" : "Revoke memory"}
+                              </button>
                             ) : null}
                           </div>
                         ))}

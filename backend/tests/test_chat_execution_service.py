@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -295,6 +296,64 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, "cancelled")
             self.assertEqual(context.assistant_message.content, "RRF 是一种排名融合算法")
+
+        asyncio.run(run_test())
+
+    def test_streaming_response_cancelled_before_first_token_closes_as_cancelled(self) -> None:
+        class CancelledBeforeTokenProvider:
+            async def stream_chat_events(self, **_: object):
+                raise asyncio.CancelledError
+                yield  # pragma: no cover
+
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            response = _build_streaming_response(
+                context,
+                CancelledBeforeTokenProvider(),
+                event_stream=True,
+            )
+
+            with self.assertRaises(asyncio.CancelledError):
+                async for _ in response.body_iterator:
+                    pass
+
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "cancelled")
+            self.assertEqual(context.assistant_message.content, "")
+
+        asyncio.run(run_test())
+
+    def test_streaming_response_closes_provider_iterator_on_failure(self) -> None:
+        class ClosableStream:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise RuntimeError("provider failed")
+
+            async def aclose(self) -> None:
+                self.closed = True
+
+        class ClosableProvider:
+            def __init__(self) -> None:
+                self.stream = ClosableStream()
+
+            def stream_chat_events(self, **_: object):
+                return self.stream
+
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            provider = ClosableProvider()
+            response = _build_streaming_response(context, provider, event_stream=True)
+            body = "".join([chunk async for chunk in response.body_iterator])
+
+            self.assertIn('"error_code": "provider_error"', body)
+            self.assertTrue(provider.stream.closed)
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "failed")
 
         asyncio.run(run_test())
 
@@ -973,6 +1032,19 @@ class ChatExecutionServiceTest(unittest.TestCase):
         self.db.refresh(context.assistant_message)
         self.assertEqual(context.assistant_message.status, "streaming")
         self.assertEqual(context.assistant_message.content, "")
+
+    def test_stale_streaming_message_is_fenced_after_process_failure(self) -> None:
+        context = self._create_stream_context()
+        old_generation_id = context.assistant_message.generation_id
+        context.assistant_message.updated_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+        self.db.commit()
+
+        messages = MessageService(MessageRepository(self.db)).list_messages(context.conversation.id)
+
+        self.assertEqual(len(messages), 2)
+        self.db.refresh(context.assistant_message)
+        self.assertEqual(context.assistant_message.status, "failed")
+        self.assertNotEqual(context.assistant_message.generation_id, old_generation_id)
 
     def test_edit_last_user_route_updates_message_and_streams_answer(self) -> None:
         async def run_test() -> None:

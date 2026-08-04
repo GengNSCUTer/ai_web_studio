@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,8 +23,15 @@ from app.services.knowledge_query_rewriter import (
     KnowledgeQueryRewriteService,
 )
 from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
+from app.services.knowledge_error import (
+    classify_knowledge_error,
+    public_knowledge_error_message,
+)
 from app.services.setting_service import SettingService
 from app.services.tools.schemas import ExternalSource
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -198,12 +206,23 @@ class KnowledgeContextService:
                 latency_ms=int((time.monotonic() - started_at) * 1000),
             )
         except Exception as exc:
+            error_code = classify_knowledge_error(exc)
+            logger.exception(
+                "knowledge context retrieval failed: knowledge_base_id=%s error_code=%s",
+                knowledge_base.id,
+                error_code,
+            )
             return self._empty(
                 enabled=True,
                 error=1,
                 knowledge_base_id=knowledge_base.id,
                 knowledge_base_name=knowledge_base.name,
-                notices=[f"知识库「{knowledge_base.name}」检索失败：{exc}"],
+                notices=[
+                    public_knowledge_error_message(
+                        error_code,
+                        knowledge_base_name=knowledge_base.name,
+                    )
+                ],
                 latency_ms=int((time.monotonic() - started_at) * 1000),
             )
         latency_ms = int((time.monotonic() - started_at) * 1000)

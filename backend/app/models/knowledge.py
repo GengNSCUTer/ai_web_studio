@@ -298,6 +298,9 @@ class KnowledgeEvalResult(Base):
     mrr: Mapped[float | None] = mapped_column(Float, nullable=True)
     context_precision: Mapped[float | None] = mapped_column(Float, nullable=True)
     context_recall: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ndcg_at_k: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expected_keyword_recall: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expected_keyword_hits_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     run = relationship("KnowledgeEvalRun", back_populates="results")

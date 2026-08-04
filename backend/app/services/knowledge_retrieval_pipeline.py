@@ -15,6 +15,10 @@ from app.services.knowledge_index_service import (
     KnowledgeRerankService,
     RetrievalResult,
 )
+from app.services.knowledge_error import (
+    KnowledgeRetrievalUnavailableError,
+    classify_knowledge_error,
+)
 from app.services.knowledge_vector_search import (
     KnowledgeVectorSearch,
     PgvectorKnowledgeVectorSearch,
@@ -130,23 +134,36 @@ class KnowledgeRetrievalPipeline:
                     top_k=self._candidate_top_k(top_k=top_k, filters=filters),
                     filters=filters,
                 )
-                vector_error = None
+                vector_error_code = None
             except Exception as exc:
                 vector_results = []
-                vector_error = str(exc)
-            lexical_results = self._retrieve_lexical_results(
-                user_id=user_id,
-                knowledge_base=knowledge_base,
-                query=query,
-                top_k=self._candidate_top_k(top_k=top_k, filters=filters),
-                filters=filters,
-            )
+                vector_error_code = classify_knowledge_error(exc)
+            try:
+                lexical_results = self._retrieve_lexical_results(
+                    user_id=user_id,
+                    knowledge_base=knowledge_base,
+                    query=query,
+                    top_k=self._candidate_top_k(top_k=top_k, filters=filters),
+                    filters=filters,
+                )
+                lexical_error_code = None
+            except Exception as exc:
+                # Hybrid retrieval is intentionally best-effort.  A stale or
+                # unavailable BM25 file must not discard a usable vector hit.
+                lexical_results = []
+                lexical_error_code = classify_knowledge_error(exc)
             results = self._fuse_rrf(
                 vector_results=vector_results,
                 lexical_results=lexical_results,
                 top_k=top_k,
-                vector_error=vector_error,
+                vector_error_code=vector_error_code,
+                lexical_error_code=lexical_error_code,
             )
+            if vector_error_code and lexical_error_code and not results:
+                # Do not turn a two-channel outage into a misleading "no
+                # relevant document" result.  Context/evaluation callers can
+                # classify this stable error and close the request safely.
+                raise KnowledgeRetrievalUnavailableError()
             return await self._rerank_if_needed(
                 user_id=user_id,
                 knowledge_base=knowledge_base,
@@ -233,11 +250,14 @@ class KnowledgeRetrievalPipeline:
             )
         except Exception as exc:
             return self._apply_score_threshold(
-                self._mark_rerank_fallback(results, str(exc)),
+                self._mark_rerank_fallback(results, classify_knowledge_error(exc)),
                 knowledge_base.score_threshold,
             )
         if not reranked:
-            return self._apply_score_threshold(results, knowledge_base.score_threshold)
+            return self._apply_score_threshold(
+                self._mark_rerank_fallback(results, "empty_response"),
+                knowledge_base.score_threshold,
+            )
 
         result_by_index = {index: result for index, result in enumerate(results)}
         reranked_results: list[RetrievalResult] = []
@@ -482,7 +502,8 @@ class KnowledgeRetrievalPipeline:
         vector_results: list[RetrievalResult],
         lexical_results: list[RetrievalResult],
         top_k: int,
-        vector_error: str | None = None,
+        vector_error_code: str | None = None,
+        lexical_error_code: str | None = None,
     ) -> list[RetrievalResult]:
         fused: dict[str, dict[str, object]] = {}
 
@@ -531,9 +552,18 @@ class KnowledgeRetrievalPipeline:
                 "lexical_score": entry["lexical_score"],
                 "lexical_index": entry["lexical_index"],
             }
-            if vector_error:
-                metadata["vector_error"] = vector_error
+            if vector_error_code or lexical_error_code:
                 metadata["hybrid_fallback"] = True
+                metadata["hybrid_fallback_reason"] = (
+                    "both_channels_failed"
+                    if vector_error_code and lexical_error_code
+                    else "vector_unavailable"
+                    if vector_error_code
+                    else "lexical_unavailable"
+                )
+                metadata["both_channels_failed"] = bool(vector_error_code and lexical_error_code)
+                metadata["vector_error_code"] = vector_error_code
+                metadata["lexical_error_code"] = lexical_error_code
             results.append(
                 RetrievalResult(
                     chunk=result.chunk,
@@ -607,6 +637,10 @@ class KnowledgeRetrievalPipeline:
             metadata = {
                 **result.metadata,
                 "rerank_fallback": True,
+                "rerank_fallback_reason": reason,
+                "rerank_error_code": reason,
+                # Kept as a compatibility alias for older consumers; the
+                # value is a stable code, never the provider exception text.
                 "rerank_error": reason,
             }
             if "vector_score" not in metadata and result.rank_source in {"vector", "vector_fallback"}:

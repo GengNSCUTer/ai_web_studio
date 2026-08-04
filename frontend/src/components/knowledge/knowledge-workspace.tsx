@@ -279,6 +279,7 @@ export function KnowledgeWorkspace({
   const [evalSetName, setEvalSetName] = useState("");
   const [evalCaseQuery, setEvalCaseQuery] = useState("");
   const [evalExpectedChunkId, setEvalExpectedChunkId] = useState("");
+  const [evalExpectedKeywords, setEvalExpectedKeywords] = useState("");
   const [isLoadingEval, setIsLoadingEval] = useState(false);
   const [isCreatingEvalSet, setIsCreatingEvalSet] = useState(false);
   const [isAddingEvalCase, setIsAddingEvalCase] = useState(false);
@@ -741,11 +742,16 @@ export function KnowledgeWorkspace({
           body: JSON.stringify({
             query: evalCaseQuery.trim(),
             expected_chunk_id: evalExpectedChunkId.trim() || null,
+            expected_answer_keywords: evalExpectedKeywords
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
           }),
         }
       );
       setEvalCaseQuery("");
       setEvalExpectedChunkId("");
+      setEvalExpectedKeywords("");
       await refreshEvalData(visibleActiveKnowledgeBase.id, selectedEvalSetId);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "添加评测用例失败。");
@@ -1382,6 +1388,12 @@ export function KnowledgeWorkspace({
                                   className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-xs outline-none focus:border-[var(--accent-strong)]"
                                   placeholder="期望命中的 chunk_id，可先从检索测试结果复制"
                                 />
+                                <input
+                                  value={evalExpectedKeywords}
+                                  onChange={(event) => setEvalExpectedKeywords(event.target.value)}
+                                  className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-3 py-2 text-xs outline-none focus:border-[var(--accent-strong)]"
+                                  placeholder="证据关键词（逗号分隔，可选）：routing, rerank"
+                                />
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="text-xs text-[var(--ink-muted)]">
                                     当前 {evalCases.length} 条用例，{evalRuns.length} 次运行。
@@ -1407,9 +1419,10 @@ export function KnowledgeWorkspace({
                               </form>
 
                               {evalOutcome ? (
-                                <div className="grid gap-2 sm:grid-cols-4">
+                                <div className="grid gap-2 sm:grid-cols-6">
                                   <Metric label="Hit@K" value={formatMetric(evalOutcome.run.metrics.hit_at_k)} />
                                   <Metric label="MRR" value={formatMetric(evalOutcome.run.metrics.mrr)} />
+                                  <Metric label="nDCG@K" value={formatMetric(evalOutcome.run.metrics.ndcg_at_k)} />
                                   <Metric
                                     label="Precision"
                                     value={formatMetric(evalOutcome.run.metrics.context_precision)}
@@ -1417,6 +1430,10 @@ export function KnowledgeWorkspace({
                                   <Metric
                                     label="Recall"
                                     value={formatMetric(evalOutcome.run.metrics.context_recall)}
+                                  />
+                                  <Metric
+                                    label="关键词覆盖"
+                                    value={formatMetric(evalOutcome.run.metrics.expected_keyword_recall)}
                                   />
                                 </div>
                               ) : null}

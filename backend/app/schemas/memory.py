@@ -11,6 +11,7 @@ class UserMemoryCreate(BaseModel):
     source_conversation_id: str | None = Field(default=None, max_length=36)
     source_message_ids: str | None = None
     confidence: str | None = Field(default=None, max_length=16)
+    expires_at: datetime | None = None
 
 
 class UserMemoryUpdate(BaseModel):
@@ -21,6 +22,7 @@ class UserMemoryUpdate(BaseModel):
     source_conversation_id: str | None = Field(default=None, max_length=36)
     source_message_ids: str | None = None
     confidence: str | None = Field(default=None, max_length=16)
+    expires_at: datetime | None = None
 
 
 class UserMemoryResponse(BaseModel):
@@ -75,6 +77,7 @@ class MemorySuggestResponse(BaseModel):
 
 class MemoryReviewRequest(BaseModel):
     expires_at: datetime | None = None
+    supersedes_memory_id: str | None = Field(default=None, max_length=36)
 
 
 class MemoryExtractionJobResponse(BaseModel):

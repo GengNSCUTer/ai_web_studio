@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "name": "rag_gold_v1",
+  "description": "个人知识库 RAG 固定问题集。导入前必须把每个 case 绑定到当前知识库的文档/Chunk；不允许用模型自动生成标签替代人工标注。",
+  "labeling_policy": {
+    "primary_target": "expected_chunk_contains 或 expected_document_file",
+    "fallback_target": "expected_document_id",
+    "answer_signal": "expected_answer_keywords",
+    "notes": "文档重建后优先保留文档级目标，Chunk 目标失效时由评测服务回退到 expected_document_id。"
+  },
+  "cases": [
+    {
+      "case_id": "rag_semantic_001",
+      "query": "向量检索主要解决什么问题？",
+      "expected_document_file": null,
+      "expected_chunk_contains": null,
+      "expected_answer_keywords": ["语义相似", "向量检索"],
+      "difficulty": "easy",
+      "tags": ["vector", "semantic"]
+    },
+    {
+      "case_id": "rag_lexical_001",
+      "query": "BM25 在知识库检索中解决什么问题？",
+      "expected_document_file": null,
+      "expected_chunk_contains": null,
+      "expected_answer_keywords": ["BM25", "词法"],
+      "difficulty": "easy",
+      "tags": ["bm25", "lexical"]
+    },
+    {
+      "case_id": "rag_hybrid_001",
+      "query": "混合检索如何融合向量和 BM25 的结果？",
+      "expected_document_file": null,
+      "expected_chunk_contains": null,
+      "expected_answer_keywords": ["混合检索", "RRF", "融合"],
+      "difficulty": "medium",
+      "tags": ["hybrid", "rrf"]
+    },
+    {
+      "case_id": "rag_rerank_001",
+      "query": "Rerank 在候选 Chunk 阶段的作用是什么？",
+      "expected_document_file": null,
+      "expected_chunk_contains": null,
+      "expected_answer_keywords": ["重排序", "候选"],
+      "difficulty": "medium",
+      "tags": ["rerank"]
+    },
+    {
+      "case_id": "rag_context_001",
+      "query": "上下文预算不足时，检索内容和历史消息应该如何裁剪？",
+      "expected_document_file": null,
+      "expected_chunk_contains": null,
+      "expected_answer_keywords": ["上下文预算", "裁剪"],
+      "difficulty": "medium",
+      "tags": ["context", "budget"]
+    },
+    {
+      "case_id": "rag_query_rewrite_001",
+      "query": "Query Rewrite 为什么要结合当前对话历史？",
+      "expected_document_file": null,
+      "expected_chunk_contains": null,
+      "expected_answer_keywords": ["指代", "查询重写"],
+      "difficulty": "medium",
+      "tags": ["query-rewrite"]
+    },
+    {
+      "case_id": "rag_parent_child_001",
+      "query": "Parent-Child 检索如何兼顾精确命中和完整上下文？",
+      "expected_document_file": null,
+      "expected_chunk_contains": null,
+      "expected_answer_keywords": ["Parent-Child", "上下文"],
+      "difficulty": "hard",
+      "tags": ["parent-child"]
+    },
+    {
+      "case_id": "rag_failure_001",
+      "query": "向量检索服务不可用时，混合检索应该如何降级？",
+      "expected_document_file": null,
+      "expected_chunk_contains": null,
+      "expected_answer_keywords": ["降级", "BM25", "词法"],
+      "difficulty": "hard",
+      "tags": ["fallback", "resilience"]
+    }
+  ]
+}

@@ -100,7 +100,7 @@ def list_memories(
 ) -> list[UserMemoryResponse]:
     service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
     if memory_status:
-        allowed = {"pending", "active", "rejected", "superseded", "expired"}
+        allowed = {"pending", "active", "rejected", "superseded", "expired", "revoked"}
         if memory_status not in allowed:
             raise HTTPException(status_code=400, detail="Invalid memory status")
         return [
@@ -174,6 +174,7 @@ def approve_memory_candidate(
         return MemoryService(repo, ConversationRepository(db)).approve_candidate(
             memory=memory,
             expires_at=payload.expires_at,
+            supersedes_memory_id=payload.supersedes_memory_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -191,6 +192,22 @@ def reject_memory_candidate(
         raise HTTPException(status_code=404, detail="Memory not found")
     try:
         return MemoryService(repo, ConversationRepository(db)).reject_candidate(memory=memory)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/{memory_id}/revoke", response_model=UserMemoryResponse)
+def revoke_memory(
+    memory_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserMemoryResponse:
+    repo = UserMemoryRepository(db)
+    memory = repo.get_by_user(memory_id, current_user.id)
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    try:
+        return MemoryService(repo, ConversationRepository(db)).revoke_memory(memory=memory)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -269,7 +286,10 @@ def update_memory(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
 
     service = MemoryService(repo, ConversationRepository(db))
-    return service.update_memory(memory=memory, payload=payload)
+    try:
+        return service.update_memory(memory=memory, payload=payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.delete("/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)

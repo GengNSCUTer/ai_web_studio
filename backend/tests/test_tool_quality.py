@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from app.services.tools.quality import (
+    decide_tool_result_action,
     evaluate_tool_result_quality,
     quality_status_for_result,
     validate_quality_contract,
@@ -22,6 +24,48 @@ def _source(*, display_text: str = "result", raw: object | None = None) -> Exter
 
 
 class ToolResultQualityTest(unittest.TestCase):
+    def test_quality_decision_matrix_is_explicit_and_bounded(self) -> None:
+        self.assertEqual(
+            decide_tool_result_action(status="valid").action,
+            "continue",
+        )
+        self.assertEqual(
+            decide_tool_result_action(
+                status="invalid",
+                retryable=True,
+                retry_allowed=False,
+            ).action,
+            "replan",
+        )
+        self.assertEqual(
+            decide_tool_result_action(
+                status="invalid",
+                retryable=False,
+                fallback_available=True,
+                read_only=True,
+                risk_level="low",
+            ).action,
+            "fallback",
+        )
+        self.assertEqual(
+            decide_tool_result_action(
+                status="uncertain",
+                fallback_available=False,
+                read_only=True,
+                risk_level="low",
+            ).action,
+            "replan",
+        )
+        self.assertEqual(
+            decide_tool_result_action(
+                status="uncertain",
+                fallback_available=True,
+                read_only=False,
+                risk_level="high",
+            ).action,
+            "clarify",
+        )
+
     def test_empty_result_is_invalid_by_default(self) -> None:
         quality = evaluate_tool_result_quality(sources=[])
 
@@ -47,6 +91,28 @@ class ToolResultQualityTest(unittest.TestCase):
 
         self.assertEqual(quality.status, "invalid")
         self.assertIn("missing_required:/sources/0/metadata/raw/location", quality.reasons)
+
+    def test_semantically_empty_serialized_payload_is_invalid(self) -> None:
+        quality = evaluate_tool_result_quality(
+            sources=[_source(display_text="[]")],
+            contract={"non_empty_paths": ["/sources/0/display_text"]},
+        )
+
+        self.assertEqual(quality.status, "invalid")
+        self.assertIn("empty_path:/sources/0/display_text", quality.reasons)
+
+    def test_stale_business_result_is_uncertain(self) -> None:
+        stale = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        quality = evaluate_tool_result_quality(
+            sources=[_source(raw={"updated_at": stale})],
+            contract={
+                "freshness_field": "/sources/0/metadata/raw/updated_at",
+                "max_age_seconds": 60,
+            },
+        )
+
+        self.assertEqual(quality.status, "uncertain")
+        self.assertIn("stale_result", quality.reasons)
 
     def test_min_sources_is_uncertain_instead_of_invalid(self) -> None:
         quality = evaluate_tool_result_quality(

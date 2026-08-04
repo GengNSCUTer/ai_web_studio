@@ -418,6 +418,9 @@ export type KnowledgeEvalResult = {
   mrr: number | null;
   context_precision: number | null;
   context_recall: number | null;
+  ndcg_at_k: number | null;
+  expected_keyword_recall: number | null;
+  expected_keyword_hits: string[];
   created_at: string;
 };
 

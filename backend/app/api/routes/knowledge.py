@@ -29,6 +29,8 @@ from app.schemas.knowledge import (
     KnowledgeDocumentResponse,
     KnowledgeEvalCaseCreate,
     KnowledgeEvalCaseResponse,
+    KnowledgeEvalMatrixRequest,
+    KnowledgeEvalMatrixResponse,
     KnowledgeEvalOutcomeResponse,
     KnowledgeEvalRunRequest,
     KnowledgeEvalRunResponse,
@@ -396,6 +398,37 @@ def run_eval_set(
     if not outcome:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation set not found")
     return KnowledgeEvalOutcomeResponse(run=outcome.run, results=outcome.results)
+
+
+@router.post(
+    "/{knowledge_base_id}/eval-sets/{eval_set_id}/matrix-runs",
+    response_model=KnowledgeEvalMatrixResponse,
+)
+def run_eval_matrix(
+    knowledge_base_id: str,
+    eval_set_id: str,
+    payload: KnowledgeEvalMatrixRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> KnowledgeEvalMatrixResponse:
+    """Run the fixed Vector/BM25/Hybrid/Rerank comparison over one Gold Set."""
+
+    try:
+        outcome = _evaluation_service(db).run_eval_matrix(
+            knowledge_base_id,
+            eval_set_id,
+            current_user.id,
+            top_k=payload.top_k,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if not outcome:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation set not found")
+    return KnowledgeEvalMatrixResponse(
+        eval_set_id=outcome.eval_set_id,
+        runs=outcome.runs,
+        comparison=outcome.comparison,
+    )
 
 
 @router.get("/{knowledge_base_id}/jobs", response_model=list[KnowledgeJobResponse])

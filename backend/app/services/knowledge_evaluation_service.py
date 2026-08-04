@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from time import perf_counter
@@ -26,14 +28,42 @@ from app.schemas.knowledge import (
     KnowledgeEvalSetResponse,
 )
 from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
+from app.services.knowledge_error import (
+    classify_knowledge_error,
+    public_knowledge_error_message,
+)
 from app.services.knowledge_vector_search import CURRENT_EMBEDDING_VERSION
 from app.services.setting_service import SettingService
+
+
+logger = logging.getLogger(__name__)
+
+
+def _normalized_keywords(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for value in values:
+        item = str(value or "").strip()
+        key = item.casefold()
+        if item and key not in seen:
+            seen.add(key)
+            normalized.append(item)
+    return normalized
 
 
 @dataclass(frozen=True)
 class KnowledgeEvalOutcome:
     run: KnowledgeEvalRunResponse
     results: list[KnowledgeEvalResultResponse]
+
+
+@dataclass(frozen=True)
+class KnowledgeEvalMatrixOutcome:
+    """Comparable retrieval runs over one immutable evaluation set."""
+
+    eval_set_id: str
+    runs: list[KnowledgeEvalRunResponse]
+    comparison: dict[str, dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -59,6 +89,17 @@ class KnowledgeEvalRetrievalConfig:
 
 
 class KnowledgeEvaluationService:
+    # Keep the matrix deliberately small and deterministic.  It gives us a
+    # useful ablation table without silently changing the knowledge base's
+    # production retrieval settings.
+    GOLD_SET_MATRIX: tuple[tuple[str, str, bool], ...] = (
+        ("vector", "vector", False),
+        ("lexical", "lexical", False),
+        ("hybrid", "hybrid", False),
+        ("vector_rerank", "vector", True),
+        ("hybrid_rerank", "hybrid", True),
+    )
+
     def __init__(
         self,
         *,
@@ -203,6 +244,9 @@ class KnowledgeEvaluationService:
             mrr_sum = 0.0
             precision_sum = 0.0
             recall_sum = 0.0
+            ndcg_sum = 0.0
+            keyword_recall_sum = 0.0
+            keyword_recall_count = 0
             total_elapsed_ms = 0.0
             failure_count = 0
             fallback_count = 0
@@ -219,7 +263,20 @@ class KnowledgeEvaluationService:
                 except Exception as exc:
                     retrieved = []
                     failure_count += 1
-                    case_errors.append({"case_id": case.id, "error": str(exc)})
+                    error_code = classify_knowledge_error(exc)
+                    logger.exception(
+                        "knowledge evaluation case failed: run_id=%s case_id=%s error_code=%s",
+                        run.id,
+                        case.id,
+                        error_code,
+                    )
+                    case_errors.append(
+                        {
+                            "case_id": case.id,
+                            "error_code": error_code,
+                            "message": public_knowledge_error_message("evaluation_case_failed"),
+                        }
+                    )
                 elapsed_ms = (perf_counter() - started_at) * 1000
                 total_elapsed_ms += elapsed_ms
                 if any(
@@ -244,11 +301,16 @@ class KnowledgeEvaluationService:
                     retrieved=retrieved,
                     expected_chunk_id=case.expected_chunk_id,
                     expected_document_id=case.expected_document_id,
+                    expected_answer_keywords=self._load_list(case.expected_answer_keywords_json),
                 )
                 hit_sum += float(metrics["hit_at_k"])
                 mrr_sum += float(metrics["mrr"] or 0.0)
                 precision_sum += float(metrics["context_precision"] or 0.0)
                 recall_sum += float(metrics["context_recall"] or 0.0)
+                ndcg_sum += float(metrics["ndcg_at_k"] or 0.0)
+                if metrics["expected_keyword_recall"] is not None:
+                    keyword_recall_sum += float(metrics["expected_keyword_recall"] or 0.0)
+                    keyword_recall_count += 1
                 result = self.eval_result_repo.create_result(
                     KnowledgeEvalResult(
                         user_id=user_id,
@@ -263,6 +325,9 @@ class KnowledgeEvaluationService:
                         mrr=metrics["mrr"],
                         context_precision=metrics["context_precision"],
                         context_recall=metrics["context_recall"],
+                        ndcg_at_k=metrics["ndcg_at_k"],
+                        expected_keyword_recall=metrics["expected_keyword_recall"],
+                        expected_keyword_hits_json=self._dump_list(metrics["expected_keyword_hits"]),
                     )
                 )
                 result_items.append(self._to_result_response(result))
@@ -282,6 +347,14 @@ class KnowledgeEvaluationService:
                     "mrr": mrr_sum / case_count,
                     "context_precision": precision_sum / case_count,
                     "context_recall": recall_sum / case_count,
+                    "ndcg_at_k": ndcg_sum / case_count,
+                    "expected_keyword_recall": (
+                        keyword_recall_sum / keyword_recall_count if keyword_recall_count else None
+                    ),
+                    "answer_correctness": {
+                        "status": "not_scored",
+                        "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。",
+                    },
                     "top_k": resolved_top_k,
                     "avg_elapsed_ms": total_elapsed_ms / case_count,
                     "total_elapsed_ms": total_elapsed_ms,
@@ -298,13 +371,20 @@ class KnowledgeEvaluationService:
             )
         except Exception as exc:
             run.status = "failed"
-            run.error_message = str(exc)
+            error_code = classify_knowledge_error(exc)
+            logger.exception(
+                "knowledge evaluation run failed: run_id=%s error_code=%s",
+                run.id,
+                error_code,
+            )
+            run.error_message = public_knowledge_error_message("evaluation_failed")
             run.finished_at = datetime.now(timezone.utc)
             if not run.metrics_json:
                 run.metrics_json = self._dump_dict(
                     {
                         "case_count": len(cases),
                         "failure_count": 1,
+                        "error_code": "evaluation_failed",
                         "config_snapshot": config_snapshot,
                     }
                 )
@@ -320,6 +400,51 @@ class KnowledgeEvaluationService:
             for item in self.eval_run_repo.list_by_eval_set(eval_set_id, user_id)
             if item.knowledge_base_id == knowledge_base_id
         ]
+
+    def run_eval_matrix(
+        self,
+        knowledge_base_id: str,
+        eval_set_id: str,
+        user_id: str,
+        *,
+        top_k: int | None = None,
+    ) -> KnowledgeEvalMatrixOutcome | None:
+        """Run the fixed vector/BM25/hybrid/rerank comparison.
+
+        Each configuration creates its own persisted ``KnowledgeEvalRun`` and
+        configuration snapshot.  The method never mutates the production
+        KnowledgeBase settings, so the resulting table is reproducible and
+        safe to compare across index generations.
+        """
+
+        runs: list[KnowledgeEvalRunResponse] = []
+        comparison: dict[str, dict[str, Any]] = {}
+        for label, retrieval_mode, rerank_enabled in self.GOLD_SET_MATRIX:
+            outcome = self.run_eval(
+                knowledge_base_id,
+                eval_set_id,
+                user_id,
+                KnowledgeEvalRunRequest(
+                    top_k=top_k,
+                    retrieval_mode=retrieval_mode,
+                    rerank_enabled=rerank_enabled,
+                ),
+            )
+            if outcome is None:
+                return None
+            runs.append(outcome.run)
+            comparison[label] = {
+                "run_id": outcome.run.id,
+                "status": outcome.run.status,
+                "retrieval_mode": outcome.run.retrieval_mode,
+                "rerank_enabled": outcome.run.rerank_enabled,
+                "metrics": outcome.run.metrics,
+            }
+        return KnowledgeEvalMatrixOutcome(
+            eval_set_id=eval_set_id,
+            runs=runs,
+            comparison=comparison,
+        )
 
     @staticmethod
     def _dump_list(value: list[str]) -> str:
@@ -364,8 +489,11 @@ class KnowledgeEvaluationService:
         retrieved: list[Any],
         expected_chunk_id: str | None,
         expected_document_id: str | None,
-    ) -> dict[str, float | bool]:
+        expected_answer_keywords: list[str] | None = None,
+    ) -> dict[str, Any]:
+        expected_keywords = _normalized_keywords(expected_answer_keywords or [])
         matched_index: int | None = None
+        relevance: list[int] = []
         for index, item in enumerate(retrieved, start=1):
             # Chunk-level ground truth is more specific. The document target is
             # only a fallback after reindexing has SET NULL on expected_chunk_id.
@@ -373,18 +501,51 @@ class KnowledgeEvaluationService:
                 matched = item.chunk.id == expected_chunk_id
             else:
                 matched = bool(expected_document_id and item.chunk.document_id == expected_document_id)
-            if matched:
+            relevance.append(1 if matched else 0)
+            if matched and matched_index is None:
                 matched_index = index
-                break
+        dcg = sum(relevant / math.log2(index + 1) for index, relevant in enumerate(relevance, start=1))
+        ideal_relevance = sorted(relevance, reverse=True)
+        idcg = sum(relevant / math.log2(index + 1) for index, relevant in enumerate(ideal_relevance, start=1))
+        ndcg_at_k = dcg / idcg if idcg else 0.0
+        keyword_hits = [
+            keyword
+            for keyword in expected_keywords
+            if any(keyword.casefold() in str(item.chunk.content or "").casefold() for item in retrieved)
+        ]
+        keyword_recall = len(keyword_hits) / len(expected_keywords) if expected_keywords else None
         hit_at_k = matched_index is not None
         mrr = 1.0 / matched_index if matched_index else 0.0
-        relevant_count = 1 if hit_at_k else 0
+        relevant_count = sum(relevance)
         retrieved_count = max(1, len(retrieved))
         return {
             "hit_at_k": hit_at_k,
             "mrr": mrr if hit_at_k else 0.0,
             "context_precision": relevant_count / retrieved_count,
             "context_recall": 1.0 if hit_at_k else 0.0,
+            "ndcg_at_k": ndcg_at_k,
+            "expected_keyword_recall": keyword_recall,
+            "expected_keyword_hits": keyword_hits,
+        }
+
+    @staticmethod
+    def score_answer(*, answer_text: str, expected_answer_keywords: list[str]) -> dict[str, Any]:
+        """Score a captured final answer without claiming semantic judge accuracy.
+
+        This deterministic helper is intentionally separate from retrieval runs:
+        it can be used when a caller has an actual answer trace, while the normal
+        retrieval evaluation does not invent an answer that was never generated.
+        """
+
+        keywords = _normalized_keywords(expected_answer_keywords)
+        text = str(answer_text or "").casefold()
+        hits = [keyword for keyword in keywords if keyword.casefold() in text]
+        recall = len(hits) / len(keywords) if keywords else None
+        return {
+            "keyword_precision": len(hits) / max(1, len(keywords)),
+            "keyword_recall": recall,
+            "matched_keywords": hits,
+            "status": "scored" if keywords else "not_scored",
         }
 
     @staticmethod
@@ -495,5 +656,8 @@ class KnowledgeEvaluationService:
             mrr=item.mrr,
             context_precision=item.context_precision,
             context_recall=item.context_recall,
+            ndcg_at_k=item.ndcg_at_k,
+            expected_keyword_recall=item.expected_keyword_recall,
+            expected_keyword_hits=self._load_list(item.expected_keyword_hits_json),
             created_at=item.created_at,
         )

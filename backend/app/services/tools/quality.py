@@ -10,6 +10,7 @@ from app.services.tools.schemas import ExternalSource
 
 QUALITY_STATUSES = {"valid", "uncertain", "invalid"}
 LEGACY_QUALITY_STATUS = "unknown"
+QUALITY_ACTIONS = {"continue", "retry", "fallback", "replan", "clarify", "block"}
 _QUALITY_CONTRACT_KEYS = {
     "allow_empty",
     "min_sources",
@@ -36,6 +37,66 @@ class ToolResultQuality:
     status: str
     reasons: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ToolResultQualityDecision:
+    """Bounded next action after a tool result passes through the quality gate."""
+
+    action: str
+    status: str
+    reasons: list[str] = field(default_factory=list)
+    retryable: bool = False
+    fallback_available: bool = False
+
+
+def decide_tool_result_action(
+    *,
+    status: str,
+    reasons: list[str] | None = None,
+    retryable: bool = False,
+    fallback_available: bool = False,
+    retry_allowed: bool = False,
+    risk_level: str = "low",
+    read_only: bool = True,
+) -> ToolResultQualityDecision:
+    """Choose an explicit, budget-aware action for a quality-gated result.
+
+    The decision is intentionally policy-only. The caller owns the execution
+    budget and must perform at most the selected bounded action. In particular,
+    an ``uncertain`` result never unlocks a dependent step by itself.
+    """
+
+    normalized_status = str(status or "invalid").strip().lower()
+    if normalized_status not in QUALITY_STATUSES:
+        normalized_status = "invalid"
+    normalized_reasons = list(reasons or [])
+    normalized_risk = str(risk_level or "low").strip().lower()
+
+    if normalized_status == "valid":
+        action = "continue"
+    elif normalized_status == "invalid":
+        if retry_allowed and retryable:
+            action = "retry"
+        elif fallback_available and read_only and normalized_risk == "low":
+            action = "fallback"
+        else:
+            action = "replan" if retryable else "block"
+    else:  # uncertain
+        if fallback_available and read_only and normalized_risk == "low":
+            action = "fallback"
+        elif normalized_risk == "high" or not read_only:
+            action = "clarify"
+        else:
+            action = "replan"
+
+    return ToolResultQualityDecision(
+        action=action,
+        status=normalized_status,
+        reasons=normalized_reasons,
+        retryable=bool(retryable),
+        fallback_available=bool(fallback_available),
+    )
 
 
 def validate_quality_contract(contract: dict[str, Any] | None) -> dict[str, Any]:
@@ -350,7 +411,28 @@ def _resolve_pointer(document: Any, pointer: str) -> Any:
 
 
 def _is_empty(value: Any) -> bool:
-    return value is None or (isinstance(value, str) and not value.strip()) or value == [] or value == {}
+    if value is None or value == [] or value == {}:
+        return True
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().casefold()
+    # Adapters sometimes stringify an empty structured payload.  Treating
+    # ``[]``/``{}``/"no results" as evidence would incorrectly unlock a
+    # dependent tool even though the response is syntactically non-empty.
+    return normalized in {
+        "",
+        "null",
+        "none",
+        "nil",
+        "[]",
+        "{}",
+        "no results",
+        "no result",
+        "no matching results",
+        "未找到",
+        "无结果",
+        "暂无结果",
+    }
 
 
 def _string_list(value: Any) -> list[str]:

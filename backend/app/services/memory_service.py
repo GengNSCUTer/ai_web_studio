@@ -79,6 +79,9 @@ class MemoryService:
 
     def create_memory(self, user_id: str, payload: UserMemoryCreate) -> UserMemoryResponse:
         normalized_content = self.normalize_text(payload.content)
+        normalized_expiry = self._normalize_expiry(payload.expires_at)
+        if normalized_expiry is not None and normalized_expiry <= datetime.now(timezone.utc):
+            raise ValueError("expires_at 必须晚于当前时间")
         project_id = None
         if payload.source_conversation_id and self.conversation_repo:
             conversation = self.conversation_repo.get_by_user(payload.source_conversation_id, user_id)
@@ -95,6 +98,7 @@ class MemoryService:
             is_enabled=payload.is_enabled,
             status="active",
             project_id=project_id,
+            expires_at=normalized_expiry,
             content_hash=self.memory_content_hash(
                 user_id=user_id,
                 memory_type=self.normalize_memory_type(payload.memory_type),
@@ -124,6 +128,7 @@ class MemoryService:
         *,
         memory: UserMemory,
         expires_at: datetime | None = None,
+        supersedes_memory_id: str | None = None,
     ) -> UserMemoryResponse:
         if memory.status == "active":
             return self._memory_response(memory, memory.user_id)
@@ -134,21 +139,40 @@ class MemoryService:
         if memory.risk_level == "volatile" and expires_at is None:
             raise ValueError("短期候选必须设置 expires_at")
         if expires_at is not None:
-            normalized_expiry = expires_at
-            if normalized_expiry.tzinfo is None:
-                normalized_expiry = normalized_expiry.replace(tzinfo=timezone.utc)
+            normalized_expiry = self._normalize_expiry(expires_at)
+            assert normalized_expiry is not None
             if normalized_expiry <= datetime.now(timezone.utc):
                 raise ValueError("expires_at 必须晚于当前时间")
             memory.expires_at = normalized_expiry
 
+        if supersedes_memory_id:
+            memory.supersedes_memory_id = supersedes_memory_id.strip()
+        if memory.risk_level == "conflict" and not memory.supersedes_memory_id:
+            raise ValueError("冲突候选必须明确 supersedes_memory_id 才能确认")
         if memory.supersedes_memory_id:
+            if memory.supersedes_memory_id == memory.id:
+                raise ValueError("记忆不能 supersede 自身")
             previous = self.repo.get_by_user(memory.supersedes_memory_id, memory.user_id)
-            if previous and previous.status == "active":
-                previous.status = "superseded"
-                previous.is_enabled = False
-                self.repo.flush(previous)
+            if not previous or previous.status != "active":
+                raise ValueError("要替换的旧记忆不存在或不是 active 版本")
+            previous.status = "superseded"
+            previous.is_enabled = False
+            self.repo.flush(previous)
         memory.status = "active"
         memory.is_enabled = True
+        memory.review_at = datetime.now(timezone.utc)
+        saved = self.repo.save(memory)
+        return self._memory_response(saved, memory.user_id)
+
+    def revoke_memory(self, *, memory: UserMemory) -> UserMemoryResponse:
+        """Explicitly revoke a memory without deleting its audit history."""
+
+        if memory.status == "revoked":
+            return self._memory_response(memory, memory.user_id)
+        if memory.status not in {"active", "pending"}:
+            raise ValueError("只有 active 或 pending 记忆可以撤销")
+        memory.status = "revoked"
+        memory.is_enabled = False
         memory.review_at = datetime.now(timezone.utc)
         saved = self.repo.save(memory)
         return self._memory_response(saved, memory.user_id)
@@ -181,6 +205,11 @@ class MemoryService:
             if memory.status != "active" and data["is_enabled"]:
                 raise ValueError("非 active 记忆不能直接启用，请使用候选审核接口")
             memory.is_enabled = data["is_enabled"]
+        if "expires_at" in data:
+            normalized_expiry = self._normalize_expiry(data["expires_at"])
+            if normalized_expiry is not None and normalized_expiry <= datetime.now(timezone.utc):
+                raise ValueError("expires_at 必须晚于当前时间")
+            memory.expires_at = normalized_expiry
         if "source_conversation_id" in data:
             memory.source_conversation_id = self.normalize_text(data["source_conversation_id"]) or None
         if "source_message_ids" in data:
@@ -190,6 +219,14 @@ class MemoryService:
 
         saved = self.repo.save(memory)
         return self._memory_response(saved, memory.user_id)
+
+    @staticmethod
+    def _normalize_expiry(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     def select_memories_for_query(
         self,
@@ -226,12 +263,13 @@ class MemoryService:
         for memory in memories:
             title = self.normalize_text(getattr(memory, "title", ""))
             content = self.normalize_text(getattr(memory, "content", ""))
-            score = self._query_relevance_score(normalized_query, f"{title}\n{content}")
+            relevance = self._query_relevance_score(normalized_query, f"{title}\n{content}")
+            score = self._memory_rank_score(memory, relevance)
             if memory.memory_type in {"instruction", "profile"}:
                 # Explicit preferences and durable user instructions should not
                 # disappear merely because their wording differs from this turn.
                 always_on.append((memory, score))
-            elif score > 0:
+            elif relevance > 0:
                 relevant.append((memory, score))
 
         # The repository is already sorted by recency. Python's stable sort keeps
@@ -245,6 +283,25 @@ class MemoryService:
             relevant_count=sum(1 for memory, _ in relevant if memory in selected),
             always_on_count=sum(1 for memory, _ in always_on if memory in selected),
         )
+
+    @classmethod
+    def _memory_rank_score(cls, memory: UserMemory, relevance: float) -> float:
+        """Rank query matches with bounded importance/freshness tie-breakers."""
+
+        try:
+            importance = float(getattr(memory, "importance", 0.5) or 0.5)
+        except (TypeError, ValueError):
+            importance = 0.5
+        importance = max(0.0, min(1.0, importance))
+        updated_at = getattr(memory, "updated_at", None) or getattr(memory, "created_at", None)
+        freshness = 0.5
+        if isinstance(updated_at, datetime):
+            timestamp = updated_at
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            age_days = max(0.0, (datetime.now(timezone.utc) - timestamp).total_seconds() / 86400)
+            freshness = 1.0 / (1.0 + age_days / 30.0)
+        return round((0.75 * relevance) + (0.15 * importance) + (0.10 * freshness), 6)
 
     def build_memory_context(
         self,

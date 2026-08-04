@@ -122,6 +122,16 @@ class SlowKnowledgeIndexService:
         return []
 
 
+class FailingKnowledgeIndexService:
+    async def retrieve_async(self, *, user_id: str, knowledge_base, query: str, top_k: int):  # noqa: ANN001, ARG002
+        raise RuntimeError("provider.internal/api?api_key=secret-value")
+
+
+class FailingKnowledgeEvaluationPipeline:
+    def retrieve(self, **_: object):
+        raise RuntimeError("https://provider.internal/eval?token=secret-value")
+
+
 class CapturingKnowledgeIndexService:
     def __init__(self) -> None:
         self.queries: list[str] = []
@@ -1534,6 +1544,88 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertTrue(metrics["hit_at_k"])
         self.assertEqual(metrics["mrr"], 1.0)
 
+    def test_eval_document_target_uses_first_match_and_all_relevant_chunks(self) -> None:
+        document_id = str(uuid4())
+        first_chunk = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=str(uuid4()),
+            document_id=document_id,
+            index_generation="legacy",
+            vector_id=0,
+            chunk_index=0,
+            content="First relevant chunk.",
+        )
+        second_chunk = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=first_chunk.knowledge_base_id,
+            document_id=document_id,
+            index_generation="legacy",
+            vector_id=1,
+            chunk_index=1,
+            content="Second relevant chunk.",
+        )
+
+        metrics = KnowledgeEvaluationService._score_case(
+            retrieved=[
+                RetrievalResult(chunk=first_chunk, score=0.9, metadata={}),
+                RetrievalResult(chunk=second_chunk, score=0.8, metadata={}),
+            ],
+            expected_chunk_id=None,
+            expected_document_id=document_id,
+        )
+
+        self.assertEqual(metrics["mrr"], 1.0)
+        self.assertEqual(metrics["context_precision"], 1.0)
+        self.assertEqual(metrics["ndcg_at_k"], 1.0)
+
+    def test_eval_score_includes_ndcg_and_keyword_coverage(self) -> None:
+        expected_chunk = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=str(uuid4()),
+            document_id=str(uuid4()),
+            index_generation="legacy",
+            vector_id=0,
+            chunk_index=0,
+            content="Adaptive retrieval uses routing and reranking.",
+        )
+        unrelated_chunk = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=expected_chunk.knowledge_base_id,
+            document_id=expected_chunk.document_id,
+            index_generation="legacy",
+            vector_id=1,
+            chunk_index=1,
+            content="This chunk is unrelated.",
+        )
+
+        metrics = KnowledgeEvaluationService._score_case(
+            retrieved=[
+                RetrievalResult(chunk=expected_chunk, score=0.9, metadata={}),
+                RetrievalResult(chunk=unrelated_chunk, score=0.1, metadata={}),
+            ],
+            expected_chunk_id=expected_chunk.id,
+            expected_document_id=expected_chunk.document_id,
+            expected_answer_keywords=["adaptive", "routing", "missing"],
+        )
+
+        self.assertEqual(metrics["ndcg_at_k"], 1.0)
+        self.assertAlmostEqual(metrics["expected_keyword_recall"], 2 / 3)
+        self.assertEqual(metrics["expected_keyword_hits"], ["adaptive", "routing"])
+
+    def test_score_answer_is_explicitly_deterministic(self) -> None:
+        result = KnowledgeEvaluationService.score_answer(
+            answer_text="Adaptive routing is enabled.",
+            expected_answer_keywords=["adaptive", "routing", "rerank"],
+        )
+
+        self.assertEqual(result["status"], "scored")
+        self.assertEqual(result["matched_keywords"], ["adaptive", "routing"])
+        self.assertAlmostEqual(result["keyword_recall"], 2 / 3)
+
     def test_eval_empty_set_is_rejected_before_creating_run(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))
         knowledge_base = base_service.create_knowledge_base(
@@ -1570,6 +1662,50 @@ class KnowledgeServiceTest(unittest.TestCase):
             [],
         )
 
+    def test_eval_run_sanitizes_case_exception(self) -> None:
+        knowledge_base, document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
+            name="评测异常脱敏",
+            file_name="eval-sanitized.md",
+            content="Evaluation errors must not expose provider details.",
+        )
+        expected_chunk = chunk_repo.list_by_document(document.id, self.user.id)[0]
+        service = KnowledgeEvaluationService(
+            base_repo=KnowledgeBaseRepository(self.db),
+            chunk_repo=chunk_repo,
+            eval_set_repo=KnowledgeEvalSetRepository(self.db),
+            eval_case_repo=KnowledgeEvalCaseRepository(self.db),
+            eval_run_repo=KnowledgeEvalRunRepository(self.db),
+            eval_result_repo=KnowledgeEvalResultRepository(self.db),
+            setting_service=setting_service,
+            retrieval_pipeline=FailingKnowledgeEvaluationPipeline(),  # type: ignore[arg-type]
+        )
+        eval_set = service.create_eval_set(
+            knowledge_base.id,
+            self.user.id,
+            KnowledgeEvalSetCreate(name="异常脱敏集"),
+        )
+        assert eval_set is not None
+        service.add_eval_case(
+            knowledge_base.id,
+            eval_set.id,
+            self.user.id,
+            KnowledgeEvalCaseCreate(query="evaluation error", expected_chunk_id=expected_chunk.id),
+        )
+
+        outcome = service.run_eval(
+            knowledge_base.id,
+            eval_set.id,
+            self.user.id,
+            KnowledgeEvalRunRequest(top_k=3),
+        )
+
+        assert outcome is not None
+        self.assertEqual(outcome.run.status, "partial")
+        self.assertEqual(outcome.run.metrics["case_errors"][0]["error_code"], "knowledge_retrieval_failed")
+        self.assertNotIn("provider.internal", outcome.run.metrics["case_errors"][0]["message"])
+        self.assertNotIn("secret-value", outcome.run.metrics["case_errors"][0]["message"])
+        self.assertNotIn("provider.internal", outcome.run.error_message or "")
+
     def test_eval_run_overrides_are_detached_and_snapshotted(self) -> None:
         knowledge_base, document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
             name="评测临时配置测试",
@@ -1583,7 +1719,7 @@ class KnowledgeServiceTest(unittest.TestCase):
 
         def retrieve(**kwargs):  # noqa: ANN003, ANN202
             captured_configs.append(kwargs["knowledge_base"])
-            return [RetrievalResult(chunk=expected_chunk, score=0.9)]
+            return [RetrievalResult(chunk=expected_chunk, score=0.9, metadata={})]
 
         pipeline.retrieve.side_effect = retrieve
         service = KnowledgeEvaluationService(
@@ -2534,7 +2670,8 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertGreaterEqual(len(results), 1)
         self.assertEqual(results[0].rank_source, "vector_fallback")
         self.assertTrue(results[0].metadata.get("rerank_fallback"))
-        self.assertIn("fake rerank failure", str(results[0].metadata.get("rerank_error")))
+        self.assertEqual(results[0].metadata.get("rerank_error_code"), "knowledge_retrieval_failed")
+        self.assertNotIn("fake rerank failure", str(results[0].metadata))
 
     def test_parse_pdf_from_adaptive_rag_fixture_for_rag3_smoke(self) -> None:
         pdf_path = Path("/disk2/gengnan/Adaptive-RAG/training_free_grpo/pdf/Adaptive_RAG.pdf")
@@ -2939,6 +3076,29 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertEqual(result.diagnostics["knowledge_retrieval_error"], 1)
         self.assertGreaterEqual(result.diagnostics["knowledge_retrieval_latency_ms"], 1)
         self.assertIn("检索超过", result.notices[0])
+
+    def test_knowledge_context_service_sanitizes_retrieval_exception(self) -> None:
+        knowledge_base, _, _, _ = self._create_indexed_markdown_knowledge_base(
+            name="检索异常脱敏",
+            file_name="sanitized.md",
+            content="A retrieval error must not expose provider details.",
+        )
+
+        result = asyncio.run(
+            KnowledgeContextService(
+                db=self.db,
+                user_id=self.user.id,
+                index_service=FailingKnowledgeIndexService(),  # type: ignore[arg-type]
+            ).build_context(
+                knowledge_base_id=knowledge_base.id,
+                query="retrieval error",
+            )
+        )
+
+        self.assertEqual(result.diagnostics["knowledge_retrieval_error"], 1)
+        self.assertIn("检索失败", result.notices[0])
+        self.assertNotIn("provider.internal", result.notices[0])
+        self.assertNotIn("secret-value", result.notices[0])
 
     def test_context_stats_header_supports_unicode_values(self) -> None:
         encoded = _stringify_stats(

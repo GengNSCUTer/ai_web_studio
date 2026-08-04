@@ -10,6 +10,7 @@ from app.services.tools.bindings import ToolResultBindingError, ToolResultBindin
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.quality import (
+    decide_tool_result_action,
     evaluate_tool_result_quality,
     is_usable_tool_result,
     quality_error_for_result,
@@ -40,6 +41,7 @@ class ToolStepResult:
     succeeded: bool = False
     quality_status: str = "unknown"
     quality_reasons: list[str] = field(default_factory=list)
+    quality_action: str = "block"
     sources: list[ExternalSource] = field(default_factory=list)
     # Sources from failed/blocked calls stay available for trace/debugging, but
     # only an explicitly approved result may enter the final answer context.
@@ -112,6 +114,7 @@ class ToolWorkflowService:
         failed: set[str] = set()
         quality_by_call_id: dict[str, str] = {}
         quality_reasons_by_call_id: dict[str, list[str]] = {}
+        quality_actions_by_call_id: dict[str, str] = {}
         sources_by_call_id: dict[str, list[ExternalSource]] = {}
         step = 0
         while pending:
@@ -164,6 +167,11 @@ class ToolWorkflowService:
                                     dep: quality_reasons_by_call_id.get(dep, [])
                                     for dep in failed_dependencies
                                 },
+                                "next_action": (
+                                    "replan"
+                                    if any(quality_actions_by_call_id.get(dep) == "replan" for dep in failed_dependencies)
+                                    else "block"
+                                ),
                                 "reason": "upstream_quality_not_usable"
                                 if quality_blocked
                                 else "failed_dependencies",
@@ -284,6 +292,7 @@ class ToolWorkflowService:
                     failed.add(step_result.call.call_id)
                 quality_by_call_id[step_result.call.call_id] = step_result.quality_status
                 quality_reasons_by_call_id[step_result.call.call_id] = list(step_result.quality_reasons)
+                quality_actions_by_call_id[step_result.call.call_id] = step_result.quality_action
                 sources_by_call_id[step_result.call.call_id] = list(step_result.sources)
                 pending.pop(step_result.call.call_id, None)
 
@@ -350,26 +359,67 @@ class ToolWorkflowService:
         events.extend(call_events)
         error_message = call_result.error_message or ""
         quality_status, quality_reasons = self._quality_for_result(call_result)
-        if any(event.type == "tool_confirmation_required" for event in call_events):
+        result_usable = self._result_is_usable(call_result)
+        confirmation_required = any(event.type == "tool_confirmation_required" for event in call_events)
+        decision_status = (
+            "uncertain"
+            if confirmation_required
+            else ("valid" if quality_status == "unknown" and result_usable else quality_status)
+        )
+        definition = self.registry.get_or_none(call.tool_key)
+        fallback_available = bool(
+            plan.fallback_tool_key
+            and allow_fallback
+            and self._fallback_definition_is_safe(plan.fallback_tool_key)
+        )
+        quality_decision = decide_tool_result_action(
+            status=decision_status,
+            reasons=quality_reasons,
+            retryable=call_result.retryable,
+            fallback_available=fallback_available,
+            # Sync Tool Workflow has no hidden retry budget. Durable Runtime owns
+            # retry attempts; this path can only fallback or request re-planning.
+            retry_allowed=False,
+            risk_level=definition.risk_level if definition else "high",
+            read_only=definition.read_only if definition else False,
+        )
+        events.append(
+            ToolTraceEvent(
+                type="tool_result_quality_decision",
+                payload={
+                    "workflow": "tool_workflow_v1",
+                    "call_id": call.call_id,
+                    "tool_key": call.tool_key,
+                    "status": quality_decision.status,
+                    "action": quality_decision.action,
+                    "retryable": quality_decision.retryable,
+                    "fallback_available": quality_decision.fallback_available,
+                    "reasons": list(quality_decision.reasons),
+                },
+            )
+        )
+        if confirmation_required:
             return ToolStepResult(
                 call=call,
                 # Diff 作为 evidence 告知最终模型“等待确认”，但该 Step 仍失败关闭，
                 # 依赖实际写入结果的下游步骤不会被解锁。
                 sources=call_result.sources,
                 expose_sources_to_prompt=True,
-                quality_status=quality_status,
-                quality_reasons=quality_reasons,
+                quality_status="uncertain",
+                quality_reasons=[*quality_reasons, "user_confirmation_required"],
+                quality_action="clarify",
                 notices=[f"{call.display_name}需要用户确认，已跳过执行。"],
                 events=events,
                 error_message=error_message,
             )
 
-        if self._result_is_usable(call_result):
+        if result_usable:
             return ToolStepResult(
                 call=call,
                 succeeded=True,
                 quality_status=quality_status,
                 quality_reasons=quality_reasons,
+                quality_action="continue",
                 sources=call_result.sources,
                 expose_sources_to_prompt=True,
                 events=events,
@@ -385,16 +435,18 @@ class ToolWorkflowService:
                         "tool_key": call.tool_key,
                         "status": quality_status,
                         "reasons": quality_reasons,
+                        "next_action": quality_decision.action,
                         "downstream_unlocked": False,
                     },
                 )
             )
 
-        if not plan.fallback_tool_key or not allow_fallback:
+        if quality_decision.action != "fallback" or not plan.fallback_tool_key or not allow_fallback:
             return ToolStepResult(
                 call=call,
                 quality_status=quality_status,
                 quality_reasons=quality_reasons,
+                quality_action=quality_decision.action,
                 sources=call_result.sources,
                 events=events,
                 error_message=error_message or self._quality_error(call_result),
@@ -465,6 +517,37 @@ class ToolWorkflowService:
         )
         fallback_quality_status, fallback_quality_reasons = self._quality_for_result(fallback_result)
         fallback_usable = self._result_is_usable(fallback_result)
+        fallback_decision_status = (
+            "valid"
+            if fallback_quality_status == "unknown" and fallback_usable
+            else fallback_quality_status
+        )
+        fallback_definition = self.registry.get_or_none(fallback_call.tool_key)
+        fallback_decision = decide_tool_result_action(
+            status=fallback_decision_status,
+            reasons=fallback_quality_reasons,
+            retryable=fallback_result.retryable,
+            fallback_available=False,
+            retry_allowed=False,
+            risk_level=fallback_definition.risk_level if fallback_definition else "high",
+            read_only=fallback_definition.read_only if fallback_definition else False,
+        )
+        events.append(
+            ToolTraceEvent(
+                type="tool_result_quality_decision",
+                payload={
+                    "workflow": "tool_workflow_v1",
+                    "call_id": fallback_call.call_id,
+                    "tool_key": fallback_call.tool_key,
+                    "status": fallback_decision.status,
+                    "action": fallback_decision.action,
+                    "retryable": fallback_decision.retryable,
+                    "fallback_available": False,
+                    "reasons": list(fallback_decision.reasons),
+                    "stage": "fallback",
+                },
+            )
+        )
         notices = [f"{call.display_name}未返回可用结果，已回退到网页搜索。"] if fallback_usable else []
         # 网页 fallback 可以给最终回答补充来源，但不等于满足天气/路线等结构化输出合同。
         # 只有同一 category 且通过主工具质量合同的降级工具才允许解锁下游。
@@ -496,6 +579,7 @@ class ToolWorkflowService:
             succeeded=dependency_contract_satisfied,
             quality_status=fallback_quality_status,
             quality_reasons=fallback_quality_reasons,
+            quality_action=("continue" if dependency_contract_satisfied else "block"),
             sources=fallback_result.sources,
             expose_sources_to_prompt=fallback_usable,
             notices=notices,
@@ -530,7 +614,7 @@ class ToolWorkflowService:
         """
         if not plan.fallback_tool_key:
             return set()
-        if not self.registry.get_or_none(plan.fallback_tool_key):
+        if not self._fallback_definition_is_safe(plan.fallback_tool_key):
             return set()
         remaining_slots = max(0, self.max_tool_calls - len(calls))
         if remaining_slots == 0:
@@ -552,6 +636,12 @@ class ToolWorkflowService:
             reserved_keys.add(fallback_key)
             allowed.add(call.call_id)
         return allowed
+
+    def _fallback_definition_is_safe(self, tool_key: str) -> bool:
+        """Only low-risk read-only tools may be invoked as an automatic fallback."""
+
+        definition = self.registry.get_or_none(tool_key)
+        return bool(definition and definition.read_only and definition.risk_level == "low")
 
     def _build_fallback_call(
         self,
