@@ -263,7 +263,9 @@ class KnowledgeEvalSetResponse(BaseModel):
 class KnowledgeEvalCaseCreate(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
     expected_document_id: str | None = Field(default=None, max_length=36)
+    expected_document_ids: list[str] = Field(default_factory=list, max_length=100)
     expected_chunk_id: str | None = Field(default=None, max_length=36)
+    expected_chunk_ids: list[str] = Field(default_factory=list, max_length=200)
     expected_answer_keywords: list[str] = Field(default_factory=list)
     difficulty: str | None = Field(default=None, max_length=32)
     tags: list[str] = Field(default_factory=list)
@@ -278,7 +280,9 @@ class KnowledgeEvalCaseResponse(BaseModel):
     eval_set_id: str
     query: str
     expected_document_id: str | None = None
+    expected_document_ids: list[str] = Field(default_factory=list)
     expected_chunk_id: str | None = None
+    expected_chunk_ids: list[str] = Field(default_factory=list)
     expected_answer_keywords: list[str] = Field(default_factory=list)
     difficulty: str | None = None
     tags: list[str] = Field(default_factory=list)
@@ -313,7 +317,10 @@ class KnowledgeEvalResultResponse(BaseModel):
     query: str
     retrieved: list[dict] = Field(default_factory=list)
     expected_document_id: str | None = None
+    expected_document_ids: list[str] = Field(default_factory=list)
     expected_chunk_id: str | None = None
+    expected_chunk_ids: list[str] = Field(default_factory=list)
+    matched_chunk_ids: list[str] = Field(default_factory=list)
     hit_at_k: bool
     mrr: float | None = None
     context_precision: float | None = None

@@ -1,0 +1,2519 @@
+{
+  "schema_version": 1,
+  "retrieval_mode": "hybrid",
+  "rerank_enabled": true,
+  "top_k": 20,
+  "answer_model": "deepseek-ai/DeepSeek-V4-Flash",
+  "judge_model": "Qwen/Qwen2.5-72B-Instruct",
+  "metrics": {
+    "case_count": 20,
+    "scored_case_count": 20,
+    "answer_faithfulness": 0.9149999999999998,
+    "answer_relevancy": 0.9149999999999998,
+    "citation_correctness": 0.8575000000000002,
+    "citation_validity": 1.0,
+    "ground_truth_citation_precision": 0.4033333333333333,
+    "ground_truth_citation_recall": 0.4666666666666667,
+    "retrieval_failure_count": 0,
+    "generation_failure_count": 0,
+    "judge_failure_count": 0,
+    "avg_retrieval_elapsed_ms": 1398.4600398456678,
+    "avg_generation_elapsed_ms": 3581.759451678954,
+    "avg_judge_elapsed_ms": 9496.682954742573,
+    "avg_total_elapsed_ms": 14477.461208053865,
+    "metric_status": "scored",
+    "metric_boundary": "Faithfulness、Answer Relevancy 和 Citation Correctness 是 LLM-as-a-Judge 分数；citation_validity/ground_truth_* 是确定性审计，不等同于最终答案准确率。"
+  },
+  "cases": [
+    {
+      "case_id": "3a50b433-9889-4c3a-8466-8d5922e9c3e3",
+      "query": "Adaptive-RAG 如何依据问题复杂度，在无检索、单步检索和多步检索之间选择策略？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "479e678a-2176-4548-875e-de396da92829",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 73,
+          "score": 0.9985597729682922,
+          "content_preview": "In this work, we proposed the Adaptive Retrieval-Augmented Generation framework, referred to as Adaptive-RAG, to handle queries of various complexities. Specifically, Adaptive-RAG is designed to dynamically adjust its query handling strategies in the unified retrieval-augmented LLM based on the complexity of queries that they encounter, which spans across a spectrum of the nonretrieval-based approach for the most straightforward queries, to the single-step approach for the queries of moderate complexity, and finally to the multi-step approach for the complex queries. The core step of our Adaptive-RAG lies in determining the complexity of the given query, which is instrumental in selecting the most suitable strategy for its answer. To operationalize this process, we trained a smaller Langua"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "c2ca3236-5561-4101-aa30-1fb9f44d4f2f",
+          "document_id": "a8d1433e-91eb-43ca-b05c-90928e08cec7",
+          "file_name": "MBA-RAG.pdf",
+          "chunk_index": 4,
+          "score": 0.9982671737670898,
+          "content_preview": "Furthermore, AdaptiveRAG (Jeong et al., 2024) argues that real-world queries often vary in difficulty, such as the number of reasoning steps required or the depth of information needed to answer a query. Thus, applying a single retrieval method across all queries can be ineffective. Simple queries may incur unnecessary computational overhead when complex retrieval strategies are used, while complex, multi-step queries may not be adequately addressed. To tackle this issue, AdaptiveRAG introduces an adaptive router that selects the retrieval method based on the complexity of the query. However, AdaptiveRAG simplifies the retrieval strategy into a single-choice task by using heuristic supervision that favors only one process with the least retrieval cost. This supervision is inaccurate for tw"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "2843ec83-5c1f-44b6-9d6e-7d2663d5dec2",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 10,
+          "score": 0.9964080452919006,
+          "content_preview": "Adaptive-RAG (Jeong et al., 2024) incorporates an additional classifier that categorizes queries into three types: no retrieval, single-step retrieval, or multi-step retrieval. This classifier selects the optimal number of retrievals based on the complexity of each query. LLM-based feedback methods (Zhang et al., 2024; Ding et al., 2024) rely on the evaluation of response consistency to guide retrieval decisions. These methods use prompting or multilingual formulations to assess the quality of the model’s responses. If the LLM detects low consistency in its output, it triggers a retrieval to obtain relevant documents. Confidence-based approaches rely on the model’s token uncertainty to guide retrieval decisions. For example, FLARE (Jiang et al., 2023b) initiates retrieval when any token in"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "bef41045-453c-473d-8133-1fe36827dc6c",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 43,
+          "score": 0.9954261183738708,
+          "content_preview": "We compare our Adaptive-RAG against relevant models, including three retrieval-augmented LLM strategies (in Section 3.1) and the adaptive retrieval approaches (Mallen et al., 2023; Asai et al., 2024), which can be grouped into one of three categories: Simple, Adaptive, and Complex. Specifically, Simple approaches include the 1) No Retrieval and 2) Single-step Approach-based methods. Adaptive approaches include the 3) Adaptive Retrieval (Mallen et al., 2023), 4) Self-RAG (Asai et al., 2024), and our 5) Adaptive-RAG, which can adaptively perform retrieval based on the question complexity. For the 6) Multi-step Approach, we use the most sophisticated state-ofthe-art method (Trivedi et al., 2023), iteratively accessing both the retriever and LLM with Chainof-Thought reasoning (Wei et al., 2022"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "9a7233fc-edea-480c-8efa-1b86c46e0219",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 5,
+          "score": 0.994209885597229,
+          "content_preview": "To optimize the RAG pipeline, recent research has introduced methods to adaptively adjust the number of retrievals. (Su et al., 2024; Mallen et al., 2022; Wang et al., 2023c). A notable example is Adaptive-RAG (Jeong et al., 2024), which classifies queries into three categories based on their complexity: no retrieval, single-step retrieval, or multi-step retrievals. However, as shown in Figure 1, external classifiers in Adaptive-RAG often fail to fully leverage the internal decision-making capabilities of the language model. This leads to unnecessary additional retrieval steps, resulting in knowledge conflicts between the model’s internal knowledge and externally retrieved information (Xie et al., 2024; Xu et al., 2024). Other methods decide whether to retrieve based on token generation pr"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "38824367-37ea-42dc-94a8-806f1c369657",
+          "document_id": "a8d1433e-91eb-43ca-b05c-90928e08cec7",
+          "file_name": "MBA-RAG.pdf",
+          "chunk_index": 24,
+          "score": 0.9845530986785889,
+          "content_preview": "SQuAD and TriviaQA datasets. In particular, our approach achieves a substantial reduction in step costs, suggesting that it can dynamically select retrieval strategies with fewer retrieval steps. On the NQ dataset, our results are roughly on par with Adaptive-RAG, but with an increase in steps. This is because Adaptive-RAG, when constructing the dataset, set the condition that when zero, one, or multiple retrieval paths could yield the correct answer, the path requiring the fewest steps would be chosen as the correct label, with others marked as incorrect. However, this does not reflect reality as other paths can also yield correct answers. Therefore, our reward model does not solely choose the retrieval path with the minimum steps but may also select other feasible paths."
+        }
+      ],
+      "answer": "Adaptive-RAG 通过训练一个较小的语言模型，利用查询-复杂度配对数据（这些数据从预测结果和数据集的归纳偏差中自动标注）来判定查询的复杂度，然后根据复杂度动态选择策略：对于最简单的查询采用无检索方法，中等复杂度的查询采用单步检索，复杂查询则采用多步检索。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3",
+        "KB5"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 0,
+        "ground_truth_citation_precision": 0.0,
+        "ground_truth_citation_recall": 0.0,
+        "invalid_citations": [],
+        "target_citation_labels": []
+      },
+      "retrieval_elapsed_ms": 1403.422310948372,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": false,
+        "mrr": 0.0,
+        "context_precision": 0.0,
+        "context_recall": 0.0,
+        "ndcg_at_k": 0.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "complexity",
+          "retrieval",
+          "single-step",
+          "multi-step"
+        ],
+        "matched_chunk_ids": [],
+        "matched_target_count": 0,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 2780.315598938614,
+      "judge_elapsed_ms": 17034.722816199064,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案与提供的证据高度一致，描述了Adaptive-RAG如何根据查询复杂度选择不同的检索策略。KB1、KB2、KB3和KB5都提到了Adaptive-RAG使用一个较小的语言模型来判断查询复杂度，并根据复杂度选择无检索、单步检索或多步检索策略。KB4虽然没有直接提到查询复杂度的判断方法，但提到了Adaptive-RAG可以根据问题复杂度适应性地选择检索策略。然而，KB5提到了外部分类器可能存在的问题，这与答案中描述的完全正面的评价有些出入，因此在引用正确性上略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "答案与提供的证据高度一致，描述了Adaptive-RAG如何根据查询复杂度选择不同的检索策略。KB1、KB2、KB3和KB5都提到了Adaptive-RAG使用一个较小的语言模型来判断查询复杂度，并根据复杂度选择无检索、单步检索或多步检索策略。KB4虽然没有直接提到查询复杂度的判断方法，但提到了Adaptive-RAG可以根据问题复杂度适应性地选择检索策略。然而，KB5提到了外部分类器可能存在的问题，这与答案中描述的完全正面的评价有些出入，因此在引用正确性上略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 21219.048170838505
+    },
+    {
+      "case_id": "7c7ddd7e-9c73-437f-87fe-e0f63c2d830f",
+      "query": "Adaptive-RAG 的问题复杂度分类器如何训练，并在推理时输出检索策略？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "479e678a-2176-4548-875e-de396da92829",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 73,
+          "score": 0.974579930305481,
+          "content_preview": "In this work, we proposed the Adaptive Retrieval-Augmented Generation framework, referred to as Adaptive-RAG, to handle queries of various complexities. Specifically, Adaptive-RAG is designed to dynamically adjust its query handling strategies in the unified retrieval-augmented LLM based on the complexity of queries that they encounter, which spans across a spectrum of the nonretrieval-based approach for the most straightforward queries, to the single-step approach for the queries of moderate complexity, and finally to the multi-step approach for the complex queries. The core step of our Adaptive-RAG lies in determining the complexity of the given query, which is instrumental in selecting the most suitable strategy for its answer. To operationalize this process, we trained a smaller Langua"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "20430fc9-e955-4e4d-8fbf-cfee9cf575b8",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 47,
+          "score": 0.9329730868339539,
+          "content_preview": "amples for evaluation (e.g., 500 samples per dataset). In our Adaptive-RAG, for the query-complexity classifier, we use and train the T5-Large model (Raffel et al., 2020). Specifically, the classifier is trained using the epoch that shows the best performance until 100 training iterations from the validation set, with the learning rate of 3e-"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "b90367fe-71de-4dcf-914f-37d2c2e9eeef",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 22,
+          "score": 0.9060338735580444,
+          "content_preview": "our Adaptive-RAG which pre-determines the query complexity and adapts the operational behavior of any off-the-shelf LLMs accordingly, this approach applies the same fixed operations to every query regardless of its complexity but also necessitates additional specific training to LMs. Concurrent to our work, Asai et al. (2024) suggested training a sophisticated model to dynamically retrieve, critique, and generate the text. Nevertheless, we argue that all the aforementioned adaptive retrieval methods that rely on a single model might be suboptimal in handling a variety of queries of a range of different complexities since they tend to be either overly simple or complex for all the input queries, which demands a new approach that can select the most suitable strategy of retrieval-augmented L"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "80ee4b9a-0b95-44a7-ba4d-4e9c54db9c99",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 15,
+          "score": 0.8761235475540161,
+          "content_preview": "We validate Adaptive-RAG using benchmark open-domain QA datasets, covering a wide range of query complexity from single-hop (Rajpurkar et al., 2016; Joshi et al., 2017; Kwiatkowski et al., 2019) to multi-hop (Yang et al., 2018; Ho et al., 2020; Trivedi et al., 2022b) queries. The experimental results show that ours significantly improves the overall accuracy and efficiency, compared to the prior adaptive strategies, on multiple LLMs, such as GPT-3.5 (Brown et al., 2020) and FLAN-T5 series (Chung et al., 2022).\n\nOur contributions and findings are threefold:\n\n• We point out the realistic scenario of queries of varying complexities, and find out that existing retrieval-augmented generation approaches tend to be overly simple or complex.\n\n• We adapt retrieval-augmented LLMs to the query comple"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "9a7233fc-edea-480c-8efa-1b86c46e0219",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 5,
+          "score": 0.8161436319351196,
+          "content_preview": "To optimize the RAG pipeline, recent research has introduced methods to adaptively adjust the number of retrievals. (Su et al., 2024; Mallen et al., 2022; Wang et al., 2023c). A notable example is Adaptive-RAG (Jeong et al., 2024), which classifies queries into three categories based on their complexity: no retrieval, single-step retrieval, or multi-step retrievals. However, as shown in Figure 1, external classifiers in Adaptive-RAG often fail to fully leverage the internal decision-making capabilities of the language model. This leads to unnecessary additional retrieval steps, resulting in knowledge conflicts between the model’s internal knowledge and externally retrieved information (Xie et al., 2024; Xu et al., 2024). Other methods decide whether to retrieve based on token generation pr"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "bef41045-453c-473d-8133-1fe36827dc6c",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 43,
+          "score": 0.782561719417572,
+          "content_preview": "We compare our Adaptive-RAG against relevant models, including three retrieval-augmented LLM strategies (in Section 3.1) and the adaptive retrieval approaches (Mallen et al., 2023; Asai et al., 2024), which can be grouped into one of three categories: Simple, Adaptive, and Complex. Specifically, Simple approaches include the 1) No Retrieval and 2) Single-step Approach-based methods. Adaptive approaches include the 3) Adaptive Retrieval (Mallen et al., 2023), 4) Self-RAG (Asai et al., 2024), and our 5) Adaptive-RAG, which can adaptively perform retrieval based on the question complexity. For the 6) Multi-step Approach, we use the most sophisticated state-ofthe-art method (Trivedi et al., 2023), iteratively accessing both the retriever and LLM with Chainof-Thought reasoning (Wei et al., 2022"
+        }
+      ],
+      "answer": "Adaptive-RAG 的问题复杂度分类器使用 T5-Large 模型进行训练，训练数据来自自动标注的查询-复杂度对，这些标注基于预测结果和数据集的归纳偏差。训练时使用验证集上表现最佳的 epoch，最多进行 100 次训练迭代，学习率为 3e-5。推理时，分类器先评估查询复杂度，然后根据复杂度选择对应的检索策略：最简单查询使用无检索方法，中等复杂度使用单步检索，复杂查询使用多步检索。",
+      "citations": [
+        "KB1",
+        "KB2"
+      ],
+      "citation_audit": {
+        "citation_count": 2,
+        "valid_citation_count": 2,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 0,
+        "ground_truth_citation_precision": 0.0,
+        "ground_truth_citation_recall": 0.0,
+        "invalid_citations": [],
+        "target_citation_labels": []
+      },
+      "retrieval_elapsed_ms": 1122.814476955682,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": false,
+        "mrr": 0.0,
+        "context_precision": 0.0,
+        "context_recall": 0.0,
+        "ndcg_at_k": 0.0,
+        "expected_keyword_recall": 0.5,
+        "expected_keyword_hits": [
+          "classifier",
+          "complexity"
+        ],
+        "matched_chunk_ids": [],
+        "matched_target_count": 0,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 3756.2334653921425,
+      "judge_elapsed_ms": 13206.144604831934,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案中的大部分信息得到了证据的支持，包括使用 T5-Large 模型进行训练、训练数据的来源、训练参数（如学习率和最大迭代次数）以及推理时根据查询复杂度选择检索策略的方法。然而，[KB2] 中提到的训练数据来自 'query-complexity pairs' 而不是 'query-complexity 对'，这在表述上略有不同。此外，[KB2] 中提到的训练数据是 'automatically annotated'，而答案中使用了 '自动标注'，这也是一致的。引用标签 [KB1] 和 [KB2] 都存在且支持答案中的结论，但 [KB1] 中的信息较为泛化，而 [KB2] 更具体。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "答案中的大部分信息得到了证据的支持，包括使用 T5-Large 模型进行训练、训练数据的来源、训练参数（如学习率和最大迭代次数）以及推理时根据查询复杂度选择检索策略的方法。然而，[KB2] 中提到的训练数据来自 'query-complexity pairs' 而不是 'query-complexity 对'，这在表述上略有不同。此外，[KB2] 中提到的训练数据是 'automatically annotated'，而答案中使用了 '自动标注'，这也是一致的。引用标签 [KB1] 和 [KB2] 都存在且支持答案中的结论，但 [KB1] 中的信息较为泛化，而 [KB2] 更具体。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 18085.937715135515
+    },
+    {
+      "case_id": "480923ca-9b03-4159-8f16-0da8fe0b6a00",
+      "query": "DF-RAG 为什么需要多样性检索，它如何缓解余弦相似度带来的冗余证据问题？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "429aa108-edf3-4f24-9b89-80047390566d",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 1,
+          "score": 0.9885968565940857,
+          "content_preview": "Retrieval-augmented generation (RAG) is a common technique for grounding language model outputs in domain-specific information. However, RAG is often challenged by reasoning-intensive question-answering (QA), since common retrieval methods like cosine similarity maximize relevance at the cost of introducing redundant content, which can reduce information recall. To address this, we introduce Diversity-Focused Retrieval-Augmented Generation (DF-RAG) that systematically incorporates diversity into the retrieval step to improve performance on complex, reasoning-intensive QA benchmarks. DF-RAG builds upon the Maximal Marginal Relevance framework to select information chunks that are both relevant to the query and maximally dissimilar from each other. A key innovation of DF-RAG is its ability t"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "8b827514-af25-4f07-bca7-7fdc853b772c",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 54,
+          "score": 0.9781832695007324,
+          "content_preview": "In this work, we addressed the challenges RAG pipelines face on complex, reasoning-intensive QA tasks, identifying their reliance on cosine similarity as a key limitation that leads to redundant contexts. To overcome this, we introduced a retrieval function that balances diversity and relevance by a control parameter – λ. We incorporated this retrieval function at a dataset-level which showed performance improvements over vanilla RAG. With our given retrieval mechanism, we then designed an Oracle to understand the upper bound of performance improvement possible by controlling our λ at a query level, which revealed up to 18% absolute performance gains from vanilla RAG. Building on these insights, we proposed DF-RAG, which employs query-aware diversity by predicting the optimal λ for each qu"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "8d743231-decb-41ef-aa5c-dc27886db777",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 95,
+          "score": 0.9489328265190125,
+          "content_preview": "Non multi-hop QA benchmarks: DF-RAG also demonstrates improvements on MultifieldQA and En.QA. Although these datasets are not inherently multi-hop, their contexts often contain distracting information that appears relevant but leads models to incorrect answers. DF-RAG mitigates this by retrieving not only relevant but also diverse evidence, increasing the likelihood of capturing the true answer amid such noise. For example, in MultifieldQA, the question What is the score achieved by the authors for Track-2? often misleads vanilla RAG. The retriever selects a chunk stating All of our submissions were the top submissions for each track, which surpassed the next best competitors by a margin of4.5% and 5.6%for Track-1 and Track-2 respectively, causing the model to output 5.6%, which is the mar"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "886bf70e-0147-486e-9d93-149bf842e77f",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 7,
+          "score": 0.9287135601043701,
+          "content_preview": "To empirically validate our systems for such complex reasoning-intensive QA tasks, we benchmark them on: 1) multi-hop QA datasets as they require reasoning over evidence scattered across multiple contexts and 2) non-multi-hop but challenging long context QA datasets as they still require reasoning over context to generate answers (Yang et al., 2018; Ho et al., 2020). Our empirical evaluation across ∼180 experiments shows that DF-RAG routinely outperforms strong baselines on multi-hop QA, achieving up to 9.5% gains over vanilla RAG across context lengths and closing as much as up to 91.3% of the gap to the Oracle. On non-multi-hop QA, DF-RAG achieves up to a 4% improvement over vanilla RAG and other baselines. To our knowledge, this is the first work to leverage query-level diversity to est"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "b5044ba5-67dc-491c-8de9-768f37674a93",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 6,
+          "score": 0.9156302809715271,
+          "content_preview": "To this end, we introduce Diversity-Focused Retrieval-Augmented Generation (DF-RAG), a RAG pipeline designed to approximate the Oracle’s performance without access to the ground truth. DF-RAG adaptively determines the optimal λ for each query at test time through a multi-step process: (1) decomposing each query into individual steps with a planner LLM, (2) retrieving multiple candidate sets of chunks, each generated at predefined λ levels; and (3) selecting the chunk set with the highest potential to address the decomposed steps with an Evaluator LLM. DF-RAG does not require fine-tuning, utilizes a plug-and-play retrieval framework, and directly addresses our second question. By benchmarking DF-RAG across five QA datasets, we demonstrate that leveraging DF-RAG to find the optimal λ at test"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "81cd6a07-dc32-4509-a2e8-e17bea35dfd3",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 55,
+          "score": 0.9073596596717834,
+          "content_preview": "g. To test our system’s performance on complex reasoning-intensive QA tasks, we evaluated DF-RAG on multi-hop QA and longcontext non–multi-hop QA datasets across various context lengths and 2 model families. DF-RAG routinely outperforms strong baselines across context lengths and recovers up to 91.3% of the performance gap between vanilla RAG and the Oracle. Furthermore, DF-RAG uses constant token processing and can achieve faster execution through parallelization. Our results highlight the importance of diversity-focused retrieval for improving RAG pipelines on QA tasks and direct future directions for further innovation at closing the gap to Oracle performance."
+        }
+      ],
+      "answer": "DF-RAG需要多样性检索是因为传统RAG使用余弦相似度检索时，虽然最大化相关性，但会引入冗余内容，降低信息召回率（KB1）。DF-RAG基于最大边际相关性框架，选择既与查询相关又彼此最大不相似的证据块，从而缓解冗余问题（KB1）。具体地，它通过一个控制参数λ平衡多样性和相关性，并在测试时动态预测每个查询的最优λ，无需微调（KB2, KB5）。这种多样性检索能增加捕获正确答案的可能性，例如在多跳QA中，DF-RAG通过检索多样证据避免了被误导性信息干扰（KB3）。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3",
+        "KB5"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 2,
+        "ground_truth_citation_precision": 0.5,
+        "ground_truth_citation_recall": 0.6666666666666666,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1",
+          "KB5"
+        ]
+      },
+      "retrieval_elapsed_ms": 1165.5450910329819,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.3333333333333333,
+        "context_recall": 0.6666666666666666,
+        "ndcg_at_k": 0.6508205185601091,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "diversity",
+          "redundant",
+          "cosine",
+          "DF-RAG"
+        ],
+        "matched_chunk_ids": [
+          "429aa108-edf3-4f24-9b89-80047390566d",
+          "b5044ba5-67dc-491c-8de9-768f37674a93"
+        ],
+        "matched_target_count": 2,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 4671.4773452840745,
+      "judge_elapsed_ms": 8837.269473820925,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案事实大部分被证据支持，解释了DF-RAG为什么需要多样性检索以及它是如何通过最大边际相关性框架和动态预测λ来缓解余弦相似度带来的冗余证据问题。引用的标签大部分真实存在且支持结论，但KB5中提到的DF-RAG的多步骤过程在答案中没有具体提及，因此引用正确性略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "答案事实大部分被证据支持，解释了DF-RAG为什么需要多样性检索以及它是如何通过最大边际相关性框架和动态预测λ来缓解余弦相似度带来的冗余证据问题。引用的标签大部分真实存在且支持结论，但KB5中提到的DF-RAG的多步骤过程在答案中没有具体提及，因此引用正确性略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 14674.91893004626
+    },
+    {
+      "case_id": "648492a1-caa3-4d0d-921f-9df481c9a5e7",
+      "query": "DF-RAG 的 gMMR 如何计算候选 Chunk，并怎样在测试时选择查询自适应的多样性参数？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "a13dfef1-c6f1-4d9b-9d88-84ad15eec3a4",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 19,
+          "score": 0.9644561409950256,
+          "content_preview": "Candidate Chunk Sets Retrieval with gMMR: We retrieve candidate chunk sets, $S$ = $\\{ s _ { 1 } , s _ { 2 } , \\ldots , s _ { k } \\}$ , from the document set, ${ \\mathcal { C } } ,$ using gMMR (Section 3.1). For our experiments, we sample chunks uniformly with $\\lambda \\in [ 0 . 1 , 1 ]$ with a step size of 0.1. We exclude sampling a chunk set at $\\lambda = 0$ because selecting chunks $2 \\ldots k$ at $\\lambda = 0$ disregards query relevance and introduces noisy information. The computational complexity of DF-RAG depends directly on the sampling strategy and uniform sampling yields a $O ( n )$ complexity. Additionally, we propose a simpler binary-searchbased sampling strategy that achieves $O ( \\log ( n ) )$ complexity with comparable performance. More details and corresponding results of bi"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "1a0505a5-c51b-4441-a94e-0ade83e6eb5e",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 16,
+          "score": 0.9618240594863892,
+          "content_preview": "We introduce an Oracle to represent the hypothetical upper bound for our query-adaptive approach. This Oracle is designed to determine the ideal gMMR diversity parameter λ for each query by leveraging the ground truth. This is achieved by sampling values from 0 to 1 in increments of 0.1 and selecting the λs whose corresponding chunk set yields the highest $F _ { 1 }$ score with respect to the ground truth.\n\n## 3.4 The DF-RAG Architecture"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "a014b6ed-1762-4059-806d-73c89b9af7a4",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 13,
+          "score": 0.9582520127296448,
+          "content_preview": "To reduce content redundancy, we design a diversity-focused retrieval function built on MMR (Carbonell and Goldstein, 1998). Given a query q, a candidate chunk $c \\in { \\mathcal { C } }$ , and a set of previously selected chunks $S = \\{ s _ { 1 } , s _ { 2 } , . . . \\}$ , the retrieval function assigns a geometric MMR score (gMMR) to c as follows:\n\n$$\n\\begin{array}{l} \\operatorname{gMMR} (c) = \\lambda \\cos (\\vec {q}, \\vec {c}) \\\\ \\qquad + (1 - \\lambda) \\sqrt {2 - 2 \\cos (\\vec {c} , \\vec {c} _ {S})} \\end{array}\\tag{1}\n$$\n\nWhere the hyperparameter λ modulates the trade-off between relevance and diversity, and ${ \\vec { c } } _ { S }$ is the centroid of S so far, calculated by:\n\n$$\n\\vec {c} _ {S} \\triangleq \\frac {1}{| S |} \\sum_ {s \\in S} \\vec {s}\\tag{2}\n$$"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "6dd540e9-5dbd-4c6d-a68d-17e7d83eaff2",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 17,
+          "score": 0.9481138586997986,
+          "content_preview": "The Oracle establishes a theoretical performance upper bound for our query-adaptive gMMR. We next introduce DF-RAG, an architecture designed to approximate Oracle at test time for each query. As depicted in Figure 1, the architecture of DF-RAG integrates a plug-and-play retrieval component (highlighted in the purple dashed box) that uses an LLM-based Planner and an Evaluator for selecting the optimal λ for each query. When a query, $q ,$ is received, two processes are initiated in parallel: plan generation via the Planner as well as candidate chunk set retrieval using gMMR. Once the plan, $P ,$ , and the candidate chunk sets are available, the Evaluator evaluates and selects the optimal chunk set thereby determining the optimal λ. Finally, given the selected chunk set, the Generator synthe"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "b5044ba5-67dc-491c-8de9-768f37674a93",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 6,
+          "score": 0.861961305141449,
+          "content_preview": "To this end, we introduce Diversity-Focused Retrieval-Augmented Generation (DF-RAG), a RAG pipeline designed to approximate the Oracle’s performance without access to the ground truth. DF-RAG adaptively determines the optimal λ for each query at test time through a multi-step process: (1) decomposing each query into individual steps with a planner LLM, (2) retrieving multiple candidate sets of chunks, each generated at predefined λ levels; and (3) selecting the chunk set with the highest potential to address the decomposed steps with an Evaluator LLM. DF-RAG does not require fine-tuning, utilizes a plug-and-play retrieval framework, and directly addresses our second question. By benchmarking DF-RAG across five QA datasets, we demonstrate that leveraging DF-RAG to find the optimal λ at test"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "8d3f003c-b42a-4b93-a5cb-764d1a32401a",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 79,
+          "score": 0.7469237446784973,
+          "content_preview": "Despite the many possible strategies for constructing a chunk set, we adopt our proposed approach of selecting a fixed-size set of n = 5 chunks from the document chunk collection C at a single λ value. This design enables a one-time computation of gMMR scores over all candidate chunks in C at a particular λ, followed by a single evaluation of the resulting chunk-set using the Evaluator. However, it is also possible that the chunk-set selection strategy can be more adaptive at the cost of more computation, like iteratively selecting the best chunk and incrementally building the set which would requiring up to n additional Evaluator calls per query.\n\n## A.3 System Prompts and Reproducibility"
+        }
+      ],
+      "answer": "gMMR 通过公式 (1) 计算候选 Chunk 的得分，该公式结合了查询相关性和多样性：得分 = λ * cos(查询向量, 候选块向量) + (1-λ) * sqrt(2 - 2 * cos(候选块向量, 已选块集质心向量))，其中 λ 控制相关性与多样性的权衡。在测试时，DF-RAG 通过一个多步骤过程选择查询自适应的 λ：首先用 Planner LLM 将查询分解为步骤，然后检索多个在预定义 λ 水平（如从 0.1 到 1，步长 0.1）下生成的候选块集，最后用 Evaluator LLM 选择最有可能解决分解步骤的块集，从而确定最优 λ。",
+      "citations": [
+        "KB3",
+        "KB1",
+        "KB5"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 0,
+        "ground_truth_citation_precision": 0.0,
+        "ground_truth_citation_recall": 0.0,
+        "invalid_citations": [],
+        "target_citation_labels": []
+      },
+      "retrieval_elapsed_ms": 1175.1305260695517,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.25,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.3333333333333333,
+        "ndcg_at_k": 0.20210734650054757,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "gMMR",
+          "diversity",
+          "candidate",
+          "Oracle"
+        ],
+        "matched_chunk_ids": [
+          "6dd540e9-5dbd-4c6d-a68d-17e7d83eaff2"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 4451.271602883935,
+      "judge_elapsed_ms": 10672.405413817614,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案中的 gMMR 计算公式与 KB3 中提供的公式一致，且 λ 的作用也与 KB3 中描述相符，这表明答案的事实得到了证据的支持。答案直接回答了问题，解释了 gMMR 如何计算候选 Chunk 以及 DF-RAG 如何在测试时选择查询自适应的多样性参数 λ。引用的标签 KB3、KB1 和 KB5 均真实存在，并且 KB3 提供了 gMMR 的定义，KB1 提到了 λ 的取值范围，KB5 描述了 DF-RAG 在测试时选择最优 λ 的多步骤过程，这些都支持了答案中的结论。但是，KB1 主要讨论的是实验中的 λ 取值范围，而不是测试时的自适应选择，因此在 answer_faithfulness 和 citation_correctness 上略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.9,
+          "explanation": "答案中的 gMMR 计算公式与 KB3 中提供的公式一致，且 λ 的作用也与 KB3 中描述相符，这表明答案的事实得到了证据的支持。答案直接回答了问题，解释了 gMMR 如何计算候选 Chunk 以及 DF-RAG 如何在测试时选择查询自适应的多样性参数 λ。引用的标签 KB3、KB1 和 KB5 均真实存在，并且 KB3 提供了 gMMR 的定义，KB1 提到了 λ 的取值范围，KB5 描述了 DF-RAG 在测试时选择最优 λ 的多步骤过程，这些都支持了答案中的结论。但是，KB1 主要讨论的是实验中的 λ 取值范围，而不是测试时的自适应选择，因此在 answer_faithfulness 和 citation_correctness 上略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 16299.383261241019
+    },
+    {
+      "case_id": "86956bb3-8943-4052-ac9e-d46b8b403a9d",
+      "query": "FLARE 为什么要前瞻性地预测下一句，并根据低概率词触发主动检索？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "17542e0e-0576-4ddd-a720-d12368097aeb",
+          "document_id": "0c59b587-adad-4c92-8123-eae5f8321155",
+          "file_name": "FLARE.pdf",
+          "chunk_index": 10,
+          "score": 0.9933155179023743,
+          "content_preview": "owprobability tokens. When deciding what to retrieve, it is important to consider what LMs intend to generate in the future, as the goal of active retrieval is to benefit future generations. Therefore, we propose anticipating the future by generating a temporary next sentence, using it as a query to retrieve relevant documents, and then regenerating the next sentence conditioning on the retrieved documents. Combining the two aspects, we propose Forward-Looking Active REtrieval augmented generation (FLARE), as illustrated in Figure 1. FLARE iteratively generates a temporary next sentence, use it as the query to retrieve relevant documents if it contains low-probability tokens and regenerate the next sentence until reaches the end."
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "7c3e1115-2219-41a9-869d-1b79666c777e",
+          "document_id": "0c59b587-adad-4c92-8123-eae5f8321155",
+          "file_name": "FLARE.pdf",
+          "chunk_index": 2,
+          "score": 0.9823130965232849,
+          "content_preview": "teratively uses a prediction of the upcoming sentence to anticipate future content, which is then utilized as a query to retrieve relevant documents to regenerate the sentence if it contains low-confidence tokens. We test FLARE along with baselines comprehensively over 4 longform knowledge-intensive generation tasks/- datasets. FLARE achieves superior or competitive performance on all tasks, demonstrating the effectiveness of our method."
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "42295e4a-70f0-4a73-8eda-2589e1765eb1",
+          "document_id": "0c59b587-adad-4c92-8123-eae5f8321155",
+          "file_name": "FLARE.pdf",
+          "chunk_index": 7,
+          "score": 0.9664152264595032,
+          "content_preview": "![](/api/backend/uploads/file?storage_key=3844497c-59f3-4ea7-9a4b-3613f0bddc0b%2Fknowledge%2Ff48f939a-a574-45a1-8721-6e635a258209%2Fassets%2F0c59b587-adad-4c92-8123-eae5f8321155%2Fimages%2F30fadee48f2bb90a193cb78276d7a7fb97461f7de33974bcae67aec4a5125af7.jpg)  \nFigure 1: An illustration of forward-looking active retrieval augmented generation (FLARE). Starting with the user input x and initial retrieval results $\\mathcal { D } _ { \\pmb { x } }$ , FLARE iteratively generates a temporary next sentence (shown in gray italic) and check whether it contains low-probability tokens (indicated with underline). If so (step 2 and 3), the system retrieves relevant documents and regenerates the sentence."
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "247d8ccb-a788-4e8b-ac2e-9a992dc3a302",
+          "document_id": "0c59b587-adad-4c92-8123-eae5f8321155",
+          "file_name": "FLARE.pdf",
+          "chunk_index": 19,
+          "score": 0.9240235090255737,
+          "content_preview": "## 3 FLARE: Forward-Looking Active REtrieval Augmented Generation\n\nOur intuition is that (1) LMs should only retrieve information when they do not have the necessary knowledge to avoid unnecessary or inappropriate retrieval, and (2) the retrieval queries should reflect the intents of future generations. We propose two forward-looking active retrieval augmented generation (FLARE) methods to implement the active retrieval augmented generation framework. The first method prompts the LM to generate retrieval queries when necessary while generating the answer using retrieval-encouraging instructions, denoted as FL $\\mathrm { { A R E } _ { \\mathrm { { i n s t r u c t } } } }$ . The second method directly uses the LM’s generation as search queries, denoted as $\\mathrm { F L A R E _ { d i r e c t "
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "4976b86e-71e2-41b6-8228-b44492b7a988",
+          "document_id": "0c59b587-adad-4c92-8123-eae5f8321155",
+          "file_name": "FLARE.pdf",
+          "chunk_index": 1,
+          "score": 0.9137868285179138,
+          "content_preview": "Despite the remarkable ability of large language models (LMs) to comprehend and generate language, they have a tendency to hallucinate and create factually inaccurate output. Augmenting LMs by retrieving information from external knowledge resources is one promising solution. Most existing retrieval augmented LMs employ a retrieve-and-generate setup that only retrieves information once based on the input. This is limiting, however, in more general scenarios involving generation of long texts, where continually gathering information throughout generation is essential. In this work, we provide a generalized view of active retrieval augmented generation, methods that actively decide when and what to retrieve across the course of the generation. We propose Forward-Looking Active REtrieval augm"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "ec668d5b-b04c-42a4-88ee-d0270078744a",
+          "document_id": "0c59b587-adad-4c92-8123-eae5f8321155",
+          "file_name": "FLARE.pdf",
+          "chunk_index": 23,
+          "score": 0.8121384978294373,
+          "content_preview": "Since we cannot fine-tune black-box LMs, we found queries generated by $\\mathrm { F L A R E } _ { \\mathrm { i n s t r u c t } }$ through retrieval instructions might not be reliable. Therefore, we propose a more direct way of forwardlooking active retrieval that uses the next sentence to decide when and what to retrieve.\n\n## 3.2.1 Confidence-based Active Retrieval"
+        }
+      ],
+      "answer": "FLARE前瞻性地预测下一句，并根据低概率词触发主动检索，原因有二：一是语言模型只在缺乏必要知识时才应检索，以避免不必要或不恰当的检索；二是检索查询应反映未来生成内容的意图。具体来说，FLARE通过生成临时下一句来预判未来主题，若该句子包含低概率词（表示模型不确定），则将其作为查询检索相关文档，并基于检索结果重新生成该句子，从而提升后续生成的质量。",
+      "citations": [
+        "KB1",
+        "KB4",
+        "KB5"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 3,
+        "ground_truth_citation_precision": 1.0,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1",
+          "KB4",
+          "KB5"
+        ]
+      },
+      "retrieval_elapsed_ms": 1013.4042659774423,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.5,
+        "context_recall": 1.0,
+        "ndcg_at_k": 0.8529278650606567,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "FLARE",
+          "forward-looking",
+          "low-probability",
+          "retrieval"
+        ],
+        "matched_chunk_ids": [
+          "17542e0e-0576-4ddd-a720-d12368097aeb",
+          "247d8ccb-a788-4e8b-ac2e-9a992dc3a302",
+          "4976b86e-71e2-41b6-8228-b44492b7a988"
+        ],
+        "matched_target_count": 3,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 4332.9780381172895,
+      "judge_elapsed_ms": 4400.849781930447,
+      "judge": {
+        "answer_faithfulness": 0.95,
+        "answer_relevancy": 0.95,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案事实被证据支持，解释了FLARE前瞻性预测下一句并根据低概率词触发主动检索的原因。答案直接回答了问题，引用的标签大部分真实存在且支持结论，但KB5的引用部分不完整，没有完全覆盖答案中的所有信息。",
+        "raw_json": {
+          "answer_faithfulness": 0.95,
+          "answer_relevancy": 0.95,
+          "citation_correctness": 0.9,
+          "explanation": "答案事实被证据支持，解释了FLARE前瞻性预测下一句并根据低概率词触发主动检索的原因。答案直接回答了问题，引用的标签大部分真实存在且支持结论，但KB5的引用部分不完整，没有完全覆盖答案中的所有信息。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 9747.77182098478
+    },
+    {
+      "case_id": "967adf35-e6d7-460e-8e89-5e9ae01dcd24",
+      "query": "LLM-Independent Adaptive RAG 如何在不依赖大模型不确定性估计的情况下减少不必要检索？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "c27a45e1-0aec-44ac-a8fd-db8e819b04fa",
+          "document_id": "bcdfa243-261a-40de-bdd2-b58f3a98363a",
+          "file_name": "LLM-Independent Adaptiverag RAG.pdf",
+          "chunk_index": 1,
+          "score": 0.991923987865448,
+          "content_preview": "Large Language Models (LLMs) are prone to hallucinations, and Retrieval-Augmented Generation (RAG) helps mitigate this, but at a high computational cost while risking misinformation. Adaptive retrieval aims to retrieve only when necessary, but existing approaches rely on LLM-based uncertainty estimation, which remain inefficient and impractical. In this study, we introduce lightweight LLM-independent adaptive retrieval methods based on external information. We investigated 27 features, organized into 7 groups, and their hybrid combinations. We evaluated these methods on 6 QA datasets, assessing the QA performance and efficiency. The results show that our approach matches the performance of complex LLM-based methods while achieving significant efficiency gains, demonstrating the potential o"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "6fbce3f8-c8f0-4b88-8459-9e432a224aab",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 36,
+          "score": 0.9488567113876343,
+          "content_preview": "dge of the QA model. We demonstrate that our proposed Probing-RAG outperforms all of these previous adaptive retrieval methods by avoiding redundant retrieval. By leveraging hidden state representations of LLMs, our approach leads to significant performance improvements."
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "5fa82e35-be3e-4295-b35d-b9dda88188f9",
+          "document_id": "bcdfa243-261a-40de-bdd2-b58f3a98363a",
+          "file_name": "LLM-Independent Adaptiverag RAG.pdf",
+          "chunk_index": 3,
+          "score": 0.9187226891517639,
+          "content_preview": "![](/api/backend/uploads/file?storage_key=3844497c-59f3-4ea7-9a4b-3613f0bddc0b%2Fknowledge%2Ff48f939a-a574-45a1-8721-6e635a258209%2Fassets%2Fbcdfa243-261a-40de-bdd2-b58f3a98363a%2Fimages%2Ff30f86e4974104be4d9a6175773751cf548ea4ce26beb12d8ccb45615a88661a.jpg)  \nFigure 1: PFLOPs-Inaccuracy trade-off for proposed features vs the most efficient alternative adaptive retrieval methods for the NQ dataset. Radius of the points is proportional to the number of LLM calls. Green dotted line indicate Always RAG approach.\n\nIn this study, we address this issue by introducing LLM-independent adaptive retrieval methods that leverage external information, such as entity popularity and question type. Our methods achieve comparable quality while being significantly more efficient, eliminating the need for LL"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "7a33d66c-3f5a-426f-b060-808e96093e55",
+          "document_id": "bcdfa243-261a-40de-bdd2-b58f3a98363a",
+          "file_name": "LLM-Independent Adaptiverag RAG.pdf",
+          "chunk_index": 4,
+          "score": 0.9061540961265564,
+          "content_preview": "Our evaluation, shown in Figure 1, shows that our proposed features are much more efficient in terms of PFLOPs and LLM calls, with downstream performance comparable to other adaptive retrieval methods.\n\nOur contributions and findings are as follows:\n\n1. We introduce 7 groups of lightweight external information features, encompassing 27 features, for LLM-independent adaptive retrieval.\n\n2. Our approach significantly improves efficiency by eliminating the need for LLM-based uncertainty estimation while maintaining QA performance.\n\n3. We show that our methods outperform uncertainty-based adaptive retrieval methods for complex questions.\n\nWe make data and all models publicly available. $^{1}$\n\n## 2 Related Work"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "9a7233fc-edea-480c-8efa-1b86c46e0219",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 5,
+          "score": 0.8970052003860474,
+          "content_preview": "To optimize the RAG pipeline, recent research has introduced methods to adaptively adjust the number of retrievals. (Su et al., 2024; Mallen et al., 2022; Wang et al., 2023c). A notable example is Adaptive-RAG (Jeong et al., 2024), which classifies queries into three categories based on their complexity: no retrieval, single-step retrieval, or multi-step retrievals. However, as shown in Figure 1, external classifiers in Adaptive-RAG often fail to fully leverage the internal decision-making capabilities of the language model. This leads to unnecessary additional retrieval steps, resulting in knowledge conflicts between the model’s internal knowledge and externally retrieved information (Xie et al., 2024; Xu et al., 2024). Other methods decide whether to retrieve based on token generation pr"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "479e678a-2176-4548-875e-de396da92829",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 73,
+          "score": 0.8476879596710205,
+          "content_preview": "In this work, we proposed the Adaptive Retrieval-Augmented Generation framework, referred to as Adaptive-RAG, to handle queries of various complexities. Specifically, Adaptive-RAG is designed to dynamically adjust its query handling strategies in the unified retrieval-augmented LLM based on the complexity of queries that they encounter, which spans across a spectrum of the nonretrieval-based approach for the most straightforward queries, to the single-step approach for the queries of moderate complexity, and finally to the multi-step approach for the complex queries. The core step of our Adaptive-RAG lies in determining the complexity of the given query, which is instrumental in selecting the most suitable strategy for its answer. To operationalize this process, we trained a smaller Langua"
+        }
+      ],
+      "answer": "LLM-Independent Adaptive RAG 通过利用外部信息（如实体流行度和问题类型）的轻量级特征来减少不必要检索，完全避免了基于大模型的不确定性估计。该方法引入了7组共27个外部信息特征及其混合组合，在保持问答性能的同时显著提升了效率。",
+      "citations": [
+        "KB1",
+        "KB3",
+        "KB4"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 2,
+        "ground_truth_citation_precision": 0.6666666666666666,
+        "ground_truth_citation_recall": 0.6666666666666666,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1",
+          "KB4"
+        ]
+      },
+      "retrieval_elapsed_ms": 1156.6506461240351,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.3333333333333333,
+        "context_recall": 0.6666666666666666,
+        "ndcg_at_k": 0.6713860725233041,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "LLM-independent",
+          "adaptive retrieval",
+          "uncertainty",
+          "features"
+        ],
+        "matched_chunk_ids": [
+          "c27a45e1-0aec-44ac-a8fd-db8e819b04fa",
+          "7a33d66c-3f5a-426f-b060-808e96093e55"
+        ],
+        "matched_target_count": 2,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 1871.53653614223,
+      "judge_elapsed_ms": 8828.953040763736,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案事实被证据支持，直接回答了问题，并且引用的标签真实存在且支持对应结论。KB1、KB3 和 KB4 都提到了 LLM-Independent Adaptive RAG 通过利用外部信息特征来减少不必要检索，完全避免了基于大模型的不确定性估计。然而，答案中提到的 '显著提升了效率' 这一点在 KB4 中有更具体的描述，但没有在 KB1 和 KB3 中明确提到，因此在 answer_faithfulness 和 citation_correctness 上略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.9,
+          "explanation": "答案事实被证据支持，直接回答了问题，并且引用的标签真实存在且支持对应结论。KB1、KB3 和 KB4 都提到了 LLM-Independent Adaptive RAG 通过利用外部信息特征来减少不必要检索，完全避免了基于大模型的不确定性估计。然而，答案中提到的 '显著提升了效率' 这一点在 KB4 中有更具体的描述，但没有在 KB1 和 KB3 中明确提到，因此在 answer_faithfulness 和 citation_correctness 上略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 11857.676940970123
+    },
+    {
+      "case_id": "e71600cb-1069-49fd-b898-a324895260d9",
+      "query": "MBA-RAG 如何用 Bandit 根据问题复杂度选择检索路径，并在准确率与检索成本之间做权衡？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "23059252-f775-4bf8-819b-19247af20a0c",
+          "document_id": "a8d1433e-91eb-43ca-b05c-90928e08cec7",
+          "file_name": "MBA-RAG.pdf",
+          "chunk_index": 27,
+          "score": 0.9702482223510742,
+          "content_preview": "Furthermore, as shown in Table 4, we compare our bandit approach with a multi-label classifier. Due to the classifier’s inability to consider retrieval costs, it incurs excessive computational expenses, with the majority of queries opting for a multiple retrieval strategy. For more details, please refer to Appendix A.1.\n\nRetrieval Strategy Performance To measure the performance of different retrieval strategies, we compared the accuracy of label selection between our MBA-RAG-based classification strategy and other adaptive retrieval strategies. The results, as shown in Figure 2, indicate that our classification accuracy is significantly higher than that of Adaptive-RAG. This suggests that our multilabel supervising strategy is better suited to adapt to queries of varying complexities, lead"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "bc14b069-791a-47d7-918c-6756fb40231b",
+          "document_id": "a8d1433e-91eb-43ca-b05c-90928e08cec7",
+          "file_name": "MBA-RAG.pdf",
+          "chunk_index": 28,
+          "score": 0.9687960147857666,
+          "content_preview": "In this study, we introduced an adaptive retrievalaugmented generation framework using a multiarmed bandit approach that dynamically selects the most efficient retrieval strategy based on query complexity. Our experimental results demonstrate the effectiveness of this method in reducing computational costs while maintaining high accuracy. Future work will aim to further refine this approach and explore its applicability to a broader range of NLP tasks.\n\n![](/api/backend/uploads/file?storage_key=3844497c-59f3-4ea7-9a4b-3613f0bddc0b%2Fknowledge%2Ff48f939a-a574-45a1-8721-6e635a258209%2Fassets%2Fa8d1433e-91eb-43ca-b05c-90928e08cec7%2Fimages%2F6fdf2aca66e64094a56ab22a0b81fa501e40fbcbc0f92f63bc19614dbd0f5770.jpg)"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "d8d12ff9-71d7-4401-8ba8-fcc6ea9dedfe",
+          "document_id": "a8d1433e-91eb-43ca-b05c-90928e08cec7",
+          "file_name": "MBA-RAG.pdf",
+          "chunk_index": 1,
+          "score": 0.9477875828742981,
+          "content_preview": "Retrieval Augmented Generation (RAG) has proven to be highly effective in boosting the generative performance of language model in knowledge-intensive tasks. However, existing RAG frameworks either indiscriminately perform retrieval or rely on rigid single-class classifiers to select retrieval methods, leading to inefficiencies and suboptimal performance across queries of varying complexity. To address these challenges, we propose a reinforcement learning-based framework that dynamically selects the most suitable retrieval strategy based on query complexity. Our approach lever ages a multi-armed bandit algorithm, which treats each retrieval method as a distinct “arm” and adapts the selection process by balancing exploration and exploitation. Additionally, we introduce a dynamic reward func"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "42b36848-6f06-459d-bde1-ab7d4514d448",
+          "document_id": "a8d1433e-91eb-43ca-b05c-90928e08cec7",
+          "file_name": "MBA-RAG.pdf",
+          "chunk_index": 29,
+          "score": 0.8505048751831055,
+          "content_preview": "![](/api/backend/uploads/file?storage_key=3844497c-59f3-4ea7-9a4b-3613f0bddc0b%2Fknowledge%2Ff48f939a-a574-45a1-8721-6e635a258209%2Fassets%2Fa8d1433e-91eb-43ca-b05c-90928e08cec7%2Fimages%2Fdbd0a7ff3c331c5c6e49889ed85ab8e330ea01aabddb57bcd60122864f27d208.jpg)  \nFigure 2: On the left: classification accuracy of different adaptive approaches and the confusion matrix across all six datasets. On the right: we analyze MBA-RAG performance across different complexity labels, presenting the overall experimental results across six datasets.\n\n## Limitations\n\nOur reinforcement learning-based approach for adaptive retrieval in language models demonstrates promising results; however, it is not without limitations. The framework’s dependence on the specific structure of the multi-armed bandit algorithm c"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "5d4cf859-7cf1-44e6-a7a6-01e215192a77",
+          "document_id": "a8d1433e-91eb-43ca-b05c-90928e08cec7",
+          "file_name": "MBA-RAG.pdf",
+          "chunk_index": 6,
+          "score": 0.8259440064430237,
+          "content_preview": "To overcome these limitations, we propose a Multi-arm Bandit-based framework for Adaptive Retrieval-Augmented Generation (MBA-RAG) Fig. 1, that introduces both flexibility and costawareness into the generation process.\n\nFirst, to address the rigidity of single-label supervision, we employ a multi-armed bandit algorithm (Katehakis and Veinott Jr, 1987). The bandit framework requires only partial information for supervision; specifically, the model is supervised by the feedback of the chosen generation strategy, without indiscriminately penalizing the strategies that were not selected. This introduces greater flexibility by allowing the model to explore different generation strategies and obtain a more comprehensive selection."
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "73f809c8-baa6-438b-9a9f-274f132b95d3",
+          "document_id": "a8d1433e-91eb-43ca-b05c-90928e08cec7",
+          "file_name": "MBA-RAG.pdf",
+          "chunk_index": 8,
+          "score": 0.8225377798080444,
+          "content_preview": "Second, to tackle the issue of inaccurate heuristic supervision of retrieval costs and the varying costs associated with different generation strategies, we design a dynamic, fine-grained reward function. This function penalizes inefficient generation strategies, even if they lead to correct results, ensuring that the model not only prioritizes accuracy but also optimizes computational efficiency.\n\nWe evaluated our framework on both single-hop and multi-hop datasets. Results demonstrate that our method achieves SOTA generation accuracy while reducing retrieval costs by 20%.\n\n## 2 Method\n\nUsing a single retrieval method for all queries may not always be effective. In this section, we introduce a RAG framework based on a multi-arm bandit approach that dynamically selects the optimal generati"
+        }
+      ],
+      "answer": "MBA-RAG 使用多臂老虎机（multi-armed bandit）算法，将每种检索方法视为一个“臂”，根据查询复杂度动态选择最合适的检索策略。它通过平衡探索与利用来适应不同复杂度的查询，并引入一个动态奖励函数，该函数在准确率和效率之间进行权衡，惩罚需要更多检索步骤的方法，即使它们能给出正确结果。实验表明，该方法在保持高准确率的同时降低了计算成本。",
+      "citations": [
+        "KB2",
+        "KB3",
+        "KB6"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 2,
+        "ground_truth_citation_precision": 0.6666666666666666,
+        "ground_truth_citation_recall": 0.6666666666666666,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB3",
+          "KB6"
+        ]
+      },
+      "retrieval_elapsed_ms": 4858.085527084768,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.3333333333333333,
+        "context_precision": 0.3333333333333333,
+        "context_recall": 0.6666666666666666,
+        "ndcg_at_k": 0.40179981797758046,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "Bandit",
+          "retrieval",
+          "cost",
+          "reward"
+        ],
+        "matched_chunk_ids": [
+          "d8d12ff9-71d7-4401-8ba8-fcc6ea9dedfe",
+          "73f809c8-baa6-438b-9a9f-274f132b95d3"
+        ],
+        "matched_target_count": 2,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 2308.7244322523475,
+      "judge_elapsed_ms": 6958.768737036735,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案中的描述与提供的证据内容高度一致，说明了MBA-RAG如何使用多臂老虎机算法根据问题复杂度选择检索路径，并在准确率与检索成本之间做权衡。KB2 和 KB3 提供了关于多臂老虎机算法用于动态选择检索策略的直接支持，而 KB6 详细描述了动态奖励函数的设计，这些都与答案中的内容相符。然而，KB6 中提到的实验结果具体减少了20%的检索成本，而答案中没有具体提及这个数字，因此在引用正确性上略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "答案中的描述与提供的证据内容高度一致，说明了MBA-RAG如何使用多臂老虎机算法根据问题复杂度选择检索路径，并在准确率与检索成本之间做权衡。KB2 和 KB3 提供了关于多臂老虎机算法用于动态选择检索策略的直接支持，而 KB6 详细描述了动态奖励函数的设计，这些都与答案中的内容相符。然而，KB6 中提到的实验结果具体减少了20%的检索成本，而答案中没有具体提及这个数字，因此在引用正确性上略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 14126.170844770968
+    },
+    {
+      "case_id": "d5b7f6f8-9940-4478-ae06-8f2af3d0add7",
+      "query": "Probing-RAG 如何利用语言模型隐藏状态判断是否需要额外检索？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "9246b087-4605-4c35-8013-8924f9574ef8",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 7,
+          "score": 0.9995146989822388,
+          "content_preview": "In this paper, we propose Probing-RAG, which determines whether the model needs to retrieve documents to answer a given question by examining the internal representations of the language model. As shown in the right example of Figure 1, Probing-RAG focuses on the hidden states of the LLM’s intermediate layers. These hidden states serve as inputs for the prober, which evaluates the need for further retrieval steps. In essence, the prober assesses whether the language model can generate an answer to a query using the available information. This approach ensures reliable decisions regarding the necessity of additional retrieval. We construct the prober by adding a fully connected layer to LLMs with a parameter size of just 5 MB, which is 2,000 times smaller than the external classification-ba"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "ba4bf92c-51c5-428a-b3ec-8deac9aa24fe",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 1,
+          "score": 0.999497652053833,
+          "content_preview": "Retrieval-Augmented Generation (RAG) enhances language models by retrieving and incorporating relevant external knowledge. However, traditional retrieve-and-generate processes may not be optimized for real-world scenarios, where queries might require multiple retrieval steps or none at all. In this paper, we propose a Probing-RAG, which utilizes the hidden state representations from the intermediate layers of language models to adaptively determine the necessity of additional retrievals for a given query. By employing a pre-trained prober, Probing-RAG effectively captures the model’s internal cognition, enabling reliable decisionmaking about retrieving external documents. Experimental results across five open-domain QA datasets demonstrate that Probing-RAG outperforms previous methods whil"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "62c97409-fc09-4cf0-af07-e4045c5781ef",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 58,
+          "score": 0.9991255402565002,
+          "content_preview": "## 5 Conclusion\n\nIn this study, we introduce Probing-RAG, an efficient adaptive retrieval pipeline that uses a pretrained prober to determine whether additional retrieval is necessary by utilizing the language model’s hidden states. We introduce both the training dataset and the training method for the prober and show that Probing-RAG outperforms previous methods for various open-domain QA datasets. We also show that Probing-RAG reduces overhead through appropriate retrieval calls by effectively leveraging both external and internal knowledge via the prober.\n\n## Limitations"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "10cbd80b-66e8-4956-b619-ae4b5bd2bb43",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 17,
+          "score": 0.997899055480957,
+          "content_preview": "We introduce Probing-RAG, an efficient RAG pipeline that incorporates a prober to determine whether the language model needs to retrieve additional documents. Similar to the conventional retrieval-augmented generation pipeline, our approach comprises a generating language model and a retriever. Different from the general pipeline, the generator of Probing-RAG leverages the output from the prober and adaptively calls the retriever based on the model’s internal hidden state.\n\n## 3.1 Prober"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "995803bb-f063-4a62-bfdc-6281d60a1419",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 18,
+          "score": 0.9938759207725525,
+          "content_preview": "Given the LLM’s hidden state during answer generation, the prober assesses whether an additional retrieval step is necessary. We design the prober as a feed-forward network with a single hidden layer and an output layer for binary classification. Based on the findings of Chuang et al. (2024b), which indicate that lower layers in language models capture low-level information while higher layers capture more abstract, high-level information, we position the prober after the one-third point of the model to maximize the utility of these representations. In our experiments, we employ Gemma-2B (Team et al., 2024), an 18-layer model, as the generator in our RAG pipeline. Consequently, we position the prober on even-numbered layers starting from the 6th layer."
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "6fbce3f8-c8f0-4b88-8459-9e432a224aab",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 36,
+          "score": 0.9818118214607239,
+          "content_preview": "dge of the QA model. We demonstrate that our proposed Probing-RAG outperforms all of these previous adaptive retrieval methods by avoiding redundant retrieval. By leveraging hidden state representations of LLMs, our approach leads to significant performance improvements."
+        }
+      ],
+      "answer": "Probing-RAG 通过检查语言模型中间层的隐藏状态来判断是否需要额外检索。具体来说，它使用一个预训练的探针（prober）来评估模型能否基于当前可用信息生成答案，从而决定是否需要检索外部文档。探针被放置在模型中间层（如Gemma-2B的第6层之后的偶数层），以最大化利用隐藏状态表示。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3",
+        "KB4",
+        "KB5"
+      ],
+      "citation_audit": {
+        "citation_count": 5,
+        "valid_citation_count": 5,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 2,
+        "ground_truth_citation_precision": 0.4,
+        "ground_truth_citation_recall": 0.6666666666666666,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB2",
+          "KB5"
+        ]
+      },
+      "retrieval_elapsed_ms": 1302.907104138285,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.5,
+        "context_precision": 0.3333333333333333,
+        "context_recall": 0.6666666666666666,
+        "ndcg_at_k": 0.4776237035032179,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "Probing-RAG",
+          "hidden state",
+          "prober",
+          "retrieval"
+        ],
+        "matched_chunk_ids": [
+          "ba4bf92c-51c5-428a-b3ec-8deac9aa24fe",
+          "995803bb-f063-4a62-bfdc-6281d60a1419"
+        ],
+        "matched_target_count": 2,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 10439.101400319487,
+      "judge_elapsed_ms": 8404.051798861474,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案事实被证据支持，描述了Probing-RAG如何通过检查语言模型的隐藏状态来决定是否需要额外检索。答案提到探针被放置在模型中间层，如Gemma-2B的第6层之后的偶数层，这与KB5中的信息一致。然而，KB5中提到探针被放置在模型的三分之一处，而答案没有提及这一点，因此在细节上略有缺失。引用标签大部分是正确的，但答案中引用了不存在的KB2、KB3、KB4和KB5，而实际存在的相关证据是KB1、KB4和KB5。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "答案事实被证据支持，描述了Probing-RAG如何通过检查语言模型的隐藏状态来决定是否需要额外检索。答案提到探针被放置在模型中间层，如Gemma-2B的第6层之后的偶数层，这与KB5中的信息一致。然而，KB5中提到探针被放置在模型的三分之一处，而答案没有提及这一点，因此在细节上略有缺失。引用标签大部分是正确的，但答案中引用了不存在的KB2、KB3、KB4和KB5，而实际存在的相关证据是KB1、KB4和KB5。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 20146.585574839264
+    },
+    {
+      "case_id": "478de91e-7ffb-4a34-a48e-0f0c48788e05",
+      "query": "Adaptive-RAG、DF-RAG 和 FLARE 分别从问题复杂度、证据多样性和生成过程的哪个信号决定检索行为？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "b5044ba5-67dc-491c-8de9-768f37674a93",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 6,
+          "score": 0.4957177937030792,
+          "content_preview": "To this end, we introduce Diversity-Focused Retrieval-Augmented Generation (DF-RAG), a RAG pipeline designed to approximate the Oracle’s performance without access to the ground truth. DF-RAG adaptively determines the optimal λ for each query at test time through a multi-step process: (1) decomposing each query into individual steps with a planner LLM, (2) retrieving multiple candidate sets of chunks, each generated at predefined λ levels; and (3) selecting the chunk set with the highest potential to address the decomposed steps with an Evaluator LLM. DF-RAG does not require fine-tuning, utilizes a plug-and-play retrieval framework, and directly addresses our second question. By benchmarking DF-RAG across five QA datasets, we demonstrate that leveraging DF-RAG to find the optimal λ at test"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "479e678a-2176-4548-875e-de396da92829",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 73,
+          "score": 0.47047221660614014,
+          "content_preview": "In this work, we proposed the Adaptive Retrieval-Augmented Generation framework, referred to as Adaptive-RAG, to handle queries of various complexities. Specifically, Adaptive-RAG is designed to dynamically adjust its query handling strategies in the unified retrieval-augmented LLM based on the complexity of queries that they encounter, which spans across a spectrum of the nonretrieval-based approach for the most straightforward queries, to the single-step approach for the queries of moderate complexity, and finally to the multi-step approach for the complex queries. The core step of our Adaptive-RAG lies in determining the complexity of the given query, which is instrumental in selecting the most suitable strategy for its answer. To operationalize this process, we trained a smaller Langua"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "2843ec83-5c1f-44b6-9d6e-7d2663d5dec2",
+          "document_id": "612a2bd4-0c19-49d9-8cb8-736273151623",
+          "file_name": "Probing-RAG.pdf",
+          "chunk_index": 10,
+          "score": 0.44337859749794006,
+          "content_preview": "Adaptive-RAG (Jeong et al., 2024) incorporates an additional classifier that categorizes queries into three types: no retrieval, single-step retrieval, or multi-step retrieval. This classifier selects the optimal number of retrievals based on the complexity of each query. LLM-based feedback methods (Zhang et al., 2024; Ding et al., 2024) rely on the evaluation of response consistency to guide retrieval decisions. These methods use prompting or multilingual formulations to assess the quality of the model’s responses. If the LLM detects low consistency in its output, it triggers a retrieval to obtain relevant documents. Confidence-based approaches rely on the model’s token uncertainty to guide retrieval decisions. For example, FLARE (Jiang et al., 2023b) initiates retrieval when any token in"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "9e2c09dd-aa5f-48bd-922a-db0890e99ff4",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 11,
+          "score": 0.2512761652469635,
+          "content_preview": "![](/api/backend/uploads/file?storage_key=3844497c-59f3-4ea7-9a4b-3613f0bddc0b%2Fknowledge%2Ff48f939a-a574-45a1-8721-6e635a258209%2Fassets%2F17f8ea28-342b-4c11-94d1-141ae9b80d51%2Fimages%2Fc4edc8b9dd13f5290d65b93e197078041b73fca4649f4150b4fba7d8b86b9a5a.jpg)  \nFigure 1: Architecture of DF-RAG: A training-free framework that dynamically selects the right level of diversity to generate answers for reasoning-intensive QA tasks. DF-RAG adaptively adjusts diversity for each query by utilizing the Planner, Evaluator and the Diversity-focused Retrieval. We illustrate this with an example query from HotpotQA (Yang et al., 2018).\n\n## 2.3 Diversity in Information Retrieval"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "429aa108-edf3-4f24-9b89-80047390566d",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 1,
+          "score": 0.23661501705646515,
+          "content_preview": "Retrieval-augmented generation (RAG) is a common technique for grounding language model outputs in domain-specific information. However, RAG is often challenged by reasoning-intensive question-answering (QA), since common retrieval methods like cosine similarity maximize relevance at the cost of introducing redundant content, which can reduce information recall. To address this, we introduce Diversity-Focused Retrieval-Augmented Generation (DF-RAG) that systematically incorporates diversity into the retrieval step to improve performance on complex, reasoning-intensive QA benchmarks. DF-RAG builds upon the Maximal Marginal Relevance framework to select information chunks that are both relevant to the query and maximally dissimilar from each other. A key innovation of DF-RAG is its ability t"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "9f97099d-d9c8-46d9-aa94-ad40d240ebe4",
+          "document_id": "17f8ea28-342b-4c11-94d1-141ae9b80d51",
+          "file_name": "DF-RAG.pdf",
+          "chunk_index": 38,
+          "score": 0.21726466715335846,
+          "content_preview": "DF-RAG outperforms various RAG baselines. Across benchmarks, DF-RAG consistently outperforms vanilla RAG, achieving up to +8.9% absolute improvement at the 500-word context length, and up to +6.2% and +9.5% at the 1000- and 1500-word settings, respectively. DF-RAG maintains a clear advantage over vanilla RAG across all benchmarks, with more pronounced gains on HotpotQA and 2WikiMQA (see Figure 3). Beyond vanilla RAG, DF-RAG also outperforms LongRAG and RAP-TOR, two context length–independent baselines (LongRAG leverages global cues, while RAPTOR recursively summarizes the full context). Their results are shown in the last two rows of Table 1. Notably, at the 1500-word context length, DF-RAG surpasses RAPTOR across all benchmarks and model families, and similarly outperforms LongRAG on ever"
+        }
+      ],
+      "answer": "Adaptive-RAG根据问题复杂度决定检索行为（KB2、KB3）；DF-RAG根据证据多样性决定检索行为（KB1、KB5）；FLARE根据生成过程中token的概率（置信度）决定检索行为（KB3）。",
+      "citations": [
+        "KB2",
+        "KB3",
+        "KB1",
+        "KB5"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.25,
+        "ground_truth_citation_recall": 0.3333333333333333,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "retrieval_elapsed_ms": 1217.8837000392377,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.3333333333333333,
+        "ndcg_at_k": 0.46927872602275644,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "complexity",
+          "diversity",
+          "retrieval",
+          "generation"
+        ],
+        "matched_chunk_ids": [
+          "b5044ba5-67dc-491c-8de9-768f37674a93"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 2545.9654657170177,
+      "judge_elapsed_ms": 8160.961072891951,
+      "judge": {
+        "answer_faithfulness": 0.85,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "Adaptive-RAG确实根据问题复杂度决定检索行为，这在KB2中得到了支持。DF-RAG根据证据多样性决定检索行为，这在KB1和KB5中得到了支持。FLARE根据生成过程中token的概率（置信度）决定检索行为，这在KB3中得到了支持。引用标签大部分真实存在且支持对应结论，但KB3中提到的DRAGIN与FLARE的描述不完全相关，因此引用正确性略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.85,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "Adaptive-RAG确实根据问题复杂度决定检索行为，这在KB2中得到了支持。DF-RAG根据证据多样性决定检索行为，这在KB1和KB5中得到了支持。FLARE根据生成过程中token的概率（置信度）决定检索行为，这在KB3中得到了支持。引用标签大部分真实存在且支持对应结论，但KB3中提到的DRAGIN与FLARE的描述不完全相关，因此引用正确性略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 11925.265966914594
+    },
+    {
+      "case_id": "25fb43b9-a402-420a-9ccb-02187855d5c8",
+      "query": "Adaptive-RAG 的评测为什么要同时报告效果指标和效率指标？它相对复杂多步策略的效率结论是什么？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "235ce98b-3b9d-47ea-bcf1-ed0c0d6d0313",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 60,
+          "score": 0.9805244207382202,
+          "content_preview": "cy. As shown in Table 1, compared to the complex multi-step strategy, our proposed adaptive strategy is significantly more efficient across all model sizes. This is meaningful in this era of LLMs, where the cost of accessing them is a critical factor for practical applications and scalability. Finally, to see the upper bound of our Adaptive-RAG, we report its performances with the oracle classifier where the classification performance is perfect. As shown in Table 1 and Table 2, we observe that it achieves the best performance while being much more efficient than our Adaptive-RAG without the oracle classifier. These results support the validity and significance of our proposal for adapting retrieval-augmented LLM strategies based on query complexity, and further suggest the direction to de"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "dca5f44d-7ba5-4711-bda8-65697debd495",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 59,
+          "score": 0.9787638187408447,
+          "content_preview": "However, in a real-world scenario, not all users ask queries with the same level of complexity, which emphasizes the importance of the need for adaptive strategies. Note that among the adaptive strategies, our Adaptive-RAG shows remarkable effectiveness over the competitors (Table 1). This indicates that merely focusing on the decision of whether to retrieve or not is suboptimal. Also, as shown in Table 2, such simple adaptive strategies are particularly inadequate for handling complex queries in multi-hop datasets, which require aggregated information and reasoning over multiple documents. Meanwhile, our approach can consider a more fine-grained query handling strategy by further incorporating an iterative module for complex queries. Furthermore, in a realistic setting, we should take int"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "a25bbae7-b42b-4f6d-916d-d780544bdd05",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 74,
+          "score": 0.9503719210624695,
+          "content_preview": "omatically annotated from the predicted outcomes and the inductive biases in datasets. We validated our Adaptive-RAG on a collection of open-domain QA datasets, covering the multiple query complexities including both the single- and multi-hop questions. The results demonstrate that our Adaptive-RAG enhances the overall accuracy and efficiency of QA systems, allocating more resources to handle complex queries while efficiently handling simpler queries, compared to the existing one-size-fits-all approaches that tend to be either minimalist or maximalist over varying query complexities."
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "d789c0f3-f994-40f4-a7ec-252dd16af82c",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 44,
+          "score": 0.9232141375541687,
+          "content_preview": "rent categories are not directly comparable. Yet, in the ideal setting, Adaptive approaches should be more effective than those in the Simple category while simultaneously being more efficient than the Complex one. Therefore, we also report the performance in an ideal scenario, 7) Adaptive-RAG w/ Oracle, using the oracle classifier with our Adaptive-RAG."
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "479e678a-2176-4548-875e-de396da92829",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 73,
+          "score": 0.910968542098999,
+          "content_preview": "In this work, we proposed the Adaptive Retrieval-Augmented Generation framework, referred to as Adaptive-RAG, to handle queries of various complexities. Specifically, Adaptive-RAG is designed to dynamically adjust its query handling strategies in the unified retrieval-augmented LLM based on the complexity of queries that they encounter, which spans across a spectrum of the nonretrieval-based approach for the most straightforward queries, to the single-step approach for the queries of moderate complexity, and finally to the multi-step approach for the complex queries. The core step of our Adaptive-RAG lies in determining the complexity of the given query, which is instrumental in selecting the most suitable strategy for its answer. To operationalize this process, we trained a smaller Langua"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "9e574248-0b79-4d36-9cdc-8d77cc5a2f55",
+          "document_id": "e55c13fe-946b-4921-95a3-d5133eb78467",
+          "file_name": "Adaptive_RAG.pdf",
+          "chunk_index": 118,
+          "score": 0.9011316895484924,
+          "content_preview": "Performance per Dataset In addition to detailing the performance of each dataset with the FLAN-T5-XL model, as shown in Table 2, we also present the results for each dataset with the FLAN-T5- XXL and GPT-3.5 models in Table 2 and Table 8, respectively. The experimental results show that our Adaptive-RAG consistently balances between efficiency and accuracy. It is worth noting that while the GPT-3.5 model performs effectively in addressing straightforward queries even without document retrieval, it benefits significantly from our Adaptive-RAG in terms of effectiveness when solving complex multi-hop queries."
+        }
+      ],
+      "answer": "Adaptive-RAG 的评测需要同时报告效果指标和效率指标，因为在现实场景中，不仅要考虑有效性（accuracy），还必须考虑效率（efficiency），因为访问 LLM 的成本是实际应用和可扩展性的关键因素（KB1, KB2）。相对复杂多步策略，Adaptive-RAG 在所有模型规模上都显著更高效（KB1, KB2）。",
+      "citations": [
+        "KB1",
+        "KB2"
+      ],
+      "citation_audit": {
+        "citation_count": 2,
+        "valid_citation_count": 2,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.5,
+        "ground_truth_citation_recall": 0.3333333333333333,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "retrieval_elapsed_ms": 1316.8797679245472,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.3333333333333333,
+        "ndcg_at_k": 0.46927872602275644,
+        "expected_keyword_recall": 0.75,
+        "expected_keyword_hits": [
+          "effectiveness",
+          "efficiency",
+          "multi-step"
+        ],
+        "matched_chunk_ids": [
+          "235ce98b-3b9d-47ea-bcf1-ed0c0d6d0313"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 2257.561905775219,
+      "judge_elapsed_ms": 9652.582788839936,
+      "judge": {
+        "answer_faithfulness": 0.95,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案事实被证据支持，因为[KB1]和[KB2]都提到了Adaptive-RAG在不同模型规模上比复杂多步策略更高效。同时，答案直接回答了问题，解释了为什么需要同时报告效果指标和效率指标，以及Adaptive-RAG的效率优势。引用标签[KB1, KB2]确实存在且支持答案的结论，但[KB2]的内容在最后一句被截断，影响了完整性。",
+        "raw_json": {
+          "answer_faithfulness": 0.95,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.9,
+          "explanation": "答案事实被证据支持，因为[KB1]和[KB2]都提到了Adaptive-RAG在不同模型规模上比复杂多步策略更高效。同时，答案直接回答了问题，解释了为什么需要同时报告效果指标和效率指标，以及Adaptive-RAG的效率优势。引用标签[KB1, KB2]确实存在且支持答案的结论，但[KB2]的内容在最后一句被截断，影响了完整性。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 13227.499763015658
+    },
+    {
+      "case_id": "49d66d8f-db48-4de1-b8f8-4daf61830de2",
+      "query": "EvolveR 如何把 Agent 的交互轨迹提炼为经验，并在后续任务中检索这些经验？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "fb3c9e94-71e3-4e4d-810e-a9b2e83e23be",
+          "document_id": "0bc39d04-bb0c-43b0-9fdd-0394def0e65c",
+          "file_name": "EVOLVER.pdf",
+          "chunk_index": 7,
+          "score": 0.9979565143585205,
+          "content_preview": "To overcome these challenges, we introduce EvolveR, a framework that enables agents to self-evolve by utilizing their own experiences. EvolveR implements a full experience lifecycle, in which agents collect trajectories through Online Interaction, distill them into a library of abstract strategic principles during Offline Self-Distillation, and subsequently learn to apply these principles to new tasks. Crucially, EvolveR completes the experience lifecycle with a reinforcement learning mechanism that enables the agent to utilize experience. The agent does not merely mimic its past interactions; it evolves based on what it has learned. EvolveR maintains a dynamic experience base where newly distilled principles are semantically deduplicated and continuously evaluated via a metric score that "
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "8874f8b4-26bd-47b9-a219-2cd4b472ec0e",
+          "document_id": "0bc39d04-bb0c-43b0-9fdd-0394def0e65c",
+          "file_name": "EVOLVER.pdf",
+          "chunk_index": 17,
+          "score": 0.989522397518158,
+          "content_preview": "In this section, we present EvolveR, a novel framework designed to enable agent self-evolution through a complete, closed-loop experience lifecycle. Inspired by the human cycle of work and reflection, our approach is structured around three core, interconnected components, as depicted in Figure 2. First, in the Offline Experience Self-Distillation phase, the agent’s policy parameters are frozen, and it systematically distills raw trajectories into a curated base of strategic principles. Second, during the Online Interaction phase, the agent applies this distilled wisdom to guide its deliberative reasoning and action, generating new, high-quality interaction data. Finally, the entire cycle is driven by a Policy Evolution mechanism, where the trajectories collected online are used to update "
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "64d459ba-92a6-4570-b7e1-218c8fa7209a",
+          "document_id": "0bc39d04-bb0c-43b0-9fdd-0394def0e65c",
+          "file_name": "EVOLVER.pdf",
+          "chunk_index": 1,
+          "score": 0.9750980734825134,
+          "content_preview": "Current Large Language Model (LLM) agents show strong performance in tool use, but lack the crucial capability to systematically learn from their own experiences. While existing frameworks mainly focus on mitigating external knowledge gaps, they fail to address a more fundamental limitation: the inability to iteratively refine problem-solving strategies. In this work, we introduce EvolveR, a framework designed to enable agent to self-improve through a complete, closedloop experience lifecycle. This lifecycle comprises two key stages: (1) Offline Self-Distillation, where the agent’s interaction trajectories are synthesized into a structured repository of abstract, reusable strategic principles; (2) Online Interaction, where the agent interacts with tasks and actively retrieves distilled pri"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "37fdeb5e-11cd-4a1e-b47b-a42548b29166",
+          "document_id": "0bc39d04-bb0c-43b0-9fdd-0394def0e65c",
+          "file_name": "EVOLVER.pdf",
+          "chunk_index": 19,
+          "score": 0.9474874138832092,
+          "content_preview": "![](/api/backend/uploads/file?storage_key=3844497c-59f3-4ea7-9a4b-3613f0bddc0b%2Fknowledge%2Ff48f939a-a574-45a1-8721-6e635a258209%2Fassets%2F0bc39d04-bb0c-43b0-9fdd-0394def0e65c%2Fimages%2Fcd9e19275ae88243adc8df0171e591a10e08e4d5102239f59bf80784d30940d5.jpg)  \nFigure 2: Overview of the EvolveR framework’s experience lifecycle. Left: The main loop alternates between an Online Phase, where the agent interacts with the environment and its policy parameters are updated via RL, and an Offline Phase, where the agent’s parameters are frozen and it performs self-distillation and maintains its Experience Base (E). Top Right: A detailed view of the Search ExpBase action, where the agent retrieves scored principles along with their associated trajectories. Bottom Right: The Update ExpBase process, wh"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "d581708f-c46e-4ac4-881b-5ad80792034d",
+          "document_id": "0bc39d04-bb0c-43b0-9fdd-0394def0e65c",
+          "file_name": "EVOLVER.pdf",
+          "chunk_index": 8,
+          "score": 0.9183779358863831,
+          "content_preview": "We demonstrate EvolveR’s effectiveness on complex question-answering benchmarks, where it significantly outperforms strong agentic baselines. Our contributions can be summarized as follows:\n\n• We propose the Experience-Driven Self-Evolution Paradigm, a novel, closed-loop lifecycle for LLM agents. In contrast to agents that forget past interactions, EvolveR systematically integrates a complete cycle of online interaction, offline experiences self-distillation and policy evolution. This process enables the agent to continuously transform raw trajectories into a curated repository of strategic principles, establishing a foundation for adaptive agents."
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "803d03c6-858b-426b-93c4-2d4786b43fd5",
+          "document_id": "0bc39d04-bb0c-43b0-9fdd-0394def0e65c",
+          "file_name": "EVOLVER.pdf",
+          "chunk_index": 20,
+          "score": 0.907507598400116,
+          "content_preview": "• <search experience>: Agent queries its internal experience base E to retrieve relevant principles distilled from past trajectories. Environment returns retrieved principles as an observation.\n\n• <search knowledge>: Agent queries an external knowledge base (e.g., a search engine) to acquire factual information. Environment returns retrieved information as an observation.\n\n• <answer>: Agent outputs its final answer to the problem and concludes the interaction.\n\n## 3.2 THE EVOLVER LIFECYCLE: FROM INTERACTIONS TO PRINCIPLES\n\n## 3.2.1 OFFLINE EXPERIENCE SELF-DISTILLATION\n\nThe core of EvolveR is a self-perpetuating lifecycle designed to transform raw interaction data into a strategic principle. This process is divided into two distinct, alternating phases: an offline selfdistillation phase for"
+        }
+      ],
+      "answer": "EvolveR 通过两个阶段实现经验提炼与检索：在离线自我蒸馏阶段，将智能体的交互轨迹提炼为抽象的战略原则库，并进行语义去重和有效性评估；在在线交互阶段，智能体通过 <search experience> 动作从经验库中检索相关原则来指导决策。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3",
+        "KB6"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 3,
+        "ground_truth_citation_precision": 0.75,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1",
+          "KB3",
+          "KB6"
+        ]
+      },
+      "retrieval_elapsed_ms": 1168.308775871992,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.5,
+        "context_recall": 1.0,
+        "ndcg_at_k": 0.8710785440003369,
+        "expected_keyword_recall": 0.5,
+        "expected_keyword_hits": [
+          "experience",
+          "distill"
+        ],
+        "matched_chunk_ids": [
+          "fb3c9e94-71e3-4e4d-810e-a9b2e83e23be",
+          "64d459ba-92a6-4570-b7e1-218c8fa7209a",
+          "803d03c6-858b-426b-93c4-2d4786b43fd5"
+        ],
+        "matched_target_count": 3,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 1557.9474181868136,
+      "judge_elapsed_ms": 5590.702943969518,
+      "judge": {
+        "answer_faithfulness": 0.95,
+        "answer_relevancy": 0.95,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案准确地描述了EvolveR如何通过离线自我蒸馏阶段将交互轨迹提炼为抽象的战略原则库，并在在线交互阶段检索这些原则来指导决策。这与提供的证据[KB1]、[KB2]、[KB3]和[KB4]中的描述一致。引用的标签大部分都支持答案中的结论，但[KB6]主要描述了<search experience>动作的具体操作，而不是整个过程，因此引用的全面性略有不足。",
+        "raw_json": {
+          "answer_faithfulness": 0.95,
+          "answer_relevancy": 0.95,
+          "citation_correctness": 0.9,
+          "explanation": "答案准确地描述了EvolveR如何通过离线自我蒸馏阶段将交互轨迹提炼为抽象的战略原则库，并在在线交互阶段检索这些原则来指导决策。这与提供的证据[KB1]、[KB2]、[KB3]和[KB4]中的描述一致。引用的标签大部分都支持答案中的结论，但[KB6]主要描述了<search experience>动作的具体操作，而不是整个过程，因此引用的全面性略有不足。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 8317.789611872286
+    },
+    {
+      "case_id": "9c958ae5-84b7-46e3-a7db-be38a84b2a96",
+      "query": "TF-TTCL 如何通过语义查询增强、对比经验蒸馏和规则检索实现无训练的测试时自适应？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "69fac55a-6688-43a6-bb47-eaa8c6463a7b",
+          "document_id": "17ad3427-4ee9-4ebb-b37c-5d08ee21ecc0",
+          "file_name": "Training-Free Test-Time Contrastive Learning for Large Language Models-Camera Ready.pdf",
+          "chunk_index": 58,
+          "score": 0.9980740547180176,
+          "content_preview": "## 6 Conclusion\n\nIn this paper, we present Training-Free Test-time Contrastive Learning (TF-TTCL), a framework that enables frozen LLMs to adapt continuously during online evaluation without gradient updates and external knowledge. Our approach introduces three synergistic components: Semantic Query Augmentation constructs diverse reasoning paths through multi-agent role-playing, Contrastive Experience Distillation filters and distills the semantic gap between superior and inferior outputs into explicit rules, and Contextual Rule Retrieval dynamically injects these rules for future generations. Experiments on closed-ended reasoning tasks and openended evaluation tasks demonstrate that TF-TTCL outperforms both zero-shot baselines and existing test-time adaptation methods in online evaluatio"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "18a8fd63-274e-4285-b647-44bb68098825",
+          "document_id": "17ad3427-4ee9-4ebb-b37c-5d08ee21ecc0",
+          "file_name": "Training-Free Test-Time Contrastive Learning for Large Language Models-Camera Ready.pdf",
+          "chunk_index": 1,
+          "score": 0.997849702835083,
+          "content_preview": "Large language models (LLMs) demonstrate strong reasoning capabilities, but their performance often degrades under distribution shift. Existing test-time adaptation (TTA) methods rely on gradient-based updates that require white-box access and need substantial overhead, while training-free alternatives are either static or depend on external guidance. In this paper, we propose Training-Free Test-Time Contrastive Learning (TF-TTCL), a training-free adaptation framework that en ables a frozen LLM to improve online by distilling supervision from its own inference experiences. Specifically, TF-TTCL imple ments a dynamic \"Explore-Reflect-Steer\" loop through three core modules: 1) Semantic Query Augmentation first diversifies problem views via multi-agent role-playing to generate different reaso"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "380255be-3646-4483-b691-ec7873f924f6",
+          "document_id": "17ad3427-4ee9-4ebb-b37c-5d08ee21ecc0",
+          "file_name": "Training-Free Test-Time Contrastive Learning for Large Language Models-Camera Ready.pdf",
+          "chunk_index": 7,
+          "score": 0.9973970651626587,
+          "content_preview": "In this paper, we propose Training-Free Test-Time Contrastive Learning (TF-TTCL), a framework that enables frozen LLMs to self-improve online through a dynamic \"Explore–Reflect–Steer\" loop. TF-TTCL first employs a Semantic Query Augmentation module, where multi-agent roleplaying emulates the data augmentation effect of contrastive learning: a TEACHER generates highconfidence anchor answers from the original query, while a TUTOR introduces semantic variations via query rewriting, encouraging the STUDENT to explore diverse reasoning paths. The resulting outputs are then distilled by a Contrastive Experience Distillation mechanism, which organizes responses according to consistency and uncertainty, extracts contrastive positive and negative signals, and summarizes them as explicit rules store"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "b2519ae2-0a03-4e4e-a90a-895251793aa4",
+          "document_id": "17ad3427-4ee9-4ebb-b37c-5d08ee21ecc0",
+          "file_name": "Training-Free Test-Time Contrastive Learning for Large Language Models-Camera Ready.pdf",
+          "chunk_index": 9,
+          "score": 0.9939443469047546,
+          "content_preview": "• Novel Training-Free Test-time Paradigm: We introduce TF-TTCL, a training-free framework that enables frozen or black-box LLMs to self-improve online by distilling and reusing self-derived contrastive supervision, eliminating the need for gradient access or external knowledge guidance.\n\n• Contrastive Rule Distillation: We introduce a mechanism that synthesizes \"semantic gra dients\" from self-generated data. By employing multi-agent role-playing to augment query views and contrasting superior versus inferior trajectories, we distill explicit positive and negative rules that dynamically steer reasoning without modifying model weights.\n\n• Empirical Effectiveness: Extensive experiments on closed-ended reasoning tasks and open-ended evaluation tasks demonstrate that TF-TTCL significantly outpe"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "e9cb59dc-1309-418c-ab7b-020c8b902d0c",
+          "document_id": "17ad3427-4ee9-4ebb-b37c-5d08ee21ecc0",
+          "file_name": "Training-Free Test-Time Contrastive Learning for Large Language Models-Camera Ready.pdf",
+          "chunk_index": 21,
+          "score": 0.976389467716217,
+          "content_preview": "In this paper, we propose Training-Free Test-Time Contrastive Learning (TF-TTCL), a training-free self-improvement framework for large language models. The overall pipeline is in Alg. 1 and illustrated in Fig. 1. Our design is inspired by contrastive learning (Chen et al., 2020; Schön, 1983): effective self-correction requires not only identifying a superior solution but also articulating why it outperforms inferior alternatives. Since the model parameters θ are frozen, we implement this contrastive learning loop through an evolving external repository and three coordinated modules."
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "e04c5531-a157-4a56-8664-7413c48dab9e",
+          "document_id": "17ad3427-4ee9-4ebb-b37c-5d08ee21ecc0",
+          "file_name": "Training-Free Test-Time Contrastive Learning for Large Language Models-Camera Ready.pdf",
+          "chunk_index": 14,
+          "score": 0.9676138162612915,
+          "content_preview": "partition trajectories. In scenarios lacking explicit external feedback, such systems default to a naive LLM-as-Judge, which suffers from severe self-confirmation bias. In contrast, TF-TTCL employs an unsupervised, feedback-free protocol. By distilling explicit contrastive rules directly from self-generated outputs, we enable frozen LLMs to self-improve online at test time without relying on gradients, external environments, or ground-truths."
+        }
+      ],
+      "answer": "TF-TTCL通过三个协同组件实现无训练的测试时自适应：1) 语义查询增强（Semantic Query Augmentation）通过多智能体角色扮演生成多样化的推理路径（KB1, KB2）；2) 对比经验蒸馏（Contrastive Experience Distillation）过滤并提取优劣输出之间的语义差距，将其蒸馏为显式规则（KB1, KB2）；3) 上下文规则检索（Contextual Rule Retrieval）在在线评估中动态注入这些规则以指导后续生成（KB1, KB2）。这三个模块形成一个动态的“探索-反思-引导”循环，使冻结的LLM无需梯度更新或外部知识即可持续改进（KB2, KB3）。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.3333333333333333,
+        "ground_truth_citation_recall": 0.3333333333333333,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB2"
+        ]
+      },
+      "retrieval_elapsed_ms": 1219.2689278163016,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.5,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.3333333333333333,
+        "ndcg_at_k": 0.2960819109658652,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "Semantic Query Augmentation",
+          "Contrastive Experience Distillation",
+          "rule",
+          "training-free"
+        ],
+        "matched_chunk_ids": [
+          "18a8fd63-274e-4285-b647-44bb68098825"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 2244.8253757320344,
+      "judge_elapsed_ms": 7235.986144281924,
+      "judge": {
+        "answer_faithfulness": 0.95,
+        "answer_relevancy": 0.95,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案中的描述与提供的证据高度一致，准确地解释了TF-TTCL如何通过语义查询增强、对比经验蒸馏和规则检索实现无训练的测试时自适应。答案直接回答了问题，且引用的标签大部分都真实存在并支持结论，但KB3并未完全包含所有答案中的细节，尤其是关于'持续改进'的部分。",
+        "raw_json": {
+          "answer_faithfulness": 0.95,
+          "answer_relevancy": 0.95,
+          "citation_correctness": 0.9,
+          "explanation": "答案中的描述与提供的证据高度一致，准确地解释了TF-TTCL如何通过语义查询增强、对比经验蒸馏和规则检索实现无训练的测试时自适应。答案直接回答了问题，且引用的标签大部分都真实存在并支持结论，但KB3并未完全包含所有答案中的细节，尤其是关于'持续改进'的部分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 10700.59933513403
+    },
+    {
+      "case_id": "3170a918-bf55-4bb9-8ae3-9d732ec8688a",
+      "query": "Sparsely-Gated Mixture-of-Experts 层由哪些组件组成？稀疏门控如何在提升模型容量的同时控制计算量？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "a162cae1-cc44-4302-8f36-948f9b6df835",
+          "document_id": "1ce788b2-df36-4543-9577-3b405b1237ab",
+          "file_name": "The Sparsely-Gated MOE.pdf",
+          "chunk_index": 12,
+          "score": 0.9858778715133667,
+          "content_preview": "The Mixture-of-Experts (MoE) layer consists of a set of n “expert networks\" $E _ { 1 } , \\cdots , E _ { n } ,$ and a “gating network\" $\\bar { G }$ whose output is a sparse n-dimensional vector. Figure 1 shows an overview of the MoE module. The experts are themselves neural networks, each with their own parameters. Although in principle we only require that the experts accept the same sized inputs and produce the same-sized outputs, in our initial investigations in this paper, we restrict ourselves to the case where the models are feed-forward networks with identical architectures, but with separate parameters.\n\nLet us denote by $G ( x )$ and $E _ { i } ( x )$ the output of the gating network and the output of the i-th expert network for a given input x. The output y of the MoE module can b"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "872b1081-2b61-4857-876e-ad1d783009b2",
+          "document_id": "1ce788b2-df36-4543-9577-3b405b1237ab",
+          "file_name": "The Sparsely-Gated MOE.pdf",
+          "chunk_index": 8,
+          "score": 0.9774866700172424,
+          "content_preview": "## 1.2 OUR APPROACH: THE SPARSELY-GATED MIXTURE-OF-EXPERTS LAYER\n\nOur approach to conditional computation is to introduce a new type of general purpose neural network component: a Sparsely-Gated Mixture-of-Experts Layer (MoE). The MoE consists of a number of experts, each a simple feed-forward neural network, and a trainable gating network which selects a sparse combination of the experts to process each input (see Figure 1). All parts of the network are trained jointly by back-propagation."
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "688dc0c7-2e18-4def-919c-782cabb85f7e",
+          "document_id": "1ce788b2-df36-4543-9577-3b405b1237ab",
+          "file_name": "The Sparsely-Gated MOE.pdf",
+          "chunk_index": 1,
+          "score": 0.9704880118370056,
+          "content_preview": "The capacity of a neural network to absorb information is limited by its number of parameters. Conditional computation, where parts of the network are active on a per-example basis, has been proposed in theory as a way of dramatically increasing model capacity without a proportional increase in computation. In practice, however, there are significant algorithmic and performance challenges. In this work, we address these challenges and finally realize the promise of conditional computation, achieving greater than 1000x improvements in model capacity with only minor losses in computational efficiency on modern GPU clusters. We introduce a Sparsely-Gated Mixture-of-Experts layer (MoE), consisting of up to thousands of feed-forward sub-networks. A trainable gating network determines a sparse c"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "9e2b341e-2b0f-4191-ab57-4cafdac1508b",
+          "document_id": "1ce788b2-df36-4543-9577-3b405b1237ab",
+          "file_name": "The Sparsely-Gated MOE.pdf",
+          "chunk_index": 5,
+          "score": 0.9251218438148499,
+          "content_preview": "![](/api/backend/uploads/file?storage_key=3844497c-59f3-4ea7-9a4b-3613f0bddc0b%2Fknowledge%2Ff48f939a-a574-45a1-8721-6e635a258209%2Fassets%2F1ce788b2-df36-4543-9577-3b405b1237ab%2Fimages%2Fe30b6a1286fff135f12b66b9916cbad34d16498208e15f7a8498321f884e200a.jpg)  \nFigure 1: A Mixture of Experts (MoE) layer embedded within a recurrent language model. In this case, the sparse gating function selects two experts to perform computations. Their outputs are modulated by the outputs of the gating network.\n\nWhile these ideas are promising in theory, no work to date has yet demonstrated massive improvements in model capacity, training time, or model quality. We blame this on a combination of the following challenges:\n\n• Modern computing devices, especially GPUs, are much faster at arithmetic than at br"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "3ed3fbba-8c7c-4f50-b3f0-a30456aa72c5",
+          "document_id": "1ce788b2-df36-4543-9577-3b405b1237ab",
+          "file_name": "The Sparsely-Gated MOE.pdf",
+          "chunk_index": 11,
+          "score": 0.8745187520980835,
+          "content_preview": "The works above concern top-level mixtures of experts. The mixture of experts is the whole model. Eigen et al. (2013) introduce the idea of using multiple MoEs with their own gating networks as parts of a deep model. It is intuitive that the latter approach is more powerful, since complex problems may contain many sub-problems each requiring different experts. They also allude in their conclusion to the potential to introduce sparsity, turning MoEs into a vehicle for computational computation.\n\nOur work builds on this use of MoEs as a general purpose neural network component. While Eigen et al. (2013) uses two stacked MoEs allowing for two sets of gating decisions, our convolutional application of the MoE allows for different gating decisions at each position in the text. We also realize s"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "05b19b59-5bfa-466f-9b8d-43e5987e6fcf",
+          "document_id": "81f8b590-7928-48b1-bcbf-337d871e0639",
+          "file_name": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf",
+          "chunk_index": 16,
+          "score": 0.8121569752693176,
+          "content_preview": "Mixture-of-Experts (MoE) (Shazeer et al., 2017) is a prominent and well-established technique in machine learning where multiple expert networks specialize in different skill sets. The MoE approach has shown significant success across various applications due to its ability to leverage diverse model capabilities for complex problem-solving tasks. Our MoA method draws inspiration from this methodology.\n\nA typical MoE design consists of a stack of layers known as MoE layers. Each layer comprises a set of n expert networks alongside a gating network and includes residual connections for improved gradient flow. Formally, for layer i, this design can be expressed as follows:\n\n$$\ny _ {i} = \\sum_ {j = 1} ^ {n} G _ {i, j} (x _ {i}) E _ {i, j} (x _ {i}) + x _ {i}\\tag{2}\n$$"
+        }
+      ],
+      "answer": "Sparsely-Gated Mixture-of-Experts 层由一组 n 个“专家网络”和一个“门控网络”组成，门控网络输出一个稀疏的 n 维向量。稀疏门控通过为每个输入仅激活部分专家（例如图1中选择了两个专家）来提升模型容量，同时控制计算量，因为只有被选中的专家参与计算，从而在不显著增加计算量的情况下大幅增加模型容量。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3",
+        "KB4"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 2,
+        "ground_truth_citation_precision": 0.5,
+        "ground_truth_citation_recall": 0.6666666666666666,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1",
+          "KB2"
+        ]
+      },
+      "retrieval_elapsed_ms": 1233.090705703944,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.3333333333333333,
+        "context_recall": 0.6666666666666666,
+        "ndcg_at_k": 0.7653606369886217,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "sparsely-gated",
+          "experts",
+          "gating network",
+          "sparse"
+        ],
+        "matched_chunk_ids": [
+          "a162cae1-cc44-4302-8f36-948f9b6df835",
+          "872b1081-2b61-4857-876e-ad1d783009b2"
+        ],
+        "matched_target_count": 2,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 1909.4598139636219,
+      "judge_elapsed_ms": 10342.873661778867,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案准确地描述了Sparsely-Gated Mixture-of-Experts (MoE) 层的组成，即一组专家网络和一个门控网络，并且解释了稀疏门控如何通过仅激活部分专家来提升模型容量同时控制计算量。这些信息得到了[KB1]、[KB2]和[KB4]的支持。然而，[KB4]中的引用标签没有在答案中直接使用，尽管它确实支持了答案中的结论。[KB3]虽然提到了模型容量的增加，但没有具体说明稀疏门控如何实现这一点。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "答案准确地描述了Sparsely-Gated Mixture-of-Experts (MoE) 层的组成，即一组专家网络和一个门控网络，并且解释了稀疏门控如何通过仅激活部分专家来提升模型容量同时控制计算量。这些信息得到了[KB1]、[KB2]和[KB4]的支持。然而，[KB4]中的引用标签没有在答案中直接使用，尽管它确实支持了答案中的结论。[KB3]虽然提到了模型容量的增加，但没有具体说明稀疏门控如何实现这一点。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 13485.999481752515
+    },
+    {
+      "case_id": "8a138239-46ac-44db-b5cd-2d64529f8022",
+      "query": "Mixture-of-Agents 如何通过 proposer 和 aggregator 的分层结构组合多个 LLM 的输出？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "232426a8-15aa-44f6-9075-5f18c7c0fc2a",
+          "document_id": "81f8b590-7928-48b1-bcbf-337d871e0639",
+          "file_name": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf",
+          "chunk_index": 1,
+          "score": 0.9779664278030396,
+          "content_preview": "Recent advances in large language models (LLMs) demonstrate substantial capabilities in natural language understanding and generation tasks. With the growing number of LLMs, how to harness the collective expertise of multiple LLMs is an exciting open direction. Toward this goal, we propose a new approach that leverages the collective strengths of multiple LLMs through a Mixture-of-Agents (MoA) methodology. In our approach, we construct a layered MoA architecture wherein each layer comprises multiple LLM agents. Each agent takes all the outputs from agents in the previous layer as auxiliary information in generating its response. MoA models achieves state-of-art performance on AlpacaEval 2.0, MT-Bench and FLASK, surpassing GPT-4 Omni. For example, our MoA using only open-source LLMs is the "
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "aac998bb-4b05-43f9-bd5d-3d6acefff9c9",
+          "document_id": "81f8b590-7928-48b1-bcbf-337d871e0639",
+          "file_name": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf",
+          "chunk_index": 30,
+          "score": 0.9573445320129395,
+          "content_preview": "Mixture-of-Agents significantly outperforms LLM rankers. First, we compare Mixture-of-Agents with an LLM-based ranker which uses the aggregator model to select one of the answers that are generated by the proposers, instead of generating a new output. The results are shown in Figure 4, where we can observe that the MoA approach significantly outperforms an LLM-ranker baseline. The fact that MoA outperforms the ranking approach suggests that the aggregator does not simply select one of the generated answers by the proposers, but potentially performs sophisticated aggregation over all proposed generations."
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "e37fb891-e267-433f-b941-39225ea18d3c",
+          "document_id": "81f8b590-7928-48b1-bcbf-337d871e0639",
+          "file_name": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf",
+          "chunk_index": 5,
+          "score": 0.9519359469413757,
+          "content_preview": "Based on this finding, this paper introduces a Mixtureof-Agents (MoA) methodology that leverages multiple LLMs to iteratively enhance the generation quality. The structure of MoA is illustrated in Figure 2. Initially, LLMs in the first layer, denoted as agents $A _ { 1 , 1 } , . . . A _ { 1 , n }$ independently generate responses to a given prompt. These responses are then presented\n\n![](/api/backend/uploads/file?storage_key=3844497c-59f3-4ea7-9a4b-3613f0bddc0b%2Fknowledge%2Ff48f939a-a574-45a1-8721-6e635a258209%2Fassets%2F81f8b590-7928-48b1-bcbf-337d871e0639%2Fimages%2Fcb8e18579ea6b16635984c3d491fb1367073c7b3914749ce0ecbd526de2500cd.jpg)  \nFigure 1: AlpacaEval 2.0 LC win rates improve when provided with responses from other models.\n\nto agents in the next layer $A _ { 2 , 1 } , . . . A _ { "
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "a9cda05a-7a79-4e80-b996-41fe76b24f8a",
+          "document_id": "81f8b590-7928-48b1-bcbf-337d871e0639",
+          "file_name": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf",
+          "chunk_index": 48,
+          "score": 0.9402206540107727,
+          "content_preview": "This paper introduces a Mixture-of-Agents approach aimed at leveraging the capabilities of multiple LLMs via successive stages for iterative collaboration. Our method harnesses the collective strengths of agents in the Mixture-of-Agents family, and can significantly improve upon the output quality of each individual model. Empirical evaluations conducted on AlpacaEval 2.0, MT-Bench, and FLASK demonstrated substantial improvements in response quality, with our approach achieving the LC win rate up to 65%. These findings validate our hypothesis that integrating diverse perspectives from various models can lead to superior performance compared to relying on a single model alone. In addition, we provide insights into improving the design of MoA; systematic optimization of MoA architecture is a"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "d024d26d-98b1-445b-b575-78a4d5541728",
+          "document_id": "81f8b590-7928-48b1-bcbf-337d871e0639",
+          "file_name": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf",
+          "chunk_index": 33,
+          "score": 0.9202139973640442,
+          "content_preview": "![](/api/backend/uploads/file?storage_key=3844497c-59f3-4ea7-9a4b-3613f0bddc0b%2Fknowledge%2Ff48f939a-a574-45a1-8721-6e635a258209%2Fassets%2F81f8b590-7928-48b1-bcbf-337d871e0639%2Fimages%2F90326e57768bf902b20e7b1e2c6945b98d5a18047f4b320c092553a695528d94.jpg)  \nFigure 4: (a) LC win rate on AlpacaEval 2.0 with different aggregators in the 6-model Mixture-of-Agents setup. All the curves use the same 6 proposer agents; they only differ in the choice of the final aggregator. The LLM ranker uses Qwen1.5-110B-Chat model with a prompt format in Appendix Table 5. The GPT-4o model is only used to aggregate the output for the purpose of evaluation and does not participate as a proposer towards the next layer. (b) Spearman correlation between BLEU scores (calculated using 3-gram, 4-gram, and 5-gram me"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "49a8428d-59ef-4939-92b2-f857402b4f60",
+          "document_id": "81f8b590-7928-48b1-bcbf-337d871e0639",
+          "file_name": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf",
+          "chunk_index": 13,
+          "score": 0.9019356966018677,
+          "content_preview": "The structure of MoA is illustrated in Figure 2. It has l layers and each layer-i consists of n LLMs, denoted by $A _ { i , 1 } , A _ { i , 2 } , . . . , A _ { i , n }$ . It is important to note that LLMs can be reused either within the same layer or across different layers. When many LLMs in a layer are identical, this configuration leads to a special structure that corresponds to a model generating multiple possibly different outputs (due to the stochasticity of temperature sampling). We refer to this setting as single-proposer, where only a sparse subset of models are activated.\n\nHere, each LLM $A _ { i , j }$ processes an input text and generates its continuation. Our method does not require any fine-tuning and only utilizes the interface of prompting and generation of LLMs. Formally, "
+        }
+      ],
+      "answer": "MoA 通过分层架构实现：第一层（proposer）的多个 LLM 独立生成初始响应，然后将这些响应作为辅助信息传递给下一层（aggregator）的 LLM，由 aggregator 进行综合和精炼，生成更优的输出。这个过程可以迭代多层，每层都利用前一层所有代理的输出进行改进。",
+      "citations": [
+        "KB1",
+        "KB3",
+        "KB6"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.3333333333333333,
+        "ground_truth_citation_recall": 0.3333333333333333,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "retrieval_elapsed_ms": 1321.3298530317843,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.3333333333333333,
+        "ndcg_at_k": 0.46927872602275644,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "Mixture-of-Agents",
+          "proposer",
+          "aggregator",
+          "layers"
+        ],
+        "matched_chunk_ids": [
+          "232426a8-15aa-44f6-9075-5f18c7c0fc2a"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 3122.665612027049,
+      "judge_elapsed_ms": 15749.915269203484,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案对 Mixture-of-Agents (MoA) 的分层结构和工作原理的描述与提供的证据内容高度一致，尤其是 [KB1] 和 [KB3] 中的描述。答案提到的 proposer 和 aggregator 的角色，以及通过多层迭代改进输出的过程，都在证据中得到了支持。然而，答案中没有具体提到 LLMs 可以在不同层之间重用这一点，这在 [KB6] 中有提及，因此在 answer_faithfulness 和 citation_correctness 上略有扣分。答案_relevancy 较高，因为它直接回答了问题，解释了 MoA 如何通过分层结构组合多个 LLM 的输出。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.9,
+          "explanation": "答案对 Mixture-of-Agents (MoA) 的分层结构和工作原理的描述与提供的证据内容高度一致，尤其是 [KB1] 和 [KB3] 中的描述。答案提到的 proposer 和 aggregator 的角色，以及通过多层迭代改进输出的过程，都在证据中得到了支持。然而，答案中没有具体提到 LLMs 可以在不同层之间重用这一点，这在 [KB6] 中有提及，因此在 answer_faithfulness 和 citation_correctness 上略有扣分。答案_relevancy 较高，因为它直接回答了问题，解释了 MoA 如何通过分层结构组合多个 LLM 的输出。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 20194.339588284492
+    },
+    {
+      "case_id": "644a6a11-43e2-4dcc-90a7-ff06fa6d0efa",
+      "query": "MoTE 如何将 reasoning chain 与 step-level expert routing 结合起来进行 self-alignment？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "04cefd0a-acba-44af-934e-df7546f6848c",
+          "document_id": "6882a5a5-1853-45ec-8ac0-e33b41c19d93",
+          "file_name": "Mixture of insighTful Experts (MoTE)-The Synergy of Reasoning Chains and Expert Mixtures in Self-Alignment.pdf",
+          "chunk_index": 5,
+          "score": 0.9985962510108948,
+          "content_preview": "In this work, we address a fundamental question: How to effectively incorporate reasoning abilities and MoE architectures into self-alignment process in LLMs? We propose the Mixture of insighTful Experts (MoTE) framework, which synergistically combines reasoning chains and expert mixtures to improve model alignment. From a data perspective, we introduce a reasoning chain inspired by human cognitive processes to enhance safety through multi-step reasoning. This approach proves effective for smaller and less mature models (e.g., 7B LLMs) that do not have strong reasoning abilities. Specifically, we define four key steps for safety understanding and responding to queries: Question Analysis, Answer Guidance, Safe Answer, and Safeness Checking. These steps collectively ensure a structured and s"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "ea9784f1-fca2-42cb-976e-c74dbbb88b29",
+          "document_id": "6882a5a5-1853-45ec-8ac0-e33b41c19d93",
+          "file_name": "Mixture of insighTful Experts (MoTE)-The Synergy of Reasoning Chains and Expert Mixtures in Self-Alignment.pdf",
+          "chunk_index": 9,
+          "score": 0.9973026514053345,
+          "content_preview": "1. We introduce Mixture of insighTful Experts (MoTE), which merges structured reasoning chains (Question Analysis, Safe Answer, etc.) with step-level expert routing in MoE architectures, enabling smaller LLMs (e.g., 7B) to perform multi-step safety reasoning for improved self-alignment.\n\n2. MoTE significantly boosts model safety, reducing the jailbreak vulnerabilities and overrefusal issues, with performance comparable to OpenAI’s o1 model, demonstrating its effectiveness in balancing safety and usability.\n\n3. Analysis shows that intermediary reasoning steps, expert specialization for conflict resolution, and adaptive inference lengths drive MoTE’s success, providing theoretical insights into integrating reasoning with MoE for robust self-alignment.\n\n## 2 Related Work"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "25f0694e-1d25-43d5-9b39-976540eeda1f",
+          "document_id": "6882a5a5-1853-45ec-8ac0-e33b41c19d93",
+          "file_name": "Mixture of insighTful Experts (MoTE)-The Synergy of Reasoning Chains and Expert Mixtures in Self-Alignment.pdf",
+          "chunk_index": 1,
+          "score": 0.9953829646110535,
+          "content_preview": "As the capabilities of large language models (LLMs) continue to expand, aligning these models with human values remains a significant challenge. Recent studies show that reasoning abilities contribute significantly to model safety, while integrating Mixture-of-Experts (MoE) architectures can further enhance alignment. In this work, we address a fundamental question: How to effectively incorporate reasoning abili ties and MoE architectures into self-alignment process in LLMs? We propose Mixture of insighTful Experts (MoTE), a novel frame work that synergistically combines reasoning chains and expert mixtures to improve selfalignments. From a data perspective, MoTE employs a structured reasoning chain comprising four key stages: Question Analysis, Answer Guidance, Safe Answer, and Safety Che"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "830be80a-96d7-4bec-9525-daef281035c7",
+          "document_id": "6882a5a5-1853-45ec-8ac0-e33b41c19d93",
+          "file_name": "Mixture of insighTful Experts (MoTE)-The Synergy of Reasoning Chains and Expert Mixtures in Self-Alignment.pdf",
+          "chunk_index": 53,
+          "score": 0.9884912967681885,
+          "content_preview": "In this work, we introduced the Mixture of insighTful Experts (MoTE), a novel framework that enhances self-alignment in large language models (LLMs) by synergistically combining reasoning chains and expert mixtures. MoTE addresses the critical challenge of aligning LLMs with human values through structured reasoning processes and specialized expert architectures. By improving model safety, jailbreak resistance, and overrefusal capabilities, MoTE represents a significant advancement in LLM alignment. Looking ahead, future research could explore extending MoTE to other domains, such as multi-modal reasoning or general task reasoning, to further generalize AI alignment principles and foster more universally aligned intelligent systems.\n\n## 7 Limitations"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "f0ed73d0-f99c-436c-9ab0-e780b0d476c6",
+          "document_id": "6882a5a5-1853-45ec-8ac0-e33b41c19d93",
+          "file_name": "Mixture of insighTful Experts (MoTE)-The Synergy of Reasoning Chains and Expert Mixtures in Self-Alignment.pdf",
+          "chunk_index": 6,
+          "score": 0.9866023063659668,
+          "content_preview": "proving the safety of model outputs. Moreover, from an architectural perspective, MoTE employs step-level routing, where each expert is dedicated to a specific reasoning step described above. This design differs from existing multi-LoRA models, which typically route tokens to different experts (i.e., token-level routing). This approach demonstrates superior performance when combined with reasoning chains and different experts, ensuring stable training and supporting adaptive inference lengths during inference."
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "5f9ee43f-5c93-4a41-86d5-74a2491087f4",
+          "document_id": "6882a5a5-1853-45ec-8ac0-e33b41c19d93",
+          "file_name": "Mixture of insighTful Experts (MoTE)-The Synergy of Reasoning Chains and Expert Mixtures in Self-Alignment.pdf",
+          "chunk_index": 47,
+          "score": 0.9861282110214233,
+          "content_preview": "Here, we analyze MoTE’s effectiveness in selfalignment. We show that reasoning chain’s answers align with human annotations but are more tuningfriendly. Additionally, training intermediate steps separately outperforms single-model training, making MoTE a natural fit for expert specialization. Finally, we present a theoretical understanding of the success of MoTE.\n\nThe answer quality of the reasoning chain matches human supervision. We evaluate the quality of answers generated by the reasoning chain and humans in HH-RLHF training set. A direct GPT-4 comparison between both answer sets reveals reasoning chain’s responses win or tie 57.10% of the time against human-generated ones. This evidence supports the reasoning chain’s capability to produce answers that rival human-level supervision\n\nin"
+        }
+      ],
+      "answer": "MoTE 通过将结构化推理链（包括问题分析、答案指导、安全答案和安全检查四个步骤）与步骤级专家路由（step-level expert routing）相结合，实现自我对齐。具体来说，每个专家专门负责推理链中的一个特定步骤，这与传统的 token 级路由不同，从而确保稳定训练并支持自适应推理长度。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB5"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 2,
+        "ground_truth_citation_precision": 0.6666666666666666,
+        "ground_truth_citation_recall": 0.6666666666666666,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB2",
+          "KB5"
+        ]
+      },
+      "retrieval_elapsed_ms": 1264.276521280408,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.5,
+        "context_precision": 0.3333333333333333,
+        "context_recall": 0.6666666666666666,
+        "ndcg_at_k": 0.4776237035032179,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "reasoning chain",
+          "step-level",
+          "multi-LoRA",
+          "self-alignment"
+        ],
+        "matched_chunk_ids": [
+          "ea9784f1-fca2-42cb-976e-c74dbbb88b29",
+          "f0ed73d0-f99c-436c-9ab0-e780b0d476c6"
+        ],
+        "matched_target_count": 2,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 3158.5162999108434,
+      "judge_elapsed_ms": 9547.28816775605,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案事实基本被证据支持，描述了 MoTE 通过将结构化推理链与步骤级专家路由结合来实现自我对齐。KB1 和 KB5 提供了直接支持，但 KB2 未提及具体步骤，因此引用的完整性略有不足。答案直接回答了问题，解释了 MoTE 如何结合 reasoning chain 和 step-level expert routing 进行 self-alignment。引用标签大部分真实存在且支持结论，但 KB2 未提及具体步骤，因此引用正确性略低。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "答案事实基本被证据支持，描述了 MoTE 通过将结构化推理链与步骤级专家路由结合来实现自我对齐。KB1 和 KB5 提供了直接支持，但 KB2 未提及具体步骤，因此引用的完整性略有不足。答案直接回答了问题，解释了 MoTE 如何结合 reasoning chain 和 step-level expert routing 进行 self-alignment。引用标签大部分真实存在且支持结论，但 KB2 未提及具体步骤，因此引用正确性略低。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 13970.583964139223
+    },
+    {
+      "case_id": "725f1336-c894-42f4-9c24-fca1cd9cbd6f",
+      "query": "SkillDAG 为什么把技能库表示为 typed directed graph，而不是只使用 embedding 相似度检索？它如何处理依赖和冲突关系？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "96bfbb31-fb45-45a8-94e7-b85714afe58d",
+          "document_id": "fe7a18ae-647c-452a-bc94-3a19398ea00d",
+          "file_name": "SkillDAG.pdf",
+          "chunk_index": 2,
+          "score": 0.9947677850723267,
+          "content_preview": "<sup>Abstract</sup> As LLM agents adopt large skill libraries, selecting the right subset becomes a structural problem rather than a similarity-matching one: skills depend on, conflict with, specialize, or duplicate one another, a structure invisible to both full enumeration and embedding similarity. We present <sup>SkillDAG</sup>, which models inter-skill relationships as a typed directed graph and exposes it to an LLM agent as an inference-time, agent-callable structural retrieval interface, queried and evolved during execution rather than baked into a fixed retrieval pipeline: each search returns vector matches, typed-edge neighbors, and conflict signals, and a propose-then-commit protocol lets the agent register execution-backed edges so the graph accumulates structure across episodes."
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "9084b77c-befd-40cb-ac5b-f3d55f20dd4b",
+          "document_id": "fe7a18ae-647c-452a-bc94-3a19398ea00d",
+          "file_name": "SkillDAG.pdf",
+          "chunk_index": 17,
+          "score": 0.9799919724464417,
+          "content_preview": "<sup>SkillDAG</sup> starts from a simple inversion: the typed graph is not hidden inside a fixed retrieval pipeline, but exposed as an agent-callable interface the LLM can query, inspect, and revise during execution. This makes graph structure an explicit part of the agent’s decision context rather than an opaque ranking heuristic. The typed relation graph gives otherwise flat skill libraries operational structure: prerequisite and specialization edges organize reusable progressions, composition and similarity edges surface adjacent skills, and conflict edges mark combinations the agent should avoid. The search/show interface turns that structure into action by returning semantic matches, typed neighbors, and conflicts as separate evidence channels while loading full skill bodies only on d"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "171d96b8-0ce7-481d-b342-1ecd319c1317",
+          "document_id": "fe7a18ae-647c-452a-bc94-3a19398ea00d",
+          "file_name": "SkillDAG.pdf",
+          "chunk_index": 46,
+          "score": 0.9534470438957214,
+          "content_preview": "<sup>SkillDAG</sup> exposes a typed skill-relation graph as an agent-callable structural retrieval interface (search/show/propose-edge/edit-edge) rather than hiding it inside a fixed graph-ranking policy. The agent loads only the typed neighbors and skill bodies it needs, avoiding the contextbloat failure where fixed-bundle retrievers flood the prompt with marginally relevant skills and corrupt downstream reasoning. Against <sup>GoS</sup>, <sup>SkillDAG</sup> lifts MiniMax-M2.7 reward on ALFWorld (<sup>54.3</sup>→<sup>67.1</sup>) and SkillsBench (<sup>18.7</sup>→<sup>27.3</sup>), with matches-field retrieval winning every metric at every pool scale—supporting the inversion claim that the graph works best as an interface for routing decisions, not as an opaque policy.\n\n## Limitations"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "1f32becc-7a7f-438a-8f7d-17e760d6cc2f",
+          "document_id": "fe7a18ae-647c-452a-bc94-3a19398ea00d",
+          "file_name": "SkillDAG.pdf",
+          "chunk_index": 22,
+          "score": 0.8895733952522278,
+          "content_preview": "Two operational constraints make this typed graph usable as an agent-facing interface. <sup>Conflicts</sup> <sup>as</sup> <sup>a</sup> <sup>pruning</sup> <sup>signal,</sup> <sup>not</sup> <sup>a</sup> <sup>navigation</sup> <sup>edge.</sup> We deliberately exclude conflicts\\_with from traversal because navigating a conflict edge would actively undermine retrieval by surfacing the very skills the LLM has been told to avoid; the four positive types are walked by the retrieval interface, while conflicts\\_with is only used to exclude co-selection (§3.3). <sup>Acyclicity</sup> <sup>on</sup> <sup>the</sup> <sup>backbone.</sup> We reserve depends\\_on and specializes as the directed backbone whose acyclicity gives <sup>SkillDAG</sup> its name; the invariant is enforced at commit time (§3.5). Figure"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "18d87df9-d53f-4927-96f8-7f938c425bcd",
+          "document_id": "fe7a18ae-647c-452a-bc94-3a19398ea00d",
+          "file_name": "SkillDAG.pdf",
+          "chunk_index": 7,
+          "score": 0.8203848600387573,
+          "content_preview": "We propose <sup>SkillDAG</sup>, built on the inverse design choice: rather than the substrate of a fixed retrieval algorithm, the graph is exposed to the LLM as an inference-time, agent-callable structural retrieval interface, on the same footing as the tools the agent already uses for execution. The LLM, not a graph-ranking policy, decides how structural evidence should afect execution; the graph in turn accumulates structural knowledge across episodes through evidence-backed agent edits.\n\nOur contributions are summarized as follows:\n\n<sup>•</sup> We identify that flat retrieval over large skill libraries silently omits structurally necessary skills and concatenates redundant or interfering ones—a failure mode invisible to similarity matching alone."
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "ec1a2925-948d-41ca-9a23-0a93a5e6e9fe",
+          "document_id": "fe7a18ae-647c-452a-bc94-3a19398ea00d",
+          "file_name": "SkillDAG.pdf",
+          "chunk_index": 67,
+          "score": 0.8021520972251892,
+          "content_preview": "Algorithms 1 and 2 together specify the <sup>SkillDAG</sup> workflow end to end. Algorithm 1 builds the initial typed graph ofline from the skill library (§3.4); Algorithm 2 runs the per-episode online loop covering retrieval and graph edits (§3.3, §3.5). The pair classifier <sup>??</sup> returns one of depends\\_on, specializes, composes\\_with, similar\\_to, or none; conflicts\\_with is reserved for the online phase. Agentfacing calls (search, show, propose-edge, edit-edge) and the three commit-time invariants (acyclicity, non-contradiction, and append-only reversibility) appear inline in Algorithm 2.\n\n<div class=\"mineru-algorithm\" style=\"white-space: pre-wrap; font-family:monospace;\">\nAlgorithm 1 Cold-start graph construction.\n\nRequire: Skill library C; embedder  $\\phi$ ; pair classifier  $"
+        }
+      ],
+      "answer": "SkillDAG 将技能库表示为 typed directed graph 而不是仅使用 embedding 相似度检索，是因为纯相似度匹配会遗漏结构上必要的技能，并串联冗余或冲突的技能，这是一种相似度匹配无法发现的失败模式（KB5）。它通过将图暴露为 agent 可调用的接口来处理依赖和冲突关系：依赖关系（depends_on）和特化关系（specializes）构成有向无环骨干，在提交时强制无环性（KB4）；冲突关系（conflicts_with）仅作为剪枝信号，用于排除共选，而不作为导航边遍历（KB4）。",
+      "citations": [
+        "KB5",
+        "KB4"
+      ],
+      "citation_audit": {
+        "citation_count": 2,
+        "valid_citation_count": 2,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 0,
+        "ground_truth_citation_precision": 0.0,
+        "ground_truth_citation_recall": 0.0,
+        "invalid_citations": [],
+        "target_citation_labels": []
+      },
+      "retrieval_elapsed_ms": 1220.9642729721963,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.3333333333333333,
+        "ndcg_at_k": 0.46927872602275644,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "typed",
+          "directed graph",
+          "depends",
+          "conflicts"
+        ],
+        "matched_chunk_ids": [
+          "96bfbb31-fb45-45a8-94e7-b85714afe58d"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 4054.4842327944934,
+      "judge_elapsed_ms": 13196.643841918558,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案中的大部分信息得到了证据的支持。KB5 提到了纯相似度匹配会遗漏结构上必要的技能，并串联冗余或冲突的技能，这支持了 answer_faithfulness 和 answer_relevancy。KB4 详细描述了 SkillDAG 如何处理依赖和冲突关系，这支持了答案中关于依赖关系和冲突关系处理的描述，进一步支持了 answer_relevancy 和 citation_correctness。然而，答案中提到的特化关系（specializes）在 KB4 中没有具体说明，这略微降低了 answer_faithfulness。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.9,
+          "explanation": "答案中的大部分信息得到了证据的支持。KB5 提到了纯相似度匹配会遗漏结构上必要的技能，并串联冗余或冲突的技能，这支持了 answer_faithfulness 和 answer_relevancy。KB4 详细描述了 SkillDAG 如何处理依赖和冲突关系，这支持了答案中关于依赖关系和冲突关系处理的描述，进一步支持了 answer_relevancy 和 citation_correctness。然而，答案中提到的特化关系（specializes）在 KB4 中没有具体说明，这略微降低了 answer_faithfulness。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 18472.493384964764
+    },
+    {
+      "case_id": "91197148-a10d-4002-ae35-91c44d5ced0b",
+      "query": "SKILLRET 如何构建大规模技能检索 benchmark？为什么多技能 query 是一个重要评测场景？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "a48a99dd-3ec5-45c6-8834-cd9a024f6f9c",
+          "document_id": "36aad738-50a4-4986-8cb7-f73684703d60",
+          "file_name": "SkillRet.pdf",
+          "chunk_index": 75,
+          "score": 0.9845244288444519,
+          "content_preview": "We introduced SKILLRET, a large-scale benchmark for skill retrieval in LLM agents, built from 17,810 curated public skills with a two-level taxonomy of 6 Major and 18 Sub-categories, 4,997 evaluation queries, and a matched training pool of 63,259 queries. Unlike prior tool retrieval benchmarks, SkillRet targets long-form, compositional skill documents, where the relevant signal must be matched against a small actionable portion of the user query. Across various embedding models, The strongest off-the-shelf retriever reaches 0.665 NDCG@10, while the strongest prior skill-retrieval model reaches 0.704. Domain-specific fine-tuning on SKILLRET lifts NDCG@10 to 0.835, corresponding to a +13.1-point gain over the strongest prior retriever and a +16.9-point gain over the strongest off-the-shelf r"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "55fc2e00-a9a8-46a6-9275-7afbf74791ee",
+          "document_id": "36aad738-50a4-4986-8cb7-f73684703d60",
+          "file_name": "SkillRet.pdf",
+          "chunk_index": 9,
+          "score": 0.9762138724327087,
+          "content_preview": "To address this gap, we introduce SKILLRET, a large-scale benchmark for skill retrieval in LLM agents. SKILLRET is built from 17,810 public agent skills, curated from a raw crawl of 22,795 listings through a filtering pipeline. It provides 63,259 public training samples and 4,997 evaluation samples, enabling both controlled benchmarking and retrieval-oriented model development. We further annotate the corpus with semantic tags and a two-level taxonomy spanning 6 major categories and 18 sub-categories, supporting fine-grained analysis across domains and difficulty factors. Altogether, SKILLRET captures a realistic retrieval environment characterized by long-context skill documents and imbalanced skill distributions."
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "e42ed9c3-d773-41a0-be1f-dd6fe4b17c82",
+          "document_id": "36aad738-50a4-4986-8cb7-f73684703d60",
+          "file_name": "SkillRet.pdf",
+          "chunk_index": 1,
+          "score": 0.9712146520614624,
+          "content_preview": "As LLM agents are increasingly deployed with large libraries of reusable skills, selecting the right skill for a user request has become a critical systems challenge. In small libraries, users may invoke skills explicitly by name, but this assumption breaks down as skill ecosystems grow under tight context and latency budgets. Despite its practical importance, skill retrieval remains underexplored, with limited benchmarks and little understanding of retrieval behavior on realistic skill libraries. To address this gap, we introduce SKILLRET, a large-scale benchmark for skill retrieval in LLM agents. SKILLRET contains 17,810 public agent skills, organized with structured semantic tags and a two-level taxonomy spanning 6 major categories and 18 sub-categories. It provides 63,259 training samp"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "003c0ad8-6ded-4fee-9bba-6d2ec19648b6",
+          "document_id": "36aad738-50a4-4986-8cb7-f73684703d60",
+          "file_name": "SkillRet.pdf",
+          "chunk_index": 18,
+          "score": 0.9632301926612854,
+          "content_preview": "# 3 SkillRet Benchmark\n\nSKILLRET is a large-scale benchmark for retrieving relevant agent skills from a curated library of publicly available skills. Starting from 22,795 community-contributed skills, we apply quality filtering and deduplication to obtain 17,810 skills (Section 3.1). We then generate natural-language queries that mirror realistic agent invocation patterns, where each query requires one or more skills from the library (Section 3.2). Finally, we filter the generated query–skill pairs through automatic checks, LLM-based review, and human expert validation, yielding disjoint training and evaluation splits with no skill overlap. Fig. 1 illustrates the full data construction pipeline.\n\n# 3.1 Data Collection and Quality Filtering"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "58b92545-36e1-452e-9c6e-7427ccdd87b5",
+          "document_id": "36aad738-50a4-4986-8cb7-f73684703d60",
+          "file_name": "SkillRet.pdf",
+          "chunk_index": 74,
+          "score": 0.9564717411994934,
+          "content_preview": "SKILLRET has two main limitations. First, SKILLRET queries are designed to resemble realistic user requests but are synthetically generated rather than collected from live agent interactions. Thus, the evaluation set may under-represent terse, underspecified, conversational, or user-context-dependent requests common in real deployments. We mitigate this with GAIA-style seed examples, skill-name leakage filtering, and query–skill validation, but bridging synthetic benchmarks with real agent traffic remains important future work. Second, SKILLRET evaluates retrieval quality in isolation and does not measure downstream task success or end-to-end agent performance. Higher NDCG@10 does not necessarily imply better skill use, since retrieved skills must still be selected, composed, interpreted, "
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "2eee228f-d37f-447e-9a10-30d45014f353",
+          "document_id": "36aad738-50a4-4986-8cb7-f73684703d60",
+          "file_name": "SkillRet.pdf",
+          "chunk_index": 2,
+          "score": 0.9359515309333801,
+          "content_preview": "ll pools, enabling both benchmarking and retrieval-oriented training. Across a diverse set of retrievers, we find that skill retrieval remains far from solved: off-the-shelf models struggle on realistic large-scale skill libraries, and prior skill-retrieval models still leave substantial headroom. Task-specific finetuning on SKILLRET substantially improves performance, improving NDCG@10 by +13.1 points over the strongest prior retriever and by +16.9 points over the strongest off-the-shelf retriever. Our analysis further suggests that these gains arise because fine-tuned models better focus on the small skill-relevant signals within long and noisy queries. These results establish SKILLRET as a strong benchmark and foundation for future research on retrieval in large-scale agent systems. We "
+        }
+      ],
+      "answer": "SKILLRET 从 22,795 个社区贡献技能中经过质量过滤和去重得到 17,810 个技能，并构建了包含 6 个主要类别和 18 个子类别的两级分类体系。它生成了 4,997 个评估查询和 63,259 个训练样本，查询模拟真实的代理调用模式，每个查询需要一个或多个技能。多技能查询是重要评测场景，因为在实际代理系统中，用户请求往往需要组合多个技能，这能更真实地反映检索挑战。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3",
+        "KB4"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 2,
+        "ground_truth_citation_precision": 0.5,
+        "ground_truth_citation_recall": 0.6666666666666666,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB2",
+          "KB3"
+        ]
+      },
+      "retrieval_elapsed_ms": 1171.9162240624428,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.5,
+        "context_precision": 0.3333333333333333,
+        "context_recall": 0.6666666666666666,
+        "ndcg_at_k": 0.5307212739772434,
+        "expected_keyword_recall": 0.75,
+        "expected_keyword_hits": [
+          "SKILLRET",
+          "17,810",
+          "evaluation"
+        ],
+        "matched_chunk_ids": [
+          "55fc2e00-a9a8-46a6-9275-7afbf74791ee",
+          "e42ed9c3-d773-41a0-be1f-dd6fe4b17c82"
+        ],
+        "matched_target_count": 2,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 5539.158803876489,
+      "judge_elapsed_ms": 10956.174316816032,
+      "judge": {
+        "answer_faithfulness": 0.95,
+        "answer_relevancy": 0.95,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案中的大部分信息，如技能数量、分类体系、评估查询和训练样本的数量，以及多技能查询的重要性，都得到了提供的证据的支持。然而，关于多技能查询的具体原因，虽然答案中提到用户请求往往需要组合多个技能，这能更真实地反映检索挑战，但证据中没有明确提到这一点，因此在 answer_faithfulness 和 answer_relevancy 上略有扣分。引用标签 [KB1]、[KB2]、[KB3] 和 [KB4] 都真实存在且支持了答案中的大部分内容，但在 [KB4] 中没有找到关于多技能查询重要性的直接支持，因此 citation_correctness 也略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.95,
+          "answer_relevancy": 0.95,
+          "citation_correctness": 0.9,
+          "explanation": "答案中的大部分信息，如技能数量、分类体系、评估查询和训练样本的数量，以及多技能查询的重要性，都得到了提供的证据的支持。然而，关于多技能查询的具体原因，虽然答案中提到用户请求往往需要组合多个技能，这能更真实地反映检索挑战，但证据中没有明确提到这一点，因此在 answer_faithfulness 和 answer_relevancy 上略有扣分。引用标签 [KB1]、[KB2]、[KB3] 和 [KB4] 都真实存在且支持了答案中的大部分内容，但在 [KB4] 中没有找到关于多技能查询重要性的直接支持，因此 citation_correctness 也略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 17667.753676883876
+    },
+    {
+      "case_id": "5a8727b3-e210-4255-89cf-373df77a69e8",
+      "query": "SkillRouter 的实验为什么说明完整 skill body 对路由很重要？移除 body 会带来什么影响？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "c02726f8-fa4c-48f7-863e-1b29df80b062",
+          "document_id": "36aad738-50a4-4986-8cb7-f73684703d60",
+          "file_name": "SkillRet.pdf",
+          "chunk_index": 17,
+          "score": 0.9961434602737427,
+          "content_preview": "th public train/evaluation splits and controlled rankingbased evaluation. The closest prior work is SkillRouter, which studies skill selection over roughly 80K candidate skills using a two-stage retrieve-and-rerank pipeline and a benchmark of 75 expert-verified queries [37]. A key finding is that the full skill body carries decisive routing signal, and removing it causes large performance drops across retrieval methods [37]. At the same time, SkillRouter is primarily a routing-model paper rather than a benchmark paper. Its core contribution is how to design and train a scalable router, whereas our goal is to provide a broader benchmark for comparing retrieval quality across models and settings."
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "b6d98940-d549-4230-94dc-ce87f29b1e32",
+          "document_id": "850e261f-34c4-4312-8a6d-faf35cf908e0",
+          "file_name": "SkillRouter.pdf",
+          "chunk_index": 8,
+          "score": 0.9944808483123779,
+          "content_preview": "We study skill routing on a benchmark with ∼80K skills and 75 expert-verified SkillsBenchderived queries that instantiate this setting. Our central empirical finding is that, on this setting, full skill text is a critical routing signal: removing the body causes 31–44pp drops across representative sparse, dense, and reranking baselines, while length-controlled attention diagnostics and description-quality stratification argue against simple length-only or description-quality explanations. Motivated by this observation, we build SKILLROUTER, a compact 1.2B full-text retrieve-and-rerank pipeline. The primary 1.2B configuration (0.6B encoder + 0.6B reranker) reaches 74.0% Hit@1 and 70.4% R@10, compared with 68.0% Hit@1 for the strongest 16B base pipeline—achieving comparable or higher accurac"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "5b9b5dc7-5ce4-476f-81af-fecf8a81b9ab",
+          "document_id": "850e261f-34c4-4312-8a6d-faf35cf908e0",
+          "file_name": "SkillRouter.pdf",
+          "chunk_index": 52,
+          "score": 0.9859110116958618,
+          "content_preview": "We study skill routing at realistic registry scale and show that full skill text is a critical routing signal: on our ∼80K-skill benchmark, removing body text causes 31–44pp drops across representative baselines. A compact 1.2B full-text retrieve-and-rerank pipeline reaches 74.0% Hit@1—competitive with the strongest 16B base pipeline at 5.8× lower latency—with false-negative filtering and listwise reranking loss shown to be essential in homogeneous skill pools. The gains generalize to a supplementary benchmark (§5.4) and transfer to direct task execution across four coding agents. More broadly, the body-access finding likely extends beyond skill routing to other structured-retrieval settings with rich implementation detail, such as API routing and plugin selection."
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "b4aa22c7-bc12-4c88-a6e0-719d87f57599",
+          "document_id": "850e261f-34c4-4312-8a6d-faf35cf908e0",
+          "file_name": "SkillRouter.pdf",
+          "chunk_index": 20,
+          "score": 0.9818753600120544,
+          "content_preview": "Figure 1: Full skill text is a critical routing signal. Left: Averaged over the paper’s Easy and Hard tiers, removing body reduces Hit@1 by 31.4pp for BM25, 38.7pp for Qwen3-Emb-8B, and 44.0pp for Qwen3-Emb-8B × Qwen3-Rank-8B. Right: Length-controlled attention diagnostics argue against a simple length-only explanation: although the body field occupies 96.5% of skill tokens, the short name field peaks at 26.3% attention in layer 19 despite covering only 3.0% of tokens, while the final layer returns to 98.1% body attention.\n\nQwen3-Emb-8B × Qwen3-Rank-8B drops from 68.0% to 24.0%. Appendix Table 9 shows the same encoder-only pattern for Qwen3-Emb-0.6B, which drops from 56.0% to 18.7% on the same benchmark. This collapse is therefore not tied to a single model choice: across sparse retrieval,"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "1b6860cc-12c8-441a-9933-098e263446ce",
+          "document_id": "850e261f-34c4-4312-8a6d-faf35cf908e0",
+          "file_name": "SkillRouter.pdf",
+          "chunk_index": 1,
+          "score": 0.9586679339408875,
+          "content_preview": "Reusable skills let LLM agents package task-specific procedures, tool affordances, and execution guidance into modular building blocks. As skill ecosystems grow to tens of thousands of entries, exposing every skill at inference time becomes infeasible. This creates a skill-routing problem: given a user task, the system must identify relevant skills before downstream planning or execution. Existing agent stacks often rely on progressive disclosure, exposing only skill names and descriptions while hiding the full implementation body. We examine this design choice on a SkillsBenchderived benchmark with approximately 80K candidate skills, targeting the practically important setting of large skill registries with heavy overlap. Across representative sparse, dense, and reranking baselines on thi"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "b420cda3-6643-4cdc-a7d6-410eadc6e7b3",
+          "document_id": "850e261f-34c4-4312-8a6d-faf35cf908e0",
+          "file_name": "SkillRouter.pdf",
+          "chunk_index": 23,
+          "score": 0.9497780799865723,
+          "content_preview": "Implication. Taken together, these results indicate that full skill text is a critical routing signal for reliable routing in this setting, in both retrieval and reranking. This observation directly motivates the design of SKILLROUTER in the next section.\n\n# 4 SkillRouter: a compact full-text routing recipe"
+        }
+      ],
+      "answer": "SkillRouter 的实验表明完整 skill body 对路由很重要，因为移除 body 会导致路由准确率大幅下降。具体来说，在约 80K 候选技能和 75 个专家验证查询的基准测试中，移除 body 文本导致代表性稀疏、密集和重排序基线的性能下降 31–44 个百分点（例如，BM25 的 Hit@1 下降 31.4pp，Qwen3-Emb-8B 下降 38.7pp，Qwen3-Emb-8B × Qwen3-Rank-8B 下降 44.0pp）[KB2][KB4]。这种下降并非由简单的长度或描述质量因素导致，因为长度控制的注意力诊断显示，尽管 body 字段占技能 token 的 96.5%，但短名称字段在特定层仍能获得高注意力，而最终层 body 注意力回归到 98.1% [KB4]。因此，完整 skill body 是关键的 routing 信号，移除它会严重损害顶级排名性能 [KB5][KB6]。",
+      "citations": [
+        "KB2",
+        "KB4",
+        "KB5",
+        "KB6"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 2,
+        "ground_truth_citation_precision": 0.5,
+        "ground_truth_citation_recall": 0.6666666666666666,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB2",
+          "KB5"
+        ]
+      },
+      "retrieval_elapsed_ms": 1259.041401091963,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.5,
+        "context_precision": 0.3333333333333333,
+        "context_recall": 0.6666666666666666,
+        "ndcg_at_k": 0.4776237035032179,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "skill body",
+          "routing",
+          "Hit@1",
+          "removing body"
+        ],
+        "matched_chunk_ids": [
+          "b6d98940-d549-4230-94dc-ce87f29b1e32",
+          "1b6860cc-12c8-441a-9933-098e263446ce"
+        ],
+        "matched_target_count": 2,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 3829.434629995376,
+      "judge_elapsed_ms": 6815.743786282837,
+      "judge": {
+        "answer_faithfulness": 0.95,
+        "answer_relevancy": 0.95,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案中的事实大部分被证据支持，例如移除 body 导致性能下降的具体数据（31.4pp, 38.7pp, 44.0pp）在 [KB2] 和 [KB4] 中都有提及。答案也直接回答了问题，解释了为什么完整 skill body 对路由很重要，以及移除 body 会带来的影响。引用标签 [KB2]、[KB4]、[KB5] 和 [KB6] 都真实存在且支持答案中的结论，但 [KB5] 和 [KB6] 没有提供具体的性能下降数据，因此引用正确性略低于 1。",
+        "raw_json": {
+          "answer_faithfulness": 0.95,
+          "answer_relevancy": 0.95,
+          "citation_correctness": 0.9,
+          "explanation": "答案中的事实大部分被证据支持，例如移除 body 导致性能下降的具体数据（31.4pp, 38.7pp, 44.0pp）在 [KB2] 和 [KB4] 中都有提及。答案也直接回答了问题，解释了为什么完整 skill body 对路由很重要，以及移除 body 会带来的影响。引用标签 [KB2]、[KB4]、[KB5] 和 [KB6] 都真实存在且支持答案中的结论，但 [KB5] 和 [KB6] 没有提供具体的性能下降数据，因此引用正确性略低于 1。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 11904.72745988518
+    },
+    {
+      "case_id": "3af51bb2-fd15-4685-9fe1-fb88ad59554b",
+      "query": "Dynamic Routing MoE 如何根据输入难度和专家选择置信度动态决定激活多少专家，并如何控制负载均衡？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "11178081-a057-4b03-9042-7d717e4a0823",
+          "document_id": "9b6785b2-b653-4bff-bafc-74920b90d146",
+          "file_name": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf",
+          "chunk_index": 6,
+          "score": 0.9992140531539917,
+          "content_preview": "To fully leverage the potential of MoE models, we propose a dynamic routing mechanism that adjusts the number of required experts based on the confidence level in the expert selection. When the model deems the currently selected experts as insufficient, it activates more experts. Specifically, we first compute a probability distribution for selecting experts. If the highest probability for an expert exceeds a predefined threshold $p ,$ indicating high confidence, we activate only that one expert. Otherwise, we progressively add additional experts until the cumulative probability of the selected experts exceeds the threshold $p .$ This approach allows for a dynamic selection of experts, with the number of experts adjusted based on the input’s complexity."
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "5e9a88f5-b18b-427b-bbae-b9d4dc2fef9e",
+          "document_id": "9b6785b2-b653-4bff-bafc-74920b90d146",
+          "file_name": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf",
+          "chunk_index": 1,
+          "score": 0.9988585710525513,
+          "content_preview": "In this paper, we introduce a novel dynamic expert selection framework for Mixture of Experts (MoE) models, aiming to enhance computational efficiency and model performance by adjusting the number of activated experts based on input difficulty. Unlike existing MoE approaches that rely on fixed TopK Routing, which activates a predetermined number of experts regardless of the input’s complexity, our method dynamically allocates experts based on the confidence level in expert selection for each input. This allows for more efficient utilization of computational resources, activating more experts for complex tasks requiring advanced reasoning and fewer for simpler tasks. Through extensive evaluations, our dynamic routing method demonstrates substantial improvements over Top2 Routing across vari"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "a45b898c-452b-4f22-b2b0-c62a1b9f357f",
+          "document_id": "9b6785b2-b653-4bff-bafc-74920b90d146",
+          "file_name": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf",
+          "chunk_index": 11,
+          "score": 0.992755115032196,
+          "content_preview": "In this section, we first briefly introduce the MoE model with TopK Routing strategy, which activates a fixed number of experts for each token. As TopK Routing ignores the varying difficulty of different inputs and the different requirements for experts at different layers, we propose a dynamic routing mechanism that adjusts the number of activated experts according to the complexity of inputs. To avoid activating too many parameters through the dynamic routing mechanism, we also introduce a dynamic loss to encourage the model to activate only the necessary experts.\n\n## 2.1 TopK Routing MoE"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "25d1dd39-1cf0-4586-8b16-3e417f9b0a7b",
+          "document_id": "9b6785b2-b653-4bff-bafc-74920b90d146",
+          "file_name": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf",
+          "chunk_index": 8,
+          "score": 0.9917568564414978,
+          "content_preview": "Evaluation across multiple common benchmarks has revealed that our method substantially outperforms MoE models based on TopK Routing. Compared with Top2 Routing, our dynamic routing achieves an average improvement of 0.7% with less than 90% activated parameters. Further analysis has shown that our dynamic routing mechanism activates more experts in tasks requiring complex reasoning like BBH (Suzgun et al., 2023), while using fewer experts in relatively easier tasks such as Hellaswag (Zellers et al., 2019), confirming that our method indeed dynamically allocates experts based on the difficulty of the input. Token-level analysis indicates that tokens with ambiguous semantics are more challenging for the model, typically activating more experts. Another interesting finding is that the number "
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "9715193f-9bb4-4ebc-9a2c-1ec0fb32fd37",
+          "document_id": "9b6785b2-b653-4bff-bafc-74920b90d146",
+          "file_name": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf",
+          "chunk_index": 26,
+          "score": 0.9914517998695374,
+          "content_preview": "MoE-Dynamic MoE-Dynamic model uses our dynamic routing mechanism, activating a various number of experts depending on the input token representation. The threshold p in our routing mechanism is 0.4. During inference, MoE-Dynamic model activates no more than 2 experts, which means it uses fewer parameters than MoE-Top2.\n\n## 3.2 Main Results\n\nTable 1 shows the performance of different models on downstream tasks. Overall, the MoE models outperform the Dense models. Among all the MoE variants, our proposed Dynamic MoE demonstrates the best performance, achieving at least a 0.7% higher score on average compared to other models."
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "2075930f-9d51-47ab-9b6c-d9a06fa9f120",
+          "document_id": "9b6785b2-b653-4bff-bafc-74920b90d146",
+          "file_name": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf",
+          "chunk_index": 10,
+          "score": 0.9906564354896545,
+          "content_preview": "Our contributions can be summarized as follows:\n\n1. We proposed a dynamic routing strategy that can adjust the number of activated experts based on the input difficulty.\n\n2. We empirically validate that our proposed method is efficient in both training and inference, outperforming Top2 Routing while activating fewer experts.\n\n3. We observe that for MoE models, the number of experts needed to be activated varies across different layers. This finding could help design heterogeneous MoE frameworks.\n\n## 2 Method"
+        }
+      ],
+      "answer": "Dynamic Routing MoE 根据输入难度和专家选择置信度动态决定激活专家数量：首先计算选择专家的概率分布，若最高概率超过预设阈值 p（如 0.4），则只激活该专家；否则逐步添加专家，直到所选专家的累积概率超过阈值 p。这使复杂任务激活更多专家，简单任务激活更少专家。负载均衡通过引入动态损失来控制，鼓励模型仅激活必要专家，避免激活过多参数。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3",
+        "KB5"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.25,
+        "ground_truth_citation_recall": 0.3333333333333333,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB2"
+        ]
+      },
+      "retrieval_elapsed_ms": 1132.145717740059,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.5,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.3333333333333333,
+        "ndcg_at_k": 0.2960819109658652,
+        "expected_keyword_recall": 0.75,
+        "expected_keyword_hits": [
+          "dynamic routing",
+          "confidence",
+          "input difficulty"
+        ],
+        "matched_chunk_ids": [
+          "5e9a88f5-b18b-427b-bbae-b9d4dc2fef9e"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 3461.8168622255325,
+      "judge_elapsed_ms": 6398.61886203289,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案事实基本被证据支持，描述了根据输入难度和专家选择置信度动态决定激活专家数量的方法，以及通过动态损失控制负载均衡。引用的文献标签大部分存在且支持结论，但 KB5 仅提到阈值 p 为 0.4 和激活专家数量不超过 2 个，未详细说明动态损失。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "答案事实基本被证据支持，描述了根据输入难度和专家选择置信度动态决定激活专家数量的方法，以及通过动态损失控制负载均衡。引用的文献标签大部分存在且支持结论，但 KB5 仅提到阈值 p 为 0.4 和激活专家数量不超过 2 个，未详细说明动态损失。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 10993.225196376443
+    },
+    {
+      "case_id": "5ff0d84d-081e-4f35-9c9a-19bab2da5bd2",
+      "query": "Test-Time Learning for Large Language Models 如何利用无标签测试数据和输入困惑度实现适应，并通过 LoRA 减少灾难性遗忘？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "7ec1db8d-10f9-4e01-8758-9447991d5731",
+          "document_id": "e522dda9-4b5e-4fc4-ace0-72ea70d33eaa",
+          "file_name": "Test_Time_Learning_for_La.pdf",
+          "chunk_index": 29,
+          "score": 0.9996433258056641,
+          "content_preview": "In this paper, we propose a Test-Time Learning (TTL) method for Large Language Models (LLMs) called TLM, which dynamically adapts LLMs using only unlabeled test data. The pipeline of TLM is shown in Algorithm 1, our proposed TLM is composed of three key components. 1) Input Perplexity Minimization Objective: Inspired by the strong correlation between input perplexity and output perplexity, we adopt input perplexity minimization as the optimization objective. This enables LLMs to better fit the target data distribution during test time, as detailed in Sec. 4.1. 2) Sample-Efficient Learning Strategy: Not all test samples equally impact model updates. Employing a perplexitybased weighting scheme, the model actively selects and emphasizes high-perplexity test samples for backpropagation, there"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "54eec86d-df43-45bf-8c06-f59db827796f",
+          "document_id": "e522dda9-4b5e-4fc4-ace0-72ea70d33eaa",
+          "file_name": "Test_Time_Learning_for_La.pdf",
+          "chunk_index": 71,
+          "score": 0.9967908263206482,
+          "content_preview": "In this paper, we propose a novel Test-Time Learning (TTL) method for Large Language Models (LLMs), named TLM, to address the challenges posed by dynamic and diverse data distributions in real-world environments. By leveraging only unlabeled test data, TLM efficiently adapts LLMs and improves their robustness in target domains. Specifically, through observation and theoretical analysis, we argue that reducing output perplexity can be achieved by minimizing the input perplexity of unlabeled test data. Based on this insight, we adopt input perplexity minimization as the optimization objective for test-time LLM updates. Moreover, we find that high-perplexity test samples play a more crucial role in model updates than low-perplexity samples. This insight motivates the development of our Sample"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "2f9db1de-8cfd-4a87-a913-efa1bcbcd972",
+          "document_id": "e522dda9-4b5e-4fc4-ace0-72ea70d33eaa",
+          "file_name": "Test_Time_Learning_for_La.pdf",
+          "chunk_index": 1,
+          "score": 0.9967551827430725,
+          "content_preview": "While Large Language Models (LLMs) have exhibited remarkable emergent capabilities through extensive pre-training, they still face critical limitations in generalizing to specialized domains and handling diverse linguistic variations, known as distribution shifts. In this paper, we propose a Test-Time Learning (TTL) paradigm for LLMs, namely TLM, which dynamically adapts LLMs to target domains using only unlabeled test data during testing. Specifically, we first provide empirical evidence and theoretical insights to reveal that more accurate predictions from LLMs can be achieved by minimizing the input perplexity of the unlabeled test data. Based on this insight, we formulate the Test-Time Learning process of LLMs as input perplexity minimization, enabling selfsupervised enhancement of LLM"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "9c737f5e-cfc1-4aa8-acee-abcf2f9a544e",
+          "document_id": "e522dda9-4b5e-4fc4-ace0-72ea70d33eaa",
+          "file_name": "Test_Time_Learning_for_La.pdf",
+          "chunk_index": 11,
+          "score": 0.9965953230857849,
+          "content_preview": "To address these limitations, we propose a Test-Time Learning (TTL) method for Large Language Models, namely TLM, which dynamically adapts LLMs using only unlabeled test data. Specifically, we provide empirical evidence and theoretical insights to reveal that more accurate autoregressive predictions from LLMs can be achieved by minimizing the input perplexity of the unlabeled test data (see Observation 1). Based on this insight, we formulate the TTL process of LLMs as input perplexity minimization, enabling self-supervised enhancement of LLM performance. Furthermore, we observe that high-perplexity test samples contribute more significantly to model updates compared to low-perplexity samples (see Observation 2). Building on this observation, we propose a Sample Efficient Learning Strategy "
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "cb1203cc-3c6d-43bc-9f69-20040079b918",
+          "document_id": "e522dda9-4b5e-4fc4-ace0-72ea70d33eaa",
+          "file_name": "Test_Time_Learning_for_La.pdf",
+          "chunk_index": 12,
+          "score": 0.9883721470832825,
+          "content_preview": "o actively select and emphasize high-perplexity test samples for backpropagation, thereby facilitating efficient parameter updates during Test-Time Learning. Moreover, we observe that during the Test-Time Learning, Low-Rank Adaptation (LoRA) (Hu et al., 2022) is more effective at mitigating catastrophic forgetting compared to full parameter updates (see Observation 3). Based on this, we utilize LoRA for TTL parameter updates, enabling lightweight training and effectively mitigating catastrophic forgetting, in contrast to updating the full parameters of LLMs. Lastly, we construct a comprehensive benchmark named AdaptEval for TTL."
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "b6ba5c45-8ed4-41aa-a9bf-9fcaec55fcf8",
+          "document_id": "e522dda9-4b5e-4fc4-ace0-72ea70d33eaa",
+          "file_name": "Test_Time_Learning_for_La.pdf",
+          "chunk_index": 49,
+          "score": 0.9851558804512024,
+          "content_preview": "## 4.3. Modulating Parameters for Test-Time Learning\n\nObservation3: Low-Rank Adaptation prevents catastrophic forgetting more effectively than Full-Param updates during test-time learning. We conduct Test-Time\n\nLearning on DomainBench (see Supp. B) using both Full-Param and Low-Rank Adaptation (LoRA) (Hu et al., 2022) updates, and evaluate the LLM’s performance on GSM8K (Cobbe et al., 2021). From Figure 2, we observe that LoRA, compared to Full-Param updates, better preserves the model’s originally learned general knowledge, thereby demonstrating a significant regularization effect. This is likely due to LoRA’s ability to fine-tune only a small subset of model parameters, which effectively reduces the risk of overfitting and catastrophic forgetting.\n\nBased on Observation 3, we adopt the Lo"
+        }
+      ],
+      "answer": "TLM方法通过三个核心组件实现适应：1）输入困惑度最小化目标，利用输入与输出困惑度的强相关性，使LLM更好地拟合目标数据分布（KB1）；2）样本高效学习策略，基于困惑度加权机制主动选择高困惑度测试样本进行反向传播，实现高效参数更新（KB1, KB2）；3）通过LoRA进行轻量级参数更新，相比全参数更新能更有效缓解灾难性遗忘（KB1, KB5, KB6）。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB5",
+        "KB6"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.25,
+        "ground_truth_citation_recall": 0.3333333333333333,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB5"
+        ]
+      },
+      "retrieval_elapsed_ms": 1246.134981047362,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.3333333333333333,
+        "context_precision": 0.5,
+        "context_recall": 1.0,
+        "ndcg_at_k": 0.6182885020492784,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "test-time learning",
+          "unlabeled",
+          "perplexity",
+          "LoRA"
+        ],
+        "matched_chunk_ids": [
+          "2f9db1de-8cfd-4a87-a913-efa1bcbcd972",
+          "9c737f5e-cfc1-4aa8-acee-abcf2f9a544e",
+          "cb1203cc-3c6d-43bc-9f69-20040079b918"
+        ],
+        "matched_target_count": 3,
+        "ground_truth_target_count": 3
+      },
+      "generation_elapsed_ms": 3341.714194044471,
+      "judge_elapsed_ms": 7943.0025718174875,
+      "judge": {
+        "answer_faithfulness": 0.95,
+        "answer_relevancy": 0.95,
+        "citation_correctness": 0.95,
+        "judge_explanation": "答案中的三个核心组件和它们的作用与提供的证据高度一致。输入困惑度最小化目标、样本高效学习策略和通过LoRA进行轻量级参数更新都被KB1、KB2、KB4和KB5中的内容支持。引用标签KB1、KB2、KB5和KB6都真实存在，并且支持了答案中的结论。然而，KB6主要集中在LoRA防止灾难性遗忘的效果上，而答案中提到的LoRA减少灾难性遗忘的机制在KB5中也有描述，因此引用KB5和KB6有些重复。",
+        "raw_json": {
+          "answer_faithfulness": 0.95,
+          "answer_relevancy": 0.95,
+          "citation_correctness": 0.95,
+          "explanation": "答案中的三个核心组件和它们的作用与提供的证据高度一致。输入困惑度最小化目标、样本高效学习策略和通过LoRA进行轻量级参数更新都被KB1、KB2、KB4和KB5中的内容支持。引用标签KB1、KB2、KB5和KB6都真实存在，并且支持了答案中的结论。然而，KB6主要集中在LoRA防止灾难性遗忘的效果上，而答案中提到的LoRA减少灾难性遗忘的机制在KB5中也有描述，因此引用KB5和KB6有些重复。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 12531.41752583906
+    }
+  ],
+  "eval_set_id": "1a0d7b42-4da7-496f-ac37-260f584f04b9",
+  "knowledge_base_id": "f48f939a-a574-45a1-8721-6e635a258209",
+  "knowledge_base_name": "论文库",
+  "case_count": 20,
+  "provider_type": "openai-compatible",
+  "base_url": "https://api.siliconflow.cn/v1",
+  "config_snapshot": {
+    "retrieval_mode": "hybrid",
+    "rerank_enabled": true,
+    "top_k": 20,
+    "rerank_model": "BAAI/bge-reranker-v2-m3",
+    "rerank_top_n": 6,
+    "answer_model": "deepseek-ai/DeepSeek-V4-Flash",
+    "judge_model": "Qwen/Qwen2.5-72B-Instruct"
+  }
+}

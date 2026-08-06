@@ -244,12 +244,17 @@ class KnowledgeEvalCase(Base):
     eval_set_id: Mapped[str] = mapped_column(ForeignKey("knowledge_eval_sets.id"), index=True)
     query: Mapped[str] = mapped_column(Text)
     expected_document_id: Mapped[str | None] = mapped_column(ForeignKey("knowledge_documents.id"), nullable=True, index=True)
+    # A reviewed query may require evidence from more than one document. Keep
+    # the legacy singular columns for old clients, while new Gold Sets store
+    # the complete document/chunk target lists in JSON.
+    expected_document_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Chunk 是可重建的派生数据；重索引删除旧 Chunk 时保留评测用例，只让精确 Chunk 标注失效。
     expected_chunk_id: Mapped[str | None] = mapped_column(
         ForeignKey("knowledge_chunks.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
+    expected_chunk_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     expected_answer_keywords_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     difficulty: Mapped[str | None] = mapped_column(String(32), nullable=True)
     tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -293,7 +298,10 @@ class KnowledgeEvalResult(Base):
     query: Mapped[str] = mapped_column(Text)
     retrieved_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     expected_document_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    expected_document_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     expected_chunk_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    expected_chunk_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    matched_chunk_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     hit_at_k: Mapped[bool] = mapped_column(Boolean, default=False)
     mrr: Mapped[float | None] = mapped_column(Float, nullable=True)
     context_precision: Mapped[float | None] = mapped_column(Float, nullable=True)

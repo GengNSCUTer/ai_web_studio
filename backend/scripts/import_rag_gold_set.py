@@ -1,10 +1,10 @@
 """Import a reviewed RAG Gold Set manifest into one knowledge base.
 
-The manifest uses stable file/Chunk selectors instead of copying database IDs:
-``expected_document_file`` resolves a document by its uploaded file name and
-``expected_chunk_contains`` resolves the unique active-generation Chunk that
-contains a reviewed marker.  The command fails closed when a case has no target
-or a selector is ambiguous.
+The manifest uses stable file/Chunk selectors instead of copying database IDs.
+New cases may provide ``expected_document_files`` and a list of
+``expected_chunk_selectors``; each selector contains a document file name and a
+reviewed marker.  The legacy singular fields remain supported.  The command
+fails closed when a case has no target or a selector is ambiguous.
 """
 
 from __future__ import annotations
@@ -57,6 +57,20 @@ def _build_service(db: Any) -> KnowledgeEvaluationService:
     )
 
 
+def _as_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    values = value if isinstance(value, list) else [value]
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
 def _resolve_case(
     *,
     case: dict[str, Any],
@@ -64,36 +78,78 @@ def _resolve_case(
     chunk_repo: KnowledgeChunkRepository,
     user_id: str,
     knowledge_base: Any,
-) -> tuple[str | None, str | None]:
-    expected_document_id = str(case.get("expected_document_id") or "").strip() or None
-    expected_chunk_id = str(case.get("expected_chunk_id") or "").strip() or None
-    file_name = str(case.get("expected_document_file") or "").strip()
-    if file_name:
+) -> tuple[list[str], list[str]]:
+    expected_document_ids = _as_list(case.get("expected_document_ids"))
+    expected_chunk_ids = _as_list(case.get("expected_chunk_ids"))
+    file_names = _as_list(case.get("expected_document_files"))
+    legacy_file_name = str(case.get("expected_document_file") or "").strip()
+    if legacy_file_name:
+        file_names.insert(0, legacy_file_name)
+    for file_name in dict.fromkeys(file_names):
         matches = [item for item in documents if item.file_name.casefold() == file_name.casefold()]
         if len(matches) != 1:
             raise ValueError(f"{case.get('case_id')}: expected_document_file 未唯一匹配：{file_name}")
-        expected_document_id = matches[0].id
+        if matches[0].id not in expected_document_ids:
+            expected_document_ids.append(matches[0].id)
 
-    marker = str(case.get("expected_chunk_contains") or "").strip()
-    if marker:
-        if not expected_document_id:
-            raise ValueError(f"{case.get('case_id')}: expected_chunk_contains 必须先绑定文档")
-        generation = knowledge_base.active_index_generation or "legacy"
-        chunks = chunk_repo.list_by_document(
-            expected_document_id,
-            user_id,
-            index_generation=generation,
-        )
-        matches = [item for item in chunks if marker in (item.content or "")]
+    generation = knowledge_base.active_index_generation or "legacy"
+    selectors = case.get("expected_chunk_selectors") or []
+    if not isinstance(selectors, list):
+        raise ValueError(f"{case.get('case_id')}: expected_chunk_selectors 必须是数组")
+    for selector in selectors:
+        if not isinstance(selector, dict):
+            raise ValueError(f"{case.get('case_id')}: Chunk selector 必须是对象")
+        file_name = str(selector.get("document_file") or "").strip()
+        marker = str(selector.get("contains") or "").strip()
+        chunk_index = selector.get("chunk_index")
+        if not file_name or (not marker and chunk_index is None):
+            raise ValueError(f"{case.get('case_id')}: Chunk selector 缺少 document_file 与 contains/chunk_index")
+        doc_matches = [item for item in documents if item.file_name.casefold() == file_name.casefold()]
+        if len(doc_matches) != 1:
+            raise ValueError(f"{case.get('case_id')}: Chunk selector 文档未唯一匹配：{file_name}")
+        document_id = doc_matches[0].id
+        if document_id not in expected_document_ids:
+            expected_document_ids.append(document_id)
+        chunks = chunk_repo.list_by_document(document_id, user_id, index_generation=generation)
+        if chunk_index is not None:
+            try:
+                selected_index = int(chunk_index)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{case.get('case_id')}: chunk_index 必须是整数") from exc
+            matches = [item for item in chunks if item.chunk_index == selected_index]
+            if marker:
+                matches = [item for item in matches if marker.casefold() in (item.content or "").casefold()]
+        else:
+            matches = [item for item in chunks if marker.casefold() in (item.content or "").casefold()]
         if len(matches) != 1:
-            raise ValueError(f"{case.get('case_id')}: expected_chunk_contains 未唯一匹配：{marker}")
-        expected_chunk_id = matches[0].id
+            raise ValueError(f"{case.get('case_id')}: Chunk selector 未唯一匹配：{file_name} / {marker}")
+        if matches[0].id not in expected_chunk_ids:
+            expected_chunk_ids.append(matches[0].id)
 
-    if expected_chunk_id and not expected_document_id:
-        raise ValueError(f"{case.get('case_id')}: expected_chunk_id 必须同时绑定文档")
-    if not expected_document_id and not expected_chunk_id:
+    # A marker list without per-document selectors is accepted only when every
+    # marker resolves to exactly one Chunk in the selected active generation.
+    for marker in _as_list(case.get("expected_chunk_contains")):
+        candidates = []
+        for document in documents:
+            if expected_document_ids and document.id not in expected_document_ids:
+                continue
+            chunks = chunk_repo.list_by_document(document.id, user_id, index_generation=generation)
+            candidates.extend(item for item in chunks if marker.casefold() in (item.content or "").casefold())
+        if len(candidates) != 1:
+            raise ValueError(f"{case.get('case_id')}: expected_chunk_contains 未唯一匹配：{marker}")
+        if candidates[0].id not in expected_chunk_ids:
+            expected_chunk_ids.append(candidates[0].id)
+
+    for chunk_id in expected_chunk_ids:
+        chunk = chunk_repo.get_by_user(chunk_id, user_id)
+        if not chunk or chunk.knowledge_base_id != knowledge_base.id:
+            raise ValueError(f"{case.get('case_id')}: expected_chunk_id 不属于当前知识库：{chunk_id}")
+        if chunk.document_id not in expected_document_ids:
+            expected_document_ids.append(chunk.document_id)
+
+    if not expected_document_ids and not expected_chunk_ids:
         raise ValueError(f"{case.get('case_id')}: Gold Set Case 缺少人工标注目标")
-    return expected_document_id, expected_chunk_id
+    return expected_document_ids, expected_chunk_ids
 
 
 def main() -> int:
@@ -117,18 +173,18 @@ def main() -> int:
             args.user_id,
         )
         chunk_repo = KnowledgeChunkRepository(db)
-        resolved_cases: list[tuple[dict[str, Any], str | None, str | None]] = []
+        resolved_cases: list[tuple[dict[str, Any], list[str], list[str]]] = []
         for case in cases:
             if not isinstance(case, dict):
                 raise SystemExit("Gold Set case must be an object")
-            document_id, chunk_id = _resolve_case(
+            document_ids, chunk_ids = _resolve_case(
                 case=case,
                 documents=documents,
                 chunk_repo=chunk_repo,
                 user_id=args.user_id,
                 knowledge_base=knowledge_base,
             )
-            resolved_cases.append((case, document_id, chunk_id))
+            resolved_cases.append((case, document_ids, chunk_ids))
 
         service = _build_service(db)
         eval_set = service.create_eval_set(
@@ -141,15 +197,15 @@ def main() -> int:
         )
         if not eval_set:
             raise SystemExit("failed to create evaluation set")
-        for case, document_id, chunk_id in resolved_cases:
+        for case, document_ids, chunk_ids in resolved_cases:
             service.add_eval_case(
                 knowledge_base.id,
                 eval_set.id,
                 args.user_id,
                 KnowledgeEvalCaseCreate(
                     query=str(case.get("query") or "").strip(),
-                    expected_document_id=document_id,
-                    expected_chunk_id=chunk_id,
+                    expected_document_ids=document_ids,
+                    expected_chunk_ids=chunk_ids,
                     expected_answer_keywords=[str(item) for item in case.get("expected_answer_keywords", [])],
                     difficulty=str(case.get("difficulty") or "").strip() or None,
                     tags=[str(item) for item in case.get("tags", [])],

@@ -134,7 +134,10 @@ class KnowledgeChunker:
 
     @staticmethod
     def _normalize_markdown(markdown: str) -> str:
-        normalized = markdown.replace("\r\n", "\n").replace("\r", "\n")
+        # PostgreSQL text cannot store NUL bytes. PDF extractors can emit one
+        # for embedded glyph/control data, so remove it before chunking and
+        # persisting content. Other whitespace normalization stays unchanged.
+        normalized = markdown.replace("\x00", "").replace("\r\n", "\n").replace("\r", "\n")
         return re.sub(r"\n{3,}", "\n\n", normalized).strip()
 
     @staticmethod
@@ -903,6 +906,14 @@ class KnowledgeIndexService:
                 details = "；".join(compensation_errors)
                 raise RuntimeError(f"BM25 发布失败，且索引补偿未完全成功：{details}") from lexical_error
             raise
+        # Only invalidate reviewed Chunk targets after both the database rows and
+        # the replacement lexical snapshot are queryable.  If publication fails,
+        # the compensation path keeps the old labels meaningful.
+        self.chunk_repo.clear_eval_chunk_targets(
+            stale_chunk_ids=[chunk.id for chunk in previous_document_chunks],
+            knowledge_base_id=knowledge_base.id,
+            user_id=user_id,
+        )
         document.index_status = "indexed"
         document.error_message = None
         self.document_repo.save(document)

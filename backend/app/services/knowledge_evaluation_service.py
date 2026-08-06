@@ -51,6 +51,18 @@ def _normalized_keywords(values: list[str]) -> list[str]:
     return normalized
 
 
+def _normalized_ids(values: list[str]) -> list[str]:
+    """Normalize a reviewed ID list without changing its declared order."""
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for value in values:
+        item = str(value or "").strip()
+        if item and item not in seen:
+            seen.add(item)
+            normalized.append(item)
+    return normalized
+
+
 @dataclass(frozen=True)
 class KnowledgeEvalOutcome:
     run: KnowledgeEvalRunResponse
@@ -161,19 +173,27 @@ class KnowledgeEvaluationService:
         if not eval_set or eval_set.knowledge_base_id != knowledge_base_id:
             return None
 
-        expected_document_id = payload.expected_document_id
-        if payload.expected_chunk_id:
-            expected_chunk = self.chunk_repo.get_by_user(payload.expected_chunk_id, user_id)
-            if not expected_chunk or expected_chunk.knowledge_base_id != knowledge_base_id:
-                raise ValueError("期望 Chunk 不存在或不属于当前知识库。")
-            if expected_document_id and expected_document_id != expected_chunk.document_id:
-                raise ValueError("期望 Chunk 与期望文档不属于同一份文档。")
-            # 精确 Chunk 会在重索引时失效；同时保存稳定一些的文档级目标，供 SET NULL 后继续评测。
-            expected_document_id = expected_chunk.document_id
-        elif expected_document_id:
+        expected_document_ids = _normalized_ids(payload.expected_document_ids)
+        if payload.expected_document_id and payload.expected_document_id not in expected_document_ids:
+            expected_document_ids.insert(0, payload.expected_document_id)
+        expected_chunk_ids = _normalized_ids(payload.expected_chunk_ids)
+        if payload.expected_chunk_id and payload.expected_chunk_id not in expected_chunk_ids:
+            expected_chunk_ids.insert(0, payload.expected_chunk_id)
+
+        for expected_document_id in expected_document_ids:
             expected_document = self.document_repo.get_by_user(expected_document_id, user_id)
             if not expected_document or expected_document.knowledge_base_id != knowledge_base_id:
                 raise ValueError("期望文档不存在或不属于当前知识库。")
+        for expected_chunk_id in expected_chunk_ids:
+            expected_chunk = self.chunk_repo.get_by_user(expected_chunk_id, user_id)
+            if not expected_chunk or expected_chunk.knowledge_base_id != knowledge_base_id:
+                raise ValueError("期望 Chunk 不存在或不属于当前知识库。")
+            if expected_chunk.document_id not in expected_document_ids:
+                expected_document_ids.append(expected_chunk.document_id)
+
+        # 精确 Chunk 会在重索引时失效；文档列表仍保留，供文档级回退评测。
+        expected_document_id = expected_document_ids[0] if expected_document_ids else None
+        expected_chunk_id = expected_chunk_ids[0] if expected_chunk_ids else None
 
         item = KnowledgeEvalCase(
             user_id=user_id,
@@ -181,7 +201,9 @@ class KnowledgeEvaluationService:
             eval_set_id=eval_set_id,
             query=payload.query.strip(),
             expected_document_id=expected_document_id,
-            expected_chunk_id=payload.expected_chunk_id,
+            expected_document_ids_json=self._dump_list(expected_document_ids),
+            expected_chunk_id=expected_chunk_id,
+            expected_chunk_ids_json=self._dump_list(expected_chunk_ids),
             expected_answer_keywords_json=self._dump_list(payload.expected_answer_keywords),
             difficulty=payload.difficulty.strip() if payload.difficulty else None,
             tags_json=self._dump_list(payload.tags),
@@ -250,6 +272,7 @@ class KnowledgeEvaluationService:
             total_elapsed_ms = 0.0
             failure_count = 0
             fallback_count = 0
+            stale_chunk_target_count = 0
             case_errors: list[dict[str, str]] = []
             for case in cases:
                 started_at = perf_counter()
@@ -297,10 +320,23 @@ class KnowledgeEvaluationService:
                     }
                     for item in retrieved
                 ]
+                declared_chunk_ids = self._case_chunk_ids(case)
+                active_chunk_ids = self.chunk_repo.list_existing_ids(
+                    chunk_ids=declared_chunk_ids,
+                    knowledge_base_id=knowledge_base_id,
+                    user_id=user_id,
+                    index_generation=retrieval_config.active_index_generation,
+                )
+                stale_chunk_target_count += len(declared_chunk_ids) - len(active_chunk_ids)
                 metrics = self._score_case(
                     retrieved=retrieved,
-                    expected_chunk_id=case.expected_chunk_id,
-                    expected_document_id=case.expected_document_id,
+                    # A process crash between replacing DB chunks and publishing
+                    # the lexical snapshot can leave old IDs in the case JSON for
+                    # a short time. Restrict targets to the active generation; if
+                    # none remain, _score_case deliberately falls back to the
+                    # durable document-level labels.
+                    expected_chunk_ids=active_chunk_ids,
+                    expected_document_ids=self._case_document_ids(case),
                     expected_answer_keywords=self._load_list(case.expected_answer_keywords_json),
                 )
                 hit_sum += float(metrics["hit_at_k"])
@@ -320,7 +356,10 @@ class KnowledgeEvaluationService:
                         query=case.query,
                         retrieved_json=self._dump_json(retrieved_payload),
                         expected_document_id=case.expected_document_id,
+                        expected_document_ids_json=self._dump_list(self._case_document_ids(case)),
                         expected_chunk_id=case.expected_chunk_id,
+                        expected_chunk_ids_json=self._dump_list(active_chunk_ids),
+                        matched_chunk_ids_json=self._dump_list(metrics["matched_chunk_ids"]),
                         hit_at_k=bool(metrics["hit_at_k"]),
                         mrr=metrics["mrr"],
                         context_precision=metrics["context_precision"],
@@ -360,6 +399,7 @@ class KnowledgeEvaluationService:
                     "total_elapsed_ms": total_elapsed_ms,
                     "failure_count": failure_count,
                     "fallback_count": fallback_count,
+                    "stale_chunk_target_count": stale_chunk_target_count,
                     "case_errors": case_errors,
                     "config_snapshot": config_snapshot,
                 }
@@ -468,6 +508,20 @@ class KnowledgeEvaluationService:
             return []
         return loaded if isinstance(loaded, list) else []
 
+    @classmethod
+    def _case_document_ids(cls, case: KnowledgeEvalCase) -> list[str]:
+        ids = _normalized_ids(cls._load_list(case.expected_document_ids_json))
+        if case.expected_document_id and case.expected_document_id not in ids:
+            ids.insert(0, case.expected_document_id)
+        return ids
+
+    @classmethod
+    def _case_chunk_ids(cls, case: KnowledgeEvalCase) -> list[str]:
+        ids = _normalized_ids(cls._load_list(case.expected_chunk_ids_json))
+        if case.expected_chunk_id and case.expected_chunk_id not in ids:
+            ids.insert(0, case.expected_chunk_id)
+        return ids
+
     @staticmethod
     def _load_json(value: str | None) -> Any:
         if not value:
@@ -487,25 +541,45 @@ class KnowledgeEvaluationService:
     def _score_case(
         *,
         retrieved: list[Any],
-        expected_chunk_id: str | None,
-        expected_document_id: str | None,
+        expected_chunk_id: str | None = None,
+        expected_document_id: str | None = None,
+        expected_chunk_ids: list[str] | None = None,
+        expected_document_ids: list[str] | None = None,
         expected_answer_keywords: list[str] | None = None,
     ) -> dict[str, Any]:
         expected_keywords = _normalized_keywords(expected_answer_keywords or [])
+        chunk_targets = _normalized_ids(expected_chunk_ids or [])
+        document_targets = _normalized_ids(expected_document_ids or [])
+        if expected_chunk_id and expected_chunk_id not in chunk_targets:
+            chunk_targets.insert(0, expected_chunk_id)
+        if expected_document_id and expected_document_id not in document_targets:
+            document_targets.insert(0, expected_document_id)
+        target_ids = set(chunk_targets)
+        target_documents = set(document_targets)
         matched_index: int | None = None
         relevance: list[int] = []
+        matched_chunk_ids: list[str] = []
         for index, item in enumerate(retrieved, start=1):
-            # Chunk-level ground truth is more specific. The document target is
-            # only a fallback after reindexing has SET NULL on expected_chunk_id.
-            if expected_chunk_id:
-                matched = item.chunk.id == expected_chunk_id
+            # Exact Chunk targets are preferred. If a reindex invalidated them,
+            # document-level targets still provide a stable fallback.
+            if target_ids:
+                matched = item.chunk.id in target_ids
             else:
-                matched = bool(expected_document_id and item.chunk.document_id == expected_document_id)
+                matched = item.chunk.document_id in target_documents
             relevance.append(1 if matched else 0)
             if matched and matched_index is None:
                 matched_index = index
+            if matched and item.chunk.id not in matched_chunk_ids:
+                matched_chunk_ids.append(item.chunk.id)
         dcg = sum(relevant / math.log2(index + 1) for index, relevant in enumerate(relevance, start=1))
-        ideal_relevance = sorted(relevance, reverse=True)
+        target_count = len(target_ids) if target_ids else len(target_documents)
+        # With document-level fallback labels, every retrieved chunk from a
+        # target document is relevant; use the observed relevant cardinality
+        # for the ideal list. Exact Chunk labels retain the reviewed target
+        # count and therefore measure how many distinct evidence chunks were
+        # recovered.
+        ideal_count = target_count if target_ids else sum(relevance)
+        ideal_relevance = [1] * min(ideal_count, len(relevance)) + [0] * max(0, len(relevance) - ideal_count)
         idcg = sum(relevant / math.log2(index + 1) for index, relevant in enumerate(ideal_relevance, start=1))
         ndcg_at_k = dcg / idcg if idcg else 0.0
         keyword_hits = [
@@ -518,14 +592,18 @@ class KnowledgeEvaluationService:
         mrr = 1.0 / matched_index if matched_index else 0.0
         relevant_count = sum(relevance)
         retrieved_count = max(1, len(retrieved))
+        context_recall = len(matched_chunk_ids) / target_count if target_count else 0.0
         return {
             "hit_at_k": hit_at_k,
             "mrr": mrr if hit_at_k else 0.0,
             "context_precision": relevant_count / retrieved_count,
-            "context_recall": 1.0 if hit_at_k else 0.0,
+            "context_recall": context_recall,
             "ndcg_at_k": ndcg_at_k,
             "expected_keyword_recall": keyword_recall,
             "expected_keyword_hits": keyword_hits,
+            "matched_chunk_ids": matched_chunk_ids,
+            "matched_target_count": len(matched_chunk_ids),
+            "ground_truth_target_count": target_count,
         }
 
     @staticmethod
@@ -616,7 +694,9 @@ class KnowledgeEvaluationService:
             eval_set_id=item.eval_set_id,
             query=item.query,
             expected_document_id=item.expected_document_id,
+            expected_document_ids=self._case_document_ids(item),
             expected_chunk_id=item.expected_chunk_id,
+            expected_chunk_ids=self._case_chunk_ids(item),
             expected_answer_keywords=self._load_list(item.expected_answer_keywords_json),
             difficulty=item.difficulty,
             tags=self._load_list(item.tags_json),
@@ -651,7 +731,12 @@ class KnowledgeEvaluationService:
             query=item.query,
             retrieved=self._load_json(item.retrieved_json),
             expected_document_id=item.expected_document_id,
+            expected_document_ids=self._load_list(item.expected_document_ids_json)
+            or ([item.expected_document_id] if item.expected_document_id else []),
             expected_chunk_id=item.expected_chunk_id,
+            expected_chunk_ids=self._load_list(item.expected_chunk_ids_json)
+            or ([item.expected_chunk_id] if item.expected_chunk_id else []),
+            matched_chunk_ids=self._load_list(item.matched_chunk_ids_json),
             hit_at_k=item.hit_at_k,
             mrr=item.mrr,
             context_precision=item.context_precision,

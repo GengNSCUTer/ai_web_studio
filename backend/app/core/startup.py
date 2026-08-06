@@ -422,6 +422,12 @@ def _ensure_runtime_schema_unlocked() -> None:
             """
         )
 
+    knowledge_eval_case_columns = _get_column_names("knowledge_eval_cases")
+    if knowledge_eval_case_columns and "expected_document_ids_json" not in knowledge_eval_case_columns:
+        statements.append("alter table knowledge_eval_cases add column expected_document_ids_json text")
+    if knowledge_eval_case_columns and "expected_chunk_ids_json" not in knowledge_eval_case_columns:
+        statements.append("alter table knowledge_eval_cases add column expected_chunk_ids_json text")
+
     knowledge_eval_result_columns = _get_column_names("knowledge_eval_results")
     if knowledge_eval_result_columns and "ndcg_at_k" not in knowledge_eval_result_columns:
         statements.append("alter table knowledge_eval_results add column ndcg_at_k double precision")
@@ -431,6 +437,12 @@ def _ensure_runtime_schema_unlocked() -> None:
         )
     if knowledge_eval_result_columns and "expected_keyword_hits_json" not in knowledge_eval_result_columns:
         statements.append("alter table knowledge_eval_results add column expected_keyword_hits_json text")
+    if knowledge_eval_result_columns and "expected_document_ids_json" not in knowledge_eval_result_columns:
+        statements.append("alter table knowledge_eval_results add column expected_document_ids_json text")
+    if knowledge_eval_result_columns and "expected_chunk_ids_json" not in knowledge_eval_result_columns:
+        statements.append("alter table knowledge_eval_results add column expected_chunk_ids_json text")
+    if knowledge_eval_result_columns and "matched_chunk_ids_json" not in knowledge_eval_result_columns:
+        statements.append("alter table knowledge_eval_results add column matched_chunk_ids_json text")
 
     conversation_columns = _get_column_names("conversations")
     if "project_id" not in conversation_columns:

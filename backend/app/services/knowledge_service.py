@@ -733,6 +733,18 @@ class KnowledgeDocumentService:
                 index_path=result.index_path,
             )
         except Exception as exc:
+            # KnowledgeIndexService may fail during a flush/commit (for
+            # example, a PDF extractor emitted a NUL byte). The SQLAlchemy
+            # session must be rolled back before recording the safe failure
+            # state; otherwise this recovery path itself raises
+            # PendingRollbackError and leaves the job stuck in running.
+            self.document_repo.db.rollback()
+            document = self.document_repo.get_by_user(document.id, user_id) or document
+            job = self.job_repo.latest_by_document_type(
+                document_id=document.id,
+                user_id=user_id,
+                job_type="index_document",
+            ) or job
             error_code = _classify_job_error(exc)
             safe_message = _safe_job_error_message(error_code)
             document.index_status = "failed"

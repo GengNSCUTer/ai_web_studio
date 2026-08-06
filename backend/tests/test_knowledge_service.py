@@ -1580,6 +1580,56 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertEqual(metrics["context_precision"], 1.0)
         self.assertEqual(metrics["ndcg_at_k"], 1.0)
 
+    def test_eval_multiple_chunk_targets_measure_recall_and_return_matches(self) -> None:
+        knowledge_base_id = str(uuid4())
+        document_a = str(uuid4())
+        document_b = str(uuid4())
+        first_target = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=knowledge_base_id,
+            document_id=document_a,
+            index_generation="legacy",
+            vector_id=0,
+            chunk_index=0,
+            content="Evidence A",
+        )
+        second_target = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=knowledge_base_id,
+            document_id=document_b,
+            index_generation="legacy",
+            vector_id=1,
+            chunk_index=1,
+            content="Evidence B",
+        )
+        distractor = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=knowledge_base_id,
+            document_id=str(uuid4()),
+            index_generation="legacy",
+            vector_id=2,
+            chunk_index=2,
+            content="Distractor",
+        )
+
+        metrics = KnowledgeEvaluationService._score_case(
+            retrieved=[
+                RetrievalResult(chunk=first_target, score=0.9, metadata={}),
+                RetrievalResult(chunk=distractor, score=0.8, metadata={}),
+            ],
+            expected_chunk_ids=[first_target.id, second_target.id],
+            expected_document_ids=[document_a, document_b],
+        )
+
+        self.assertTrue(metrics["hit_at_k"])
+        self.assertEqual(metrics["matched_chunk_ids"], [first_target.id])
+        self.assertEqual(metrics["ground_truth_target_count"], 2)
+        self.assertEqual(metrics["context_recall"], 0.5)
+        self.assertEqual(metrics["context_precision"], 0.5)
+
     def test_eval_score_includes_ndcg_and_keyword_coverage(self) -> None:
         expected_chunk = KnowledgeChunk(
             id=str(uuid4()),
@@ -1785,6 +1835,34 @@ class KnowledgeServiceTest(unittest.TestCase):
             content="The ORIGINAL evaluation chunk describes adaptive retrieval.",
         )
         expected_chunk = chunk_repo.list_by_document(parsed_document.id, self.user.id)[0]
+        stable_document = KnowledgeDocument(
+            id=str(uuid4()),
+            knowledge_base_id=knowledge_base.id,
+            user_id=self.user.id,
+            file_name="stable-evidence.md",
+            mime_type="text/markdown",
+            file_size=32,
+            storage_key=f"{self.user.id}/stable-evidence.md",
+            parser_provider="local_basic",
+            parse_status="parsed",
+            index_status="indexed",
+            document_version=1,
+        )
+        stable_chunk = KnowledgeChunk(
+            id=str(uuid4()),
+            user_id=self.user.id,
+            knowledge_base_id=knowledge_base.id,
+            document_id=stable_document.id,
+            index_generation="legacy",
+            chunk_index=0,
+            vector_id=100,
+            content="Stable evidence chunk.",
+            content_hash=hashlib.sha256(b"Stable evidence chunk.").hexdigest(),
+            char_count=22,
+            token_estimate=6,
+        )
+        self.db.add_all([stable_document, stable_chunk])
+        self.db.commit()
         eval_service = KnowledgeEvaluationService(
             base_repo=KnowledgeBaseRepository(self.db),
             chunk_repo=chunk_repo,
@@ -1811,6 +1889,10 @@ class KnowledgeServiceTest(unittest.TestCase):
         )
         assert eval_case is not None
         self.assertEqual(eval_case.expected_document_id, parsed_document.id)
+        persisted_eval_case = self.db.get(KnowledgeEvalCase, eval_case.id)
+        assert persisted_eval_case is not None
+        persisted_eval_case.expected_chunk_ids_json = json.dumps([expected_chunk.id, stable_chunk.id])
+        self.db.commit()
 
         assert parsed_document.parsed_markdown_path is not None
         (Path(settings.upload_dir) / parsed_document.parsed_markdown_path).write_text(
@@ -1833,7 +1915,8 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.db.expire_all()
         preserved_case = KnowledgeEvalCaseRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)[0]
         self.assertEqual(preserved_case.expected_document_id, parsed_document.id)
-        self.assertIsNone(preserved_case.expected_chunk_id)
+        self.assertEqual(preserved_case.expected_chunk_id, stable_chunk.id)
+        self.assertEqual(json.loads(preserved_case.expected_chunk_ids_json or "[]"), [stable_chunk.id])
 
     def test_eval_case_rejects_expected_targets_from_another_knowledge_base(self) -> None:
         knowledge_base, _, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
@@ -1912,6 +1995,12 @@ class KnowledgeServiceTest(unittest.TestCase):
             ),
         )
         assert eval_case is not None
+
+        # Exercise the new multi-document JSON protection independently of the
+        # legacy scalar column.  The document must remain undeletable even when
+        # an older client did not populate ``expected_document_id``.
+        eval_case.expected_document_id = None
+        self.db.commit()
         document_service = KnowledgeDocumentService(
             KnowledgeDocumentRepository(self.db),
             KnowledgeBaseRepository(self.db),

@@ -1,85 +1,254 @@
 {
-  "schema_version": 1,
-  "name": "rag_gold_v1",
-  "description": "个人知识库 RAG 固定问题集。导入前必须把每个 case 绑定到当前知识库的文档/Chunk；不允许用模型自动生成标签替代人工标注。",
+  "schema_version": 3,
+  "name": "rag_gold_v3_multi_evidence_20_case",
+  "description": "个人论文知识库 RAG 固定评测集。20 个 Case 均由人工设计问题，并绑定 3 个可审计的正确 Chunk；expected_document_files 由 Chunk selector 自动补齐。",
   "labeling_policy": {
-    "primary_target": "expected_chunk_contains 或 expected_document_file",
-    "fallback_target": "expected_document_id",
+    "primary_target": "expected_chunk_selectors",
+    "selector": "document_file + chunk_index，必要时可再提供 contains 做内容校验",
+    "fallback_target": "expected_document_files",
     "answer_signal": "expected_answer_keywords",
-    "notes": "文档重建后优先保留文档级目标，Chunk 目标失效时由评测服务回退到 expected_document_id。"
+    "notes": "Chunk 目标用于 Context Recall / nDCG；文档目标用于索引重建后 Chunk 引用失效时的稳定回退。Hit@K 表示至少命中一个目标，Context Recall 表示命中的不同目标占全部人工目标的比例。"
   },
   "cases": [
     {
-      "case_id": "rag_semantic_001",
-      "query": "向量检索主要解决什么问题？",
-      "expected_document_file": null,
-      "expected_chunk_contains": null,
-      "expected_answer_keywords": ["语义相似", "向量检索"],
-      "difficulty": "easy",
-      "tags": ["vector", "semantic"]
-    },
-    {
-      "case_id": "rag_lexical_001",
-      "query": "BM25 在知识库检索中解决什么问题？",
-      "expected_document_file": null,
-      "expected_chunk_contains": null,
-      "expected_answer_keywords": ["BM25", "词法"],
-      "difficulty": "easy",
-      "tags": ["bm25", "lexical"]
-    },
-    {
-      "case_id": "rag_hybrid_001",
-      "query": "混合检索如何融合向量和 BM25 的结果？",
-      "expected_document_file": null,
-      "expected_chunk_contains": null,
-      "expected_answer_keywords": ["混合检索", "RRF", "融合"],
+      "case_id": "rag_multi_adaptive_strategy_001",
+      "query": "Adaptive-RAG 如何依据问题复杂度，在无检索、单步检索和多步检索之间选择策略？",
+      "expected_chunk_selectors": [
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 1},
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 2},
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 10}
+      ],
+      "expected_answer_keywords": ["complexity", "retrieval", "single-step", "multi-step"],
       "difficulty": "medium",
-      "tags": ["hybrid", "rrf"]
+      "tags": ["adaptive-retrieval", "multi-chunk", "strategy"]
     },
     {
-      "case_id": "rag_rerank_001",
-      "query": "Rerank 在候选 Chunk 阶段的作用是什么？",
-      "expected_document_file": null,
-      "expected_chunk_contains": null,
-      "expected_answer_keywords": ["重排序", "候选"],
-      "difficulty": "medium",
-      "tags": ["rerank"]
-    },
-    {
-      "case_id": "rag_context_001",
-      "query": "上下文预算不足时，检索内容和历史消息应该如何裁剪？",
-      "expected_document_file": null,
-      "expected_chunk_contains": null,
-      "expected_answer_keywords": ["上下文预算", "裁剪"],
-      "difficulty": "medium",
-      "tags": ["context", "budget"]
-    },
-    {
-      "case_id": "rag_query_rewrite_001",
-      "query": "Query Rewrite 为什么要结合当前对话历史？",
-      "expected_document_file": null,
-      "expected_chunk_contains": null,
-      "expected_answer_keywords": ["指代", "查询重写"],
-      "difficulty": "medium",
-      "tags": ["query-rewrite"]
-    },
-    {
-      "case_id": "rag_parent_child_001",
-      "query": "Parent-Child 检索如何兼顾精确命中和完整上下文？",
-      "expected_document_file": null,
-      "expected_chunk_contains": null,
-      "expected_answer_keywords": ["Parent-Child", "上下文"],
+      "case_id": "rag_multi_adaptive_classifier_001",
+      "query": "Adaptive-RAG 的问题复杂度分类器如何训练，并在推理时输出检索策略？",
+      "expected_chunk_selectors": [
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 33},
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 36},
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 45}
+      ],
+      "expected_answer_keywords": ["classifier", "complexity", "inference", "crossentropy"],
       "difficulty": "hard",
-      "tags": ["parent-child"]
+      "tags": ["adaptive-retrieval", "classifier", "evaluation"]
     },
     {
-      "case_id": "rag_failure_001",
-      "query": "向量检索服务不可用时，混合检索应该如何降级？",
-      "expected_document_file": null,
-      "expected_chunk_contains": null,
-      "expected_answer_keywords": ["降级", "BM25", "词法"],
+      "case_id": "rag_multi_df_diversity_001",
+      "query": "DF-RAG 为什么需要多样性检索，它如何缓解余弦相似度带来的冗余证据问题？",
+      "expected_chunk_selectors": [
+        {"document_file": "DF-RAG.pdf", "chunk_index": 1},
+        {"document_file": "DF-RAG.pdf", "chunk_index": 4},
+        {"document_file": "DF-RAG.pdf", "chunk_index": 6}
+      ],
+      "expected_answer_keywords": ["diversity", "redundant", "cosine", "DF-RAG"],
+      "difficulty": "medium",
+      "tags": ["diversity", "multi-hop", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_df_gmmr_001",
+      "query": "DF-RAG 的 gMMR 如何计算候选 Chunk，并怎样在测试时选择查询自适应的多样性参数？",
+      "expected_chunk_selectors": [
+        {"document_file": "DF-RAG.pdf", "chunk_index": 14},
+        {"document_file": "DF-RAG.pdf", "chunk_index": 15},
+        {"document_file": "DF-RAG.pdf", "chunk_index": 17}
+      ],
+      "expected_answer_keywords": ["gMMR", "diversity", "candidate", "Oracle"],
       "difficulty": "hard",
-      "tags": ["fallback", "resilience"]
+      "tags": ["gmmr", "rerank", "query-adaptive"]
+    },
+    {
+      "case_id": "rag_multi_flare_active_001",
+      "query": "FLARE 为什么要前瞻性地预测下一句，并根据低概率词触发主动检索？",
+      "expected_chunk_selectors": [
+        {"document_file": "FLARE.pdf", "chunk_index": 1},
+        {"document_file": "FLARE.pdf", "chunk_index": 10},
+        {"document_file": "FLARE.pdf", "chunk_index": 19}
+      ],
+      "expected_answer_keywords": ["FLARE", "forward-looking", "low-probability", "retrieval"],
+      "difficulty": "medium",
+      "tags": ["active-retrieval", "multi-step", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_independent_adaptive_001",
+      "query": "LLM-Independent Adaptive RAG 如何在不依赖大模型不确定性估计的情况下减少不必要检索？",
+      "expected_chunk_selectors": [
+        {"document_file": "LLM-Independent Adaptiverag RAG.pdf", "chunk_index": 1},
+        {"document_file": "LLM-Independent Adaptiverag RAG.pdf", "chunk_index": 4},
+        {"document_file": "LLM-Independent Adaptiverag RAG.pdf", "chunk_index": 8}
+      ],
+      "expected_answer_keywords": ["LLM-independent", "adaptive retrieval", "uncertainty", "features"],
+      "difficulty": "hard",
+      "tags": ["adaptive-retrieval", "cost", "model-independent"]
+    },
+    {
+      "case_id": "rag_multi_mba_bandit_001",
+      "query": "MBA-RAG 如何用 Bandit 根据问题复杂度选择检索路径，并在准确率与检索成本之间做权衡？",
+      "expected_chunk_selectors": [
+        {"document_file": "MBA-RAG.pdf", "chunk_index": 1},
+        {"document_file": "MBA-RAG.pdf", "chunk_index": 2},
+        {"document_file": "MBA-RAG.pdf", "chunk_index": 8}
+      ],
+      "expected_answer_keywords": ["Bandit", "retrieval", "cost", "reward"],
+      "difficulty": "hard",
+      "tags": ["bandit", "adaptive-retrieval", "cost"]
+    },
+    {
+      "case_id": "rag_multi_probing_001",
+      "query": "Probing-RAG 如何利用语言模型隐藏状态判断是否需要额外检索？",
+      "expected_chunk_selectors": [
+        {"document_file": "Probing-RAG.pdf", "chunk_index": 1},
+        {"document_file": "Probing-RAG.pdf", "chunk_index": 18},
+        {"document_file": "Probing-RAG.pdf", "chunk_index": 20}
+      ],
+      "expected_answer_keywords": ["Probing-RAG", "hidden state", "prober", "retrieval"],
+      "difficulty": "hard",
+      "tags": ["selective-retrieval", "hidden-state", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_cross_paper_001",
+      "query": "Adaptive-RAG、DF-RAG 和 FLARE 分别从问题复杂度、证据多样性和生成过程的哪个信号决定检索行为？",
+      "expected_chunk_selectors": [
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 21},
+        {"document_file": "DF-RAG.pdf", "chunk_index": 6},
+        {"document_file": "FLARE.pdf", "chunk_index": 19}
+      ],
+      "expected_answer_keywords": ["complexity", "diversity", "retrieval", "generation"],
+      "difficulty": "hard",
+      "tags": ["cross-document", "adaptive-retrieval", "multi-ground-truth"]
+    },
+    {
+      "case_id": "rag_multi_adaptive_efficiency_001",
+      "query": "Adaptive-RAG 的评测为什么要同时报告效果指标和效率指标？它相对复杂多步策略的效率结论是什么？",
+      "expected_chunk_selectors": [
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 45},
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 58},
+        {"document_file": "Adaptive_RAG.pdf", "chunk_index": 60}
+      ],
+      "expected_answer_keywords": ["effectiveness", "efficiency", "F1", "multi-step"],
+      "difficulty": "medium",
+      "tags": ["evaluation", "efficiency", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_experience_retrieval_001",
+      "query": "EvolveR 如何把 Agent 的交互轨迹提炼为经验，并在后续任务中检索这些经验？",
+      "expected_chunk_selectors": [
+        {"document_file": "EVOLVER.pdf", "chunk_index": 1},
+        {"document_file": "EVOLVER.pdf", "chunk_index": 7},
+        {"document_file": "EVOLVER.pdf", "chunk_index": 20}
+      ],
+      "expected_answer_keywords": ["trajectory", "experience", "distill", "retrieval"],
+      "difficulty": "medium",
+      "tags": ["agent-memory", "experience-retrieval", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_tttcl_rules_001",
+      "query": "TF-TTCL 如何通过语义查询增强、对比经验蒸馏和规则检索实现无训练的测试时自适应？",
+      "expected_chunk_selectors": [
+        {"document_file": "Training-Free Test-Time Contrastive Learning for Large Language Models-Camera Ready.pdf", "chunk_index": 1},
+        {"document_file": "Training-Free Test-Time Contrastive Learning for Large Language Models-Camera Ready.pdf", "chunk_index": 2},
+        {"document_file": "Training-Free Test-Time Contrastive Learning for Large Language Models-Camera Ready.pdf", "chunk_index": 39}
+      ],
+      "expected_answer_keywords": ["Semantic Query Augmentation", "Contrastive Experience Distillation", "rule", "training-free"],
+      "difficulty": "hard",
+      "tags": ["test-time", "rule-retrieval", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_sparse_moe_001",
+      "query": "Sparsely-Gated Mixture-of-Experts 层由哪些组件组成？稀疏门控如何在提升模型容量的同时控制计算量？",
+      "expected_chunk_selectors": [
+        {"document_file": "The Sparsely-Gated MOE.pdf", "chunk_index": 0},
+        {"document_file": "The Sparsely-Gated MOE.pdf", "chunk_index": 8},
+        {"document_file": "The Sparsely-Gated MOE.pdf", "chunk_index": 12}
+      ],
+      "expected_answer_keywords": ["sparsely-gated", "experts", "gating network", "sparse"],
+      "difficulty": "medium",
+      "tags": ["moe", "sparse-routing", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_moa_001",
+      "query": "Mixture-of-Agents 如何通过 proposer 和 aggregator 的分层结构组合多个 LLM 的输出？",
+      "expected_chunk_selectors": [
+        {"document_file": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf", "chunk_index": 1},
+        {"document_file": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf", "chunk_index": 10},
+        {"document_file": "Mixture-of-Agents Enhances Large Language Model Capabilities.pdf", "chunk_index": 12}
+      ],
+      "expected_answer_keywords": ["Mixture-of-Agents", "proposer", "aggregator", "layers"],
+      "difficulty": "medium",
+      "tags": ["multi-agent", "aggregation", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_mote_alignment_001",
+      "query": "MoTE 如何将 reasoning chain 与 step-level expert routing 结合起来进行 self-alignment？",
+      "expected_chunk_selectors": [
+        {"document_file": "Mixture of insighTful Experts (MoTE)-The Synergy of Reasoning Chains and Expert Mixtures in Self-Alignment.pdf", "chunk_index": 2},
+        {"document_file": "Mixture of insighTful Experts (MoTE)-The Synergy of Reasoning Chains and Expert Mixtures in Self-Alignment.pdf", "chunk_index": 6},
+        {"document_file": "Mixture of insighTful Experts (MoTE)-The Synergy of Reasoning Chains and Expert Mixtures in Self-Alignment.pdf", "chunk_index": 9}
+      ],
+      "expected_answer_keywords": ["reasoning chain", "step-level", "multi-LoRA", "self-alignment"],
+      "difficulty": "hard",
+      "tags": ["moe", "alignment", "reasoning", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_skilldag_graph_001",
+      "query": "SkillDAG 为什么把技能库表示为 typed directed graph，而不是只使用 embedding 相似度检索？它如何处理依赖和冲突关系？",
+      "expected_chunk_selectors": [
+        {"document_file": "SkillDAG.pdf", "chunk_index": 2},
+        {"document_file": "SkillDAG.pdf", "chunk_index": 8},
+        {"document_file": "SkillDAG.pdf", "chunk_index": 21}
+      ],
+      "expected_answer_keywords": ["typed", "directed graph", "depends", "conflicts"],
+      "difficulty": "hard",
+      "tags": ["skill-retrieval", "graph", "dependencies", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_skillret_benchmark_001",
+      "query": "SKILLRET 如何构建大规模技能检索 benchmark？为什么多技能 query 是一个重要评测场景？",
+      "expected_chunk_selectors": [
+        {"document_file": "SkillRet.pdf", "chunk_index": 1},
+        {"document_file": "SkillRet.pdf", "chunk_index": 9},
+        {"document_file": "SkillRet.pdf", "chunk_index": 47}
+      ],
+      "expected_answer_keywords": ["SKILLRET", "17,810", "evaluation", "multiskill"],
+      "difficulty": "medium",
+      "tags": ["skill-retrieval", "benchmark", "multi-skill", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_skillrouter_body_001",
+      "query": "SkillRouter 的实验为什么说明完整 skill body 对路由很重要？移除 body 会带来什么影响？",
+      "expected_chunk_selectors": [
+        {"document_file": "SkillRouter.pdf", "chunk_index": 1},
+        {"document_file": "SkillRouter.pdf", "chunk_index": 8},
+        {"document_file": "SkillRouter.pdf", "chunk_index": 18}
+      ],
+      "expected_answer_keywords": ["skill body", "routing", "Hit@1", "removing body"],
+      "difficulty": "hard",
+      "tags": ["skill-routing", "rerank", "benchmark", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_dynamic_moe_001",
+      "query": "Dynamic Routing MoE 如何根据输入难度和专家选择置信度动态决定激活多少专家，并如何控制负载均衡？",
+      "expected_chunk_selectors": [
+        {"document_file": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf", "chunk_index": 1},
+        {"document_file": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf", "chunk_index": 17},
+        {"document_file": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf", "chunk_index": 20}
+      ],
+      "expected_answer_keywords": ["dynamic routing", "confidence", "input difficulty", "load balance"],
+      "difficulty": "hard",
+      "tags": ["moe", "dynamic-routing", "efficiency", "multi-chunk"]
+    },
+    {
+      "case_id": "rag_multi_tlm_adaptation_001",
+      "query": "Test-Time Learning for Large Language Models 如何利用无标签测试数据和输入困惑度实现适应，并通过 LoRA 减少灾难性遗忘？",
+      "expected_chunk_selectors": [
+        {"document_file": "Test_Time_Learning_for_La.pdf", "chunk_index": 1},
+        {"document_file": "Test_Time_Learning_for_La.pdf", "chunk_index": 11},
+        {"document_file": "Test_Time_Learning_for_La.pdf", "chunk_index": 12}
+      ],
+      "expected_answer_keywords": ["test-time learning", "unlabeled", "perplexity", "LoRA"],
+      "difficulty": "hard",
+      "tags": ["test-time", "adaptation", "lora", "multi-chunk"]
     }
   ]
 }

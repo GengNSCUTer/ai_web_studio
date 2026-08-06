@@ -139,6 +139,29 @@ class KnowledgeChunkRepository:
         )
         return self.db.scalars(stmt).first()
 
+    def list_existing_ids(
+        self,
+        *,
+        chunk_ids: list[str],
+        knowledge_base_id: str,
+        user_id: str,
+        index_generation: str | None = None,
+    ) -> list[str]:
+        """Return only target IDs queryable in the selected index snapshot."""
+        normalized_ids = list(dict.fromkeys(str(item).strip() for item in chunk_ids if str(item).strip()))
+        if not normalized_ids:
+            return []
+        conditions = [
+            KnowledgeChunk.id.in_(normalized_ids),
+            KnowledgeChunk.knowledge_base_id == knowledge_base_id,
+            KnowledgeChunk.user_id == user_id,
+        ]
+        if index_generation is not None:
+            conditions.append(KnowledgeChunk.index_generation == index_generation)
+        stmt = select(KnowledgeChunk.id).where(*conditions)
+        existing = {str(item) for item in self.db.scalars(stmt).all()}
+        return [item for item in normalized_ids if item in existing]
+
     def list_by_knowledge_base(
         self,
         knowledge_base_id: str,
@@ -256,6 +279,51 @@ class KnowledgeChunkRepository:
         for chunk in chunks:
             self.db.refresh(chunk)
         return chunks
+
+    def clear_eval_chunk_targets(
+        self,
+        *,
+        stale_chunk_ids: list[str],
+        knowledge_base_id: str,
+        user_id: str,
+    ) -> int:
+        """Remove invalidated Chunk labels while preserving document labels.
+
+        Chunk rows are derived from a parsed document and are replaced during a
+        successful reindex.  Evaluation cases must not keep pointing at deleted
+        rows in their JSON multi-target field.  This method deliberately does not
+        commit: the caller can commit the label update together with the document
+        status change after the new lexical/vector snapshot has been published.
+        """
+        stale_ids = {str(item).strip() for item in stale_chunk_ids if str(item).strip()}
+        if not stale_ids:
+            return 0
+        cases = list(
+            self.db.scalars(
+                select(KnowledgeEvalCase).where(
+                    KnowledgeEvalCase.knowledge_base_id == knowledge_base_id,
+                    KnowledgeEvalCase.user_id == user_id,
+                )
+            ).all()
+        )
+        changed = 0
+        for case in cases:
+            if case.expected_chunk_id not in stale_ids and not case.expected_chunk_ids_json:
+                continue
+            try:
+                raw_ids = json.loads(case.expected_chunk_ids_json or "[]")
+            except json.JSONDecodeError:
+                raw_ids = []
+            target_ids = [str(item).strip() for item in raw_ids if str(item).strip()] if isinstance(raw_ids, list) else []
+            filtered_ids = list(dict.fromkeys(item for item in target_ids if item not in stale_ids))
+            singular_changed = case.expected_chunk_id in stale_ids
+            list_changed = filtered_ids != target_ids
+            if not singular_changed and not list_changed:
+                continue
+            case.expected_chunk_id = filtered_ids[0] if filtered_ids else None
+            case.expected_chunk_ids_json = json.dumps(filtered_ids, ensure_ascii=False) if filtered_ids else None
+            changed += 1
+        return changed
 
     def save_embeddings(self, chunks: list[KnowledgeChunk]) -> None:
         try:
@@ -574,15 +642,26 @@ class KnowledgeEvalCaseRepository:
         return list(self.db.scalars(stmt).all())
 
     def count_by_expected_document(self, document_id: str, user_id: str) -> int:
-        stmt = (
-            select(func.count())
-            .select_from(KnowledgeEvalCase)
-            .where(
-                KnowledgeEvalCase.expected_document_id == document_id,
-                KnowledgeEvalCase.user_id == user_id,
-            )
-        )
-        return int(self.db.scalar(stmt) or 0)
+        # The legacy scalar column is indexed, but multi-document Gold Sets store
+        # the complete target list in JSON.  Parse the small user-owned case set in
+        # Python instead of substring-matching JSON, which would produce false
+        # positives for IDs that merely share a prefix.
+        stmt = select(
+            KnowledgeEvalCase.expected_document_id,
+            KnowledgeEvalCase.expected_document_ids_json,
+        ).where(KnowledgeEvalCase.user_id == user_id)
+        count = 0
+        for singular_id, ids_json in self.db.execute(stmt).all():
+            if singular_id == document_id:
+                count += 1
+                continue
+            try:
+                values = json.loads(ids_json or "[]")
+            except json.JSONDecodeError:
+                values = []
+            if isinstance(values, list) and document_id in {str(item) for item in values}:
+                count += 1
+        return count
 
     def save(self, eval_case: KnowledgeEvalCase) -> KnowledgeEvalCase:
         self.db.add(eval_case)
