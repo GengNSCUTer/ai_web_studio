@@ -13,7 +13,7 @@ from app.services.tools.schemas import (
     ExternalContextResult,
     ToolTraceEvent,
 )
-from app.services.tools.workflow import ToolWorkflowService
+from app.services.tools.workflow import ToolRunCallLedger, ToolWorkflowService
 
 
 class ExternalContextService:
@@ -123,6 +123,11 @@ class ExternalContextService:
         selected_tool = "none"
         error_message = ""
         terminal_reason = "no_tool_needed"
+        workflow_aggregate_status = "empty"
+        # One request owns one in-memory ledger. It deliberately ends with this
+        # synchronous Chat request; durable retries/replay keep using the
+        # persisted AgentRun/Step runtime instead.
+        call_ledger = ToolRunCallLedger()
 
         # 这是有硬上限的 observe -> re-plan，而不是可无限自主运行的 ReAct loop。
         for round_index in range(1, self.max_agent_rounds + 1):
@@ -183,14 +188,25 @@ class ExternalContextService:
                     )
                 )
 
-            workflow_result = await self.workflow.run(plan=plan, query=routed_query)
+            workflow_result = await self.workflow.run(
+                plan=plan,
+                query=routed_query,
+                call_ledger=call_ledger,
+            )
             events.extend(workflow_result.events)
             sources.extend(workflow_result.sources)
             notices.extend(workflow_result.notices)
             total_elapsed_ms += workflow_result.elapsed_ms
             selected_tool = workflow_result.selected_tool
             error_message = workflow_result.error_message or error_message
+            workflow_aggregate_status = workflow_result.aggregate_status
             observations.extend(self._build_observations(round_index=round_index, sources=workflow_result.sources))
+            quality_feedback = list(getattr(workflow_result, "feedback", []) or [])
+            quality_observations = [
+                feedback.to_planner_observation(round_index=round_index)
+                for feedback in quality_feedback
+            ]
+            observations.extend(quality_observations)
             if workflow_result.error_message:
                 # Expected tool failures are useful observations. They allow the
                 # bounded follow-up planning round to repair an ambiguous file edit
@@ -205,21 +221,45 @@ class ExternalContextService:
                         "metadata": {},
                     }
                 )
+            quality_replan_required = any(
+                observation.get("next_action") == "replan"
+                for observation in quality_observations
+            )
+            if quality_replan_required:
+                events.append(
+                    ToolTraceEvent(
+                        type="tool_agent_replan_required",
+                        payload={
+                            "round": round_index,
+                            "reason": "tool_result_quality",
+                            "failed_call_ids": [
+                                observation["call_id"]
+                                for observation in quality_observations
+                                if observation.get("next_action") == "replan"
+                            ],
+                        },
+                    )
+                )
             events.append(
                 ToolTraceEvent(
                     type="tool_agent_round_end",
                     payload={
                         "round": round_index,
                         "need_more_rounds": plan.need_more_rounds,
+                        "quality_replan_required": quality_replan_required,
                         "sources_count": len(workflow_result.sources),
                         "observations_count": len(observations),
                     },
                 )
             )
-            if not plan.need_more_rounds:
+            if not plan.need_more_rounds and not quality_replan_required:
                 terminal_reason = "completed_no_followup"
                 break
-            if not workflow_result.sources and not workflow_result.error_message:
+            if (
+                not workflow_result.sources
+                and not workflow_result.error_message
+                and not quality_replan_required
+            ):
                 terminal_reason = "no_evidence_or_error"
                 break
             if round_index >= self.max_agent_rounds:
@@ -311,6 +351,7 @@ class ExternalContextService:
                 "external_context_error": int(bool(error_message and not sources)),
                 "external_tool_events_total": len(events),
                 "external_agent_terminal_reason": terminal_reason,
+                "external_tool_workflow_aggregate_status": workflow_aggregate_status,
                 "skill_active": int(bool(skill_context)),
                 "skill_key": skill_context.skill_key if skill_context else "none",
                 "skill_version": skill_context.version if skill_context else "none",
@@ -320,6 +361,7 @@ class ExternalContextService:
                 "tool_plan": last_plan.to_public_dict(),
                 "tool_events": public_events,
                 "active_skill": skill_context.to_public_dict() if skill_context else None,
+                "tool_workflow_aggregate_status": workflow_aggregate_status,
             },
             tool_plan=last_plan,
             tool_events=events,

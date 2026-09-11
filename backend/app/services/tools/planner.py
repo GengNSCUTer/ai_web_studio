@@ -210,7 +210,7 @@ class LLMToolPlanner:
             "9. 高德 MCP 路线/距离 schema 要求经纬度；如果用户只给地点名，可以先填地点名，执行器会在调用 MCP 前自动地理编码为坐标。\n"
             "10. 一个复杂问题可以拆成多个工具调用，例如路线 + 天气 + 网页搜索；用户问预计耗时时必须包含路线工具。\n"
             "11. 没有依赖关系的调用 depends_on=[] 且 can_parallel=true，执行器会并行执行；依赖上游结果的调用必须写 depends_on 且 can_parallel=false。\n"
-            "12. 如果已有观察结果仍不足以回答，可设置 need_more_rounds=true，让系统下一轮继续规划。\n"
+            "12. 如果已有观察结果仍不足以回答，可设置 need_more_rounds=true，让系统下一轮继续规划。若观察中存在 source_type=tool_quality_feedback，必须根据 next_action 处理：replan 时选择不同的合适工具/参数或向用户澄清，不能无理由重复同一失败调用；block/clarify 时不要试图绕过依赖或权限边界。\n"
             "13. 如果工具是高风险或非只读，也可以规划，但必须在 reason 中说明为什么需要。\n"
             "14. 如果不需要工具，返回 should_use_tools=false。\n"
             "15. 不要因为问题复杂就只调用网页搜索；能用结构化工具查天气、路线、距离、地点时，必须把结构化工具也列入计划。\n"

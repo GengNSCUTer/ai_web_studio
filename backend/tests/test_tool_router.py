@@ -4,9 +4,10 @@ import unittest
 
 from app.services.external_context_service import ExternalContextService
 from app.services.skill_catalog import SkillExecutionContext
+from app.services.tools.catalog import ToolCatalog
 from app.services.tools.planner import DeterministicToolPlanner
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolCallResult, ToolPlan, ToolTraceEvent
-from app.services.tools.workflow import ToolWorkflowResult
+from app.services.tools.workflow import ToolWorkflowFeedback, ToolWorkflowResult, ToolWorkflowService
 
 
 class FakeExecutor:
@@ -96,7 +97,7 @@ class AlwaysContinuePlanner:
 
 
 class FakeLoopWorkflow:
-    async def run(self, *, plan, query):
+    async def run(self, *, plan, query, call_ledger=None):
         return ToolWorkflowResult(
             sources=[
                 ExternalSource(
@@ -113,13 +114,138 @@ class FakeLoopWorkflow:
 
 
 class FakeErrorFeedbackWorkflow:
-    async def run(self, *, plan, query):
+    async def run(self, *, plan, query, call_ledger=None):
         return ToolWorkflowResult(
             sources=[],
             selected_tool="workspace_file",
             error_message="old_string 出现 2 次，请提供更多上下文。",
             elapsed_ms=2,
             events=[ToolTraceEvent(type="tool_workflow_end", payload={"sources_count": 0})],
+        )
+
+
+class FakeQualityFeedbackWorkflow:
+    async def run(self, *, plan, query, call_ledger=None):
+        return ToolWorkflowResult(
+            sources=[],
+            selected_tool="map_route",
+            elapsed_ms=2,
+            feedback=[
+                ToolWorkflowFeedback(
+                    call_id="route",
+                    tool_key="amap.maps.direction.driving",
+                    display_name="高德驾车路线",
+                    outcome="failed",
+                    quality_status="invalid",
+                    next_action="replan",
+                    reasons=("required_path_missing:/sources",),
+                )
+            ],
+            events=[ToolTraceEvent(type="tool_workflow_end", payload={"sources_count": 0})],
+        )
+
+
+class QualityReplanPlanner:
+    def __init__(self) -> None:
+        self.observations_seen = []
+        self.calls = 0
+
+    async def plan(self, *, query, enabled, runtime, recent_messages=None, observations=None):
+        self.calls += 1
+        self.observations_seen.append(list(observations or []))
+        if self.calls == 1:
+            # The Planner did not proactively request another round. The quality
+            # contract must still trigger one bounded, observable re-plan.
+            return ToolPlan(
+                plan_id="quality-plan-1",
+                router="fake",
+                external_context_allowed=True,
+                should_use_tools=True,
+                need_more_rounds=False,
+                calls=[
+                    PlannedToolCall(
+                        call_id="route",
+                        tool_key="amap.maps.direction.driving",
+                        provider="amap",
+                        category="map_route",
+                        display_name="高德驾车路线",
+                        confidence=0.9,
+                        reason="route",
+                        arguments={"origin": "深圳", "destination": "汕头"},
+                    )
+                ],
+            )
+        return ToolPlan(
+            plan_id="quality-plan-2",
+            router="fake",
+            external_context_allowed=True,
+            should_use_tools=False,
+            calls=[],
+        )
+
+
+class RepeatedInvalidPlanner:
+    """Emits the same Tool + arguments twice, with fresh call IDs each round."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.observations_seen = []
+
+    async def plan(self, *, query, enabled, runtime, recent_messages=None, observations=None):
+        self.calls += 1
+        self.observations_seen.append(list(observations or []))
+        if self.calls <= 2:
+            return ToolPlan(
+                plan_id=f"repeated-invalid-{self.calls}",
+                router="fake",
+                external_context_allowed=True,
+                should_use_tools=True,
+                need_more_rounds=False,
+                calls=[
+                    PlannedToolCall(
+                        call_id=f"weather-{self.calls}",
+                        tool_key="amap.maps.weather",
+                        provider="amap",
+                        category="weather",
+                        display_name="高德天气",
+                        confidence=0.9,
+                        reason="same failed query",
+                        arguments={"city": "深圳"},
+                    )
+                ],
+            )
+        return ToolPlan(
+            plan_id="repeated-invalid-stop",
+            router="fake",
+            external_context_allowed=True,
+            should_use_tools=False,
+            calls=[],
+        )
+
+
+class InvalidResultExecutor:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def execute(self, call):
+        self.calls.append(call)
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                sources=[
+                    ExternalSource(
+                        source_type=call.category,
+                        provider=call.provider,
+                        title="invalid weather payload",
+                        display_text="missing required structured fields",
+                    )
+                ],
+                elapsed_ms=1,
+                quality_status="invalid",
+                quality_reasons=["test_invalid"],
+            ),
+            [],
         )
 
 
@@ -293,6 +419,79 @@ class ToolRouterTest(unittest.TestCase):
             self.assertEqual(planner.observations_seen[1][0]["source_type"], "tool_error_feedback")
             self.assertIn("出现 2 次", planner.observations_seen[1][0]["display_text"])
             self.assertTrue(result.diagnostics["external_context_error"])
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_quality_feedback_forces_bounded_replan_with_safe_structured_observation(self) -> None:
+        async def run_test() -> None:
+            planner = QualityReplanPlanner()
+            service = ExternalContextService(planner=planner, workflow=FakeQualityFeedbackWorkflow())
+
+            result = await service.build_context(
+                query="深圳到汕头开车多久",
+                enabled=True,
+                max_chars=2000,
+                recent_messages=[],
+            )
+
+            self.assertEqual(planner.calls, 2)
+            feedback = planner.observations_seen[1][0]
+            self.assertEqual(feedback["source_type"], "tool_quality_feedback")
+            self.assertEqual(feedback["tool_key"], "amap.maps.direction.driving")
+            self.assertEqual(feedback["quality_status"], "invalid")
+            self.assertEqual(feedback["next_action"], "replan")
+            self.assertNotIn("provider.internal", feedback["display_text"])
+            required = [event for event in result.tool_events if event.type == "tool_agent_replan_required"]
+            self.assertEqual(len(required), 1)
+            self.assertEqual(required[0].payload["failed_call_ids"], ["route"])
+
+        import asyncio
+
+        asyncio.run(run_test())
+
+    def test_sync_run_ledger_blocks_identical_invalid_call_in_later_replan(self) -> None:
+        async def run_test() -> None:
+            planner = RepeatedInvalidPlanner()
+            executor = InvalidResultExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=ToolCatalog())
+            service = ExternalContextService(planner=planner, workflow=workflow)
+
+            result = await service.build_context(
+                query="深圳天气",
+                enabled=True,
+                max_chars=2000,
+                recent_messages=[],
+            )
+
+            # Round 1 reaches the real executor and fails the quality gate.
+            # Round 2 uses the same Tool + canonical arguments with a fresh
+            # call_id, so it is blocked before a second external execution.
+            # Round 3 is the planner's normal no-tool stop response.
+            self.assertEqual(planner.calls, 3)
+            self.assertEqual([call.call_id for call in executor.calls], ["weather-1"])
+            duplicate = [
+                event
+                for event in result.tool_events
+                if event.type == "tool_workflow_step_outcome"
+                and event.payload.get("error_category") == "duplicate_across_run"
+            ]
+            self.assertEqual(len(duplicate), 1)
+            self.assertEqual(duplicate[0].payload["execution_status"], "blocked")
+            self.assertEqual(duplicate[0].payload["next_action"], "replan")
+            self.assertEqual(
+                result.diagnostics["external_tool_workflow_aggregate_status"],
+                "blocked",
+            )
+            feedback = next(
+                observation
+                for observation in planner.observations_seen[2]
+                if observation.get("error_category") == "duplicate_across_run"
+            )
+            self.assertEqual(feedback["source_type"], "tool_quality_feedback")
+            self.assertEqual(feedback["error_category"], "duplicate_across_run")
+            self.assertNotIn("深圳", feedback["display_text"])
 
         import asyncio
 

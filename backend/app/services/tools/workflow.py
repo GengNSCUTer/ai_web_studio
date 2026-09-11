@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from hashlib import sha256
 import json
 import time
 from dataclasses import dataclass, field
+from typing import Any
 from uuid import uuid4
 
 from app.services.tools.bindings import ToolResultBindingError, ToolResultBindingResolver
@@ -30,6 +32,16 @@ class ToolWorkflowResult:
     sources: list[ExternalSource] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     events: list[ToolTraceEvent] = field(default_factory=list)
+    # A deliberately small, sanitized outcome contract for the *next* planning
+    # round.  Trace events are useful for audit, but they are too verbose and
+    # can contain implementation-specific details to be re-injected wholesale
+    # into the Planner prompt.
+    feedback: list["ToolWorkflowFeedback"] = field(default_factory=list)
+    # Immutable terminal records for every planned synchronous step.  This is
+    # the workflow's source of truth; feedback and trace events are projections
+    # for separate consumers.
+    step_outcomes: list["ToolStepOutcome"] = field(default_factory=list)
+    aggregate_status: str = "empty"
     selected_tool: str = "none"
     error_message: str = ""
     elapsed_ms: int = 0
@@ -39,9 +51,14 @@ class ToolWorkflowResult:
 class ToolStepResult:
     call: PlannedToolCall
     succeeded: bool = False
-    quality_status: str = "unknown"
+    execution_status: str = "failed"
+    quality_status: str = "not_applicable"
     quality_reasons: list[str] = field(default_factory=list)
     quality_action: str = "block"
+    error_category: str = "tool_execution_failed"
+    retryable: bool = False
+    elapsed_ms: int = 0
+    call_fingerprint: str = ""
     sources: list[ExternalSource] = field(default_factory=list)
     # Sources from failed/blocked calls stay available for trace/debugging, but
     # only an explicitly approved result may enter the final answer context.
@@ -49,6 +66,198 @@ class ToolStepResult:
     notices: list[str] = field(default_factory=list)
     events: list[ToolTraceEvent] = field(default_factory=list)
     error_message: str = ""
+
+
+EXECUTION_STATUSES = frozenset(
+    {
+        "pending",
+        "ready",
+        "running",
+        "succeeded",
+        "failed",
+        "blocked",
+        "waiting_approval",
+        "cancelled",
+        "timed_out",
+    }
+)
+OUTCOME_QUALITY_STATUSES = frozenset({"valid", "uncertain", "invalid", "not_applicable"})
+OUTCOME_ACTIONS = frozenset(
+    {
+        "continue",
+        "fallback",
+        "replan",
+        "clarify",
+        "finalize_partial",
+        "handoff_durable",
+        "stop",
+        # Existing deterministic policy uses this name.  Keep it as an
+        # internal terminal action while public callers receive `stop`.
+        "block",
+    }
+)
+
+
+@dataclass(frozen=True)
+class ToolStepOutcome:
+    """Immutable, sanitized terminal state for one planned synchronous step.
+
+    A Tool result has three independent dimensions: whether the step reached a
+    terminal execution state, whether its result has business value, and what
+    the code (not the Planner) permits next.  Arguments are deliberately not
+    retained here; ``call_fingerprint`` is enough for run-scoped deduplication
+    and audit without copying model-controlled or sensitive parameters into
+    feedback/trace payloads.
+    """
+
+    call_id: str
+    tool_key: str
+    display_name: str
+    execution_status: str
+    quality_status: str
+    quality_reasons: tuple[str, ...]
+    error_category: str
+    next_action: str
+    depends_on: tuple[str, ...]
+    prompt_eligible: bool
+    call_fingerprint: str
+    elapsed_ms: int
+    retryable: bool = False
+
+    def __post_init__(self) -> None:
+        if self.execution_status not in EXECUTION_STATUSES:
+            raise ValueError(f"Unsupported tool execution status: {self.execution_status}")
+        if self.quality_status not in OUTCOME_QUALITY_STATUSES:
+            raise ValueError(f"Unsupported tool quality status: {self.quality_status}")
+        if self.next_action not in OUTCOME_ACTIONS:
+            raise ValueError(f"Unsupported tool next action: {self.next_action}")
+
+    @property
+    def unlocks_strict_dependents(self) -> bool:
+        return self.execution_status == "succeeded" and self.quality_status == "valid"
+
+    def to_trace_payload(self) -> dict[str, Any]:
+        return {
+            "call_id": self.call_id,
+            "tool_key": self.tool_key,
+            "execution_status": self.execution_status,
+            "quality_status": self.quality_status,
+            "quality_reasons": list(self.quality_reasons),
+            "error_category": self.error_category,
+            "next_action": self.next_action,
+            "depends_on": list(self.depends_on),
+            "prompt_eligible": self.prompt_eligible,
+            "call_fingerprint": self.call_fingerprint,
+            "elapsed_ms": self.elapsed_ms,
+            "retryable": self.retryable,
+        }
+
+
+@dataclass(frozen=True)
+class ToolWorkflowFeedback:
+    """Safe execution feedback exposed to a bounded follow-up Planner round.
+
+    This is intentionally not an Adapter error payload or a copy of a Tool
+    result.  It tells the Planner only which planned action was unusable, the
+    deterministic quality decision, and whether a new plan is appropriate.
+    Raw provider errors and untrusted source content stay out of this contract.
+    """
+
+    call_id: str
+    tool_key: str
+    display_name: str
+    outcome: str
+    quality_status: str
+    next_action: str
+    reasons: tuple[str, ...] = ()
+    depends_on: tuple[str, ...] = ()
+    error_category: str = ""
+
+    @classmethod
+    def from_outcome(cls, outcome: ToolStepOutcome) -> "ToolWorkflowFeedback | None":
+        """Project a terminal Outcome into the small Planner-safe contract.
+
+        Successful evidence belongs in the final answer context and does not
+        need a failure feedback record.  All other state remains structured;
+        no raw provider exception, URL, response body or arguments can cross
+        this boundary.
+        """
+
+        if outcome.execution_status == "succeeded":
+            return None
+        return cls(
+            call_id=outcome.call_id,
+            tool_key=outcome.tool_key,
+            display_name=outcome.display_name,
+            outcome=outcome.execution_status,
+            quality_status=outcome.quality_status,
+            next_action=outcome.next_action,
+            reasons=outcome.quality_reasons[:4],
+            depends_on=outcome.depends_on,
+            error_category=outcome.error_category,
+        )
+
+    def to_planner_observation(self, *, round_index: int) -> dict[str, Any]:
+        readable_reasons = "、".join(self.reasons[:4]) or "未获得可用结果"
+        display_text = (
+            f"{self.display_name}（{self.tool_key}）执行结果为 {self.outcome}，"
+            f"质量状态为 {self.quality_status}；原因：{readable_reasons}；"
+            f"建议动作：{self.next_action}。"
+        )
+        return {
+            "round": round_index,
+            "source_type": "tool_quality_feedback",
+            "tool_key": self.tool_key,
+            "call_id": self.call_id,
+            "outcome": self.outcome,
+            "quality_status": self.quality_status,
+            "next_action": self.next_action,
+            "reasons": list(self.reasons[:4]),
+            "depends_on": list(self.depends_on),
+            "error_category": self.error_category,
+            "display_text": display_text,
+            "metadata": {},
+        }
+
+
+@dataclass
+class ToolRunCallLedger:
+    """In-memory ledger for one synchronous Chat tool run.
+
+    It intentionally has no database backing: synchronous Chat is not a
+    durable runtime.  The ledger only prevents a later re-plan from executing
+    an identical Tool + canonical-arguments pair after a terminal failure that
+    the current request cannot safely repair by retrying.  Different arguments
+    remain valid re-plans; durable retry/replay uses its own persisted policy.
+    """
+
+    _blockers_by_fingerprint: dict[str, ToolStepOutcome] = field(default_factory=dict)
+
+    def blocking_outcome_for(self, *, fingerprint: str) -> ToolStepOutcome | None:
+        return self._blockers_by_fingerprint.get(fingerprint)
+
+    def record(self, outcome: ToolStepOutcome) -> None:
+        if self._is_reexecution_blocker(outcome):
+            self._blockers_by_fingerprint.setdefault(outcome.call_fingerprint, outcome)
+
+    @staticmethod
+    def _is_reexecution_blocker(outcome: ToolStepOutcome) -> bool:
+        if outcome.execution_status == "waiting_approval":
+            return True
+        if outcome.execution_status == "failed" and outcome.quality_status in {"invalid", "uncertain"}:
+            return True
+        if outcome.execution_status == "failed" and not outcome.retryable:
+            return True
+        # A policy or validation denial cannot become safe merely because the
+        # Planner emits the exact same call again. Dependency/cycle/budget
+        # blocks are deliberately excluded because a different upstream plan or
+        # a later request can make those calls meaningful.
+        return outcome.execution_status == "blocked" and outcome.error_category in {
+            "policy_blocked",
+            "schema_or_scope_blocked",
+            "result_binding_invalid",
+            "duplicate_across_run",
+        }
 
 
 class ToolWorkflowService:
@@ -74,16 +283,72 @@ class ToolWorkflowService:
         if max_tool_calls is not None:
             self.max_tool_calls = max_tool_calls
 
-    async def run(self, *, plan: ToolPlan, query: str) -> ToolWorkflowResult:
+    async def run(
+        self,
+        *,
+        plan: ToolPlan,
+        query: str,
+        call_ledger: ToolRunCallLedger | None = None,
+    ) -> ToolWorkflowResult:
+        """Run one bounded ToolPlan and emit immutable terminal outcomes.
+
+        ``call_ledger`` lives for the outer synchronous Chat request and is
+        shared across re-plans.  The workflow itself remains fully usable on
+        its own, which preserves the existing direct/unit-test call sites.
+        """
+
         started = time.perf_counter()
         result = ToolWorkflowResult(selected_tool=plan.calls[0].category if plan.calls else "none")
+        call_ledger = call_ledger or ToolRunCallLedger()
         calls = plan.calls[: self.max_tool_calls]
         fallback_call_ids = self._select_fallback_call_ids(plan=plan, calls=calls, query=query)
+        terminal_by_call_id: dict[str, ToolStepOutcome] = {}
+        sources_by_call_id: dict[str, list[ExternalSource]] = {}
+        emitted_states: set[tuple[str, str]] = set()
+
+        def record_state(call: PlannedToolCall, state: str) -> None:
+            """Trace non-terminal lifecycle states exactly once per Step."""
+
+            state_key = (call.call_id, state)
+            if state_key in emitted_states:
+                return
+            emitted_states.add(state_key)
+            result.events.append(
+                ToolTraceEvent(
+                    type="tool_workflow_step_state",
+                    payload={
+                        "workflow": "tool_workflow_v2",
+                        "call_id": call.call_id,
+                        "tool_key": call.tool_key,
+                        "state": state,
+                        "depends_on": list(call.depends_on),
+                    },
+                )
+            )
+
+        def record_outcome(outcome: ToolStepOutcome, *, index_for_dependencies: bool = True) -> None:
+            result.step_outcomes.append(outcome)
+            if index_for_dependencies:
+                terminal_by_call_id.setdefault(outcome.call_id, outcome)
+            call_ledger.record(outcome)
+            feedback = ToolWorkflowFeedback.from_outcome(outcome)
+            if feedback:
+                result.feedback.append(feedback)
+            result.events.append(
+                ToolTraceEvent(
+                    type="tool_workflow_step_outcome",
+                    payload={
+                        "workflow": "tool_workflow_v2",
+                        **outcome.to_trace_payload(),
+                    },
+                )
+            )
+
         result.events.append(
             ToolTraceEvent(
                 type="tool_workflow_start",
                 payload={
-                    "workflow": "tool_workflow_v1",
+                    "workflow": "tool_workflow_v2",
                     "plan_id": plan.plan_id,
                     "planned_calls": len(plan.calls),
                     "max_tool_calls": self.max_tool_calls,
@@ -92,16 +357,45 @@ class ToolWorkflowService:
             )
         )
 
-        # 只抑制当前 ToolPlan 内的同工具同参数重复调用；下一轮重新规划会创建新的 Workflow。
+        # Calls past the per-plan budget are not silently discarded. They have
+        # a terminal Outcome but are intentionally not added to the run ledger:
+        # a later, smaller plan may safely include them.
+        for call in plan.calls[self.max_tool_calls :]:
+            outcome = self._blocked_outcome(
+                call=call,
+                error_category="tool_call_budget_exceeded",
+                next_action="replan",
+                reasons=("tool_call_budget_exceeded",),
+            )
+            record_outcome(outcome)
+            result.events.append(
+                ToolTraceEvent(
+                    type="tool_workflow_step_skipped",
+                    payload={
+                        "workflow": "tool_workflow_v2",
+                        "call_id": call.call_id,
+                        "tool_key": call.tool_key,
+                        "reason": "tool_call_budget_exceeded",
+                    },
+                )
+            )
+
         seen_call_keys: set[tuple[str, str]] = set()
         pending: dict[str, PlannedToolCall] = {}
         for call in calls:
             if call.call_id in pending:
+                outcome = self._blocked_outcome(
+                    call=call,
+                    error_category="duplicate_call_id",
+                    next_action="replan",
+                    reasons=("duplicate_call_id",),
+                )
+                record_outcome(outcome, index_for_dependencies=False)
                 result.events.append(
                     ToolTraceEvent(
                         type="tool_workflow_step_skipped",
                         payload={
-                            "workflow": "tool_workflow_v1",
+                            "workflow": "tool_workflow_v2",
                             "call_id": call.call_id,
                             "tool_key": call.tool_key,
                             "reason": "duplicate_call_id",
@@ -110,26 +404,29 @@ class ToolWorkflowService:
                 )
                 continue
             pending[call.call_id] = call
-        completed: set[str] = set()
-        failed: set[str] = set()
-        quality_by_call_id: dict[str, str] = {}
-        quality_reasons_by_call_id: dict[str, list[str]] = {}
-        quality_actions_by_call_id: dict[str, str] = {}
-        sources_by_call_id: dict[str, list[ExternalSource]] = {}
+            record_state(call, "pending")
+
         step = 0
         while pending:
             ready = [
                 call
                 for call in pending.values()
-                if all(dep in completed for dep in call.depends_on)
+                if all(dependency in terminal_by_call_id for dependency in call.depends_on)
             ]
             if not ready:
-                for call in pending.values():
+                for call in list(pending.values()):
+                    outcome = self._blocked_outcome(
+                        call=call,
+                        error_category="unresolved_or_cyclic_dependencies",
+                        next_action="stop",
+                        reasons=("unresolved_or_cyclic_dependencies",),
+                    )
+                    record_outcome(outcome)
                     result.events.append(
                         ToolTraceEvent(
                             type="tool_workflow_step_skipped",
                             payload={
-                                "workflow": "tool_workflow_v1",
+                                "workflow": "tool_workflow_v2",
                                 "call_id": call.call_id,
                                 "tool_key": call.tool_key,
                                 "depends_on": call.depends_on,
@@ -137,7 +434,11 @@ class ToolWorkflowService:
                             },
                         )
                     )
+                    pending.pop(call.call_id, None)
                 break
+
+            for call in ready:
+                record_state(call, "ready")
 
             non_parallel = [call for call in ready if not call.can_parallel]
             if non_parallel:
@@ -145,43 +446,55 @@ class ToolWorkflowService:
 
             executable: list[PlannedToolCall] = []
             for call in ready:
-                failed_dependencies = sorted(dep for dep in call.depends_on if dep in failed)
+                dependency_outcomes = [terminal_by_call_id[dependency] for dependency in call.depends_on]
+                failed_dependencies = [
+                    outcome for outcome in dependency_outcomes if not outcome.unlocks_strict_dependents
+                ]
                 if failed_dependencies:
                     dependency_quality = {
-                        dep: quality_by_call_id.get(dep, "unknown") for dep in failed_dependencies
+                        outcome.call_id: outcome.quality_status for outcome in failed_dependencies
                     }
                     quality_blocked = any(
-                        status in {"invalid", "uncertain"} for status in dependency_quality.values()
+                        outcome.quality_status in {"invalid", "uncertain"}
+                        for outcome in failed_dependencies
                     )
+                    next_action = (
+                        "replan"
+                        if any(outcome.next_action in {"replan", "fallback"} for outcome in failed_dependencies)
+                        else "block"
+                    )
+                    error_category = (
+                        "dependency_quality_not_usable" if quality_blocked else "dependency_not_succeeded"
+                    )
+                    outcome = self._blocked_outcome(
+                        call=call,
+                        error_category=error_category,
+                        next_action=next_action,
+                        reasons=(error_category,),
+                        depends_on=tuple(item.call_id for item in failed_dependencies),
+                    )
+                    record_outcome(outcome)
                     result.events.append(
                         ToolTraceEvent(
                             type="quality_gate_blocked" if quality_blocked else "tool_workflow_step_skipped",
                             payload={
-                                "workflow": "tool_workflow_v1",
+                                "workflow": "tool_workflow_v2",
                                 "call_id": call.call_id,
                                 "tool_key": call.tool_key,
                                 "depends_on": call.depends_on,
-                                "failed_dependencies": failed_dependencies,
+                                "failed_dependencies": [item.call_id for item in failed_dependencies],
                                 "dependency_quality": dependency_quality,
                                 "dependency_quality_reasons": {
-                                    dep: quality_reasons_by_call_id.get(dep, [])
-                                    for dep in failed_dependencies
+                                    item.call_id: list(item.quality_reasons) for item in failed_dependencies
                                 },
-                                "next_action": (
-                                    "replan"
-                                    if any(quality_actions_by_call_id.get(dep) == "replan" for dep in failed_dependencies)
-                                    else "block"
-                                ),
-                                "reason": "upstream_quality_not_usable"
-                                if quality_blocked
-                                else "failed_dependencies",
+                                "next_action": next_action,
+                                "reason": error_category,
                             },
                         )
                     )
-                    completed.add(call.call_id)
-                    failed.add(call.call_id)
                     pending.pop(call.call_id, None)
                     continue
+
                 if call.result_bindings:
                     definition = self.registry.get_or_none(call.tool_key)
                     try:
@@ -194,6 +507,13 @@ class ToolWorkflowService:
                         )
                         result.events.extend(binding_events)
                     except ToolResultBindingError:
+                        outcome = self._blocked_outcome(
+                            call=call,
+                            error_category="result_binding_invalid",
+                            next_action="replan",
+                            reasons=("result_binding_invalid",),
+                        )
+                        record_outcome(outcome)
                         result.events.append(
                             ToolTraceEvent(
                                 type="tool_result_binding",
@@ -205,25 +525,55 @@ class ToolWorkflowService:
                                 },
                             )
                         )
-                        completed.add(call.call_id)
-                        failed.add(call.call_id)
                         pending.pop(call.call_id, None)
                         continue
+
                 call_key = (call.tool_key, self._stable_arguments(call))
-                if call_key in seen_call_keys:
+                fingerprint = self.call_fingerprint_for(call)
+                prior_outcome = call_ledger.blocking_outcome_for(fingerprint=fingerprint)
+                if prior_outcome:
+                    next_action = "clarify" if prior_outcome.execution_status == "waiting_approval" else "replan"
+                    outcome = self._blocked_outcome(
+                        call=call,
+                        error_category="duplicate_across_run",
+                        next_action=next_action,
+                        reasons=("duplicate_across_run",),
+                    )
+                    record_outcome(outcome)
                     result.events.append(
                         ToolTraceEvent(
                             type="tool_workflow_step_skipped",
                             payload={
-                                "workflow": "tool_workflow_v1",
+                                "workflow": "tool_workflow_v2",
+                                "call_id": call.call_id,
+                                "tool_key": call.tool_key,
+                                "reason": "duplicate_across_run",
+                                "prior_execution_status": prior_outcome.execution_status,
+                                "prior_quality_status": prior_outcome.quality_status,
+                            },
+                        )
+                    )
+                    pending.pop(call.call_id, None)
+                    continue
+                if call_key in seen_call_keys:
+                    outcome = self._blocked_outcome(
+                        call=call,
+                        error_category="duplicate_within_plan",
+                        next_action="replan",
+                        reasons=("duplicate_tool_call",),
+                    )
+                    record_outcome(outcome)
+                    result.events.append(
+                        ToolTraceEvent(
+                            type="tool_workflow_step_skipped",
+                            payload={
+                                "workflow": "tool_workflow_v2",
                                 "call_id": call.call_id,
                                 "tool_key": call.tool_key,
                                 "reason": "duplicate_tool_call",
                             },
                         )
                     )
-                    completed.add(call.call_id)
-                    failed.add(call.call_id)
                     pending.pop(call.call_id, None)
                     continue
                 seen_call_keys.add(call_key)
@@ -232,11 +582,13 @@ class ToolWorkflowService:
             if not executable:
                 continue
             step += 1
+            for call in executable:
+                record_state(call, "running")
             result.events.append(
                 ToolTraceEvent(
                     type="tool_workflow_batch",
                     payload={
-                        "workflow": "tool_workflow_v1",
+                        "workflow": "tool_workflow_v2",
                         "step": step,
                         "mode": "parallel" if len(executable) > 1 else "single",
                         "call_ids": [call.call_id for call in executable],
@@ -251,6 +603,7 @@ class ToolWorkflowService:
                         query=query,
                         plan=plan,
                         allow_fallback=call.call_id in fallback_call_ids,
+                        call_fingerprint=self.call_fingerprint_for(call),
                     )
                     for call in executable
                 ]
@@ -267,7 +620,7 @@ class ToolWorkflowService:
                         ToolTraceEvent(
                             type=suppression_type,
                             payload={
-                                "workflow": "tool_workflow_v1",
+                                "workflow": "tool_workflow_v2",
                                 "call_id": step_result.call.call_id,
                                 "tool_key": step_result.call.tool_key,
                                 "status": step_result.quality_status,
@@ -287,30 +640,89 @@ class ToolWorkflowService:
                 result.notices.extend(step_result.notices)
                 result.selected_tool = step_result.call.category
                 result.error_message = step_result.error_message or result.error_message
-                completed.add(step_result.call.call_id)
-                if not step_result.succeeded:
-                    failed.add(step_result.call.call_id)
-                quality_by_call_id[step_result.call.call_id] = step_result.quality_status
-                quality_reasons_by_call_id[step_result.call.call_id] = list(step_result.quality_reasons)
-                quality_actions_by_call_id[step_result.call.call_id] = step_result.quality_action
                 sources_by_call_id[step_result.call.call_id] = list(step_result.sources)
+                record_outcome(self._outcome_from_step_result(step_result))
                 pending.pop(step_result.call.call_id, None)
 
+        result.aggregate_status = self._aggregate_status(result.step_outcomes)
         result.elapsed_ms = int((time.perf_counter() - started) * 1000)
         result.events.append(
             ToolTraceEvent(
                 type="tool_workflow_end",
                 payload={
-                    "workflow": "tool_workflow_v1",
+                    "workflow": "tool_workflow_v2",
                     "plan_id": plan.plan_id,
-                    "status": "success" if result.sources else "empty",
+                    "status": result.aggregate_status,
                     "elapsed_ms": result.elapsed_ms,
                     "sources_count": len(result.sources),
+                    "step_outcomes_count": len(result.step_outcomes),
                     "error": result.error_message or None,
                 },
             )
         )
         return result
+
+    @classmethod
+    def _blocked_outcome(
+        cls,
+        *,
+        call: PlannedToolCall,
+        error_category: str,
+        next_action: str,
+        reasons: tuple[str, ...],
+        depends_on: tuple[str, ...] | None = None,
+    ) -> ToolStepOutcome:
+        return ToolStepOutcome(
+            call_id=call.call_id,
+            tool_key=call.tool_key,
+            display_name=call.display_name,
+            execution_status="blocked",
+            quality_status="not_applicable",
+            quality_reasons=reasons,
+            error_category=error_category,
+            next_action=next_action,
+            depends_on=depends_on if depends_on is not None else tuple(call.depends_on),
+            prompt_eligible=False,
+            call_fingerprint=cls.call_fingerprint_for(call),
+            elapsed_ms=0,
+            retryable=False,
+        )
+
+    @classmethod
+    def _outcome_from_step_result(cls, step_result: ToolStepResult) -> ToolStepOutcome:
+        return ToolStepOutcome(
+            call_id=step_result.call.call_id,
+            tool_key=step_result.call.tool_key,
+            display_name=step_result.call.display_name,
+            execution_status=step_result.execution_status,
+            quality_status=step_result.quality_status,
+            quality_reasons=tuple(step_result.quality_reasons[:8]),
+            error_category=step_result.error_category,
+            next_action=step_result.quality_action,
+            depends_on=tuple(step_result.call.depends_on),
+            prompt_eligible=step_result.expose_sources_to_prompt,
+            call_fingerprint=step_result.call_fingerprint or cls.call_fingerprint_for(step_result.call),
+            elapsed_ms=max(0, int(step_result.elapsed_ms)),
+            retryable=step_result.retryable,
+        )
+
+    @staticmethod
+    def _aggregate_status(outcomes: list[ToolStepOutcome]) -> str:
+        if not outcomes:
+            return "empty"
+        strict_successes = [outcome for outcome in outcomes if outcome.unlocks_strict_dependents]
+        non_successes = [outcome for outcome in outcomes if not outcome.unlocks_strict_dependents]
+        if strict_successes:
+            return "succeeded" if not non_successes else "partial"
+        if any(outcome.execution_status == "waiting_approval" for outcome in outcomes):
+            return "waiting_approval"
+        if any(outcome.prompt_eligible for outcome in outcomes):
+            return "partial"
+        if any(outcome.execution_status == "failed" for outcome in outcomes):
+            return "failed"
+        if any(outcome.execution_status == "blocked" for outcome in outcomes):
+            return "blocked"
+        return "empty"
 
     async def _execute_call(
         self,
@@ -319,12 +731,13 @@ class ToolWorkflowService:
         query: str,
         plan: ToolPlan,
         allow_fallback: bool,
+        call_fingerprint: str,
     ) -> ToolStepResult:
         events = [
             ToolTraceEvent(
                 type="tool_workflow_step",
                 payload={
-                    "workflow": "tool_workflow_v1",
+                    "workflow": "tool_workflow_v2",
                     "call_id": call.call_id,
                     "tool_key": call.tool_key,
                     "display_name": call.display_name,
@@ -355,7 +768,18 @@ class ToolWorkflowService:
                     },
                 )
             )
-            return ToolStepResult(call=call, events=events, error_message=safe_error)
+            return ToolStepResult(
+                call=call,
+                execution_status="failed",
+                quality_status="not_applicable",
+                quality_reasons=["executor_exception"],
+                quality_action="replan",
+                error_category="executor_exception",
+                retryable=True,
+                call_fingerprint=call_fingerprint,
+                events=events,
+                error_message=safe_error,
+            )
         events.extend(call_events)
         error_message = call_result.error_message or ""
         quality_status, quality_reasons = self._quality_for_result(call_result)
@@ -383,11 +807,20 @@ class ToolWorkflowService:
             risk_level=definition.risk_level if definition else "high",
             read_only=definition.read_only if definition else False,
         )
+        effective_quality_status = (
+            "uncertain"
+            if confirmation_required
+            else (
+                "valid"
+                if result_usable
+                else ("not_applicable" if call_result.status != "success" else quality_decision.status)
+            )
+        )
         events.append(
             ToolTraceEvent(
                 type="tool_result_quality_decision",
                 payload={
-                    "workflow": "tool_workflow_v1",
+                    "workflow": "tool_workflow_v2",
                     "call_id": call.call_id,
                     "tool_key": call.tool_key,
                     "status": quality_decision.status,
@@ -408,6 +841,11 @@ class ToolWorkflowService:
                 quality_status="uncertain",
                 quality_reasons=[*quality_reasons, "user_confirmation_required"],
                 quality_action="clarify",
+                execution_status="waiting_approval",
+                error_category="approval_required",
+                retryable=False,
+                elapsed_ms=call_result.elapsed_ms,
+                call_fingerprint=call_fingerprint,
                 notices=[f"{call.display_name}需要用户确认，已跳过执行。"],
                 events=events,
                 error_message=error_message,
@@ -417,23 +855,28 @@ class ToolWorkflowService:
             return ToolStepResult(
                 call=call,
                 succeeded=True,
-                quality_status=quality_status,
+                execution_status="succeeded",
+                quality_status="valid",
                 quality_reasons=quality_reasons,
                 quality_action="continue",
+                error_category="",
+                retryable=False,
+                elapsed_ms=call_result.elapsed_ms,
+                call_fingerprint=call_fingerprint,
                 sources=call_result.sources,
                 expose_sources_to_prompt=True,
                 events=events,
             )
 
-        if call_result.status == "success" and quality_status in {"invalid", "uncertain"}:
+        if call_result.status == "success" and effective_quality_status in {"invalid", "uncertain"}:
             events.append(
                 ToolTraceEvent(
                     type="quality_gate_blocked",
                     payload={
-                        "workflow": "tool_workflow_v1",
+                        "workflow": "tool_workflow_v2",
                         "call_id": call.call_id,
                         "tool_key": call.tool_key,
-                        "status": quality_status,
+                        "status": effective_quality_status,
                         "reasons": quality_reasons,
                         "next_action": quality_decision.action,
                         "downstream_unlocked": False,
@@ -442,11 +885,26 @@ class ToolWorkflowService:
             )
 
         if quality_decision.action != "fallback" or not plan.fallback_tool_key or not allow_fallback:
+            execution_status = "blocked" if call_result.status == "skipped" else "failed"
+            error_category = (
+                "schema_or_scope_blocked"
+                if execution_status == "blocked"
+                else (
+                    "quality_result_not_usable"
+                    if call_result.status == "success"
+                    else "tool_execution_failed"
+                )
+            )
             return ToolStepResult(
                 call=call,
-                quality_status=quality_status,
+                execution_status=execution_status,
+                quality_status=effective_quality_status,
                 quality_reasons=quality_reasons,
                 quality_action=quality_decision.action,
+                error_category=error_category,
+                retryable=bool(call_result.retryable) if execution_status == "failed" else False,
+                elapsed_ms=call_result.elapsed_ms,
+                call_fingerprint=call_fingerprint,
                 sources=call_result.sources,
                 events=events,
                 error_message=error_message or self._quality_error(call_result),
@@ -492,8 +950,14 @@ class ToolWorkflowService:
             )
             return ToolStepResult(
                 call=call,
-                quality_status=quality_status,
-                quality_reasons=quality_reasons,
+                execution_status="failed",
+                quality_status="not_applicable",
+                quality_reasons=["fallback_executor_exception"],
+                quality_action="replan",
+                error_category="fallback_executor_exception",
+                retryable=True,
+                elapsed_ms=call_result.elapsed_ms,
+                call_fingerprint=call_fingerprint,
                 sources=call_result.sources,
                 events=events,
                 error_message=safe_error,
@@ -532,11 +996,20 @@ class ToolWorkflowService:
             risk_level=fallback_definition.risk_level if fallback_definition else "high",
             read_only=fallback_definition.read_only if fallback_definition else False,
         )
+        effective_fallback_quality_status = (
+            "valid"
+            if fallback_usable
+            else (
+                "not_applicable"
+                if fallback_result.status != "success"
+                else fallback_decision.status
+            )
+        )
         events.append(
             ToolTraceEvent(
                 type="tool_result_quality_decision",
                 payload={
-                    "workflow": "tool_workflow_v1",
+                    "workflow": "tool_workflow_v2",
                     "call_id": fallback_call.call_id,
                     "tool_key": fallback_call.tool_key,
                     "status": fallback_decision.status,
@@ -564,7 +1037,7 @@ class ToolWorkflowService:
                 ToolTraceEvent(
                     type="quality_gate_blocked",
                     payload={
-                        "workflow": "tool_workflow_v1",
+                        "workflow": "tool_workflow_v2",
                         "call_id": call.call_id,
                         "tool_key": call.tool_key,
                         "stage": "fallback_dependency_contract",
@@ -574,12 +1047,47 @@ class ToolWorkflowService:
                     },
                 )
             )
+        if dependency_contract_satisfied:
+            return ToolStepResult(
+                call=call,
+                succeeded=True,
+                execution_status="succeeded",
+                quality_status="valid",
+                quality_reasons=fallback_quality_reasons,
+                quality_action="continue",
+                error_category="",
+                retryable=False,
+                elapsed_ms=call_result.elapsed_ms + fallback_result.elapsed_ms,
+                call_fingerprint=call_fingerprint,
+                sources=fallback_result.sources,
+                expose_sources_to_prompt=True,
+                notices=notices,
+                events=events,
+            )
+
+        fallback_contract_failed = fallback_usable and not dependency_contract_satisfied
+        final_quality_status = "invalid" if fallback_contract_failed else effective_fallback_quality_status
+        final_quality_reasons = list(fallback_quality_reasons)
+        if fallback_contract_failed:
+            final_quality_reasons.append("fallback_dependency_contract_not_satisfied")
         return ToolStepResult(
             call=call,
-            succeeded=dependency_contract_satisfied,
-            quality_status=fallback_quality_status,
-            quality_reasons=fallback_quality_reasons,
-            quality_action=("continue" if dependency_contract_satisfied else "block"),
+            execution_status="failed",
+            quality_status=final_quality_status,
+            quality_reasons=final_quality_reasons,
+            quality_action="replan" if fallback_contract_failed else fallback_decision.action,
+            error_category=(
+                "fallback_dependency_contract_not_satisfied"
+                if fallback_contract_failed
+                else (
+                    "fallback_quality_not_usable"
+                    if fallback_result.status == "success"
+                    else "fallback_execution_failed"
+                )
+            ),
+            retryable=bool(fallback_result.retryable) and not fallback_contract_failed,
+            elapsed_ms=call_result.elapsed_ms + fallback_result.elapsed_ms,
+            call_fingerprint=call_fingerprint,
             sources=fallback_result.sources,
             expose_sources_to_prompt=fallback_usable,
             notices=notices,
@@ -665,3 +1173,16 @@ class ToolWorkflowService:
     @staticmethod
     def _stable_arguments(call: PlannedToolCall) -> str:
         return json.dumps(call.arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+    @classmethod
+    def call_fingerprint_for(cls, call: PlannedToolCall) -> str:
+        """Return a versioned, argument-order-independent call fingerprint.
+
+        The digest, rather than canonical arguments themselves, is written to
+        Outcome/Trace records.  This keeps the sync-run dedupe audit useful
+        without copying arbitrary model parameters into another observation
+        surface.
+        """
+
+        canonical = f"tool_call_v1\n{call.tool_key}\n{cls._stable_arguments(call)}"
+        return f"sha256:{sha256(canonical.encode('utf-8')).hexdigest()}"

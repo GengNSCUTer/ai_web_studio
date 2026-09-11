@@ -13,7 +13,7 @@ from app.services.tools.schemas import (
     ToolResultBinding,
     ToolTraceEvent,
 )
-from app.services.tools.workflow import ToolWorkflowService
+from app.services.tools.workflow import ToolRunCallLedger, ToolWorkflowService
 
 
 class FakeWorkflowExecutor:
@@ -226,6 +226,32 @@ class StructuredBindingExecutor(FakeWorkflowExecutor):
         )
 
 
+class ArgumentMutatingInvalidExecutor(FakeWorkflowExecutor):
+    """Simulates Executor normalization without changing the planned intent."""
+
+    async def execute(self, call: PlannedToolCall):
+        self.calls.append(call)
+        call.arguments = {**call.arguments, "executor_normalized": True}
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                sources=[
+                    ExternalSource(
+                        source_type=call.category,
+                        provider=call.provider,
+                        title="invalid result",
+                        display_text="quality gate must block this result",
+                    )
+                ],
+                elapsed_ms=3,
+                quality_status="invalid",
+                quality_reasons=["test_invalid"],
+            ),
+            [],
+        )
+
+
 class ToolWorkflowTest(unittest.TestCase):
     @staticmethod
     def _binding_catalog() -> ToolCatalog:
@@ -387,6 +413,94 @@ class ToolWorkflowTest(unittest.TestCase):
             ToolWorkflowService._stable_arguments(first),
             ToolWorkflowService._stable_arguments(second),
         )
+        self.assertEqual(
+            ToolWorkflowService.call_fingerprint_for(first),
+            ToolWorkflowService.call_fingerprint_for(second),
+        )
+
+    def test_run_ledger_blocks_same_invalid_call_across_replans(self) -> None:
+        async def run_test() -> None:
+            executor = ArgumentMutatingInvalidExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=ToolCatalog())
+            ledger = ToolRunCallLedger()
+            common = {
+                "tool_key": "amap.maps.weather",
+                "provider": "amap",
+                "category": "weather",
+                "display_name": "高德天气",
+                "confidence": 1.0,
+                "reason": "same canonical request",
+                "arguments": {"city": "深圳"},
+            }
+            first_plan = ToolPlan(
+                plan_id="ledger-first",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[PlannedToolCall(call_id="first", **common)],
+            )
+            second_plan = ToolPlan(
+                plan_id="ledger-second",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[PlannedToolCall(call_id="second", **common)],
+            )
+
+            first_result = await workflow.run(plan=first_plan, query="深圳天气", call_ledger=ledger)
+            second_result = await workflow.run(plan=second_plan, query="深圳天气", call_ledger=ledger)
+
+            self.assertEqual([call.call_id for call in executor.calls], ["first"])
+            self.assertEqual(first_result.step_outcomes[0].execution_status, "failed")
+            self.assertEqual(first_result.step_outcomes[0].quality_status, "invalid")
+            duplicate = second_result.step_outcomes[0]
+            self.assertEqual(duplicate.execution_status, "blocked")
+            self.assertEqual(duplicate.error_category, "duplicate_across_run")
+            self.assertEqual(duplicate.next_action, "replan")
+            self.assertEqual(second_result.aggregate_status, "blocked")
+            self.assertNotIn("深圳", duplicate.call_fingerprint)
+            self.assertTrue(duplicate.call_fingerprint.startswith("sha256:"))
+
+        asyncio.run(run_test())
+
+    def test_run_ledger_allows_same_tool_with_different_arguments(self) -> None:
+        async def run_test() -> None:
+            executor = QualityGateExecutor("invalid")
+            workflow = ToolWorkflowService(executor=executor, registry=ToolCatalog())
+            ledger = ToolRunCallLedger()
+
+            def build_plan(*, plan_id: str, call_id: str, city: str) -> ToolPlan:
+                return ToolPlan(
+                    plan_id=plan_id,
+                    router="test",
+                    external_context_allowed=True,
+                    should_use_tools=True,
+                    calls=[
+                        PlannedToolCall(
+                            call_id=call_id,
+                            tool_key="amap.maps.weather",
+                            provider="amap",
+                            category="weather",
+                            display_name="高德天气",
+                            confidence=1.0,
+                            reason="changed city is a legitimate re-plan",
+                            arguments={"city": city},
+                        )
+                    ],
+                )
+
+            await workflow.run(plan=build_plan(plan_id="first", call_id="first", city="深圳"), query="天气", call_ledger=ledger)
+            second_result = await workflow.run(
+                plan=build_plan(plan_id="second", call_id="second", city="广州"),
+                query="天气",
+                call_ledger=ledger,
+            )
+
+            self.assertEqual([call.arguments["city"] for call in executor.calls], ["深圳", "广州"])
+            self.assertEqual(second_result.step_outcomes[0].error_category, "quality_result_not_usable")
+            self.assertNotEqual(second_result.step_outcomes[0].error_category, "duplicate_across_run")
+
+        asyncio.run(run_test())
 
     def test_unbound_call_does_not_require_workflow_catalog_definition(self) -> None:
         async def run_test() -> None:
@@ -471,9 +585,24 @@ class ToolWorkflowTest(unittest.TestCase):
             self.assertIn("tool_workflow_start", event_types)
             self.assertIn("tool_workflow_batch", event_types)
             self.assertIn("tool_workflow_step", event_types)
+            self.assertIn("tool_workflow_step_state", event_types)
+            self.assertIn("tool_workflow_step_outcome", event_types)
             self.assertIn("tool_workflow_end", event_types)
             batch = [event for event in result.events if event.type == "tool_workflow_batch"][0]
             self.assertEqual(batch.payload["mode"], "parallel")
+            call_one_states = [
+                event.payload["state"]
+                for event in result.events
+                if event.type == "tool_workflow_step_state" and event.payload["call_id"] == "call-1"
+            ]
+            self.assertEqual(call_one_states, ["pending", "ready", "running"])
+            # The executor completed the two admitted calls.  The third declared
+            # call was not silently discarded: the workflow records its budget
+            # block, therefore the plan is only partially completed.
+            self.assertEqual(result.aggregate_status, "partial")
+            outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
+            self.assertEqual(outcomes["call-3"].execution_status, "blocked")
+            self.assertEqual(outcomes["call-3"].error_category, "tool_call_budget_exceeded")
 
         asyncio.run(run_test())
 
@@ -628,6 +757,10 @@ class ToolWorkflowTest(unittest.TestCase):
             self.assertEqual(len(errors), 1)
             self.assertNotIn("secret", errors[0].payload["error"])
             self.assertIn("正常天气", result.sources[0].title)
+            outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
+            self.assertEqual(outcomes["broken"].execution_status, "failed")
+            self.assertEqual(outcomes["healthy"].execution_status, "succeeded")
+            self.assertEqual(result.aggregate_status, "partial")
 
         asyncio.run(run_test())
 
@@ -810,8 +943,11 @@ class ToolWorkflowTest(unittest.TestCase):
 
             self.assertEqual(len(result.sources), 1)
             self.assertNotIn("downstream", [call.call_id for call in executor.calls])
-            skipped = [event for event in result.events if event.type == "tool_workflow_step_skipped"]
-            self.assertEqual(skipped[-1].payload["reason"], "failed_dependencies")
+            blocked = [event for event in result.events if event.type == "quality_gate_blocked"]
+            self.assertEqual(blocked[-1].payload["reason"], "dependency_quality_not_usable")
+            outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
+            self.assertEqual(outcomes["first"].quality_status, "invalid")
+            self.assertEqual(outcomes["downstream"].execution_status, "blocked")
 
         asyncio.run(run_test())
 
@@ -897,8 +1033,13 @@ class ToolWorkflowTest(unittest.TestCase):
 
             self.assertEqual([call.call_id for call in executor.calls], ["first"])
             skipped = [event for event in result.events if event.type == "tool_workflow_step_skipped"]
-            self.assertEqual(skipped[0].payload["reason"], "failed_dependencies")
+            self.assertEqual(skipped[0].payload["reason"], "dependency_not_succeeded")
             self.assertEqual(skipped[0].payload["failed_dependencies"], ["first"])
+            outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
+            self.assertEqual(outcomes["first"].execution_status, "failed")
+            self.assertEqual(outcomes["second"].execution_status, "blocked")
+            self.assertEqual(outcomes["second"].quality_status, "not_applicable")
+            self.assertEqual(result.aggregate_status, "failed")
 
         asyncio.run(run_test())
 
@@ -947,6 +1088,19 @@ class ToolWorkflowTest(unittest.TestCase):
             self.assertEqual(result.sources, [])
             suppressed = [event for event in result.events if event.type == "quality_evidence_suppressed"]
             self.assertEqual(suppressed[-1].payload["exposed_to_prompt"], False)
+            self.assertEqual(
+                [(feedback.call_id, feedback.outcome, feedback.next_action) for feedback in result.feedback],
+                [
+                    ("first", "failed", "replan"),
+                    ("second", "blocked", "replan"),
+                ],
+            )
+            outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
+            self.assertEqual(outcomes["first"].execution_status, "failed")
+            self.assertEqual(outcomes["first"].quality_status, "invalid")
+            self.assertEqual(outcomes["second"].execution_status, "blocked")
+            self.assertEqual(outcomes["second"].depends_on, ("first",))
+            self.assertEqual(result.aggregate_status, "failed")
 
         asyncio.run(run_test())
 
@@ -1107,6 +1261,13 @@ class ToolWorkflowTest(unittest.TestCase):
             decision = [event for event in result.events if event.type == "tool_result_quality_decision"]
             self.assertEqual(decision[0].payload["status"], "uncertain")
             self.assertEqual(decision[0].payload["action"], "clarify")
+            self.assertEqual(result.aggregate_status, "waiting_approval")
+            self.assertEqual(len(result.step_outcomes), 1)
+            outcome = result.step_outcomes[0]
+            self.assertEqual(outcome.execution_status, "waiting_approval")
+            self.assertEqual(outcome.quality_status, "uncertain")
+            self.assertTrue(outcome.prompt_eligible)
+            self.assertEqual(result.feedback[0].error_category, "approval_required")
 
         asyncio.run(run_test())
 
