@@ -180,6 +180,7 @@ class ToolCatalogTest(unittest.TestCase):
             self.assertEqual(definition.input_schema["required"], ["query"])
             self.assertEqual(definition.output_schema["required"], ["items"])
             self.assertTrue(definition.read_only)
+            self.assertEqual(definition.quality_contract, {"require_semantic_profile": True})
         finally:
             db.close()
             Base.metadata.drop_all(bind=engine)

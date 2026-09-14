@@ -4,7 +4,9 @@ import asyncio
 import unittest
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.credentials import ToolCredential, ToolCredentialResolver
+from app.services.tools.adapters import ToolAdapterRunner
 from app.services.tools.executor import ToolExecutor
+from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolDefinition, ToolExecutionFeedbackError
 
 
@@ -45,6 +47,82 @@ class FakeAdapterRunner:
 class EmptyAdapterRunner:
     async def run(self, *, definition, call, api_key):
         return [], {"adapter_type": definition.adapter_type}
+
+
+class EmptyAnswerClaimingAdapterRunner:
+    async def run(self, *, definition, call, api_key):
+        return [], {
+            "adapter_type": definition.adapter_type,
+            "result_semantics": "empty_answer",
+        }
+
+
+class InternalEmptyWorkspaceProvider(WorkspaceFileToolProvider):
+    """用于验证只有项目内 Provider 类型可声明合法空答案。"""
+
+    async def run(self, *, call):
+        return [], {
+            "adapter_type": "workspace_file",
+            "result_semantics": "empty_answer",
+        }
+
+
+class ProfileAdapterRunner:
+    async def run(self, *, definition, call, api_key):
+        return [
+            ExternalSource(
+                source_type="web",
+                provider="provider-a",
+                title="搜索结果",
+                display_text="正文证据",
+                metadata={
+                    "raw": {
+                        "items": [
+                            {
+                                "name": "结果 A",
+                                "href": "https://a.example",
+                                "text": "正文证据",
+                            }
+                        ]
+                    }
+                },
+            )
+        ], {"adapter_type": definition.adapter_type}
+
+
+class CoordinateMcpAdapterRunner(ToolAdapterRunner):
+    async def run(self, *, definition, call, api_key):
+        return [
+            ExternalSource(
+                source_type="map",
+                provider="amap",
+                title="路线",
+                display_text="路线证据",
+                metadata={
+                    "raw": {
+                        "origin": "113.324521,23.106428",
+                        "destination": "113.360000,23.120000",
+                        "distance": "5000",
+                        "duration": "900",
+                    }
+                },
+            )
+        ], {
+            "adapter_type": "mcp_http",
+            "mcp_arguments": {
+                "origin": "113.324521,23.106428",
+                "destination": "113.360000,23.120000",
+            },
+        }
+
+
+class UntrustedCoordinateAdapterRunner:
+    async def run(self, *, definition, call, api_key):
+        return await CoordinateMcpAdapterRunner().run(
+            definition=definition,
+            call=call,
+            api_key=api_key,
+        )
 
 
 class FailingAdapterRunner:
@@ -106,7 +184,14 @@ class ToolExecutorTest(unittest.TestCase):
             title="secret title",
             display_text="API_KEY=secret-value token_count=3&token=another-secret",
             url="https://example.test/?access_token=secret-value&key=url-secret&next=ok",
-            metadata={"raw": {"apiKey": "secret-value", "location": "1,2"}},
+            metadata={
+                "raw": {
+                    "apiKey": "secret-value",
+                    "location": "1,2",
+                    "content": "provider note: API_KEY=secret-value",
+                    "nested": [{"excerpt": "token=another-secret"}],
+                }
+            },
         )
 
         public = source.to_public_dict()
@@ -116,6 +201,8 @@ class ToolExecutorTest(unittest.TestCase):
         self.assertNotIn("url-secret", str(public))
         self.assertEqual(public["metadata"]["raw"]["apiKey"], "***")
         self.assertEqual(public["metadata"]["raw"]["location"], "1,2")
+        self.assertIn("API_KEY=***", public["metadata"]["raw"]["content"])
+        self.assertIn("token=***", public["metadata"]["raw"]["nested"][0]["excerpt"])
         self.assertIn("access_token=***", public["url"])
         self.assertIn("key=***", public["url"])
         self.assertIn("&next=ok", public["url"])
@@ -334,6 +421,278 @@ class ToolExecutorTest(unittest.TestCase):
             self.assertIn("no_sources", result.quality_reasons)
             quality_event = [event for event in events if event.type == "tool_result_quality"]
             self.assertEqual(quality_event[0].payload["status"], "invalid")
+
+        asyncio.run(run_test())
+
+    def test_executor_only_accepts_empty_answer_from_trusted_local_adapter(self) -> None:
+        async def run_test() -> None:
+            remote_definition = ToolDefinition(
+                tool_key="test.remote-empty",
+                provider="test",
+                category="test",
+                display_name="Remote empty test",
+                description="remote adapter must not self-certify an empty result",
+                adapter_type="mcp_http",
+                adapter={"auth_type": "none"},
+                quality_contract={"allow_empty": True},
+            )
+            local_definition = ToolDefinition(
+                tool_key="test.local-empty",
+                provider="workspace",
+                category="workspace_file",
+                display_name="Local empty test",
+                description="trusted local adapter can explicitly return no match",
+                adapter_type="workspace_file",
+                adapter={"auth_type": "none"},
+                quality_contract={"allow_empty": True},
+            )
+            catalog = ToolCatalog()
+            catalog._definitions = {
+                remote_definition.tool_key: remote_definition,
+                local_definition.tool_key: local_definition,
+            }
+            untrusted_executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=EmptyAnswerClaimingAdapterRunner(),
+            )
+
+            remote_result, _ = await untrusted_executor.execute(
+                PlannedToolCall(
+                    call_id="remote-empty",
+                    tool_key=remote_definition.tool_key,
+                    provider=remote_definition.provider,
+                    category=remote_definition.category,
+                    display_name=remote_definition.display_name,
+                    confidence=1.0,
+                    reason="remote adapter claim",
+                )
+            )
+            local_result, local_events = await untrusted_executor.execute(
+                PlannedToolCall(
+                    call_id="local-empty",
+                    tool_key=local_definition.tool_key,
+                    provider=local_definition.provider,
+                    category=local_definition.category,
+                    display_name=local_definition.display_name,
+                    confidence=1.0,
+                    reason="local adapter claim",
+                )
+            )
+
+            self.assertEqual(remote_result.result_semantics, "evidence")
+            self.assertEqual(remote_result.quality_status, "invalid")
+            self.assertIn("no_sources", remote_result.quality_reasons)
+            # adapter_type 只是声明，外部 Runner 伪造本地类型也不能放宽质量门。
+            self.assertEqual(local_result.result_semantics, "evidence")
+            self.assertEqual(local_result.quality_status, "invalid")
+            self.assertIn("no_sources", local_result.quality_reasons)
+
+            trusted_executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=ToolAdapterRunner(
+                    workspace_file_provider=InternalEmptyWorkspaceProvider(
+                        db=None,
+                        user_id=None,
+                        project_id=None,
+                    )
+                ),
+            )
+            trusted_result, trusted_events = await trusted_executor.execute(
+                PlannedToolCall(
+                    call_id="trusted-local-empty",
+                    tool_key=local_definition.tool_key,
+                    provider=local_definition.provider,
+                    category=local_definition.category,
+                    display_name=local_definition.display_name,
+                    confidence=1.0,
+                    reason="trusted local adapter claim",
+                )
+            )
+            self.assertEqual(trusted_result.result_semantics, "empty_answer")
+            self.assertEqual(trusted_result.quality_status, "valid")
+            self.assertEqual(
+                [event for event in trusted_events if event.type == "tool_result_quality"][0]
+                .payload["metadata"]["result_semantics"],
+                "empty_answer",
+            )
+
+        asyncio.run(run_test())
+
+    def test_executor_applies_declarative_profile_after_adapter_normalization(self) -> None:
+        async def run_test() -> None:
+            definition = ToolDefinition(
+                tool_key="test.profile",
+                provider="provider-a",
+                category="web_search",
+                display_name="Profile search",
+                description="profile contract test",
+                adapter_type="mcp_http",
+                adapter={"auth_type": "none"},
+                quality_contract={
+                    "semantic_profile": "web_search",
+                    "profile_mapping": {
+                        "evidence_paths": ["/sources/*/metadata/raw/items/*/text"],
+                        "identity_paths": ["/sources/*/metadata/raw/items/*/href"],
+                        "collection_paths": ["/sources/*/metadata/raw/items"],
+                        "item_evidence_paths": ["/text"],
+                        "item_identity_paths": ["/href"],
+                    },
+                },
+            )
+            catalog = ToolCatalog()
+            catalog._definitions = {definition.tool_key: definition}
+            executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=ProfileAdapterRunner(),
+            )
+
+            result, events = await executor.execute(
+                PlannedToolCall(
+                    call_id="profile-call",
+                    tool_key=definition.tool_key,
+                    provider=definition.provider,
+                    category=definition.category,
+                    display_name=definition.display_name,
+                    confidence=1.0,
+                    reason="profile test",
+                )
+            )
+
+            self.assertEqual(result.quality_status, "valid")
+            self.assertEqual(result.quality_metadata["semantic_profile"], "web_search")
+            quality_event = [event for event in events if event.type == "tool_result_quality"][0]
+            self.assertEqual(quality_event.payload["result_semantics"], "evidence")
+
+        asyncio.run(run_test())
+
+    def test_executor_rejects_dynamic_mcp_evidence_without_reviewed_profile(self) -> None:
+        async def run_test() -> None:
+            definition = ToolDefinition(
+                tool_key="mcp.dynamic.unreviewed",
+                provider="dynamic",
+                category="web_search",
+                display_name="Dynamic MCP",
+                description="unreviewed dynamic MCP result",
+                adapter_type="mcp_http",
+                adapter={"auth_type": "none"},
+                source_type="mcp_server",
+                quality_contract={"require_semantic_profile": True},
+            )
+            catalog = ToolCatalog()
+            catalog._definitions = {definition.tool_key: definition}
+            result, _ = await ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=FakeAdapterRunner(),
+            ).execute(
+                PlannedToolCall(
+                    call_id="dynamic-unreviewed",
+                    tool_key=definition.tool_key,
+                    provider=definition.provider,
+                    category=definition.category,
+                    display_name=definition.display_name,
+                    confidence=1.0,
+                    reason="验证未审核动态 MCP 失败关闭",
+                )
+            )
+
+            self.assertEqual(result.status, "success")
+            self.assertEqual(result.quality_status, "invalid")
+            self.assertIn("semantic_profile_required", result.quality_reasons)
+
+        asyncio.run(run_test())
+
+    def test_executor_uses_trusted_mcp_normalized_arguments_for_route_quality(self) -> None:
+        async def run_test() -> None:
+            definition = ToolDefinition(
+                tool_key="test.route",
+                provider="amap",
+                category="map_route",
+                display_name="路线规划",
+                description="地点名会在受控 MCP Adapter 中转换为坐标",
+                adapter_type="mcp_http",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "origin": {"type": "string"},
+                        "destination": {"type": "string"},
+                    },
+                    "required": ["origin", "destination"],
+                    "additionalProperties": False,
+                },
+                adapter={"auth_type": "none"},
+                quality_contract={
+                    "semantic_profile": "route",
+                    "profile_mapping": {
+                        "evidence_paths": [
+                            "/sources/*/metadata/raw/distance",
+                            "/sources/*/metadata/raw/duration",
+                        ],
+                        "identity_paths": [
+                            "/sources/*/metadata/raw/origin",
+                            "/sources/*/metadata/raw/destination",
+                        ],
+                        "collection_paths": ["/sources"],
+                        "item_evidence_paths": ["/metadata/raw/distance"],
+                        "item_identity_paths": ["/metadata/raw/origin"],
+                        "request_matches": [
+                            {
+                                "request_path": "/origin",
+                                "result_paths": ["/sources/*/metadata/raw/origin"],
+                                "normalizer": "coordinate",
+                            },
+                            {
+                                "request_path": "/destination",
+                                "result_paths": ["/sources/*/metadata/raw/destination"],
+                                "normalizer": "coordinate",
+                            },
+                        ],
+                    },
+                },
+            )
+            catalog = ToolCatalog()
+            catalog._definitions = {definition.tool_key: definition}
+            call = PlannedToolCall(
+                call_id="route-coordinate-normalization",
+                tool_key=definition.tool_key,
+                provider=definition.provider,
+                category=definition.category,
+                display_name=definition.display_name,
+                confidence=1.0,
+                reason="测试地点名到坐标的受控归一化",
+                arguments={"origin": "广州塔", "destination": "华南理工大学"},
+            )
+
+            trusted_executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=CoordinateMcpAdapterRunner(),
+            )
+            trusted_result, _ = await trusted_executor.execute(call)
+            self.assertEqual(trusted_result.quality_status, "valid")
+
+            untrusted_executor = ToolExecutor(
+                credential_resolver=FakeCredentialResolver(),
+                catalog=catalog,
+                adapter_runner=UntrustedCoordinateAdapterRunner(),
+            )
+            untrusted_result, _ = await untrusted_executor.execute(
+                PlannedToolCall(
+                    call_id="untrusted-route-coordinate-normalization",
+                    tool_key=definition.tool_key,
+                    provider=definition.provider,
+                    category=definition.category,
+                    display_name=definition.display_name,
+                    confidence=1.0,
+                    reason="测试不可信 Adapter 不能伪造质量上下文",
+                    arguments={"origin": "广州塔", "destination": "华南理工大学"},
+                )
+            )
+            self.assertEqual(untrusted_result.quality_status, "invalid")
+            self.assertIn("request_result_mismatch:0", untrusted_result.quality_reasons)
 
         asyncio.run(run_test())
 

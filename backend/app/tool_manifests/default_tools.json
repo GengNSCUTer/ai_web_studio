@@ -140,7 +140,14 @@
     "source_type": "mcp",
     "quality_contract": {
       "min_sources": 1,
-      "non_empty_paths": ["/sources/0/display_text"]
+      "semantic_profile": "web_search",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/metadata/raw/content"],
+        "identity_paths": ["/sources/*/metadata/raw/url"],
+        "collection_paths": ["/sources"],
+        "item_evidence_paths": ["/metadata/raw/content"],
+        "item_identity_paths": ["/metadata/raw/url"]
+      }
     },
     "risk_level": "low",
     "fallback_tool_key": null,
@@ -180,12 +187,20 @@
       "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
       "mcp_tool_name": "maps_geo",
       "default_arguments": {},
-      "result_mapper": "amap_map"
+      "result_mapper": "amap_geo"
     },
     "source_type": "mcp",
     "quality_contract": {
       "min_sources": 1,
-      "non_empty_paths": ["/sources/0/display_text"]
+      "semantic_profile": "geo_lookup",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/metadata/raw/formatted_address", "/sources/*/metadata/raw/location"],
+        "identity_paths": ["/sources/*/metadata/raw/location", "/sources/*/metadata/raw/adcode"],
+        "collection_paths": ["/sources"],
+        "item_evidence_paths": ["/metadata/raw/formatted_address", "/metadata/raw/location"],
+        "item_identity_paths": ["/metadata/raw/location", "/metadata/raw/adcode"],
+        "request_matches": [{"request_path": "/city", "result_paths": ["/sources/*/metadata/raw/city"], "normalizer": "text_loose"}]
+      }
     },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
@@ -226,7 +241,15 @@
     "source_type": "mcp",
     "quality_contract": {
       "min_sources": 1,
-      "non_empty_paths": ["/sources/0/display_text"]
+      "semantic_profile": "weather",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/metadata/raw/weather"],
+        "identity_paths": ["/sources/*/metadata/raw/city", "/sources/*/metadata/raw/adcode"],
+        "collection_paths": ["/sources"],
+        "item_evidence_paths": ["/metadata/raw/weather"],
+        "item_identity_paths": ["/metadata/raw/city", "/metadata/raw/adcode"],
+        "request_matches": [{"request_path": "/city", "result_paths": ["/sources/*/metadata/raw/city", "/sources/*/metadata/raw/adcode"], "normalizer": "text_loose"}]
+      }
     },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
@@ -278,7 +301,14 @@
     "source_type": "mcp",
     "quality_contract": {
       "min_sources": 1,
-      "non_empty_paths": ["/sources/0/display_text"]
+      "semantic_profile": "distance",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/metadata/raw/distance"],
+        "identity_paths": ["/sources/*/metadata/raw/origin_id", "/sources/*/metadata/raw/destination_id"],
+        "collection_paths": ["/sources"],
+        "item_evidence_paths": ["/metadata/raw/distance"],
+        "item_identity_paths": ["/metadata/raw/origin_id", "/metadata/raw/destination_id"]
+      }
     },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
@@ -319,12 +349,23 @@
       "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
       "mcp_tool_name": "maps_direction_driving",
       "default_arguments": {},
-      "result_mapper": "amap_map"
+      "result_mapper": "amap_route"
     },
     "source_type": "mcp",
     "quality_contract": {
       "min_sources": 1,
-      "non_empty_paths": ["/sources/0/display_text"]
+      "semantic_profile": "route",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/metadata/raw/distance", "/sources/*/metadata/raw/duration"],
+        "identity_paths": ["/sources/*/metadata/raw/origin", "/sources/*/metadata/raw/destination"],
+        "collection_paths": ["/sources"],
+        "item_evidence_paths": ["/metadata/raw/distance", "/metadata/raw/duration"],
+        "item_identity_paths": ["/metadata/raw/origin", "/metadata/raw/destination"],
+        "request_matches": [
+          {"request_path": "/origin", "result_paths": ["/sources/*/metadata/raw/origin"], "normalizer": "coordinate"},
+          {"request_path": "/destination", "result_paths": ["/sources/*/metadata/raw/destination"], "normalizer": "coordinate"}
+        ]
+      }
     },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
@@ -365,12 +406,23 @@
       "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
       "mcp_tool_name": "maps_direction_walking",
       "default_arguments": {},
-      "result_mapper": "amap_map"
+      "result_mapper": "amap_route"
     },
     "source_type": "mcp",
     "quality_contract": {
       "min_sources": 1,
-      "non_empty_paths": ["/sources/0/display_text"]
+      "semantic_profile": "route",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/metadata/raw/distance", "/sources/*/metadata/raw/duration"],
+        "identity_paths": ["/sources/*/metadata/raw/origin", "/sources/*/metadata/raw/destination"],
+        "collection_paths": ["/sources"],
+        "item_evidence_paths": ["/metadata/raw/distance", "/metadata/raw/duration"],
+        "item_identity_paths": ["/metadata/raw/origin", "/metadata/raw/destination"],
+        "request_matches": [
+          {"request_path": "/origin", "result_paths": ["/sources/*/metadata/raw/origin"], "normalizer": "coordinate"},
+          {"request_path": "/destination", "result_paths": ["/sources/*/metadata/raw/destination"], "normalizer": "coordinate"}
+        ]
+      }
     },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
@@ -421,12 +473,23 @@
       "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
       "mcp_tool_name": "maps_direction_transit_integrated",
       "default_arguments": {},
-      "result_mapper": "amap_map"
+      "result_mapper": "amap_route"
     },
     "source_type": "mcp",
     "quality_contract": {
       "min_sources": 1,
-      "non_empty_paths": ["/sources/0/display_text"]
+      "semantic_profile": "route",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/metadata/raw/distance", "/sources/*/metadata/raw/duration"],
+        "identity_paths": ["/sources/*/metadata/raw/origin", "/sources/*/metadata/raw/destination"],
+        "collection_paths": ["/sources"],
+        "item_evidence_paths": ["/metadata/raw/distance", "/metadata/raw/duration"],
+        "item_identity_paths": ["/metadata/raw/origin", "/metadata/raw/destination"],
+        "request_matches": [
+          {"request_path": "/origin", "result_paths": ["/sources/*/metadata/raw/origin"], "normalizer": "coordinate"},
+          {"request_path": "/destination", "result_paths": ["/sources/*/metadata/raw/destination"], "normalizer": "coordinate"}
+        ]
+      }
     },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
@@ -471,12 +534,19 @@
       "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
       "mcp_tool_name": "maps_text_search",
       "default_arguments": {},
-      "result_mapper": "amap_map"
+      "result_mapper": "amap_poi"
     },
     "source_type": "mcp",
     "quality_contract": {
       "min_sources": 1,
-      "non_empty_paths": ["/sources/0/display_text"]
+      "semantic_profile": "poi_search",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/metadata/raw/name", "/sources/*/metadata/raw/address"],
+        "identity_paths": ["/sources/*/metadata/raw/id", "/sources/*/metadata/raw/location"],
+        "collection_paths": ["/sources"],
+        "item_evidence_paths": ["/metadata/raw/name", "/metadata/raw/address"],
+        "item_identity_paths": ["/metadata/raw/id", "/metadata/raw/location"]
+      }
     },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
@@ -528,12 +598,19 @@
       "default_arguments": {
         "radius": "3000"
       },
-      "result_mapper": "amap_map"
+      "result_mapper": "amap_poi"
     },
     "source_type": "mcp",
     "quality_contract": {
       "min_sources": 1,
-      "non_empty_paths": ["/sources/0/display_text"]
+      "semantic_profile": "poi_search",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/metadata/raw/name", "/sources/*/metadata/raw/address"],
+        "identity_paths": ["/sources/*/metadata/raw/id", "/sources/*/metadata/raw/location"],
+        "collection_paths": ["/sources"],
+        "item_evidence_paths": ["/metadata/raw/name", "/metadata/raw/address"],
+        "item_identity_paths": ["/metadata/raw/id", "/metadata/raw/location"]
+      }
     },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
@@ -560,6 +637,18 @@
     "adapter_type": "agent_artifact",
     "adapter": {"auth_type": "none"},
     "source_type": "agent_runtime",
+    "quality_contract": {
+      "allow_empty": true,
+      "min_sources": 1,
+      "semantic_profile": "artifact_list",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/display_text"],
+        "identity_paths": ["/sources/*/metadata/raw/artifacts/0/artifact_id"],
+        "collection_paths": ["/sources/*/metadata/raw/artifacts"],
+        "item_evidence_paths": ["/content_hash"],
+        "item_identity_paths": ["/artifact_id"]
+      }
+    },
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
@@ -585,6 +674,14 @@
     "adapter_type": "agent_artifact",
     "adapter": {"auth_type": "none"},
     "source_type": "agent_runtime",
+    "quality_contract": {
+      "min_sources": 1,
+      "semantic_profile": "artifact_read",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/display_text"],
+        "identity_paths": ["/sources/*/metadata/raw/artifact_id"]
+      }
+    },
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
@@ -602,6 +699,18 @@
     "adapter_type": "workspace_file",
     "adapter": {"auth_type": "none"},
     "source_type": "local_workspace",
+    "quality_contract": {
+      "allow_empty": true,
+      "min_sources": 1,
+      "semantic_profile": "file_list",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/display_text"],
+        "identity_paths": ["/sources/*/metadata/raw/files/0/file_id"],
+        "collection_paths": ["/sources/*/metadata/raw/files"],
+        "item_evidence_paths": ["/file_name"],
+        "item_identity_paths": ["/file_id"]
+      }
+    },
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
@@ -624,6 +733,15 @@
     "adapter_type": "workspace_file",
     "adapter": {"auth_type": "none"},
     "source_type": "local_workspace",
+    "quality_contract": {
+      "allow_empty": true,
+      "min_sources": 1,
+      "semantic_profile": "file_search",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/display_text"],
+        "identity_paths": ["/sources/*/metadata/raw/file_id"]
+      }
+    },
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
@@ -650,6 +768,15 @@
     "adapter_type": "workspace_file",
     "adapter": {"auth_type": "none"},
     "source_type": "local_workspace",
+    "quality_contract": {
+      "allow_empty": true,
+      "min_sources": 1,
+      "semantic_profile": "file_read",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/display_text"],
+        "identity_paths": ["/sources/*/metadata/raw/file_id"]
+      }
+    },
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
@@ -676,6 +803,18 @@
     "adapter_type": "workspace_file",
     "adapter": {"auth_type": "none"},
     "source_type": "local_workspace",
+    "quality_contract": {
+      "min_sources": 1,
+      "expected_result_semantics": "approval_draft",
+      "semantic_profile": "approval_draft",
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/display_text"],
+        "identity_paths": ["/sources/*/metadata/raw/file_id"]
+      },
+      "enum_paths": {
+        "/sources/0/metadata/raw/applied": [false]
+      }
+    },
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
@@ -702,6 +841,25 @@
     "adapter_type": "workspace_file",
     "adapter": {"auth_type": "none"},
     "source_type": "local_workspace",
+    "quality_contract": {
+      "min_sources": 1,
+      "semantic_profile": "file_revision",
+      "required_paths": [
+        "/sources/0/metadata/raw/file_id",
+        "/sources/0/metadata/raw/revision_id",
+        "/sources/0/metadata/raw/applied"
+      ],
+      "profile_mapping": {
+        "evidence_paths": ["/sources/*/display_text"],
+        "identity_paths": ["/sources/*/metadata/raw/revision_id"]
+      },
+      "enum_paths": {
+        "/sources/0/metadata/raw/applied": [true]
+      },
+      "numeric_ranges": {
+        "/sources/0/metadata/raw/revision_number": {"min": 1}
+      }
+    },
     "risk_level": "high",
     "enabled_by_default": true,
     "read_only": false

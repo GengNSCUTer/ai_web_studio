@@ -181,6 +181,7 @@ class AgentRuntimeServiceTest(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "confirmation_required")
+        self.assertEqual(result.result_semantics, "approval_draft")
         self.assertEqual(len(result.sources), 1)
         self.assertIn("尚未写入", result.sources[0].display_text)
         self.assertIn("tool_confirmation_required", [event.type for event in events])
@@ -215,7 +216,11 @@ class AgentRuntimeServiceTest(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "success")
+        self.assertEqual(result.result_semantics, "evidence")
+        self.assertEqual(result.quality_status, "valid")
+        self.assertEqual(result.quality_metadata["semantic_profile"], "file_revision")
         self.assertTrue(result.sources[0].metadata["applied"])
+        self.assertTrue(result.sources[0].metadata["raw"]["applied"])
         self.db.refresh(self.file)
         self.assertIn("new value", self.file.parsed_text)
         approval = self.db.scalar(select(AgentApproval))

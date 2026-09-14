@@ -168,6 +168,32 @@ class ConfirmationEvidenceExecutor(FakeWorkflowExecutor):
         )
 
 
+class ApprovalDraftExecutor(FakeWorkflowExecutor):
+    """模拟已通过草案合同、但尚未修改文件的本地编辑预览。"""
+
+    async def execute(self, call: PlannedToolCall):
+        self.calls.append(call)
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                sources=[
+                    ExternalSource(
+                        source_type="workspace_file_edit_preview",
+                        provider="workspace",
+                        title="编辑预览（尚未写入）",
+                        display_text="-旧内容\n+新内容",
+                        metadata={"raw": {"file_id": "file-1", "applied": False}},
+                    )
+                ],
+                elapsed_ms=1,
+                quality_status="valid",
+                result_semantics="approval_draft",
+            ),
+            [],
+        )
+
+
 class SameCategoryFallbackContractExecutor(FakeWorkflowExecutor):
     async def execute(self, call: PlannedToolCall):
         self.calls.append(call)
@@ -221,6 +247,30 @@ class StructuredBindingExecutor(FakeWorkflowExecutor):
                     )
                 ],
                 elapsed_ms=1,
+            ),
+            [],
+        )
+
+
+class EmptyAnswerBindingExecutor(FakeWorkflowExecutor):
+    async def execute(self, call: PlannedToolCall):
+        self.calls.append(call)
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                sources=[
+                    ExternalSource(
+                        source_type="workspace_file_search",
+                        provider="workspace",
+                        title="工作区文件搜索",
+                        display_text="当前项目中未找到与本次查询匹配的文件。",
+                        metadata={"result_semantics": "empty_answer"},
+                    )
+                ],
+                elapsed_ms=1,
+                quality_status="valid",
+                result_semantics="empty_answer",
             ),
             [],
         )
@@ -1268,6 +1318,132 @@ class ToolWorkflowTest(unittest.TestCase):
             self.assertEqual(outcome.quality_status, "uncertain")
             self.assertTrue(outcome.prompt_eligible)
             self.assertEqual(result.feedback[0].error_category, "approval_required")
+
+        asyncio.run(run_test())
+
+    def test_approval_draft_is_visible_but_cannot_unlock_a_dependent_step(self) -> None:
+        async def run_test() -> None:
+            executor = ApprovalDraftExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=ToolCatalog())
+            plan = ToolPlan(
+                plan_id="plan-approval-draft-boundary",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="preview",
+                        tool_key="workspace.files.propose_edit",
+                        provider="workspace",
+                        category="workspace_file",
+                        display_name="编辑预览",
+                        confidence=1.0,
+                        reason="先给用户审查 Diff",
+                        arguments={"file_id": "file-1", "old_string": "旧内容", "new_string": "新内容"},
+                    ),
+                    PlannedToolCall(
+                        call_id="read-after-preview",
+                        tool_key="workspace.files.read",
+                        provider="workspace",
+                        category="workspace_file",
+                        display_name="读取修改后文件",
+                        confidence=1.0,
+                        reason="依赖已写入版本",
+                        arguments={"file_id": "file-1"},
+                        depends_on=["preview"],
+                    ),
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="预览并修改文件")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["preview"])
+            self.assertEqual(len(result.sources), 1)
+            self.assertEqual(result.aggregate_status, "waiting_approval")
+            outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
+            self.assertEqual(outcomes["preview"].execution_status, "waiting_approval")
+            self.assertEqual(outcomes["preview"].quality_status, "valid")
+            self.assertTrue(outcomes["preview"].prompt_eligible)
+            self.assertFalse(outcomes["preview"].unlocks_strict_dependents)
+            self.assertEqual(outcomes["preview"].error_category, "approval_draft_ready")
+            self.assertEqual(outcomes["read-after-preview"].execution_status, "blocked")
+            self.assertEqual(outcomes["read-after-preview"].error_category, "dependency_not_succeeded")
+            self.assertEqual(result.feedback[0].next_action, "clarify")
+
+        asyncio.run(run_test())
+
+    def test_empty_answer_cannot_supply_a_structured_result_binding(self) -> None:
+        async def run_test() -> None:
+            catalog = ToolCatalog()
+            catalog._definitions = {
+                "test.empty-search": ToolDefinition(
+                    tool_key="test.empty-search",
+                    provider="workspace",
+                    category="workspace_file",
+                    display_name="空文件搜索",
+                    description="returns a legitimate no-match answer",
+                    adapter={"auth_type": "none"},
+                ),
+                "test.consume": ToolDefinition(
+                    tool_key="test.consume",
+                    provider="test",
+                    category="lookup",
+                    display_name="消费文件 ID",
+                    description="requires a bound file id",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"file_id": {"type": "string", "minLength": 1}},
+                        "required": ["file_id"],
+                        "additionalProperties": False,
+                    },
+                    adapter={"auth_type": "none"},
+                ),
+            }
+            executor = EmptyAnswerBindingExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=catalog)
+            plan = ToolPlan(
+                plan_id="plan-empty-answer-binding",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="search",
+                        tool_key="test.empty-search",
+                        provider="workspace",
+                        category="workspace_file",
+                        display_name="空文件搜索",
+                        confidence=1.0,
+                        reason="没有匹配文件也是正常业务结果",
+                    ),
+                    PlannedToolCall(
+                        call_id="consume",
+                        tool_key="test.consume",
+                        provider="test",
+                        category="lookup",
+                        display_name="消费文件 ID",
+                        confidence=1.0,
+                        reason="需要上游文件 ID",
+                        depends_on=["search"],
+                        result_bindings=[
+                            ToolResultBinding(
+                                source_call_id="search",
+                                source_path="/sources/0/metadata/raw/file_id",
+                                target_argument="file_id",
+                            )
+                        ],
+                    ),
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="搜索一个不存在的文件")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["search"])
+            outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
+            self.assertEqual(outcomes["search"].execution_status, "succeeded")
+            self.assertEqual(outcomes["search"].quality_status, "valid")
+            self.assertEqual(outcomes["consume"].execution_status, "blocked")
+            self.assertEqual(outcomes["consume"].error_category, "result_binding_invalid")
 
         asyncio.run(run_test())
 

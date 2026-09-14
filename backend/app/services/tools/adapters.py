@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
@@ -9,7 +8,7 @@ from app.services.tools.mcp_security import enforce_mcp_endpoint_target_policy, 
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.agent_artifacts import AgentArtifactToolProvider
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
-from app.services.tools.result_mappers import map_mcp_result
+from app.services.tools.result_mappers import extract_mcp_payload, map_mcp_result
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolDefinition, redact_sensitive_arguments
 
 
@@ -161,24 +160,8 @@ class ToolAdapterRunner:
 
     async def _mcp_amap_geo(self, *, client: McpHttpClient, address: str) -> dict[str, Any]:
         response = await client.call_tool(tool_name="maps_geo", arguments={"address": address})
-        payload = self._extract_mcp_payload(response.raw)
+        payload = extract_mcp_payload(response.raw)
         return payload if isinstance(payload, dict) else {"payload": payload}
-
-    @staticmethod
-    def _extract_mcp_payload(raw: dict[str, Any]) -> Any:
-        result = raw.get("result") or raw
-        content = result.get("content") if isinstance(result, dict) else None
-        if isinstance(content, list) and content:
-            for item in content:
-                if isinstance(item, dict) and item.get("text"):
-                    text = str(item["text"])
-                    if text.strip().startswith(("{", "[")):
-                        try:
-                            return json.loads(text)
-                        except json.JSONDecodeError:
-                            return {"text": text}
-                    return {"text": text}
-        return result
 
     @staticmethod
     def _extract_amap_location(payload: dict[str, Any]) -> str:

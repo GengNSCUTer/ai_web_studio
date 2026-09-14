@@ -11,6 +11,51 @@ from app.services.tools.schemas import ExternalSource
 QUALITY_STATUSES = {"valid", "uncertain", "invalid"}
 LEGACY_QUALITY_STATUS = "unknown"
 QUALITY_ACTIONS = {"continue", "retry", "fallback", "replan", "clarify", "block"}
+RESULT_SEMANTICS = {"evidence", "empty_answer", "approval_draft"}
+SEMANTIC_PROFILES = {
+    "web_search",
+    "geo_lookup",
+    "weather",
+    "distance",
+    "route",
+    "poi_search",
+    "file_list",
+    "file_search",
+    "file_read",
+    "artifact_list",
+    "artifact_read",
+    "approval_draft",
+    "file_revision",
+}
+
+
+@dataclass(frozen=True)
+class SemanticProfileSpec:
+    """一个可复用能力类型的声明约束，而不是 Provider 专用代码。"""
+
+    name: str
+    requires_collection: bool
+
+
+SEMANTIC_PROFILE_SPECS = {
+    name: SemanticProfileSpec(
+        name=name,
+        requires_collection=name
+        in {
+            "web_search",
+            "geo_lookup",
+            "weather",
+            "distance",
+            "route",
+            "poi_search",
+            "file_list",
+            "artifact_list",
+        },
+    )
+    for name in SEMANTIC_PROFILES
+}
+
+
 _QUALITY_CONTRACT_KEYS = {
     "allow_empty",
     "min_sources",
@@ -22,8 +67,26 @@ _QUALITY_CONTRACT_KEYS = {
     "min_confidence",
     "freshness_field",
     "max_age_seconds",
+    "semantic_profile",
+    "profile_mapping",
+    "require_semantic_profile",
+    "expected_result_semantics",
 }
 _NUMERIC_RANGE_KEYS = {"min", "max"}
+_PROFILE_MAPPING_KEYS = {
+    "evidence_paths",
+    "identity_paths",
+    "collection_paths",
+    "item_evidence_paths",
+    "item_identity_paths",
+    "min_collection_items",
+    "request_matches",
+}
+_REQUEST_MATCH_KEYS = {"request_path", "result_paths", "normalizer"}
+_REQUEST_MATCH_NORMALIZERS = {"text", "text_loose", "coordinate"}
+_MAX_PROFILE_PATHS = 16
+_MAX_PROFILE_COLLECTIONS = 32
+_MAX_PROFILE_ITEMS = 128
 
 
 @dataclass(frozen=True)
@@ -118,6 +181,35 @@ def validate_quality_contract(contract: dict[str, Any] | None) -> dict[str, Any]
 
     if "allow_empty" in contract and not isinstance(contract["allow_empty"], bool):
         raise ValueError("quality_contract.allow_empty must be a boolean.")
+    if "require_semantic_profile" in contract and not isinstance(contract["require_semantic_profile"], bool):
+        raise ValueError("quality_contract.require_semantic_profile must be a boolean.")
+    if "expected_result_semantics" in contract:
+        expected_semantics = contract["expected_result_semantics"]
+        if not isinstance(expected_semantics, str) or expected_semantics.strip().lower() not in RESULT_SEMANTICS:
+            raise ValueError(
+                "quality_contract.expected_result_semantics must be one of: "
+                + ", ".join(sorted(RESULT_SEMANTICS))
+                + "."
+            )
+
+    if "semantic_profile" in contract:
+        profile = contract["semantic_profile"]
+        if not isinstance(profile, str) or profile.strip().lower() not in SEMANTIC_PROFILES:
+            raise ValueError(
+                "quality_contract.semantic_profile must be one of: "
+                + ", ".join(sorted(SEMANTIC_PROFILES))
+                + "."
+            )
+        if "profile_mapping" not in contract:
+            raise ValueError("quality_contract.semantic_profile requires profile_mapping.")
+
+    if "profile_mapping" in contract:
+        if "semantic_profile" not in contract:
+            raise ValueError("quality_contract.profile_mapping requires semantic_profile.")
+        _validate_profile_mapping(
+            contract["profile_mapping"],
+            profile=str(contract["semantic_profile"]).strip().lower(),
+        )
 
     if "min_sources" in contract:
         value = contract["min_sources"]
@@ -184,7 +276,134 @@ def validate_quality_contract(contract: dict[str, Any] | None) -> dict[str, Any]
         if maximum_age is None or maximum_age < 0:
             raise ValueError("quality_contract.max_age_seconds must be a non-negative number.")
 
-    return dict(contract)
+    normalized_contract = dict(contract)
+    if "semantic_profile" in normalized_contract:
+        # 统一大小写，避免同一 Profile 在 Trace/缓存键中出现多个拼写。
+        normalized_contract["semantic_profile"] = str(
+            normalized_contract["semantic_profile"]
+        ).strip().lower()
+    if "expected_result_semantics" in normalized_contract:
+        normalized_contract["expected_result_semantics"] = str(
+            normalized_contract["expected_result_semantics"]
+        ).strip().lower()
+    return normalized_contract
+
+
+def _validate_profile_mapping(value: Any, *, profile: str) -> None:
+    """校验声明式 Profile 映射，只允许有限的 JSON Pointer 读取规则。"""
+
+    if not isinstance(value, dict):
+        raise ValueError("quality_contract.profile_mapping must be an object.")
+    unknown = sorted(set(value) - _PROFILE_MAPPING_KEYS, key=str)
+    if unknown:
+        raise ValueError(
+            "Unsupported quality_contract.profile_mapping fields: "
+            + ", ".join(str(item) for item in unknown)
+        )
+
+    for field_name in (
+        "evidence_paths",
+        "identity_paths",
+        "collection_paths",
+        "item_evidence_paths",
+        "item_identity_paths",
+    ):
+        if field_name in value:
+            _validate_profile_pointer_list(
+                value[field_name],
+                field_name,
+                source_paths=field_name not in {"item_evidence_paths", "item_identity_paths"},
+            )
+
+    if "evidence_paths" not in value or not value["evidence_paths"]:
+        raise ValueError("quality_contract.profile_mapping.evidence_paths must not be empty.")
+    if "identity_paths" not in value or not value["identity_paths"]:
+        raise ValueError("quality_contract.profile_mapping.identity_paths must not be empty.")
+    profile_spec = SEMANTIC_PROFILE_SPECS.get(profile)
+    if profile_spec and profile_spec.requires_collection and "collection_paths" not in value:
+        raise ValueError(
+            f"quality_contract.profile_mapping for {profile} requires collection_paths."
+        )
+    if "collection_paths" in value and "item_evidence_paths" not in value:
+        raise ValueError(
+            "quality_contract.profile_mapping.collection_paths requires item_evidence_paths."
+        )
+    if "item_evidence_paths" in value and "collection_paths" not in value:
+        raise ValueError(
+            "quality_contract.profile_mapping.item_evidence_paths requires collection_paths."
+        )
+    if "collection_paths" in value and "item_identity_paths" not in value:
+        raise ValueError(
+            "quality_contract.profile_mapping.collection_paths requires item_identity_paths."
+        )
+    if "item_identity_paths" in value and "collection_paths" not in value:
+        raise ValueError(
+            "quality_contract.profile_mapping.item_identity_paths requires collection_paths."
+        )
+    if "min_collection_items" in value:
+        minimum = value["min_collection_items"]
+        if isinstance(minimum, bool) or not isinstance(minimum, int) or not 1 <= minimum <= _MAX_PROFILE_ITEMS:
+            raise ValueError(
+                "quality_contract.profile_mapping.min_collection_items must be between 1 and 128."
+            )
+    if "request_matches" in value:
+        _validate_request_matches(value["request_matches"])
+
+
+def _validate_request_matches(value: Any) -> None:
+    if not isinstance(value, list) or len(value) > 8:
+        raise ValueError(
+            "quality_contract.profile_mapping.request_matches must contain 0 to 8 rules."
+        )
+    for rule in value:
+        if not isinstance(rule, dict) or set(rule) - _REQUEST_MATCH_KEYS:
+            raise ValueError(
+                "quality_contract.profile_mapping.request_matches contains unsupported fields."
+            )
+        request_path = rule.get("request_path")
+        result_paths = rule.get("result_paths")
+        normalizer = rule.get("normalizer", "text")
+        if not isinstance(request_path, str) or len(request_path) > 256:
+            raise ValueError(
+                "quality_contract.profile_mapping.request_matches.request_path must be a JSON pointer."
+            )
+        _validate_request_pointer(request_path)
+        _validate_profile_pointer_list(result_paths, "request_matches.result_paths", source_paths=True)
+        if not isinstance(normalizer, str) or normalizer not in _REQUEST_MATCH_NORMALIZERS:
+            raise ValueError(
+                "quality_contract.profile_mapping.request_matches.normalizer is unsupported."
+            )
+
+
+def _validate_profile_pointer_list(value: Any, field_name: str, *, source_paths: bool) -> None:
+    if not isinstance(value, list) or not value or len(value) > _MAX_PROFILE_PATHS:
+        raise ValueError(f"quality_contract.profile_mapping.{field_name} must contain 1 to 16 paths.")
+    for pointer in value:
+        if not isinstance(pointer, str) or len(pointer) > 256 or not pointer.startswith("/"):
+            raise ValueError(
+                f"quality_contract.profile_mapping.{field_name} entries must be JSON-pointer-like paths."
+            )
+        if "//" in pointer or pointer.endswith("/"):
+            raise ValueError(
+                f"quality_contract.profile_mapping.{field_name} contains an invalid path."
+            )
+        # Profile 路径和普通合同路径共用 JSON Pointer 转义规则。否则类似
+        # ``~2`` 的拼写会在运行时永远找不到字段，只能靠质量门兜底，而无法
+        # 在 Catalog 加载时指出 manifest 配置错误。
+        _validate_pointer(pointer, f"quality_contract.profile_mapping.{field_name}")
+        if source_paths and pointer != "/sources" and not pointer.startswith("/sources/"):
+            raise ValueError(
+                f"quality_contract.profile_mapping.{field_name} must start with /sources/."
+            )
+        if not source_paths and pointer.startswith("/sources/"):
+            raise ValueError(
+                f"quality_contract.profile_mapping.{field_name} must be relative to one collection item."
+            )
+        for part in pointer.split("/")[1:]:
+            if part == "*" and not source_paths:
+                raise ValueError(
+                    f"quality_contract.profile_mapping.{field_name} item paths do not support wildcards."
+                )
 
 
 def _validate_pointer_list(value: Any, field_name: str) -> None:
@@ -197,6 +416,30 @@ def _validate_pointer_list(value: Any, field_name: str) -> None:
 def _validate_pointer(value: Any, field_name: str) -> None:
     if not isinstance(value, str) or not value.startswith("/"):
         raise ValueError(f"{field_name} entries must be JSON-pointer-like paths.")
+    for part in value.split("/")[1:]:
+        # JSON Pointer 只允许 ~0 与 ~1 两种转义。错误转义会让规则在运行时
+        # 永远解析不到字段，进而把必需质量检查变成静默跳过。
+        index = 0
+        while index < len(part):
+            if part[index] != "~":
+                index += 1
+                continue
+            if index + 1 >= len(part) or part[index + 1] not in {"0", "1"}:
+                raise ValueError(f"{field_name} contains an invalid JSON-pointer escape.")
+            index += 2
+
+
+def _validate_request_pointer(value: str) -> None:
+    """校验请求上下文路径，禁止会被运行时静默跳过的模糊写法。"""
+
+    field_name = "quality_contract.profile_mapping.request_matches.request_path"
+    _validate_pointer(value, field_name)
+    if value == "/" or "//" in value or value.endswith("/"):
+        raise ValueError(f"{field_name} contains an invalid path.")
+    # request_context 是 Schema 校验后的单次参数对象，不支持数组泛化或
+    # 通配读取；否则解析失败会被误当成“可选参数不存在”。
+    if any("*" in part for part in value.split("/")[1:]):
+        raise ValueError(f"{field_name} does not support wildcards.")
 
 
 def quality_status_for_result(result: Any) -> tuple[str, list[str]]:
@@ -224,9 +467,19 @@ def quality_status_for_result(result: Any) -> tuple[str, list[str]]:
 
 
 def is_usable_tool_result(result: Any) -> bool:
-    """Return whether a successful result can be consumed by another step."""
+    """判断成功结果能否供严格依赖、结果绑定或 Durable 成功路径消费。
+
+    ``approval_draft`` 虽然通过了“编辑预览本身是否完整”的质量合同，仍只是
+    尚未落盘的待确认草案。它可以在面向用户的受控展示路径中出现，但不能作为
+    普通 DAG 依赖、Result Binding 或 Durable Artifact 的成功证据。
+    """
 
     if getattr(result, "status", None) != "success":
+        return False
+    result_semantics, semantics_valid = _normalize_result_semantics(
+        getattr(result, "result_semantics", "evidence")
+    )
+    if not semantics_valid or result_semantics == "approval_draft":
         return False
     status, _ = quality_status_for_result(result)
     # Durable records and test doubles created before quality fields existed are
@@ -248,6 +501,8 @@ def evaluate_tool_result_quality(
     *,
     sources: list[ExternalSource],
     contract: dict[str, Any] | None = None,
+    result_semantics: str = "evidence",
+    request_context: dict[str, Any] | None = None,
 ) -> ToolResultQuality:
     """Evaluate a bounded result without trusting model-provided content.
 
@@ -262,11 +517,20 @@ def evaluate_tool_result_quality(
     reasons: list[str] = []
     invalid_reasons: list[str] = []
     uncertain_reasons: list[str] = []
+    normalized_semantics, semantics_valid = _normalize_result_semantics(result_semantics)
+    if not semantics_valid:
+        # 结果语义影响“空响应是否可接受”。未知值绝不能把异常空响应伪装为业务正常结果。
+        invalid_reasons.append("unsupported_result_semantics")
 
     allow_empty = bool(normalized.get("allow_empty", False))
     min_sources = _positive_int(normalized.get("min_sources"), default=1)
+    expected_semantics = normalized.get("expected_result_semantics")
+    if isinstance(expected_semantics, str) and expected_semantics != normalized_semantics:
+        invalid_reasons.append("unexpected_result_semantics")
+    if normalized_semantics == "empty_answer" and not allow_empty:
+        invalid_reasons.append("empty_answer_not_allowed")
     if not sources:
-        if not allow_empty:
+        if not (normalized_semantics == "empty_answer" and allow_empty and semantics_valid):
             invalid_reasons.append("no_sources")
     elif len(sources) < min_sources:
         uncertain_reasons.append("insufficient_sources")
@@ -349,6 +613,21 @@ def evaluate_tool_result_quality(
             elif age > maximum_age:
                 uncertain_reasons.append("stale_result")
 
+    profile = normalized.get("semantic_profile")
+    profile_mapping = normalized.get("profile_mapping")
+    if bool(normalized.get("require_semantic_profile")) and not isinstance(profile, str):
+        invalid_reasons.append("semantic_profile_required")
+    if isinstance(profile, str) and isinstance(profile_mapping, dict):
+        profile_invalid_reasons = _evaluate_semantic_profile(
+            envelope=envelope,
+            profile=profile.strip().lower(),
+            mapping=profile_mapping,
+            allow_empty=allow_empty,
+            result_semantics=normalized_semantics,
+            request_context=request_context or {},
+        )
+        invalid_reasons.extend(profile_invalid_reasons)
+
     reasons.extend(invalid_reasons)
     reasons.extend(uncertain_reasons)
     if invalid_reasons:
@@ -366,6 +645,11 @@ def evaluate_tool_result_quality(
             "min_sources": min_sources,
             "allow_empty": allow_empty,
             "contract_applied": bool(normalized),
+            "result_semantics": normalized_semantics,
+            "semantic_profile": normalized.get("semantic_profile"),
+            "require_semantic_profile": bool(normalized.get("require_semantic_profile")),
+            "expected_result_semantics": expected_semantics,
+            "request_context_checked": bool(request_context),
         },
     )
 
@@ -375,6 +659,191 @@ class _Missing:
 
 
 _MISSING = _Missing()
+
+
+def _normalize_result_semantics(value: Any) -> tuple[str, bool]:
+    """将受限结果语义归一化，未知值按 evidence 失败关闭。"""
+
+    if not isinstance(value, str):
+        return "evidence", False
+    normalized = value.strip().lower()
+    if normalized not in RESULT_SEMANTICS:
+        return "evidence", False
+    return normalized, True
+
+
+def _evaluate_semantic_profile(
+    *,
+    envelope: dict[str, Any],
+    profile: str,
+    mapping: dict[str, Any],
+    allow_empty: bool,
+    result_semantics: str,
+    request_context: dict[str, Any],
+) -> list[str]:
+    """按统一映射评估能力 Profile，不执行文本或动态规则。"""
+
+    if profile not in SEMANTIC_PROFILES:
+        # Catalog 加载已经会拦截该情况；这里再次失败关闭，保护直接调用方。
+        return ["unsupported_semantic_profile"]
+
+    reasons: list[str] = []
+    collection_paths = mapping.get("collection_paths") or []
+    item_evidence_paths = mapping.get("item_evidence_paths") or []
+    item_identity_paths = mapping.get("item_identity_paths") or []
+    # ``empty_answer`` 仅能由 Executor 信任的本地 Provider 传入；当合同显式允许时，
+    # “没有命中”本身就是业务结果，不应再要求不存在的 evidence / identity 字段。
+    empty_business_result = allow_empty and result_semantics == "empty_answer"
+    if collection_paths and not empty_business_result:
+        collections = _resolve_profile_values(envelope, collection_paths)
+        list_collections = [value for value in collections if isinstance(value, list)]
+        if not list_collections:
+            reasons.append("profile_missing_collection")
+        else:
+            non_empty_collections = [value for value in list_collections if value]
+            if not non_empty_collections:
+                # 只有可信 empty_answer 才能把空集合解释为正常业务答案。
+                if not (allow_empty and result_semantics == "empty_answer"):
+                    reasons.append("profile_empty_collection")
+                else:
+                    empty_business_result = True
+            else:
+                minimum = int(mapping.get("min_collection_items") or 1)
+                if any(len(items) < minimum for items in non_empty_collections):
+                    reasons.append("profile_insufficient_collection_items")
+                checked_items = 0
+                for items in non_empty_collections:
+                    for item in items:
+                        checked_items += 1
+                        if checked_items > _MAX_PROFILE_ITEMS:
+                            reasons.append("profile_collection_too_large")
+                            break
+                        if not isinstance(item, dict):
+                            reasons.append("profile_item_not_object")
+                            continue
+                        item_evidence_values = _resolve_relative_values(item, item_evidence_paths)
+                        if not any(_is_business_value(value) for value in item_evidence_values):
+                            reasons.append("profile_item_missing_evidence")
+                        item_identity_values = _resolve_relative_values(item, item_identity_paths)
+                        if not any(_is_business_value(value) for value in item_identity_values):
+                            reasons.append("profile_item_missing_identity")
+                    if checked_items > _MAX_PROFILE_ITEMS:
+                        break
+    # 合法空答案没有 evidence 或 identity 是预期的；其它语义必须满足映射字段。
+    if not empty_business_result:
+        evidence_values = _resolve_profile_values(envelope, mapping.get("evidence_paths") or [])
+        if not any(_is_business_value(value) for value in evidence_values):
+            reasons.append("profile_missing_evidence")
+
+        identity_values = _resolve_profile_values(envelope, mapping.get("identity_paths") or [])
+        if not any(_is_business_value(value) for value in identity_values):
+            reasons.append("profile_missing_identity")
+        reasons.extend(_evaluate_request_matches(envelope, mapping, request_context))
+    return list(dict.fromkeys(reasons))
+
+
+def _evaluate_request_matches(
+    envelope: dict[str, Any],
+    mapping: dict[str, Any],
+    request_context: dict[str, Any],
+) -> list[str]:
+    reasons: list[str] = []
+    for index, rule in enumerate(mapping.get("request_matches") or []):
+        expected = _resolve_pointer(request_context, str(rule.get("request_path") or ""))
+        if expected is _MISSING or _is_empty(expected):
+            # 可选请求参数缺失时不强行失败；必填参数已由 Input Schema 在 Executor 前置校验。
+            continue
+        actual_values = _resolve_profile_values(envelope, rule.get("result_paths") or [])
+        normalizer = str(rule.get("normalizer") or "text")
+        expected_normalized = _normalize_match_value(expected, normalizer)
+        if not expected_normalized or not any(
+            _match_values(expected_normalized, _normalize_match_value(value, normalizer), normalizer)
+            for value in actual_values
+        ):
+            reasons.append(f"request_result_mismatch:{index}")
+    return reasons
+
+
+def _normalize_match_value(value: Any, normalizer: str) -> str:
+    text = _text_for_quality(value)
+    if normalizer == "coordinate":
+        parts = [part.strip() for part in text.split(",")]
+        if len(parts) == 2:
+            try:
+                return f"{float(parts[0]):.6f},{float(parts[1]):.6f}"
+            except ValueError:
+                return ""
+        return ""
+    normalized = "".join(text.split()).casefold()
+    if normalizer == "text_loose":
+        for suffix in ("特别行政区", "自治州", "地区", "市", "区", "县", "省"):
+            if normalized.endswith(suffix) and len(normalized) > len(suffix):
+                normalized = normalized[: -len(suffix)]
+                break
+    return normalized
+
+
+def _match_values(expected: str, actual: str, normalizer: str) -> bool:
+    if not expected or not actual:
+        return False
+    if normalizer == "text_loose":
+        return expected in actual or actual in expected
+    return expected == actual
+
+
+def _text_for_quality(value: Any) -> str:
+    if value is None or isinstance(value, (dict, list, tuple, set)):
+        return ""
+    return str(value).strip()
+
+
+def _resolve_profile_values(envelope: dict[str, Any], pointers: list[Any]) -> list[Any]:
+    values: list[Any] = []
+    for pointer in pointers:
+        if not isinstance(pointer, str):
+            continue
+        values.extend(_resolve_pointer_values(envelope, pointer))
+    return values[: _MAX_PROFILE_COLLECTIONS * _MAX_PROFILE_ITEMS]
+
+
+def _resolve_pointer_values(document: Any, pointer: str) -> list[Any]:
+    """解析支持有限 ``*`` 通配的只读 JSON Pointer。"""
+
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        return []
+    parts = pointer.split("/")[1:]
+    values: list[Any] = []
+
+    def visit(current: Any, index: int) -> None:
+        if len(values) >= _MAX_PROFILE_COLLECTIONS * _MAX_PROFILE_ITEMS:
+            return
+        if index == len(parts):
+            values.append(current)
+            return
+        part = parts[index].replace("~1", "/").replace("~0", "~")
+        if part == "*":
+            if isinstance(current, list):
+                for item in current[:_MAX_PROFILE_COLLECTIONS]:
+                    visit(item, index + 1)
+            return
+        if isinstance(current, dict) and part in current:
+            visit(current[part], index + 1)
+        elif isinstance(current, list) and part.isdigit() and int(part) < len(current):
+            visit(current[int(part)], index + 1)
+
+    visit(document, 0)
+    return values
+
+
+def _resolve_relative_values(item: dict[str, Any], pointers: list[Any]) -> list[Any]:
+    values: list[Any] = []
+    for pointer in pointers:
+        if not isinstance(pointer, str):
+            continue
+        value = _resolve_pointer(item, pointer)
+        if value is not _MISSING:
+            values.append(value)
+    return values
 
 
 def _source_envelope(sources: list[ExternalSource]) -> dict[str, Any]:
@@ -433,6 +902,18 @@ def _is_empty(value: Any) -> bool:
         "无结果",
         "暂无结果",
     }
+
+
+def _is_business_value(value: Any) -> bool:
+    """Profile 的 evidence/identity 必须是非空标量，不能拿容器整体充数。"""
+
+    if isinstance(value, bool) or value is None or isinstance(value, (dict, list, tuple, set)):
+        return False
+    if isinstance(value, str):
+        return not _is_empty(value)
+    if isinstance(value, (int, float)):
+        return math.isfinite(float(value))
+    return False
 
 
 def _string_list(value: Any) -> list[str]:

@@ -226,5 +226,7 @@ class ToolCatalog:
             fallback_tool_key=None,
             enabled_by_default=server.is_enabled and tool.is_enabled,
             read_only=tool.read_only,
-            quality_contract={},
+            # 动态 MCP 仍可加载以供诊断和后续审核，但在声明经审核的 canonical
+            # Mapper/Profile 前，不能把任意 JSON 或文本作为下游可用 evidence。
+            quality_contract={"require_semantic_profile": True},
         )

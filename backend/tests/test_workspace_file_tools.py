@@ -117,6 +117,49 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
         self.assertEqual(read_sources[0].display_text, "2: Durable checkpoint and tool approval design.")
         self.assertNotIn("storage_key", str(read_sources[0].metadata))
 
+    def test_empty_file_results_are_explicit_safe_answers(self) -> None:
+        current = self.db.get(ProjectFile, "file-current")
+        self.db.delete(current)
+        self.db.commit()
+
+        list_sources, list_metadata = asyncio.run(
+            self.provider.run(call=build_call("workspace.files.list", {}))
+        )
+        search_sources, search_metadata = asyncio.run(
+            self.provider.run(call=build_call("workspace.files.search", {"query": "不存在的内容"}))
+        )
+        self.db.add(
+            ProjectFile(
+                id="file-empty",
+                project_id="project-current",
+                user_id="user-1",
+                kind="file",
+                file_name="empty.md",
+                mime_type="text/markdown",
+                file_size=0,
+                storage_key="user-1/empty.md",
+                parsed_text="   ",
+            )
+        )
+        self.db.commit()
+        read_sources, read_metadata = asyncio.run(
+            self.provider.run(call=build_call("workspace.files.read", {"file_id": "file-empty"}))
+        )
+
+        for sources, metadata in (
+            (list_sources, list_metadata),
+            (search_sources, search_metadata),
+            (read_sources, read_metadata),
+        ):
+            self.assertEqual(metadata["result_semantics"], "empty_answer")
+            self.assertEqual(len(sources), 1)
+            self.assertEqual(sources[0].metadata["result_semantics"], "empty_answer")
+            self.assertNotIn("storage_key", str(sources[0].metadata))
+
+        self.assertIn("没有可供 Agent 访问的文件", list_sources[0].display_text)
+        self.assertIn("未找到与本次查询匹配的文件", search_sources[0].display_text)
+        self.assertIn("没有可读取的解析文本", read_sources[0].display_text)
+
     def test_sensitive_files_are_hidden_and_secret_values_are_redacted(self) -> None:
         self.db.add_all(
             [
@@ -189,6 +232,38 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
             "Architecture\nDurable checkpoint and tool approval design.\nFinal line.",
         )
 
+    def test_edit_preview_is_a_valid_approval_draft_not_an_applied_revision(self) -> None:
+        class AllowWorkspaceTool:
+            def is_tool_enabled_for_workspace(self, **_kwargs) -> bool:
+                return True
+
+        result, _ = asyncio.run(
+            ToolExecutor(
+                credential_resolver=AllowWorkspaceTool(),
+                catalog=ToolCatalog(),
+                db=self.db,
+                user_id="user-1",
+                project_id="project-current",
+            ).execute(
+                build_call(
+                    "workspace.files.propose_edit",
+                    {
+                        "file_id": "file-current",
+                        "old_string": "Durable checkpoint",
+                        "new_string": "Durable Agent checkpoint",
+                    },
+                )
+            )
+        )
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.result_semantics, "approval_draft")
+        self.assertEqual(result.quality_status, "valid")
+        self.assertEqual(result.quality_metadata["semantic_profile"], "approval_draft")
+        self.assertFalse(result.sources[0].metadata["raw"]["applied"])
+        stored = self.db.get(ProjectFile, "file-current")
+        self.assertIn("Durable checkpoint", stored.parsed_text)
+
     def test_edit_preview_returns_safe_feedback_for_missing_or_ambiguous_match(self) -> None:
         with self.assertRaisesRegex(ToolExecutionFeedbackError, "重新读取"):
             asyncio.run(
@@ -242,6 +317,8 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
 
         self.assertEqual(result.status, "success")
         self.assertIn("Architecture", result.sources[0].display_text)
+        self.assertEqual(result.quality_status, "valid")
+        self.assertEqual(result.quality_metadata["semantic_profile"], "file_read")
         passed_policy = [event for event in events if event.type == "tool_policy_check"][-1]
         self.assertEqual(passed_policy.payload["credential_source"], "not_required")
         checking_policy = [event for event in events if event.type == "tool_policy_check"][0]

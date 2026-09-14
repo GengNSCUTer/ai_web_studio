@@ -784,6 +784,10 @@ class ToolWorkflowService:
         error_message = call_result.error_message or ""
         quality_status, quality_reasons = self._quality_for_result(call_result)
         result_usable = self._result_is_usable(call_result)
+        approval_draft_ready = self._is_approval_draft_ready(
+            call_result=call_result,
+            quality_status=quality_status,
+        )
         confirmation_required = any(event.type == "tool_confirmation_required" for event in call_events)
         decision_status = (
             "uncertain"
@@ -824,7 +828,9 @@ class ToolWorkflowService:
                     "call_id": call.call_id,
                     "tool_key": call.tool_key,
                     "status": quality_decision.status,
-                    "action": quality_decision.action,
+                    # 编辑预览本身通过质量校验，只表示 Diff 可供审查；它不是
+                    # 已写入的证据，因此下一步必须停在用户确认边界。
+                    "action": "clarify" if approval_draft_ready else quality_decision.action,
                     "retryable": quality_decision.retryable,
                     "fallback_available": quality_decision.fallback_available,
                     "reasons": list(quality_decision.reasons),
@@ -847,6 +853,27 @@ class ToolWorkflowService:
                 elapsed_ms=call_result.elapsed_ms,
                 call_fingerprint=call_fingerprint,
                 notices=[f"{call.display_name}需要用户确认，已跳过执行。"],
+                events=events,
+                error_message=error_message,
+            )
+
+        if approval_draft_ready:
+            return ToolStepResult(
+                call=call,
+                # 预览可进入最终回答，帮助用户确认 Diff；但 ``waiting_approval``
+                # 会阻断任何普通依赖或 Result Binding。真正写入仍只能经由
+                # workspace.files.apply_edit 的一次性审批 continuation 与 Revision CAS。
+                sources=call_result.sources,
+                expose_sources_to_prompt=True,
+                quality_status="valid",
+                quality_reasons=[*quality_reasons, "approval_draft_not_applied"],
+                quality_action="clarify",
+                execution_status="waiting_approval",
+                error_category="approval_draft_ready",
+                retryable=False,
+                elapsed_ms=call_result.elapsed_ms,
+                call_fingerprint=call_fingerprint,
+                notices=[f"{call.display_name}已生成编辑预览，尚未写入；请用户确认后再执行修改。"],
                 events=events,
                 error_message=error_message,
             )
@@ -1102,6 +1129,16 @@ class ToolWorkflowService:
     @classmethod
     def _result_is_usable(cls, call_result: ToolCallResult) -> bool:
         return is_usable_tool_result(call_result)
+
+    @staticmethod
+    def _is_approval_draft_ready(*, call_result: ToolCallResult, quality_status: str) -> bool:
+        """识别可展示、但绝不能解锁普通依赖的编辑预览。"""
+
+        return bool(
+            call_result.status == "success"
+            and quality_status == "valid"
+            and str(getattr(call_result, "result_semantics", "")).strip().lower() == "approval_draft"
+        )
 
     @staticmethod
     def _quality_error(call_result: ToolCallResult) -> str:

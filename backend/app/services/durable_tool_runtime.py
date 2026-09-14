@@ -1036,6 +1036,12 @@ class DurableToolWorker:
                 "sources": [source.to_public_dict() for source in result.sources],
                 "events": [event_item.to_public_dict() for event_item in events],
                 "elapsed_ms": result.elapsed_ms,
+                # 保留质量结论和结果语义，恢复、对账与后续按需读取才能区分
+                # “正常未命中”与“Provider 返回了不可用响应”。
+                "quality_status": quality_status_for_result(result)[0],
+                "quality_reasons": list(getattr(result, "quality_reasons", []) or [])[:8],
+                "quality_metadata": dict(getattr(result, "quality_metadata", {}) or {}),
+                "result_semantics": str(getattr(result, "result_semantics", "evidence") or "evidence"),
             }
             self._finish_success(db, run, step, event, claim, payload)
             return

@@ -66,6 +66,7 @@ class ToolExecutor:
         try:
             validator = ToolSchemaValidator()
             raw_arguments = call.arguments
+            normalized_arguments: dict[str, object] | None = None
             if isinstance(raw_arguments, dict):
                 defaults = dict(definition.adapter.get("default_arguments") or {})
                 fixed_arguments = dict(definition.adapter.get("fixed_arguments") or {})
@@ -74,6 +75,8 @@ class ToolExecutor:
                     definition=definition,
                     arguments=effective_arguments,
                 )
+                # 质量合同只能读取已完成 Schema 校验的参数，不能直接信任 Planner 原始 JSON。
+                normalized_arguments = dict(validated_arguments)
                 # Fixed arguments are trusted adapter-owned values. Keep them
                 # out of model-controlled calls and public traces after the
                 # effective input has been validated.
@@ -202,6 +205,11 @@ class ToolExecutor:
                 except AgentRuntimeError as exc:
                     result, skipped_events = self._skipped(call, str(exc))
                     return result, [*events, *skipped_events]
+                # Patch 内容、文件名和前端 Trace 都可能来自用户文件，必须在
+                # 进入事件流前脱敏；数据库中的审批草稿仍保留原始内容供受控
+                # CAS continuation 使用，二者不能混为一谈。
+                safe_file_name = redact_sensitive_text(proposal.file_name)
+                safe_diff_text = redact_sensitive_text(proposal.diff_text)
                 if permission_mode == "full_workspace":
                     try:
                         applied = runtime_service.apply_trusted_workspace_file_edit(
@@ -218,7 +226,7 @@ class ToolExecutor:
                             ExternalSource(
                                 source_type="workspace_file_revision",
                                 provider="workspace",
-                                title=f"{proposal.file_name} 已更新",
+                                title=f"{safe_file_name} 已更新",
                                 display_text=(
                                     "修改已按工作区权限策略应用，并生成可审计的文件版本。"
                                 ),
@@ -232,6 +240,12 @@ class ToolExecutor:
                                     "revision_number": applied.revision_number,
                                     "applied": True,
                                     "permission_mode": permission_mode,
+                                    "raw": {
+                                        "file_id": applied.file_id,
+                                        "revision_id": applied.revision_id,
+                                        "revision_number": applied.revision_number,
+                                        "applied": True,
+                                    },
                                 },
                             )
                         ],
@@ -280,8 +294,8 @@ class ToolExecutor:
                             "patch_draft_id": proposal.patch_draft_id,
                             "approval_id": proposal.approval_id,
                             "file_id": proposal.file_id,
-                            "file_name": proposal.file_name,
-                            "diff_text": proposal.diff_text,
+                            "file_name": safe_file_name,
+                            "diff_text": safe_diff_text,
                             "arguments_hash": proposal.arguments_hash,
                             "expires_at": proposal.expires_at.isoformat(),
                             "reason": "已生成持久化 Diff，需用户确认后才能以版本 CAS 写入。",
@@ -296,11 +310,11 @@ class ToolExecutor:
                             ExternalSource(
                                 source_type="workspace_file_edit_approval",
                                 provider="workspace",
-                                title=f"{proposal.file_name} 修改提案（等待确认）",
+                                title=f"{safe_file_name} 修改提案（等待确认）",
                                 display_text=(
                                     "以下 Diff 已持久化，但尚未写入。用户必须在界面确认；"
                                     "在收到 applied 状态前，不得声称修改完成。\n"
-                                    f"{proposal.diff_text}"
+                                    f"{safe_diff_text}"
                                 ),
                                 metadata={
                                     "call_id": call.call_id,
@@ -310,11 +324,17 @@ class ToolExecutor:
                                     "step_id": proposal.step_id,
                                     "approval_id": proposal.approval_id,
                                     "applied": False,
+                                    "raw": {
+                                        "file_id": proposal.file_id,
+                                        "approval_id": proposal.approval_id,
+                                        "applied": False,
+                                    },
                                 },
                             )
                         ],
                         elapsed_ms=0,
                         error_message="文件修改提案正在等待用户确认。",
+                        result_semantics="approval_draft",
                     ),
                     events,
                 )
@@ -405,6 +425,15 @@ class ToolExecutor:
                 call=call,
                 api_key=credential.api_key if credential else None,
             )
+            result_semantics = self._trusted_result_semantics(
+                definition=definition,
+                adapter_metadata=adapter_metadata,
+            )
+            quality_request_context = self._quality_request_context(
+                normalized_arguments=normalized_arguments,
+                definition=definition,
+                adapter_metadata=adapter_metadata,
+            )
             for source_index, source in enumerate(sources, start=1):
                 # Adapter output is untrusted evidence. Sanitize before it can
                 # reach observations, result bindings, public responses, or a
@@ -413,10 +442,14 @@ class ToolExecutor:
                 source.title = redact_sensitive_text(source.title)
                 source.url = redact_sensitive_text(source.url) if source.url else None
                 source.metadata = redact_sensitive_arguments(source.metadata or {})
+                # Adapter 输出中的同名字段属于不可信数据；只有执行器能够写入最终结果语义。
+                source.metadata.pop("result_semantics", None)
                 source.metadata.setdefault("call_id", call.call_id)
                 source.metadata.setdefault("tool_key", call.tool_key)
                 source.metadata.setdefault("tool_display_name", call.display_name)
                 source.metadata.setdefault("source_index", source_index)
+                if result_semantics != "evidence":
+                    source.metadata["result_semantics"] = result_semantics
 
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             result = ToolCallResult(
@@ -424,11 +457,13 @@ class ToolExecutor:
                 status="success",
                 sources=sources,
                 elapsed_ms=elapsed_ms,
+                result_semantics=result_semantics,
             )
             quality = self._apply_quality(
                 result=result,
                 definition=definition,
                 events=events,
+                request_context=quality_request_context,
             )
             events.append(
                 ToolTraceEvent(
@@ -441,9 +476,10 @@ class ToolExecutor:
                         "display_name": call.display_name,
                         "status": "success",
                         "quality_status": quality.status,
+                        "result_semantics": result.result_semantics,
                         "elapsed_ms": elapsed_ms,
                         "sources_count": len(sources),
-                        "adapter": adapter_metadata,
+                        "adapter": redact_sensitive_arguments(adapter_metadata),
                     },
                 )
             )
@@ -514,10 +550,13 @@ class ToolExecutor:
         result: ToolCallResult,
         definition,
         events: list[ToolTraceEvent],
+        request_context: dict[str, object] | None = None,
     ):
         quality = evaluate_tool_result_quality(
             sources=result.sources,
             contract=definition.quality_contract,
+            result_semantics=result.result_semantics,
+            request_context=request_context,
         )
         result.quality_status = quality.status
         result.quality_reasons = list(quality.reasons)
@@ -531,10 +570,74 @@ class ToolExecutor:
                     "status": quality.status,
                     "reasons": list(quality.reasons),
                     "metadata": dict(quality.metadata),
+                    "result_semantics": result.result_semantics,
                 },
             )
         )
         return quality
+
+    def _trusted_result_semantics(self, *, definition, adapter_metadata: object) -> str:
+        """只接受项目内受控 Provider 声明的结果语义。
+
+        MCP 的 metadata、正文与 JSON payload 都属于远端不可信输入，不能借由
+        ``empty_answer`` 或 ``approval_draft`` 放宽质量门。当前必须同时满足
+        ``ToolAdapterRunner`` 与对应项目内 Provider 实例，才能确认“无数据/无匹配”
+        是业务答案，或确认结果只是尚未写入的审查提案。
+        """
+
+        if not isinstance(adapter_metadata, dict):
+            return "evidence"
+        declared = adapter_metadata.get("result_semantics")
+        if not isinstance(declared, str):
+            return "evidence"
+        normalized = declared.strip().lower()
+        if normalized not in {"empty_answer", "approval_draft"}:
+            return "evidence"
+        if not isinstance(self.adapter_runner, ToolAdapterRunner):
+            return "evidence"
+        if definition.adapter_type == "workspace_file":
+            provider = self.adapter_runner.workspace_file_provider
+            if not isinstance(provider, WorkspaceFileToolProvider):
+                return "evidence"
+            return normalized
+        if definition.adapter_type == "agent_artifact":
+            provider = self.adapter_runner.agent_artifact_provider
+            if isinstance(provider, AgentArtifactToolProvider) and normalized == "empty_answer":
+                return normalized
+        return "evidence"
+
+    def _quality_request_context(
+        self,
+        *,
+        normalized_arguments: dict[str, object] | None,
+        definition,
+        adapter_metadata: object,
+    ) -> dict[str, object]:
+        """构造质量门可读取的受控请求上下文。
+
+        Schema 校验后的参数是默认来源。高德路线等 MCP 调用可能在受控
+        Adapter 内把地点名转换为坐标，Provider 返回的路线也使用实际发送
+        的坐标；此时仅对项目内 ``ToolAdapterRunner`` 信任其已脱敏的
+        ``mcp_arguments``，以避免将外部 Adapter 或 Provider 自报的字段
+        当作质量门输入。
+        """
+
+        context = dict(normalized_arguments or {})
+        if definition.adapter_type != "mcp_http" or not isinstance(self.adapter_runner, ToolAdapterRunner):
+            return context
+        if not isinstance(adapter_metadata, dict):
+            return context
+        mcp_arguments = adapter_metadata.get("mcp_arguments")
+        if not isinstance(mcp_arguments, dict):
+            return context
+        # mcp_arguments 由 ToolAdapterRunner 在写入 metadata 前完成脱敏；只覆盖
+        # 同一调用已通过 Schema 的字段，防止 Adapter metadata 扩展质量门作用域。
+        return {
+            key: mcp_arguments[key]
+            if key in mcp_arguments and not isinstance(mcp_arguments[key], (dict, list, tuple, set))
+            else value
+            for key, value in context.items()
+        }
 
     @staticmethod
     def _skipped(call: PlannedToolCall, reason: str) -> tuple[ToolCallResult, list[ToolTraceEvent]]:

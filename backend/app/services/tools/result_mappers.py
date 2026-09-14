@@ -4,7 +4,10 @@ import json
 from typing import Any
 from urllib.parse import urlparse
 
-from app.services.tools.schemas import ExternalSource
+from app.services.tools.schemas import ExternalSource, redact_sensitive_text
+
+
+MAX_CANONICAL_EVIDENCE_CHARS = 1600
 
 
 def map_mcp_result(
@@ -16,17 +19,22 @@ def map_mcp_result(
     query: str,
     raw: dict[str, Any],
 ) -> list[ExternalSource]:
-    payload = _extract_payload(raw)
+    payload = extract_mcp_payload(raw)
     if mapper == "tavily_search":
         return _map_tavily(payload)
     if mapper == "amap_weather":
         return _map_amap_weather(payload=payload, provider=provider, title=display_name)
-    if mapper == "amap_map":
-        return _map_amap_map(payload=payload, provider=provider, title=display_name)
     if mapper == "amap_geo":
         return _map_amap_geo(payload=payload, provider=provider, title=display_name)
     if mapper == "amap_distance":
         return _map_amap_distance(payload=payload, provider=provider, title=display_name)
+    if mapper == "amap_route":
+        return _map_amap_route(payload=payload, provider=provider, title=display_name)
+    if mapper == "amap_poi":
+        return _map_amap_poi(payload=payload, provider=provider, title=display_name)
+    if mapper == "amap_map":
+        # 兼容历史动态 MCP 配置；内置 Tool 已改用 geo/route/poi 专用 Mapper。
+        return _map_amap_legacy_map(payload=payload, provider=provider, title=display_name)
     return _map_generic_mcp_payload(
         payload=payload,
         provider=provider,
@@ -36,7 +44,9 @@ def map_mcp_result(
     )
 
 
-def _extract_payload(raw: dict[str, Any]) -> Any:
+def extract_mcp_payload(raw: dict[str, Any]) -> Any:
+    """提取 MCP 的机器可读结果，优先 structuredContent 再兼容文本 JSON。"""
+
     result = raw["result"] if "result" in raw else raw
     # MCP outputSchema 对应的 structuredContent 是机器可读主结果；content 中的 JSON 文本只是兼容副本。
     if isinstance(result, dict) and "structuredContent" in result:
@@ -45,25 +55,33 @@ def _extract_payload(raw: dict[str, Any]) -> Any:
     content = result.get("content") if content_present else None
     if isinstance(content, list):
         texts: list[str] = []
-        structured_items: list[Any] = []
+        parsed_payloads: list[Any] = []
         for item in content:
             if not isinstance(item, dict):
                 continue
             if item.get("type") == "text" and item.get("text") is not None:
                 text = str(item["text"])
                 parsed = _try_parse_json(text)
-                structured_items.append(parsed if parsed is not None else text)
+                if parsed is not None:
+                    parsed_payloads.append(parsed)
                 texts.append(text)
             elif item.get("text") is not None:
                 texts.append(str(item["text"]))
-        if len(structured_items) == 1:
-            return structured_items[0]
-        if structured_items:
-            return structured_items
+        if parsed_payloads:
+            # 部分 MCP 会先给人类可读说明，再给一段 JSON 机器结果。不能把说明文本
+            # 和 JSON 混成 list，否则专用 Mapper 会把它误认为非结构化响应。若服务端
+            # 异常地返回多段 JSON，不做未经定义的合并，保守采用第一段结构化载荷。
+            return parsed_payloads[0]
         return "\n".join(texts) if texts else None
     if content_present:
         return None
     return result
+
+
+def _extract_payload(raw: dict[str, Any]) -> Any:
+    """保留旧私有名称，避免历史测试或调用方在迁移期间中断。"""
+
+    return extract_mcp_payload(raw)
 
 
 def _try_parse_json(value: str) -> Any:
@@ -79,19 +97,6 @@ def _try_parse_json(value: str) -> Any:
 def _map_tavily(payload: Any) -> list[ExternalSource]:
     data = payload if isinstance(payload, dict) else {}
     sources: list[ExternalSource] = []
-    answer = str(data.get("answer") or "").strip()
-    if answer:
-        sources.append(
-            ExternalSource(
-                source_type="web",
-                provider="tavily",
-                title="Tavily 综合摘要",
-                display_text=answer,
-                rank=0,
-                citation_label="[S]",
-                metadata={"source": "mcp"},
-            )
-        )
 
     for index, item in enumerate(data.get("results") or [], start=1):
         if not isinstance(item, dict):
@@ -99,56 +104,151 @@ def _map_tavily(payload: Any) -> list[ExternalSource]:
         url = str(item.get("url") or "").strip() or None
         title = str(item.get("title") or "").strip() or (urlparse(url or "").netloc or "搜索结果")
         content = str(item.get("content") or item.get("snippet") or "").strip()
-        if not content and not url:
+        # 只有 URL 没有正文不能作为可供回答使用的外部证据。
+        if not content or not url:
             continue
+        # Canonical raw 只服务于质量门与受控绑定：必须有界，也必须在 Mapper
+        # 层先脱敏。Executor/序列化层会再次脱敏，形成纵深防护。
+        safe_url = redact_sensitive_text(url)
+        safe_title = redact_sensitive_text(title)
+        safe_content = redact_sensitive_text(content[:MAX_CANONICAL_EVIDENCE_CHARS])
         sources.append(
             ExternalSource(
                 source_type="web",
                 provider="tavily",
-                title=title,
-                url=url,
-                display_text=content[:1600],
+                title=safe_title,
+                url=safe_url,
+                display_text=safe_content,
                 rank=index,
                 score=item.get("score"),
                 citation_label=f"[{index}]",
-                metadata={"domain": urlparse(url or "").netloc, "source": "mcp"},
+                metadata={
+                    **_canonical_metadata(
+                        {
+                            "url": safe_url,
+                            "title": safe_title,
+                            "content": safe_content,
+                            "score": item.get("score"),
+                        }
+                    ),
+                    "domain": urlparse(safe_url).netloc,
+                },
             )
         )
-    if sources:
-        return sources
-    return _map_generic_mcp_payload(
-        payload=payload,
-        provider="tavily",
-        source_type="web",
-        title="Tavily 搜索",
-        citation_prefix="S",
-    )
+    # 内置网页搜索只接受具有正文的可引用结果；不能把未知 JSON 退化成证据。
+    return sources
 
 
 def _map_amap_weather(*, payload: Any, provider: str, title: str) -> list[ExternalSource]:
     data = payload if isinstance(payload, dict) else {}
     lives = data.get("lives") if isinstance(data.get("lives"), list) else []
     forecasts = data.get("forecasts") if isinstance(data.get("forecasts"), list) else []
-    if not lives and not forecasts:
-        return []
     if lives:
-        return _map_generic_mcp_payload(
-            payload=lives,
+        return _map_amap_live_weather(lives=lives, provider=provider, title=title)
+    if forecasts:
+        return _map_amap_forecast_weather(
+            city=_text(data.get("city")),
+            forecasts=forecasts,
             provider=provider,
-            source_type="weather",
             title=title,
-            citation_prefix="W",
         )
-    return _map_generic_mcp_payload(
-        payload=forecasts,
-        provider=provider,
-        source_type="weather",
-        title=title,
-        citation_prefix="W",
-    )
+    return []
 
 
-def _map_amap_map(*, payload: Any, provider: str, title: str) -> list[ExternalSource]:
+def _map_amap_live_weather(
+    *,
+    lives: list[Any],
+    provider: str,
+    title: str,
+) -> list[ExternalSource]:
+    """将高德实况天气归一化为每条可独立校验的 Source。"""
+
+    sources: list[ExternalSource] = []
+    for index, item in enumerate(lives[:6], start=1):
+        if not isinstance(item, dict):
+            continue
+        city = _text(item.get("city"))
+        weather = _text(item.get("weather"))
+        temperature = _text(item.get("temperature"))
+        report_time = _text(item.get("reporttime"))
+        if not city or not weather:
+            continue
+        display = f"{city}当前天气：{weather}"
+        if temperature:
+            display += f"，气温 {temperature} 摄氏度"
+        if report_time:
+            display += f"，发布时间 {report_time}"
+        sources.append(
+            ExternalSource(
+                source_type="weather",
+                provider=provider,
+                title=f"{title}：{city}",
+                display_text=display,
+                rank=index,
+                citation_label=f"[W{index}]",
+                metadata=_canonical_metadata(
+                    {
+                        "city": city,
+                        "adcode": _text(item.get("adcode")),
+                        "weather": weather,
+                        "temperature": temperature,
+                        "reporttime": report_time,
+                    }
+                ),
+            )
+        )
+    return sources
+
+
+def _map_amap_forecast_weather(
+    *,
+    city: str,
+    forecasts: list[Any],
+    provider: str,
+    title: str,
+) -> list[ExternalSource]:
+    """将高德预报天气归一化；没有城市或天气字段时宁可返回空结果。"""
+
+    if not city:
+        return []
+    sources: list[ExternalSource] = []
+    for index, item in enumerate(forecasts[:7], start=1):
+        if not isinstance(item, dict):
+            continue
+        date = _text(item.get("date"))
+        day_weather = _text(item.get("dayweather"))
+        night_weather = _text(item.get("nightweather"))
+        weather = " / ".join(part for part in (day_weather, night_weather) if part)
+        if not weather:
+            continue
+        day_temp = _text(item.get("daytemp"))
+        night_temp = _text(item.get("nighttemp"))
+        display = f"{city}{date or '近期'}天气：{weather}"
+        if day_temp or night_temp:
+            display += f"，气温 {day_temp or '未知'}～{night_temp or '未知'} 摄氏度"
+        sources.append(
+            ExternalSource(
+                source_type="weather",
+                provider=provider,
+                title=f"{title}：{city}{date}",
+                display_text=display,
+                rank=index,
+                citation_label=f"[W{index}]",
+                metadata=_canonical_metadata(
+                    {
+                        "city": city,
+                        "adcode": _text(item.get("adcode")),
+                        "weather": weather,
+                        "temperature": "～".join(part for part in (day_temp, night_temp) if part),
+                        "reporttime": date,
+                    }
+                ),
+            )
+        )
+    return sources
+
+
+def _map_amap_legacy_map(*, payload: Any, provider: str, title: str) -> list[ExternalSource]:
     data = payload if isinstance(payload, dict) else {}
     if isinstance(data.get("route"), dict):
         data = data["route"]
@@ -178,22 +278,45 @@ def _map_amap_map(*, payload: Any, provider: str, title: str) -> list[ExternalSo
 
 def _map_amap_geo(*, payload: Any, provider: str, title: str) -> list[ExternalSource]:
     data = payload if isinstance(payload, dict) else {}
-    geocodes = data.get("geocodes") if isinstance(data.get("geocodes"), list) else []
-    if geocodes:
-        return _map_generic_mcp_payload(
-            payload=geocodes[:3],
-            provider=provider,
-            source_type="map",
-            title=title,
-            citation_prefix="G",
+    # 高德 MCP 当前返回 results；保留 geocodes 兼容旧协议形态。
+    records = data.get("results") if isinstance(data.get("results"), list) else data.get("geocodes")
+    if not isinstance(records, list):
+        return []
+
+    sources: list[ExternalSource] = []
+    for index, item in enumerate(records[:6], start=1):
+        if not isinstance(item, dict):
+            continue
+        location = _text(item.get("location") or item.get("lnglat") or item.get("coordinates"))
+        address = _first_text(
+            item.get("formatted_address"),
+            item.get("address"),
+            item.get("name"),
+            _join_location_parts(item, keys=("province", "city", "district", "street", "number")),
         )
-    return _map_generic_mcp_payload(
-        payload=payload,
-        provider=provider,
-        source_type="map",
-        title=title,
-        citation_prefix="G",
-    )
+        if not location or not address:
+            continue
+        display = f"匹配地址：{address}\n坐标：{location}"
+        sources.append(
+            ExternalSource(
+                source_type="map",
+                provider=provider,
+                title=f"{title}：{address}",
+                display_text=display,
+                rank=index,
+                citation_label=f"[G{index}]",
+                metadata=_canonical_metadata(
+                    {
+                        "formatted_address": address,
+                        "location": location,
+                        "adcode": _text(item.get("adcode")),
+                        "city": _text(item.get("city")),
+                        "level": _text(item.get("level")),
+                    }
+                ),
+            )
+        )
+    return sources
 
 
 def _map_amap_distance(*, payload: Any, provider: str, title: str) -> list[ExternalSource]:
@@ -201,34 +324,163 @@ def _map_amap_distance(*, payload: Any, provider: str, title: str) -> list[Exter
     results = data.get("results") if isinstance(data.get("results"), list) else []
     if not results and isinstance(data.get("distance"), str):
         results = [data]
-    if results:
-        lines: list[str] = []
-        for index, item in enumerate(results, start=1):
-            if not isinstance(item, dict):
-                continue
-            distance = _format_meters(item.get("distance"))
-            duration = _format_seconds(item.get("duration"))
-            origin_id = item.get("origin_id") or item.get("origin") or index
-            lines.append(f"起点 {origin_id}：距离 {distance}，预计耗时 {duration}")
-        if lines:
-            return [
-                ExternalSource(
-                    source_type="map",
-                    provider=provider,
-                    title=title,
-                    display_text="\n".join(lines),
-                    rank=1,
-                    citation_label="[D1]",
-                    metadata={"source": "mcp", "raw": data},
-                )
+    sources: list[ExternalSource] = []
+    for index, item in enumerate(results[:6], start=1):
+        if not isinstance(item, dict):
+            continue
+        raw_distance = _text(item.get("distance"))
+        if not raw_distance:
+            continue
+        origin_id = _text(item.get("origin_id") or item.get("origin"))
+        destination_id = _text(item.get("dest_id") or item.get("destination"))
+        identity = " → ".join(part for part in (origin_id, destination_id) if part)
+        if not identity:
+            continue
+        duration = _text(item.get("duration"))
+        display = f"{identity}：距离 {_format_meters(raw_distance)}"
+        if duration:
+            display += f"，预计耗时 {_format_seconds(duration)}"
+        sources.append(
+            ExternalSource(
+                source_type="map",
+                provider=provider,
+                title=title,
+                display_text=display,
+                rank=index,
+                citation_label=f"[D{index}]",
+                metadata=_canonical_metadata(
+                    {
+                        "origin_id": origin_id,
+                        "destination_id": destination_id,
+                        "distance": raw_distance,
+                        "duration": duration,
+                    }
+                ),
+            )
+        )
+    return sources
+
+
+def _map_amap_route(*, payload: Any, provider: str, title: str) -> list[ExternalSource]:
+    data = payload if isinstance(payload, dict) else {}
+    if isinstance(data.get("route"), dict):
+        data = data["route"]
+    paths = data.get("paths") if isinstance(data.get("paths"), list) else []
+    if not paths and isinstance(data.get("transits"), list):
+        # 公交/地铁接口返回 transits，不是驾车/步行接口的 paths；统一成一条首选方案。
+        first_transit = data["transits"][0] if data["transits"] else {}
+        if isinstance(first_transit, dict):
+            paths = [
+                {
+                    "distance": data.get("distance"),
+                    "duration": first_transit.get("duration"),
+                    "steps": [],
+                }
             ]
-    return _map_generic_mcp_payload(
-        payload=payload,
-        provider=provider,
-        source_type="map",
-        title=title,
-        citation_prefix="D",
-    )
+    origin = _text(data.get("origin"))
+    destination = _text(data.get("destination"))
+    identity = " → ".join(part for part in (origin, destination) if part)
+    if not origin or not destination:
+        return []
+
+    sources: list[ExternalSource] = []
+    for index, path in enumerate(paths[:3], start=1):
+        if not isinstance(path, dict):
+            continue
+        distance = _text(path.get("distance"))
+        duration = _text(path.get("duration"))
+        if not distance and not duration:
+            continue
+        display = _format_amap_route_display(data=data, path=path)
+        sources.append(
+            ExternalSource(
+                source_type="map",
+                provider=provider,
+                title=title,
+                display_text=display,
+                rank=index,
+                citation_label=f"[M{index}]",
+                metadata=_canonical_metadata(
+                    {
+                        "origin": origin,
+                        "destination": destination,
+                        "distance": distance,
+                        "duration": duration,
+                    }
+                ),
+            )
+        )
+    return sources
+
+
+def _map_amap_poi(*, payload: Any, provider: str, title: str) -> list[ExternalSource]:
+    data = payload if isinstance(payload, dict) else {}
+    pois = data.get("pois") if isinstance(data.get("pois"), list) else []
+    sources: list[ExternalSource] = []
+    for index, item in enumerate(pois[:8], start=1):
+        if not isinstance(item, dict):
+            continue
+        poi_id = _text(item.get("id"))
+        name = _text(item.get("name"))
+        address = _text(item.get("address"))
+        location = _text(item.get("location"))
+        if not poi_id or not name:
+            continue
+        display_parts = [f"名称：{name}"]
+        if address:
+            display_parts.append(f"地址：{address}")
+        if location:
+            display_parts.append(f"坐标：{location}")
+        type_code = _text(item.get("type") or item.get("typecode"))
+        if type_code:
+            display_parts.append(f"类型：{type_code}")
+        display = "\n".join(display_parts)
+        sources.append(
+            ExternalSource(
+                source_type="map",
+                provider=provider,
+                title=f"{title}：{name}",
+                display_text=display,
+                rank=index,
+                citation_label=f"[P{index}]",
+                metadata=_canonical_metadata(
+                    {
+                        "id": poi_id,
+                        "name": name,
+                        "location": location,
+                        "address": address,
+                        "type": type_code,
+                    }
+                ),
+            )
+        )
+    return sources
+
+
+def _canonical_metadata(raw: dict[str, Any]) -> dict[str, Any]:
+    """只保留质量验证与结果绑定需要的 Provider 字段，避免保存完整远端响应。"""
+
+    return {"source": "mcp", "raw": raw}
+
+
+def _text(value: Any) -> str:
+    """将 Provider 标量转为去空白文本，不把 list/dict 伪装成业务字段。"""
+
+    if value is None or isinstance(value, (dict, list, tuple, set)):
+        return ""
+    return str(value).strip()
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = _text(value)
+        if text:
+            return text
+    return ""
+
+
+def _join_location_parts(item: dict[str, Any], *, keys: tuple[str, ...]) -> str:
+    return "".join(_text(item.get(key)) for key in keys)
 
 
 def _format_amap_route_display(*, data: dict[str, Any], path: dict[str, Any]) -> str:

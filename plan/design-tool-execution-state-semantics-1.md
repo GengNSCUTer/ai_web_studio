@@ -67,14 +67,25 @@ tags: [architecture, tool-workflow, agent-runtime, safety, durable-run]
 
 | Goal | Description | Completed | Date |
 |------|-------------|-----------|------|
-| GOAL-003 | 把“Adapter 返回 JSON”提升为“结果在当前任务中具有业务有效性”，覆盖所有默认 Tool。 |  |  |
+| GOAL-003 | 把“Adapter 返回 JSON”提升为“结果在当前任务中具有业务有效性”，覆盖所有默认 Tool。 | ✅ | 2026-09-14 |
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-011 | 为 `backend/app/tool_manifests/default_tools.json` 中全部启用 Tool 声明质量语义；地图和搜索复核现有合同，Artifact、workspace list/search/read/propose/apply 新增合同或 Tool-specific evaluator。 |  |  |
-| TASK-012 | 在 `backend/app/services/tools/quality.py` 增加受限的 evaluator 扩展点。它只能读取 Adapter 已规范化的 evidence envelope，不执行文本、不调用网络、不读取模型生成的规则。 |  |  |
-| TASK-013 | 将“业务空结果”与“无效/不完整响应”分开。保持质量状态集合不扩张；通过 `result_semantics=empty_answer/evidence/approval_draft` 描述业务含义，避免把“未找到文件”错误标为质量失败。 |  |  |
-| TASK-014 | 扩展 Executor、Workflow 和 Durable Worker 测试，覆盖每类默认 Tool 的正常、空结果、缺字段、目标/作用域不匹配、质量失败阻断和 Approval/Revision 完成态。 |  |  |
+| TASK-011 | 为 `backend/app/tool_manifests/default_tools.json` 中全部启用 Tool 声明质量语义；地图和搜索复核现有合同，Artifact、workspace list/search/read/propose/apply 新增合同或 Tool-specific evaluator。 | ✅ | 2026-09-14 |
+| TASK-012 | 在 `backend/app/services/tools/quality.py` 增加受限的 evaluator 扩展点。它只能读取 Adapter 已规范化的 evidence envelope，不执行文本、不调用网络、不读取模型生成的规则。 | ✅ | 2026-09-14 |
+| TASK-013 | 将“业务空结果”与“无效/不完整响应”分开。保持质量状态集合不扩张；通过 `result_semantics=empty_answer/evidence/approval_draft` 描述业务含义，避免把“未找到文件”错误标为质量失败。 | ✅ | 2026-09-14 |
+| TASK-014 | 扩展 Executor、Workflow 和 Durable Worker 测试，覆盖每类默认 Tool 的正常、空结果、缺字段、目标/作用域不匹配、质量失败阻断和 Approval/Revision 完成态。 | ✅ | 2026-09-14 |
+| TASK-011a | 阶段 2.1：为 `agent.artifacts.list`、`workspace.files.list/search/read` 声明 `allow_empty`、最少 Source 数与非空说明文本合同；正常无结果由本地 Provider 返回固定安全 Source。 | ✅ | 2026-09-11 |
+| TASK-013a | 阶段 2.1：实现受限 `result_semantics`。普通空 evidence、未知语义和远端 MCP 的空答案自称失败关闭；仅本地可信 Adapter 的 `empty_answer` 且合同允许时有效。 | ✅ | 2026-09-11 |
+| TASK-014a | 阶段 2.1：增加 Quality / Executor / Workspace / Artifact / Workflow Binding / Durable Artifact 的合法空结果与伪造语义回归；完整后端 `378 tests` 通过、`5 skipped`。 | ✅ | 2026-09-11 |
+| TASK-012a | 阶段 2.2A：实现固定 `semantic_profile` 白名单、声明式 `profile_mapping` 和有界 JSON Pointer；统一检查证据、身份、集合与集合项，不允许动态执行规则。 | ✅ | 2026-09-14 |
+| TASK-012b | 阶段 2.2A：用跨 Provider 离线 fixture 验证同一能力 Profile 只需更换字段映射即可复用，并覆盖空结果、缺字段、错误结构、越界和失败关闭边界。 | ✅ | 2026-09-14 |
+| TASK-012c | 阶段 2.2B：统一 MCP `structuredContent`/文本 JSON 提取，接入 Tavily/高德专用 canonical Mapper；默认 manifest 使用业务 Profile，不以任意 `display_text` 放行。 | ✅ | 2026-09-14 |
+| TASK-012d | 阶段 2.2C：将 Executor Schema 校验后的 normalized arguments 作为受控 request_context，完成天气、geo 城市和路线起终点的确定性请求/结果匹配。 | ✅ | 2026-09-14 |
+| TASK-012e | 阶段 2.2B/C：补真实响应形态 fixture、坏响应回归和 8 个只读 Tool 的真实脱敏烟测；完整后端 `396 tests` 通过、`5 skipped`。 | ✅ | 2026-09-14 |
+| TASK-011b | 提交前复审：补齐 Artifact read、文件预览/写入合同；16 个默认 Tool 全覆盖，动态 MCP 默认要求审核 Profile。 | ✅ | 2026-09-14 |
+| TASK-013b | 收紧 `empty_answer/approval_draft` 的信任锚至项目内 Runner + 对应本地 Provider；补混合文本 JSON 与伪造 Adapter 的失败关闭测试。 | ✅ | 2026-09-14 |
+| TASK-014b | 复审回归覆盖 Artifact 读取、文件 Profile、草案与 Revision 完成态、动态 MCP 失败关闭；完整后端 `403 tests` 通过、`5 skipped`。 | ✅ | 2026-09-14 |
 
 ### Implementation Phase 3 — 并发部分成功聚合
 

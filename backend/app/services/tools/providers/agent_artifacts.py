@@ -47,7 +47,27 @@ class AgentArtifactToolProvider:
             statement = statement.where(AgentArtifact.run_id == run_id)
         rows = self.db.execute(statement.order_by(AgentArtifact.created_at.desc()).limit(limit)).all()
         if not rows:
-            return [], {"adapter_type": "agent_artifact", "operation": "list", "artifacts_count": 0}
+            return (
+                [
+                    ExternalSource(
+                        source_type="agent_artifact_list",
+                        provider="agent_runtime",
+                        title="Agent Artifact 列表",
+                        display_text="当前项目没有可读取的历史 Agent 产物。",
+                        metadata={
+                            "empty_reason": "no_artifacts",
+                            "result_semantics": "empty_answer",
+                            "raw": {"artifacts": []},
+                        },
+                    )
+                ],
+                {
+                    "adapter_type": "agent_artifact",
+                    "operation": "list",
+                    "artifacts_count": 0,
+                    "result_semantics": "empty_answer",
+                },
+            )
         lines = [
             f"- artifact_id={artifact.id}; run_id={artifact.run_id}; type={artifact.artifact_type}; "
             f"chars={artifact.char_count}; preview={artifact.preview[:240]}"

@@ -75,7 +75,12 @@ class ToolExecutionFeedbackError(RuntimeError):
 
 
 def redact_sensitive_arguments(value: Any) -> Any:
-    """Redact model/tool arguments before Trace, API responses and persistence."""
+    """递归脱敏参数和元数据，供 Trace、API 响应与持久化复用。
+
+    键名规则可以遮蔽 ``api_key`` 这类显式字段，但远端网页、MCP 或文件
+    返回经常把 ``API_KEY=...`` 放进普通 ``content`` 字符串。因此字符串
+    叶子节点也必须经过文本规则，避免仅脱敏键名却把秘密正文保留下来。
+    """
     if isinstance(value, dict):
         return {
             str(key): "***" if _is_sensitive_argument_key(key) else redact_sensitive_arguments(item)
@@ -83,6 +88,10 @@ def redact_sensitive_arguments(value: Any) -> Any:
         }
     if isinstance(value, list):
         return [redact_sensitive_arguments(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(redact_sensitive_arguments(item) for item in value)
+    if isinstance(value, str):
+        return redact_sensitive_text(value)
     return value
 
 
@@ -203,7 +212,8 @@ class ToolTraceEvent:
     payload: dict[str, Any]
 
     def to_public_dict(self) -> dict[str, Any]:
-        return {"type": self.type, **self.payload}
+        # 所有 Trace 都是外部上下文的一部分，不能依赖每个调用方都记得手动脱敏。
+        return {"type": self.type, **redact_sensitive_arguments(self.payload)}
 
 
 @dataclass
@@ -213,9 +223,10 @@ class ToolCallResult:
     sources: list[ExternalSource]
     elapsed_ms: int
     error_message: str | None = None
-    # Expected validation/resource failures are terminal. Unexpected provider or
-    # transport failures remain retryable for a durable read-only workflow.
+    # 可预期的校验或资源异常是终态；Provider 或传输层的意外异常仍可由可恢复只读工作流重试。
     retryable: bool = True
+    # 仅由执行器根据可信 Adapter 元数据写入，不能相信模型、MCP 文本或远端响应自行声明的语义。
+    result_semantics: str = "evidence"
     quality_status: str = "unknown"
     quality_reasons: list[str] = field(default_factory=list)
     quality_metadata: dict[str, Any] = field(default_factory=dict)

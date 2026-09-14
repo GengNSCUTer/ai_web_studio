@@ -73,7 +73,27 @@ class WorkspaceFileToolProvider:
             if not self.is_sensitive_file_name(item.file_name)
         ][: self.MAX_LIST_RESULTS]
         if not files:
-            return [], {"adapter_type": "workspace_file", "operation": "list", "files_count": 0}
+            return (
+                [
+                    ExternalSource(
+                        source_type="workspace_file_list",
+                        provider="workspace",
+                        title="工作区文件列表",
+                        display_text="当前项目没有可供 Agent 访问的文件。",
+                        metadata={
+                            "empty_reason": "no_accessible_files",
+                            "result_semantics": "empty_answer",
+                            "raw": {"files": []},
+                        },
+                    )
+                ],
+                {
+                    "adapter_type": "workspace_file",
+                    "operation": "list",
+                    "files_count": 0,
+                    "result_semantics": "empty_answer",
+                },
+            )
 
         lines = [
             f"- id={item.id}; name={item.file_name}; type={item.mime_type or item.kind}; size={item.file_size or 0}"
@@ -140,6 +160,29 @@ class WorkspaceFileToolProvider:
                     },
                 )
             )
+        if not sources:
+            return (
+                [
+                    ExternalSource(
+                        source_type="workspace_file_search",
+                        provider="workspace",
+                        title="工作区文件搜索",
+                        display_text="当前项目中未找到与本次查询匹配的文件。",
+                        metadata={
+                            "empty_reason": "no_matching_files",
+                            "result_semantics": "empty_answer",
+                            "raw": {"matches": []},
+                        },
+                    )
+                ],
+                {
+                    "adapter_type": "workspace_file",
+                    "operation": "search",
+                    "query_length": len(query),
+                    "matched_files": 0,
+                    "result_semantics": "empty_answer",
+                },
+            )
         return sources, {
             "adapter_type": "workspace_file",
             "operation": "search",
@@ -158,7 +201,30 @@ class WorkspaceFileToolProvider:
         self._ensure_agent_file_allowed(item.file_name)
         text = (item.parsed_text or "").strip()
         if not text:
-            return [], {"adapter_type": "workspace_file", "operation": "read", "file_id": item.id, "empty": True}
+            return (
+                [
+                    ExternalSource(
+                        source_type="workspace_file_read",
+                        provider="workspace",
+                        title=item.file_name,
+                        display_text="目标文件存在，但没有可读取的解析文本。",
+                        metadata={
+                            "file_id": item.id,
+                            "mime_type": item.mime_type or item.kind,
+                            "empty_reason": "parsed_text_empty",
+                            "result_semantics": "empty_answer",
+                            "raw": {"file_id": item.id, "content": ""},
+                        },
+                    )
+                ],
+                {
+                    "adapter_type": "workspace_file",
+                    "operation": "read",
+                    "file_id": item.id,
+                    "empty": True,
+                    "result_semantics": "empty_answer",
+                },
+            )
 
         start_line = self._bounded_int(call.arguments.get("start_line"), default=1, lower=1, upper=1_000_000)
         max_lines = self._bounded_int(
@@ -275,6 +341,7 @@ class WorkspaceFileToolProvider:
             "line_start": start_line,
             "line_end": end_line,
             "applied": False,
+            "result_semantics": "approval_draft",
         }
 
     @staticmethod

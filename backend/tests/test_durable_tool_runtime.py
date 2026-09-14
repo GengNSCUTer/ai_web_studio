@@ -52,6 +52,61 @@ class SuccessfulExecutor:
         )
 
 
+class EmptyAnswerExecutor:
+    def __init__(self, **_: object) -> None:
+        pass
+
+    async def execute(self, call):
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                elapsed_ms=3,
+                sources=[
+                    ExternalSource(
+                        source_type="workspace_file_list",
+                        provider="workspace",
+                        title="工作区文件列表",
+                        display_text="当前项目没有可供 Agent 访问的文件。",
+                        metadata={"result_semantics": "empty_answer"},
+                    )
+                ],
+                quality_status="valid",
+                quality_metadata={"result_semantics": "empty_answer"},
+                result_semantics="empty_answer",
+            ),
+            [],
+        )
+
+
+class ApprovalDraftExecutor:
+    """Durable Runtime 不得把未写入的草案保存成成功 Artifact。"""
+
+    def __init__(self, **_: object) -> None:
+        pass
+
+    async def execute(self, call):
+        return (
+            ToolCallResult(
+                call=call,
+                status="success",
+                elapsed_ms=3,
+                sources=[
+                    ExternalSource(
+                        source_type="workspace_file_edit_preview",
+                        provider="workspace",
+                        title="编辑预览（尚未写入）",
+                        display_text="只读 Diff 预览",
+                        metadata={"raw": {"file_id": "file-1", "applied": False}},
+                    )
+                ],
+                quality_status="valid",
+                result_semantics="approval_draft",
+            ),
+            [],
+        )
+
+
 class InvalidQualityExecutor(SuccessfulExecutor):
     async def execute(self, call):
         result, events = await super().execute(call)
@@ -196,7 +251,13 @@ class SensitiveArtifactExecutor(SuccessfulExecutor):
                         provider="test",
                         title="remote result",
                         display_text="API_KEY=secret-value",
-                        metadata={"raw": {"apiKey": "secret-value", "location": "1,2"}},
+                        metadata={
+                            "raw": {
+                                "apiKey": "secret-value",
+                                "location": "1,2",
+                                "content": "API_KEY=secret-value token=another-secret",
+                            }
+                        },
                     )
                 ],
             ),
@@ -324,6 +385,25 @@ class DurableToolRuntimeTest(unittest.TestCase):
             self.assertEqual(result.status, "success")
             self.assertIn("safe structured tool result", result.sources[0].display_text)
 
+    def test_worker_persists_empty_answer_quality_semantics_for_audit(self) -> None:
+        run_id = self._enqueue([{"call_id": "empty-list", "tool_key": "workspace.files.list", "arguments": {}}])
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-empty-answer",
+            executor_factory=EmptyAnswerExecutor,
+        )
+
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            artifact = db.scalar(select(AgentArtifact).where(AgentArtifact.run_id == run_id).limit(1))
+            payload = json.loads(artifact.content_json)
+
+            self.assertEqual(run.status, "succeeded")
+            self.assertEqual(payload["quality_status"], "valid")
+            self.assertEqual(payload["result_semantics"], "empty_answer")
+            self.assertEqual(payload["quality_metadata"]["result_semantics"], "empty_answer")
+
     def test_durable_runtime_applies_default_and_fixed_arguments_at_both_boundaries(self) -> None:
         definition = ToolDefinition(
             tool_key="test.fixed-default",
@@ -417,8 +497,10 @@ class DurableToolRuntimeTest(unittest.TestCase):
             self.assertIsNotNone(artifact)
             assert artifact is not None
             self.assertNotIn("secret-value", artifact.content_json)
+            self.assertNotIn("another-secret", artifact.content_json)
             self.assertIn('"apiKey": "***"', artifact.content_json)
             self.assertIn("API_KEY=***", artifact.content_json)
+            self.assertIn("token=***", artifact.content_json)
 
     def test_artifact_persistence_rejects_non_finite_json_values(self) -> None:
         run_id = self._enqueue([{"call_id": "non-finite", "tool_key": "workspace.files.list", "arguments": {}}])
@@ -466,6 +548,35 @@ class DurableToolRuntimeTest(unittest.TestCase):
             second = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id, AgentStep.call_id == "second"))
             self.assertEqual(second.status, "skipped")
             self.assertEqual(second.error_code, "dependency_failed")
+
+    def test_durable_runtime_rejects_approval_draft_as_success_artifact(self) -> None:
+        run_id = self._enqueue(
+            [
+                {
+                    "call_id": "preview",
+                    "tool_key": "workspace.files.propose_edit",
+                    "arguments": {
+                        "file_id": "file-1",
+                        "old_string": "old",
+                        "new_string": "new",
+                    },
+                }
+            ]
+        )
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-approval-draft",
+            executor_factory=ApprovalDraftExecutor,
+        )
+
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id, AgentStep.call_id == "preview"))
+            self.assertEqual(run.status, "failed")
+            self.assertEqual(step.status, "failed")
+            self.assertEqual(step.error_code, "tool_result_quality_invalid")
+            self.assertEqual(db.query(AgentArtifact).filter_by(run_id=run_id).count(), 0)
 
     def test_cyclic_dag_is_rejected_before_writing_state(self) -> None:
         with self.SessionLocal() as db:
