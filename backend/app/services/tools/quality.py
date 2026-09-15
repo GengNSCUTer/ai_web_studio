@@ -429,17 +429,40 @@ def _validate_pointer(value: Any, field_name: str) -> None:
             index += 2
 
 
+def validate_json_pointer(
+    value: Any,
+    field_name: str,
+    *,
+    allow_wildcards: bool = False,
+    allow_root: bool = False,
+) -> None:
+    """校验供其它受限合同复用的只读 JSON Pointer。
+
+    Profile mapping 可以显式使用 ``*`` 遍历受限集合，而声明式 canonical
+    Mapper 只能读取一个确定字段，不能借通配符、根对象或表达式扩大投影范围。
+    将这部分校验公开复用，避免不同合同出现“加载期接受、运行期语义不同”的分叉。
+    """
+
+    _validate_pointer(value, field_name)
+    if not allow_root and value == "/":
+        raise ValueError(f"{field_name} cannot target the document root.")
+    # ``/items//title`` 和 ``/items/`` 在运行时只会静默找不到字段。对于
+    # 合同配置而言这不是一个可恢复的“缺数据”，而是应在加载期暴露的笔误。
+    if "//" in value or value.endswith("/"):
+        raise ValueError(f"{field_name} contains an invalid path.")
+    for raw_part in str(value).split("/")[1:]:
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not allow_wildcards and "*" in part:
+            raise ValueError(f"{field_name} does not support wildcards.")
+
+
 def _validate_request_pointer(value: str) -> None:
     """校验请求上下文路径，禁止会被运行时静默跳过的模糊写法。"""
 
     field_name = "quality_contract.profile_mapping.request_matches.request_path"
-    _validate_pointer(value, field_name)
-    if value == "/" or "//" in value or value.endswith("/"):
+    validate_json_pointer(value, field_name, allow_wildcards=False, allow_root=False)
+    if "//" in value or value.endswith("/"):
         raise ValueError(f"{field_name} contains an invalid path.")
-    # request_context 是 Schema 校验后的单次参数对象，不支持数组泛化或
-    # 通配读取；否则解析失败会被误当成“可选参数不存在”。
-    if any("*" in part for part in value.split("/")[1:]):
-        raise ValueError(f"{field_name} does not support wildcards.")
 
 
 def quality_status_for_result(result: Any) -> tuple[str, list[str]]:
@@ -877,6 +900,18 @@ def _resolve_pointer(document: Any, pointer: str) -> Any:
         else:
             return _MISSING
     return current
+
+
+def resolve_json_pointer(document: Any, pointer: str) -> tuple[bool, Any]:
+    """读取一个已经校验过的、无通配符的 JSON Pointer。
+
+    返回值中的布尔位区分“字段不存在”和“字段存在但值为 ``null``”。声明式
+    Mapper 仅把标量作为业务字段，因此不需要把私有 ``_MISSING`` 哨兵泄漏到
+    其它模块，也不会把路径解析结果当作可执行表达式。
+    """
+
+    value = _resolve_pointer(document, pointer)
+    return value is not _MISSING, None if value is _MISSING else value
 
 
 def _is_empty(value: Any) -> bool:

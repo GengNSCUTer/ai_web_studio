@@ -182,6 +182,23 @@ class McpToolTestRequest(BaseModel):
     arguments: dict = {}
 
 
+class McpToolOnboardingSubmit(BaseModel):
+    """提交一次本地验证通过的动态 MCP 接入包。
+
+    fixture bundle 仅在本次请求内使用，后端不会保存其 response body；持久化的只有
+    合同、摘要和审核状态。
+    """
+
+    contract: dict = Field(default_factory=dict)
+    fixture_bundle: dict = Field(default_factory=dict)
+
+
+class McpToolOnboardingReview(BaseModel):
+    """人工确认已验证合同，不会自动启用 Tool。"""
+
+    approved: bool
+
+
 class McpToolResponse(BaseModel):
     id: str
     server_id: str
@@ -199,6 +216,11 @@ class McpToolResponse(BaseModel):
     read_only: bool
     remote_read_only_hint: bool | None = None
     risk_reviewed: bool
+    onboarding_review_status: str = "not_configured"
+    onboarding_contract_digest: str | None = None
+    onboarding_fixture_digest: str | None = None
+    onboarding_config_digest: str | None = None
+    onboarding_reviewed_at: str | None = None
     is_enabled: bool
     last_seen_at: str | None = None
 

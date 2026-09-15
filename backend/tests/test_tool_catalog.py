@@ -10,8 +10,87 @@ from app.core.database import Base
 from app.models.tool_config import McpServer, McpTool, WorkspaceToolSetting
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.adapters import ToolAdapterRunner
+from app.services.tools.onboarding import (
+    ONBOARDING_CONTRACT_VERSION,
+    ONBOARDING_FIXTURE_FORMAT,
+    build_mcp_tool_config_digest,
+    validate_tool_onboarding_contract,
+)
 from app.services.tools.schemas import PlannedToolCall
 from app.services.tools.schemas import ToolDefinition
+
+
+def _current_mcp_config_digest(*, tool: McpTool, server: McpServer) -> str:
+    """让测试构造与生产 Catalog 相同的当前配置摘要。"""
+
+    return build_mcp_tool_config_digest(
+        tool_key=tool.tool_key,
+        raw_name=tool.raw_name,
+        display_name=tool.display_name,
+        description=tool.description,
+        description_override=tool.description_override,
+        input_schema_json=tool.input_schema_json,
+        output_schema_json=tool.output_schema_json,
+        annotations_json=tool.annotations_json,
+        fixed_arguments_json=tool.fixed_arguments_json,
+        category=tool.category,
+        risk_level=tool.risk_level,
+        read_only=tool.read_only,
+        server_key=server.server_key,
+        server_url=server.url,
+        server_transport_type=server.transport_type,
+        server_auth_type=server.auth_type,
+        credential_provider=server.credential_provider,
+        server_project_id=server.project_id,
+    )
+
+
+def _approve_dynamic_mcp_tool(*, tool: McpTool, server: McpServer) -> None:
+    """构造已通过 2.3D 摘要绑定的测试 Tool，不依赖真实网络或 fixture body。"""
+
+    contract = validate_tool_onboarding_contract(
+        {
+            "version": ONBOARDING_CONTRACT_VERSION,
+            "tool": {
+                "tool_key": tool.tool_key,
+                "provider": server.server_key[:64],
+                "category": tool.category,
+                "adapter_type": "mcp_http",
+                "source_type": "mcp_server",
+                "risk_level": tool.risk_level,
+                "read_only": tool.read_only,
+            },
+            "quality_contract": {
+                "semantic_profile": "web_search",
+                "profile_mapping": {
+                    "evidence_paths": ["/sources/*/metadata/raw/content"],
+                    "identity_paths": ["/sources/*/metadata/raw/url"],
+                    "collection_paths": ["/sources"],
+                    "item_evidence_paths": ["/metadata/raw/content"],
+                    "item_identity_paths": ["/metadata/raw/url"],
+                },
+            },
+            "canonical_mapper": {
+                "type": "collection",
+                "collection_path": "/items",
+                "display_text_path": "/snippet",
+                "url_path": "/href",
+                "canonical_fields": {"content": "/snippet", "url": "/href"},
+                "max_items": 8,
+                "max_chars": 1200,
+            },
+            "fixture_manifest": {
+                "format": ONBOARDING_FIXTURE_FORMAT,
+                "bundle_digest": "a" * 64,
+                "case_ids": ["success", "malformed"],
+            },
+        }
+    )
+    tool.onboarding_contract_json = json.dumps(contract.to_dict(), ensure_ascii=False)
+    tool.onboarding_contract_digest = contract.digest
+    tool.onboarding_fixture_digest = contract.fixture_manifest["bundle_digest"]
+    tool.onboarding_config_digest = _current_mcp_config_digest(tool=tool, server=server)
+    tool.onboarding_review_status = "approved"
 
 
 class ToolCatalogTest(unittest.TestCase):
@@ -115,27 +194,29 @@ class ToolCatalogTest(unittest.TestCase):
             )
             db.add(server)
             db.flush()
+            approved_tool = McpTool(
+                server_id=server.id,
+                raw_name="search",
+                tool_key="mcp.custom_search.search",
+                display_name="Search",
+                description="Search public web pages",
+                input_schema_json=json.dumps(
+                    {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+                ),
+                output_schema_json=json.dumps(
+                    {"type": "object", "properties": {"items": {"type": "array"}}, "required": ["items"]}
+                ),
+                fixed_arguments_json=json.dumps({"limit": 5}),
+                category="web_search",
+                risk_level="low",
+                read_only=True,
+                risk_reviewed=True,
+                is_enabled=True,
+            )
+            _approve_dynamic_mcp_tool(tool=approved_tool, server=server)
             db.add_all(
                 [
-                    McpTool(
-                        server_id=server.id,
-                        raw_name="search",
-                        tool_key="mcp.custom_search.search",
-                        display_name="Search",
-                        description="Search public web pages",
-                        input_schema_json=json.dumps(
-                            {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
-                        ),
-                        output_schema_json=json.dumps(
-                            {"type": "object", "properties": {"items": {"type": "array"}}, "required": ["items"]}
-                        ),
-                        fixed_arguments_json=json.dumps({"limit": 5}),
-                        category="web_search",
-                        risk_level="low",
-                        read_only=True,
-                        risk_reviewed=True,
-                        is_enabled=True,
-                    ),
+                    approved_tool,
                     McpTool(
                         server_id=server.id,
                         raw_name="disabled_search",
@@ -180,7 +261,47 @@ class ToolCatalogTest(unittest.TestCase):
             self.assertEqual(definition.input_schema["required"], ["query"])
             self.assertEqual(definition.output_schema["required"], ["items"])
             self.assertTrue(definition.read_only)
-            self.assertEqual(definition.quality_contract, {"require_semantic_profile": True})
+            self.assertEqual(definition.quality_contract["semantic_profile"], "web_search")
+            self.assertEqual(definition.adapter["result_mapper"], "declared_canonical")
+
+            # 即使旧记录仍保留 risk_reviewed + is_enabled，候选目录也必须按当前
+            # 描述/配置重算摘要；漂移后不向 Planner 暴露该 Tool。
+            approved_tool.description_override = "Changed after onboarding review"
+            db.commit()
+            drifted_catalog = ToolCatalog(db=db, user_id="user-1")
+            self.assertIsNone(drifted_catalog.get_or_none("mcp.custom_search.search"))
+
+            # 即使绕过 API 直接改变访问协议或项目作用域，Catalog 仍会重算同一
+            # 摘要并将旧审核 Tool 排除；不能只依赖 API 更新时的显式失效。
+            approved_tool.description_override = None
+            approved_tool.onboarding_config_digest = _current_mcp_config_digest(
+                tool=approved_tool,
+                server=server,
+            )
+            server.transport_type = "unexpected_transport"
+            db.commit()
+            protocol_drift_catalog = ToolCatalog(db=db, user_id="user-1")
+            self.assertIsNone(protocol_drift_catalog.get_or_none("mcp.custom_search.search"))
+
+            server.transport_type = "streamable_http"
+            approved_tool.onboarding_config_digest = _current_mcp_config_digest(
+                tool=approved_tool,
+                server=server,
+            )
+            server.project_id = "different-project"
+            db.commit()
+            scope_drift_catalog = ToolCatalog(db=db, user_id="user-1")
+            self.assertIsNone(scope_drift_catalog.get_or_none("mcp.custom_search.search"))
+
+            server.project_id = None
+            approved_tool.onboarding_config_digest = _current_mcp_config_digest(
+                tool=approved_tool,
+                server=server,
+            )
+            approved_tool.display_name = "Renamed after onboarding"
+            db.commit()
+            display_drift_catalog = ToolCatalog(db=db, user_id="user-1")
+            self.assertIsNone(display_drift_catalog.get_or_none("mcp.custom_search.search"))
         finally:
             db.close()
             Base.metadata.drop_all(bind=engine)
@@ -220,22 +341,22 @@ class ToolCatalogTest(unittest.TestCase):
             )
             db.add(scoped_server)
             db.flush()
-            db.add(
-                McpTool(
-                    server_id=scoped_server.id,
-                    raw_name="search",
-                    tool_key="mcp.scoped.search",
-                    display_name="Scoped Search",
-                    description="Project-scoped search",
-                    input_schema_json=json.dumps({"type": "object"}),
-                    output_schema_json=json.dumps({}),
-                    category="web_search",
-                    risk_level="low",
-                    read_only=True,
-                    risk_reviewed=True,
-                    is_enabled=True,
-                )
+            scoped_tool = McpTool(
+                server_id=scoped_server.id,
+                raw_name="search",
+                tool_key="mcp.scoped.search",
+                display_name="Scoped Search",
+                description="Project-scoped search",
+                input_schema_json=json.dumps({"type": "object"}),
+                output_schema_json=json.dumps({}),
+                category="web_search",
+                risk_level="low",
+                read_only=True,
+                risk_reviewed=True,
+                is_enabled=True,
             )
+            _approve_dynamic_mcp_tool(tool=scoped_tool, server=scoped_server)
+            db.add(scoped_tool)
             db.commit()
 
             other_project = ToolCatalog(db=db, user_id="user-1", project_id="project-b")

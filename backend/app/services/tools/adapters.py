@@ -78,6 +78,9 @@ class ToolAdapterRunner:
             display_name=definition.display_name,
             query=str(call.arguments.get("query") or ""),
             raw=response.raw,
+            # 动态 MCP 的 mapper 由已审核 onboarding contract 注入 Catalog。
+            # 这里不解释或执行任何远端字段，仅交给受限声明式映射器读取。
+            canonical_mapper=definition.adapter.get("canonical_mapper"),
         )
         return sources, {
             "adapter_type": "mcp_http",

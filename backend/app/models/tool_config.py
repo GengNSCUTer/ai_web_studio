@@ -95,6 +95,14 @@ class McpTool(Base):
     read_only: Mapped[bool] = mapped_column(Boolean, default=True)
     # 远程 Server 的 annotations 只是提示，不能直接当作本地安全策略；需用户显式审核。
     risk_reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 风险审核只能说明“是否允许低风险只读”；还必须绑定受限 Mapper、质量合同和
+    # 本地 fixture 验证。这里只保存合同和摘要，不保存完整 fixture/Provider 响应。
+    onboarding_contract_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    onboarding_contract_digest: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    onboarding_fixture_digest: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    onboarding_config_digest: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    onboarding_review_status: Mapped[str] = mapped_column(String(32), default="not_configured")
+    onboarding_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     call_count: Mapped[int] = mapped_column(Integer, default=0)

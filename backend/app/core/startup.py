@@ -497,6 +497,19 @@ def _ensure_runtime_schema_unlocked() -> None:
         statements.append(
             "update mcp_tools set is_enabled = false, read_only = false, risk_level = 'high'"
         )
+    # 阶段 2.3 的接入审核与风险审核相互独立：旧动态 Tool 即使曾被标为只读，
+    # 也没有受限 Mapper、fixture 或 digest 绑定，因此默认永远不能进入候选目录。
+    mcp_tool_additions = {
+        "onboarding_contract_json": "text",
+        "onboarding_contract_digest": "varchar(64)",
+        "onboarding_fixture_digest": "varchar(64)",
+        "onboarding_config_digest": "varchar(64)",
+        "onboarding_review_status": "varchar(32) not null default 'not_configured'",
+        "onboarding_reviewed_at": "timestamptz",
+    }
+    for column_name, column_type in mcp_tool_additions.items():
+        if mcp_tool_columns and column_name not in mcp_tool_columns:
+            statements.append(f"alter table mcp_tools add column {column_name} {column_type}")
 
     mcp_server_columns = _get_column_names("mcp_servers")
     if mcp_server_columns and "project_id" not in mcp_server_columns:

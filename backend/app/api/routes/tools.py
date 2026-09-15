@@ -24,6 +24,8 @@ from app.schemas.tool_config import (
     McpServerResponse,
     McpServerUpdate,
     McpSyncResponse,
+    McpToolOnboardingReview,
+    McpToolOnboardingSubmit,
     McpToolResponse,
     McpToolTestRequest,
     McpToolUpdate,
@@ -49,6 +51,17 @@ from app.services.tools.mcp_security import (
     apply_remote_tool_security_policy,
     enforce_mcp_endpoint_target_policy,
     validate_mcp_endpoint_url,
+)
+from app.services.tools.onboarding import (
+    ToolOnboardingContractError,
+    build_mcp_tool_config_digest,
+    build_mcp_tool_identity,
+    evaluate_tool_onboarding_fixture_bundle,
+    invalidate_mcp_tool_onboarding,
+    is_mcp_tool_onboarding_approved,
+    validate_contract_identity,
+    validate_tool_onboarding_contract,
+    validate_tool_onboarding_fixture_bundle,
 )
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.tavily import TavilySearchProvider
@@ -99,6 +112,60 @@ def _mcp_endpoint(server: McpServer, api_key: str | None) -> tuple[str, dict[str
     return endpoint, {}
 
 
+def _mcp_tool_identity(*, tool: McpTool, server: McpServer) -> dict[str, object]:
+    """构造当前动态 Tool 的审核身份，不依赖远端 self-asserted 元数据。"""
+
+    return build_mcp_tool_identity(
+        tool_key=tool.tool_key,
+        provider=server.server_key[:64],
+        category=tool.category or "mcp_tool",
+        risk_level=tool.risk_level or "high",
+        read_only=bool(tool.read_only),
+    )
+
+
+def _mcp_tool_current_config_digest(*, tool: McpTool, server: McpServer) -> str:
+    """收敛所有会影响动态 Tool 行为与候选语义的审核输入。"""
+
+    return build_mcp_tool_config_digest(
+        tool_key=tool.tool_key,
+        raw_name=tool.raw_name,
+        display_name=tool.display_name,
+        description=tool.description,
+        description_override=tool.description_override,
+        input_schema_json=tool.input_schema_json,
+        output_schema_json=tool.output_schema_json,
+        annotations_json=tool.annotations_json,
+        fixed_arguments_json=tool.fixed_arguments_json,
+        category=tool.category or "mcp_tool",
+        risk_level=tool.risk_level or "high",
+        read_only=bool(tool.read_only),
+        server_key=server.server_key,
+        server_url=server.url,
+        server_transport_type=server.transport_type,
+        server_auth_type=server.auth_type,
+        credential_provider=server.credential_provider,
+        server_project_id=server.project_id,
+    )
+
+
+def _is_mcp_tool_onboarding_approved(*, tool: McpTool, server: McpServer) -> bool:
+    """执行/启用前再次计算当前 digest，避免仅信任旧数据库状态。"""
+
+    try:
+        return is_mcp_tool_onboarding_approved(
+            contract_json=tool.onboarding_contract_json,
+            contract_digest=tool.onboarding_contract_digest,
+            fixture_digest=tool.onboarding_fixture_digest,
+            config_digest=tool.onboarding_config_digest,
+            review_status=tool.onboarding_review_status,
+            current_tool=_mcp_tool_identity(tool=tool, server=server),
+            current_config_digest=_mcp_tool_current_config_digest(tool=tool, server=server),
+        )
+    except ToolOnboardingContractError:
+        return False
+
+
 def _server_response(server: McpServer) -> McpServerResponse:
     return McpServerResponse(
         id=server.id,
@@ -141,6 +208,11 @@ def _tool_response(tool: McpTool, server: McpServer | None = None) -> McpToolRes
         read_only=tool.read_only,
         remote_read_only_hint=remote_read_only_hint,
         risk_reviewed=tool.risk_reviewed,
+        onboarding_review_status=tool.onboarding_review_status,
+        onboarding_contract_digest=tool.onboarding_contract_digest,
+        onboarding_fixture_digest=tool.onboarding_fixture_digest,
+        onboarding_config_digest=tool.onboarding_config_digest,
+        onboarding_reviewed_at=_dt(tool.onboarding_reviewed_at),
         is_enabled=tool.is_enabled,
         last_seen_at=_dt(tool.last_seen_at),
     )
@@ -609,6 +681,10 @@ def update_mcp_server(
         validate_mcp_endpoint_url(candidate_url, auth_type=candidate_auth_type)
     except McpEndpointPolicyError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    onboarding_relevant_change = any(
+        field_name in data
+        for field_name in ("url", "auth_type", "credential_provider", "project_id", "transport_type")
+    )
     if "name" in data and data["name"] is not None:
         server.name = data["name"].strip() or server.name
     if "description" in data:
@@ -628,6 +704,12 @@ def update_mcp_server(
         server.project_id = project_id
     if "is_enabled" in data and data["is_enabled"] is not None:
         server.is_enabled = bool(data["is_enabled"])
+    if onboarding_relevant_change:
+        # endpoint、鉴权方式、作用域等会改变实际访问目标或授权边界；所有下属
+        # Tool 立即退出 Planner 候选集，必须重新提交 fixture 和人工审核。
+        for tool in repo.list_mcp_tools_for_server(user_id=current_user.id, server_id=server.id):
+            invalidate_mcp_tool_onboarding(tool)
+            repo.flush_mcp_tool(tool)
     return _server_response(repo.save_mcp_server(server))
 
 
@@ -742,6 +824,12 @@ async def sync_mcp_tools(
             output_schema_json=output_schema_json,
             annotations_json=annotations_json,
         )
+        # 描述、固定参数等即便没有触发远端 Schema 安全策略，也可能改变候选
+        # 语义或实际请求。摘要漂移时显式标记失效，而不只依赖 Catalog 的静默过滤。
+        if tool.onboarding_config_digest and (
+            tool.onboarding_config_digest != _mcp_tool_current_config_digest(tool=tool, server=server)
+        ):
+            invalidate_mcp_tool_onboarding(tool)
         tool.last_seen_at = now
         repo.flush_mcp_tool(tool)
         saved_tools.append(tool)
@@ -784,6 +872,17 @@ def update_mcp_tool(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP tool not found")
     tool, server = result
     data = payload.model_dump(exclude_unset=True)
+    onboarding_relevant_change = any(
+        field_name in data
+        for field_name in (
+            "display_name",
+            "description_override",
+            "category",
+            "risk_level",
+            "read_only",
+            "fixed_arguments",
+        )
+    )
     if "display_name" in data and data["display_name"] is not None:
         tool.display_name = data["display_name"].strip() or tool.display_name
     if "description_override" in data:
@@ -800,15 +899,114 @@ def update_mcp_tool(
             tool.is_enabled = False
             tool.read_only = False
             tool.risk_level = "high"
+            invalidate_mcp_tool_onboarding(tool)
     if "is_enabled" in data and data["is_enabled"] is not None:
         if data["is_enabled"] and not tool.risk_reviewed:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="MCP tool risk has not been reviewed",
             )
+        if data["is_enabled"] and not _is_mcp_tool_onboarding_approved(tool=tool, server=server):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="MCP 工具尚未通过接入合同、fixture 与版本审核，禁止启用。",
+            )
         tool.is_enabled = bool(data["is_enabled"])
     if "fixed_arguments" in data and data["fixed_arguments"] is not None:
         tool.fixed_arguments_json = _json_dumps(data["fixed_arguments"])
+    if onboarding_relevant_change:
+        invalidate_mcp_tool_onboarding(tool)
+    saved = repo.save_mcp_tool(tool)
+    return _tool_response(saved, server)
+
+
+@router.post("/mcp-tools/{tool_id}/onboarding", response_model=dict)
+def submit_mcp_tool_onboarding(
+    tool_id: str,
+    payload: McpToolOnboardingSubmit,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """离线验证接入包并保存合同摘要，验证通过后仍需显式人工审核。"""
+
+    repo = ToolConfigRepository(db)
+    result = repo.get_mcp_tool(user_id=current_user.id, tool_id=tool_id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP tool not found")
+    tool, server = result
+    try:
+        contract = validate_tool_onboarding_contract(payload.contract)
+        validate_contract_identity(contract, current_tool=_mcp_tool_identity(tool=tool, server=server))
+        bundle = validate_tool_onboarding_fixture_bundle(payload.fixture_bundle, contract=contract)
+        report = evaluate_tool_onboarding_fixture_bundle(contract=contract, bundle=bundle)
+    except ToolOnboardingContractError as exc:
+        # 保守失效：提交了不合法合同/fixture 后，不能继续沿用旧审核启用状态。
+        invalidate_mcp_tool_onboarding(tool)
+        repo.save_mcp_tool(tool)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    tool.onboarding_contract_json = _json_dumps(contract.to_dict())
+    tool.onboarding_contract_digest = contract.digest
+    tool.onboarding_fixture_digest = bundle.digest
+    tool.onboarding_config_digest = _mcp_tool_current_config_digest(tool=tool, server=server)
+    tool.onboarding_reviewed_at = None
+    tool.is_enabled = False
+    tool.onboarding_review_status = "pending_review" if report.valid else "fixture_failed"
+    saved = repo.save_mcp_tool(tool)
+    return {"tool": _tool_response(saved, server).model_dump(), "report": report.to_public_dict()}
+
+
+@router.post("/mcp-tools/{tool_id}/onboarding-review", response_model=McpToolResponse)
+def review_mcp_tool_onboarding(
+    tool_id: str,
+    payload: McpToolOnboardingReview,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> McpToolResponse:
+    """在风险审核和 fixture 验证都通过后，人工确认接入合同。"""
+
+    repo = ToolConfigRepository(db)
+    result = repo.get_mcp_tool(user_id=current_user.id, tool_id=tool_id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP tool not found")
+    tool, server = result
+    if not payload.approved:
+        invalidate_mcp_tool_onboarding(tool)
+        saved = repo.save_mcp_tool(tool)
+        return _tool_response(saved, server)
+    if not tool.risk_reviewed or not tool.read_only or tool.risk_level not in {"low", "medium"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="MCP 工具尚未完成低风险只读风险审核。",
+        )
+    if tool.onboarding_review_status != "pending_review" or not _is_mcp_tool_onboarding_approved(
+        tool=tool,
+        server=server,
+    ):
+        # pending_review 状态尚未被 approved helper 接受；下面将其临时验证为
+        # approved 前的等价摘要状态，避免把 status 字符串当成唯一安全依据。
+        try:
+            contract = validate_tool_onboarding_contract(_json_loads(tool.onboarding_contract_json, {}))
+            validate_contract_identity(contract, current_tool=_mcp_tool_identity(tool=tool, server=server))
+            valid_pending = (
+                tool.onboarding_review_status == "pending_review"
+                and contract.digest == tool.onboarding_contract_digest
+                and contract.fixture_manifest["bundle_digest"] == tool.onboarding_fixture_digest
+                and tool.onboarding_config_digest == _mcp_tool_current_config_digest(tool=tool, server=server)
+            )
+        except ToolOnboardingContractError:
+            valid_pending = False
+        if not valid_pending:
+            invalidate_mcp_tool_onboarding(tool)
+            repo.save_mcp_tool(tool)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="MCP 接入合同已失效或 fixture 未通过，请重新提交审核。",
+            )
+    tool.onboarding_review_status = "approved"
+    tool.onboarding_reviewed_at = datetime.now(timezone.utc)
+    # 审核只改变合同状态；用户仍需单独打开 is_enabled，避免审核动作静默扩大调用面。
+    tool.is_enabled = False
     saved = repo.save_mcp_tool(tool)
     return _tool_response(saved, server)
 
@@ -831,10 +1029,11 @@ async def test_mcp_tool(
         or not tool.risk_reviewed
         or not tool.read_only
         or tool.risk_level == "high"
+        or not _is_mcp_tool_onboarding_approved(tool=tool, server=server)
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="MCP 工具尚未通过低风险只读审核，禁止执行测试。",
+            detail="MCP 工具尚未通过低风险只读与接入合同审核，禁止执行测试。",
         )
     provider_key = server.credential_provider or server.server_key
     credential = ToolCredentialResolver(db).resolve(user_id=current_user.id, provider_key=provider_key)

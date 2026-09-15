@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 from urllib.parse import urlparse
 
+from app.services.tools.onboarding import ToolOnboardingContractError, validate_canonical_mapper
+from app.services.tools.quality import resolve_json_pointer
 from app.services.tools.schemas import ExternalSource, redact_sensitive_text
 
 
@@ -18,6 +21,7 @@ def map_mcp_result(
     display_name: str,
     query: str,
     raw: dict[str, Any],
+    canonical_mapper: dict[str, Any] | None = None,
 ) -> list[ExternalSource]:
     payload = extract_mcp_payload(raw)
     if mapper == "tavily_search":
@@ -35,6 +39,14 @@ def map_mcp_result(
     if mapper == "amap_map":
         # 兼容历史动态 MCP 配置；内置 Tool 已改用 geo/route/poi 专用 Mapper。
         return _map_amap_legacy_map(payload=payload, provider=provider, title=display_name)
+    if mapper == "declared_canonical":
+        return _map_declared_canonical_payload(
+            payload=payload,
+            mapper=canonical_mapper,
+            provider=provider,
+            source_type=category,
+            title=display_name,
+        )
     return _map_generic_mcp_payload(
         payload=payload,
         provider=provider,
@@ -42,6 +54,169 @@ def map_mcp_result(
         title=display_name,
         citation_prefix="T",
     )
+
+
+def map_declared_mcp_result(
+    *,
+    canonical_mapper: dict[str, Any],
+    provider: str,
+    category: str,
+    display_name: str,
+    raw: dict[str, Any],
+) -> list[ExternalSource]:
+    """供离线 fixture 验证复用的声明式 MCP 映射入口。
+
+    该函数只读取 MCP 的结构化 payload，不读取网络、不执行模板或表达式；输出
+    也不会保留整个 Provider 响应。生产 Adapter 通过 ``map_mcp_result`` 调用
+    同一实现，避免“fixture 能通过、线上走另一套 Mapper”的分叉。
+    """
+
+    return _map_declared_canonical_payload(
+        payload=extract_mcp_payload(raw),
+        mapper=canonical_mapper,
+        provider=provider,
+        source_type=category,
+        title=display_name,
+    )
+
+
+def _map_declared_canonical_payload(
+    *,
+    payload: Any,
+    mapper: dict[str, Any] | None,
+    provider: str,
+    source_type: str,
+    title: str,
+) -> list[ExternalSource]:
+    """把受限 object/collection 映射投影为最小可校验 Source。
+
+    任何合同损坏、根路径不匹配、item 非对象或缺少 display 字段的情况都返回
+    空列表。后续质量合同会将其收口为 invalid；不能退回 generic JSON evidence。
+    """
+
+    try:
+        normalized = validate_canonical_mapper(mapper)
+    except ToolOnboardingContractError:
+        return []
+
+    mapper_type = normalized["type"]
+    root_field = "object_path" if mapper_type == "object" else "collection_path"
+    exists, root = resolve_json_pointer(payload, normalized[root_field])
+    if not exists:
+        return []
+    if mapper_type == "object":
+        items = [root] if isinstance(root, dict) else []
+    else:
+        items = root[: normalized["max_items"]] if isinstance(root, list) else []
+
+    sources: list[ExternalSource] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        display = _declared_text(item, normalized["display_text_path"], normalized["max_chars"])
+        if not display:
+            continue
+        source_title = _declared_text(item, normalized.get("title_path"), 240)
+        safe_url = _declared_url(item, normalized.get("url_path"))
+        score = _declared_score(item, normalized.get("score_path"))
+        canonical = _declared_canonical_fields(
+            item=item,
+            field_paths=normalized["canonical_fields"],
+            max_chars=normalized["max_chars"],
+        )
+        # 约束同名 URL 也必须是 http(s)，防止质量合同仅凭 ``javascript:``
+        # 等恶意字符串通过 identity 检查。其它业务 identity 仍由 profile 定义。
+        if "url" in canonical:
+            canonical["url"] = _safe_http_url(canonical["url"]) or ""
+        source_index = len(sources) + 1
+        sources.append(
+            ExternalSource(
+                source_type=source_type,
+                provider=redact_sensitive_text(provider)[:96],
+                title=source_title or redact_sensitive_text(title)[:240] or f"MCP 结果 {source_index}",
+                url=safe_url,
+                display_text=display,
+                rank=source_index,
+                score=score,
+                citation_label=f"[MCP{source_index}]",
+                metadata=_canonical_metadata(canonical),
+            )
+        )
+    return sources
+
+
+def _declared_canonical_fields(
+    *,
+    item: dict[str, Any],
+    field_paths: dict[str, str],
+    max_chars: int,
+) -> dict[str, Any]:
+    """仅保留声明列出的标量字段，禁止把 dict/list 原样带入 metadata。"""
+
+    result: dict[str, Any] = {}
+    for field_name, pointer in field_paths.items():
+        exists, value = resolve_json_pointer(item, pointer)
+        if not exists:
+            continue
+        scalar = _declared_scalar(value, max_chars=max_chars)
+        if scalar is not None:
+            result[field_name] = scalar
+    return result
+
+
+def _declared_text(item: dict[str, Any], pointer: Any, max_chars: int) -> str:
+    if not isinstance(pointer, str):
+        return ""
+    exists, value = resolve_json_pointer(item, pointer)
+    if not exists:
+        return ""
+    scalar = _declared_scalar(value, max_chars=max_chars)
+    return scalar.strip() if isinstance(scalar, str) else ""
+
+
+def _declared_url(item: dict[str, Any], pointer: Any) -> str | None:
+    if not isinstance(pointer, str):
+        return None
+    exists, value = resolve_json_pointer(item, pointer)
+    if not exists:
+        return None
+    scalar = _declared_scalar(value, max_chars=2048)
+    return _safe_http_url(scalar)
+
+
+def _declared_score(item: dict[str, Any], pointer: Any) -> float | None:
+    if not isinstance(pointer, str):
+        return None
+    exists, value = resolve_json_pointer(item, pointer)
+    if not exists or isinstance(value, bool):
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if math.isfinite(score) else None
+
+
+def _declared_scalar(value: Any, *, max_chars: int) -> str | int | float | None:
+    if value is None or isinstance(value, bool) or isinstance(value, (dict, list, tuple, set)):
+        return None
+    if isinstance(value, str):
+        return redact_sensitive_text(value).strip()[:max_chars]
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    return None
+
+
+def _safe_http_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    candidate = redact_sensitive_text(value).strip()
+    parsed = urlparse(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return candidate
 
 
 def extract_mcp_payload(raw: dict[str, Any]) -> Any:

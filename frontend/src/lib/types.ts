@@ -152,6 +152,11 @@ export type McpTool = {
   read_only: boolean;
   remote_read_only_hint: boolean | null;
   risk_reviewed: boolean;
+  onboarding_review_status: "not_configured" | "fixture_failed" | "pending_review" | "approved" | "invalidated" | string;
+  onboarding_contract_digest: string | null;
+  onboarding_fixture_digest: string | null;
+  onboarding_config_digest: string | null;
+  onboarding_reviewed_at: string | null;
   is_enabled: boolean;
   last_seen_at: string | null;
 };

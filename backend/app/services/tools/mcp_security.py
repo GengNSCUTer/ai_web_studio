@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 from app.core.config import settings
 from app.models.tool_config import McpTool
+from app.services.tools.onboarding import invalidate_mcp_tool_onboarding
 
 
 class McpEndpointPolicyError(ValueError):
@@ -110,3 +111,4 @@ def apply_remote_tool_security_policy(
         tool.risk_level = "high"
         tool.risk_reviewed = False
         tool.is_enabled = False
+        invalidate_mcp_tool_onboarding(tool)

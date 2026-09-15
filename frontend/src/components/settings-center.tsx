@@ -2007,6 +2007,9 @@ export function SettingsCenter({
                                   <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">
                                     reviewed={String(tool.risk_reviewed)}
                                   </span>
+                                  <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5">
+                                    onboarding={tool.onboarding_review_status}
+                                  </span>
                                 </span>
                               </button>
                               <div className="flex shrink-0 flex-col items-end gap-2">
@@ -2014,7 +2017,12 @@ export function SettingsCenter({
                                   <input
                                     type="checkbox"
                                     checked={tool.is_enabled}
-                                    disabled={!tool.risk_reviewed || !tool.read_only || tool.risk_level === "high"}
+                                    disabled={
+                                      !tool.risk_reviewed ||
+                                      !tool.read_only ||
+                                      tool.risk_level === "high" ||
+                                      tool.onboarding_review_status !== "approved"
+                                    }
                                     onChange={(event) =>
                                       void handleUpdateMcpTool(tool.id, { is_enabled: event.target.checked })
                                     }
@@ -2043,10 +2051,30 @@ export function SettingsCenter({
                                       : "Not declared read-only; blocked in this version"}
                                   </span>
                                 ) : null}
+                                {tool.risk_reviewed && tool.onboarding_review_status !== "approved" ? (
+                                  <span className="max-w-40 text-right text-[10px] leading-4 text-[var(--danger-text)]">
+                                    {uiLanguage === "zh-CN"
+                                      ? "还需提交脱敏 fixture、通过质量验证并完成接入审核"
+                                      : "Submit a sanitized fixture, pass quality validation, and complete onboarding review"}
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
                             {expandedMcpToolId === tool.id ? (
                               <div className="mt-4 grid gap-3 border-t border-[var(--hairline)] pt-4">
+                                <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-[11px] leading-5 text-[var(--ink-soft)]">
+                                  <p>
+                                    {uiLanguage === "zh-CN"
+                                      ? `接入状态：${tool.onboarding_review_status}。合同、fixture、Schema/配置变化会使审核失效；页面不会自动批准或启用工具。`
+                                      : `Onboarding: ${tool.onboarding_review_status}. Contract, fixture, schema, or configuration changes invalidate approval; this page never auto-approves or enables a tool.`}
+                                  </p>
+                                  {tool.onboarding_contract_digest ? (
+                                    <p className="mt-1 break-all">contract_digest={tool.onboarding_contract_digest}</p>
+                                  ) : null}
+                                  {tool.onboarding_fixture_digest ? (
+                                    <p className="break-all">fixture_digest={tool.onboarding_fixture_digest}</p>
+                                  ) : null}
+                                </div>
                                 <div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
                                   <label className="grid gap-1 text-xs text-[var(--ink-soft)]">
                                     {text.toolDescription}

@@ -9,6 +9,13 @@ from sqlalchemy.orm import Session
 from app.models.tool_config import McpServer, McpTool
 from app.repositories.tool_config_repo import ToolConfigRepository
 from app.services.tools.quality import validate_quality_contract
+from app.services.tools.onboarding import (
+    ToolOnboardingContractError,
+    build_mcp_tool_config_digest,
+    build_mcp_tool_identity,
+    is_mcp_tool_onboarding_approved,
+    validate_tool_onboarding_contract,
+)
 from app.services.tools.schemas import ToolDefinition
 
 
@@ -163,6 +170,11 @@ class ToolCatalog:
             enabled_only=True,
             project_id=project_id,
         ):
+            # 数据库的 is_enabled/risk_reviewed 不是最终边界。动态 Tool 必须再证明
+            # 当前 schema/描述/固定参数/endpoint 与已审核合同摘要一致，否则不让
+            # Planner 看到它，即使旧库留下了 enabled=true 也会失败关闭。
+            if not cls._is_mcp_tool_onboarding_approved(tool=tool, server=server):
+                continue
             definition = cls._parse_mcp_tool(tool=tool, server=server)
             definitions[definition.tool_key] = definition
         return definitions
@@ -198,6 +210,12 @@ class ToolCatalog:
         input_schema = cls._json_loads(tool.input_schema_json, {})
         output_schema = cls._json_loads(tool.output_schema_json, {})
         fixed_arguments = cls._json_loads(tool.fixed_arguments_json, {})
+        try:
+            contract = validate_tool_onboarding_contract(cls._json_loads(tool.onboarding_contract_json, {}))
+        except ToolOnboardingContractError as exc:
+            # _load_db_mcp_definitions 已做同一检查；这里仍保留二次防御，避免本
+            # 方法被未来调用方直接复用时把损坏合同转成 generic evidence。
+            raise ValueError(f"Invalid approved MCP onboarding contract: {tool.tool_key}") from exc
         credential_provider = (server.credential_provider or server.server_key).strip()
         description = (tool.description_override or tool.description or f"{server.name} MCP tool: {tool.raw_name}").strip()
         return ToolDefinition(
@@ -214,7 +232,8 @@ class ToolCatalog:
             adapter={
                 "endpoint_template": server.url,
                 "mcp_tool_name": tool.raw_name,
-                "result_mapper": "",
+                "result_mapper": "declared_canonical",
+                "canonical_mapper": contract.canonical_mapper,
                 "credential_provider": credential_provider,
                 "auth_type": server.auth_type,
                 # User-configured fixed arguments are policy-owned values, not
@@ -226,7 +245,49 @@ class ToolCatalog:
             fallback_tool_key=None,
             enabled_by_default=server.is_enabled and tool.is_enabled,
             read_only=tool.read_only,
-            # 动态 MCP 仍可加载以供诊断和后续审核，但在声明经审核的 canonical
-            # Mapper/Profile 前，不能把任意 JSON 或文本作为下游可用 evidence。
-            quality_contract={"require_semantic_profile": True},
+            # 只有经审核的 canonical Mapper/Profile 才会到达这里；未审核 Tool
+            # 仅保留在设置/诊断 API，绝不让任意远端 JSON 成为下游 evidence。
+            quality_contract=contract.quality_contract,
         )
+
+    @staticmethod
+    def _is_mcp_tool_onboarding_approved(*, tool: McpTool, server: McpServer) -> bool:
+        try:
+            identity = build_mcp_tool_identity(
+                tool_key=tool.tool_key,
+                provider=server.server_key[:64],
+                category=tool.category or "mcp_tool",
+                risk_level=tool.risk_level or "high",
+                read_only=bool(tool.read_only),
+            )
+            config_digest = build_mcp_tool_config_digest(
+                tool_key=tool.tool_key,
+                raw_name=tool.raw_name,
+                display_name=tool.display_name,
+                description=tool.description,
+                description_override=tool.description_override,
+                input_schema_json=tool.input_schema_json,
+                output_schema_json=tool.output_schema_json,
+                annotations_json=tool.annotations_json,
+                fixed_arguments_json=tool.fixed_arguments_json,
+                category=tool.category or "mcp_tool",
+                risk_level=tool.risk_level or "high",
+                read_only=bool(tool.read_only),
+                server_key=server.server_key,
+                server_url=server.url,
+                server_transport_type=server.transport_type,
+                server_auth_type=server.auth_type,
+                credential_provider=server.credential_provider,
+                server_project_id=server.project_id,
+            )
+            return is_mcp_tool_onboarding_approved(
+                contract_json=tool.onboarding_contract_json,
+                contract_digest=tool.onboarding_contract_digest,
+                fixture_digest=tool.onboarding_fixture_digest,
+                config_digest=tool.onboarding_config_digest,
+                review_status=tool.onboarding_review_status,
+                current_tool=identity,
+                current_config_digest=config_digest,
+            )
+        except ToolOnboardingContractError:
+            return False
