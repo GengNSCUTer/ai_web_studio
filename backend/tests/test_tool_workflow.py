@@ -13,7 +13,12 @@ from app.services.tools.schemas import (
     ToolResultBinding,
     ToolTraceEvent,
 )
-from app.services.tools.workflow import ToolRunCallLedger, ToolWorkflowService
+from app.services.tools.workflow import (
+    ToolRunCallLedger,
+    ToolWorkflowAggregate,
+    ToolWorkflowService,
+    decide_workflow_action,
+)
 
 
 class FakeWorkflowExecutor:
@@ -48,6 +53,24 @@ class FakeWorkflowExecutor:
                 )
             ],
         )
+
+
+class ConcurrencyProbeExecutor(FakeWorkflowExecutor):
+    """记录 Executor 实际并发量，验证外层 Policy 不是只写 Trace。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.active_calls = 0
+        self.max_active_calls = 0
+
+    async def execute(self, call: PlannedToolCall):
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        try:
+            await asyncio.sleep(0.01)
+            return await super().execute(call)
+        finally:
+            self.active_calls -= 1
 
 
 class FailingFirstExecutor(FakeWorkflowExecutor):
@@ -446,6 +469,58 @@ class ToolWorkflowTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_result_binding_without_dependency_is_fail_closed(self) -> None:
+        async def run_test() -> None:
+            executor = StructuredBindingExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=self._binding_catalog())
+            plan = ToolPlan(
+                plan_id="plan-binding-without-dependency",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id="geo",
+                        tool_key="test.geo",
+                        provider="test",
+                        category="map",
+                        display_name="地理编码",
+                        confidence=1.0,
+                        reason="first",
+                        arguments={"address": "深圳"},
+                    ),
+                    PlannedToolCall(
+                        call_id="route",
+                        tool_key="test.route",
+                        provider="test",
+                        category="map",
+                        display_name="路线",
+                        confidence=1.0,
+                        reason="模型试图绕过依赖",
+                        arguments={"origin": "113.2644,23.1291"},
+                        # 故意不声明 depends_on；绑定校验必须阻止提前执行。
+                        result_bindings=[
+                            ToolResultBinding(
+                                source_call_id="geo",
+                                source_path="/sources/0/metadata/raw/geocodes/0/location",
+                                target_argument="destination",
+                            )
+                        ],
+                    ),
+                ],
+            )
+
+            result = await workflow.run(plan=plan, query="广州到深圳")
+
+            self.assertEqual([call.call_id for call in executor.calls], ["geo"])
+            outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
+            self.assertEqual(outcomes["route"].execution_status, "blocked")
+            self.assertEqual(outcomes["route"].error_category, "result_binding_invalid")
+            self.assertEqual(result.aggregate.independent_failed_steps, 0)
+            self.assertEqual(result.aggregate.dependency_blocked_steps, 0)
+
+        asyncio.run(run_test())
+
     def test_stable_arguments_use_canonical_nested_json(self) -> None:
         common = {
             "call_id": "call",
@@ -697,6 +772,12 @@ class ToolWorkflowTest(unittest.TestCase):
             self.assertEqual(len(batches), 2)
             self.assertEqual(batches[0].payload["call_ids"], ["route"])
             self.assertEqual(batches[1].payload["call_ids"], ["service_areas"])
+            self.assertEqual(result.aggregate_status, "succeeded")
+            self.assertEqual(result.aggregate.total_steps, 2)
+            self.assertEqual(result.aggregate.executed_successfully_steps, 2)
+            self.assertEqual(result.aggregate.completed_valid_steps, 2)
+            self.assertEqual(result.aggregate.failed_steps, 0)
+            self.assertEqual(result.aggregate.blocked_steps, 0)
 
         asyncio.run(run_test())
 
@@ -811,6 +892,19 @@ class ToolWorkflowTest(unittest.TestCase):
             self.assertEqual(outcomes["broken"].execution_status, "failed")
             self.assertEqual(outcomes["healthy"].execution_status, "succeeded")
             self.assertEqual(result.aggregate_status, "partial")
+            # 阶段 3.1：部分成功不能只留下一个字符串状态。外层 Chat 还需要
+            # 知道有多少可靠结果可用、哪些分支失败，才能在后续决定部分回答
+            # 还是重新规划。
+            self.assertEqual(result.aggregate.total_steps, 2)
+            self.assertEqual(result.aggregate.completed_valid_steps, 1)
+            self.assertEqual(result.aggregate.failed_steps, 1)
+            self.assertEqual(result.aggregate.blocked_steps, 0)
+            self.assertEqual(result.aggregate.independent_failed_steps, 1)
+            self.assertEqual(result.aggregate.dependency_blocked_steps, 0)
+            self.assertTrue(result.aggregate.to_trace_payload()["has_independent_soft_failure"])
+            self.assertTrue(result.aggregate.to_trace_payload()["has_reliable_completed_result"])
+            workflow_end = [event for event in result.events if event.type == "tool_workflow_end"][-1]
+            self.assertEqual(workflow_end.payload["aggregate"], result.aggregate.to_trace_payload())
 
         asyncio.run(run_test())
 
@@ -1090,6 +1184,17 @@ class ToolWorkflowTest(unittest.TestCase):
             self.assertEqual(outcomes["second"].execution_status, "blocked")
             self.assertEqual(outcomes["second"].quality_status, "not_applicable")
             self.assertEqual(result.aggregate_status, "failed")
+            self.assertEqual(result.aggregate.total_steps, 2)
+            self.assertEqual(result.aggregate.failed_steps, 1)
+            self.assertEqual(result.aggregate.blocked_steps, 1)
+            self.assertEqual(result.aggregate.independent_failed_steps, 1)
+            self.assertEqual(result.aggregate.dependency_blocked_steps, 1)
+            self.assertTrue(result.aggregate.to_trace_payload()["has_strict_dependency_block"])
+            self.assertFalse(result.aggregate.to_trace_payload()["has_reliable_completed_result"])
+            feedback = {item.call_id: item.to_planner_observation(round_index=1) for item in result.feedback}
+            self.assertEqual(feedback["first"]["failure_scope"], "independent")
+            self.assertEqual(feedback["second"]["failure_scope"], "dependency_blocked")
+            self.assertIn("严格依赖下游", feedback["second"]["display_text"])
 
         asyncio.run(run_test())
 
@@ -1312,6 +1417,11 @@ class ToolWorkflowTest(unittest.TestCase):
             self.assertEqual(decision[0].payload["status"], "uncertain")
             self.assertEqual(decision[0].payload["action"], "clarify")
             self.assertEqual(result.aggregate_status, "waiting_approval")
+            self.assertEqual(result.aggregate.completed_valid_steps, 0)
+            self.assertEqual(result.aggregate.waiting_approval_steps, 1)
+            self.assertEqual(result.aggregate.blocked_steps, 0)
+            self.assertTrue(result.aggregate.to_trace_payload()["has_pending_user_confirmation"])
+            self.assertFalse(result.aggregate.to_trace_payload()["has_reliable_completed_result"])
             self.assertEqual(len(result.step_outcomes), 1)
             outcome = result.step_outcomes[0]
             self.assertEqual(outcome.execution_status, "waiting_approval")
@@ -1360,6 +1470,11 @@ class ToolWorkflowTest(unittest.TestCase):
             self.assertEqual([call.call_id for call in executor.calls], ["preview"])
             self.assertEqual(len(result.sources), 1)
             self.assertEqual(result.aggregate_status, "waiting_approval")
+            self.assertEqual(result.aggregate.total_steps, 2)
+            self.assertEqual(result.aggregate.completed_valid_steps, 0)
+            self.assertEqual(result.aggregate.waiting_approval_steps, 1)
+            self.assertEqual(result.aggregate.blocked_steps, 1)
+            self.assertTrue(result.aggregate.to_trace_payload()["has_pending_user_confirmation"])
             outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
             self.assertEqual(outcomes["preview"].execution_status, "waiting_approval")
             self.assertEqual(outcomes["preview"].quality_status, "valid")
@@ -1530,6 +1645,136 @@ class ToolWorkflowTest(unittest.TestCase):
             ]
             self.assertEqual(fallback_decisions[0].payload["status"], "valid")
             self.assertEqual(fallback_decisions[0].payload["action"], "continue")
+
+        asyncio.run(run_test())
+
+    def test_workflow_action_maps_partial_failure_to_finalize_partial(self) -> None:
+        action = decide_workflow_action(
+            aggregate=ToolWorkflowAggregate(
+                status="partial",
+                total_steps=2,
+                completed_valid_steps=1,
+                failed_steps=1,
+            ),
+            has_sources=True,
+            planner_need_more_rounds=False,
+            quality_replan_required=False,
+            round_index=1,
+            max_rounds=5,
+        )
+
+        self.assertEqual(action.action, "finalize_partial")
+        self.assertEqual(action.reason, "partial_result_available")
+        self.assertIn("部分工具", action.notice)
+
+    def test_workflow_action_allows_bounded_replan_before_round_limit(self) -> None:
+        action = decide_workflow_action(
+            aggregate=ToolWorkflowAggregate(status="failed", total_steps=1, failed_steps=1),
+            has_sources=False,
+            has_error=True,
+            planner_need_more_rounds=False,
+            quality_replan_required=True,
+            round_index=2,
+            max_rounds=5,
+        )
+
+        self.assertEqual(action.action, "replan")
+        self.assertEqual(action.reason, "tool_result_quality")
+
+    def test_workflow_action_stops_followup_at_round_limit(self) -> None:
+        action = decide_workflow_action(
+            aggregate=ToolWorkflowAggregate(status="partial", total_steps=2, completed_valid_steps=1),
+            has_sources=True,
+            planner_need_more_rounds=True,
+            quality_replan_required=False,
+            round_index=5,
+            max_rounds=5,
+        )
+
+        self.assertEqual(action.action, "stop")
+        self.assertEqual(action.reason, "max_rounds_reached")
+
+    def test_workflow_action_requires_user_clarification_for_blocked_or_approval(self) -> None:
+        blocked = decide_workflow_action(
+            aggregate=ToolWorkflowAggregate(
+                status="blocked",
+                total_steps=1,
+                blocked_steps=1,
+                dependency_blocked_steps=1,
+            ),
+            has_sources=False,
+            planner_need_more_rounds=True,
+            quality_replan_required=False,
+            round_index=1,
+            max_rounds=5,
+        )
+        approval = decide_workflow_action(
+            aggregate=ToolWorkflowAggregate(
+                status="waiting_approval",
+                total_steps=1,
+                waiting_approval_steps=1,
+            ),
+            has_sources=False,
+            planner_need_more_rounds=False,
+            quality_replan_required=False,
+            round_index=5,
+            max_rounds=5,
+        )
+
+        self.assertEqual(blocked.action, "clarify")
+        self.assertEqual(blocked.reason, "dependency_blocked")
+        self.assertEqual(approval.action, "clarify")
+        self.assertEqual(approval.reason, "waiting_approval")
+
+    def test_policy_limit_caps_executor_parallelism_and_plan_calls(self) -> None:
+        async def run_test() -> None:
+            catalog = ToolCatalog()
+            catalog._definitions = {
+                key: ToolDefinition(
+                    tool_key=key,
+                    provider="test",
+                    category="lookup",
+                    display_name=key,
+                    description="test",
+                    adapter={"auth_type": "none"},
+                )
+                for key in ("test.one", "test.two", "test.three")
+            }
+            executor = ConcurrencyProbeExecutor()
+            workflow = ToolWorkflowService(executor=executor, registry=catalog, max_tool_calls=5)
+            plan = ToolPlan(
+                plan_id="policy-limits",
+                router="test",
+                external_context_allowed=True,
+                should_use_tools=True,
+                calls=[
+                    PlannedToolCall(
+                        call_id=key,
+                        tool_key=key,
+                        provider="test",
+                        category="lookup",
+                        display_name=key,
+                        confidence=1.0,
+                        reason="parallel probe",
+                    )
+                    for key in ("test.one", "test.two", "test.three")
+                ],
+            )
+
+            result = await workflow.run(
+                plan=plan,
+                query="probe",
+                max_tool_calls=2,
+                max_parallel_calls=1,
+            )
+
+            self.assertEqual([call.call_id for call in executor.calls], ["test.one", "test.two"])
+            self.assertEqual(executor.max_active_calls, 1)
+            outcomes = {outcome.call_id: outcome for outcome in result.step_outcomes}
+            self.assertEqual(outcomes["test.three"].error_category, "tool_call_budget_exceeded")
+            self.assertEqual(result.aggregate.attempted_steps, 2)
+            batches = [event for event in result.events if event.type == "tool_workflow_batch"]
+            self.assertTrue(all(event.payload["max_parallel_calls"] == 1 for event in batches))
 
         asyncio.run(run_test())
 

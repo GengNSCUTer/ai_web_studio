@@ -99,6 +99,7 @@ class ChatExecutionService:
                 knowledge_base_id=payload.knowledge_base_id,
                 knowledge_base_ids=payload.knowledge_base_ids,
                 skill_context=skill_context,
+                tool_run_mode=payload.tool_run_mode,
             )
         except Exception:
             # StreamingResponse 尚未创建，generator 的异常收口不会执行。
@@ -141,6 +142,7 @@ class ChatExecutionService:
                 knowledge_base_id=execution_input.knowledge_base_id,
                 knowledge_base_ids=execution_input.knowledge_base_ids,
                 skill_context=skill_context,
+                tool_run_mode=execution_input.tool_run_mode,
             )
         except Exception:
             self._mark_prepare_failed(execution_input.assistant_message, generation_id=generation_id)

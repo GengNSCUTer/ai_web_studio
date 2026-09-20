@@ -91,13 +91,13 @@ tags: [architecture, tool-workflow, agent-runtime, safety, durable-run]
 
 | Goal | Description | Completed | Date |
 |------|-------------|-----------|------|
-| GOAL-004 | 让多 Tool 并发任务以可解释的 `succeeded/partial/blocked/failed` 聚合状态收口，并只让相关依赖受到失败影响。 |  |  |
+| GOAL-004 | 让多 Tool 并发任务以可解释的 `succeeded/partial/blocked/failed` 聚合状态收口，并只让相关依赖受到失败影响。 | ✅ | 2026-09-15 |
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-015 | 在同步 Workflow 中基于 Step Outcome 计算 Run aggregate，区分 valid evidence、受控失败摘要、等待审批和被阻断的下游；`tool_workflow_end` 使用稳定 aggregate status，而非“是否存在 source”。 |  |  |
-| TASK-016 | 为独立分支定义默认软失败策略：成功分支可用于最终回答，失败分支只产生安全说明；严格 `depends_on` 仍硬阻断。不得接受 Planner 把安全关键依赖降级为可选的请求。 |  |  |
-| TASK-017 | 在 `ExternalContextService` 中将 aggregate 状态映射为 `finalize_partial/replan/clarify/stop`；最终回答只接收 valid evidence，用户可看到简短、脱敏的不可用说明。 |  |  |
+| TASK-015 | 在同步 Workflow 中基于 Step Outcome 计算 Run aggregate，区分 valid evidence、受控失败摘要、等待审批和被阻断的下游；`tool_workflow_end` 使用稳定 aggregate status，而非“是否存在 source”。 | ✅ | 2026-09-15 |
+| TASK-016 | 为独立分支定义默认软失败策略：成功分支可用于最终回答，失败分支只产生安全说明；严格 `depends_on` 仍硬阻断。不得接受 Planner 把安全关键依赖降级为可选的请求。 | ✅ | 2026-09-15 |
+| TASK-017 | 在 `ExternalContextService` 中将 aggregate 状态映射为 `finalize_partial/replan/clarify/stop`；最终回答只接收 valid evidence，用户可看到简短、脱敏的不可用说明。 | ✅ | 2026-09-17 |
 | TASK-018 | 为路线/天气/搜索等并发成功与单路失败、全路失败、严格下游依赖、等待审批四种组合建立端到端单测。 |  |  |
 
 ### Implementation Phase 4 — Tool Evidence Prompt Injection 边界

@@ -8,6 +8,7 @@ from app.schemas.upload import UploadItemReference
 
 MessageId = Annotated[str, Field(min_length=1, max_length=64)]
 MessageContent = Annotated[str, Field(min_length=1, max_length=200000)]
+ToolRunMode = Literal["quick_chat", "guided_research", "workspace_review", "edit_proposal"]
 
 
 class MessageCreate(BaseModel):
@@ -57,6 +58,8 @@ class ChatStreamRequest(BaseModel):
     knowledge_base_id: str | None = Field(default=None, max_length=36)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
     skill_key: str | None = Field(default=None, max_length=128)
+    # 同步 Chat 只允许显式选择四种模式；durable_task 由异步任务入口单独承接。
+    tool_run_mode: ToolRunMode = "quick_chat"
 
     @field_validator("content")
     @classmethod
@@ -78,6 +81,7 @@ class ChatRegenerateRequest(BaseModel):
     knowledge_base_id: str | None = Field(default=None, max_length=36)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
     skill_key: str | None = Field(default=None, max_length=128)
+    tool_run_mode: ToolRunMode = "quick_chat"
 
 
 class ChatEditLastUserRequest(BaseModel):
@@ -94,6 +98,7 @@ class ChatEditLastUserRequest(BaseModel):
     knowledge_base_id: str | None = Field(default=None, max_length=36)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
     skill_key: str | None = Field(default=None, max_length=128)
+    tool_run_mode: ToolRunMode = "quick_chat"
 
     @field_validator("content")
     @classmethod

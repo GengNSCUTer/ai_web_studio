@@ -27,6 +27,254 @@ from app.services.tools.schemas import (
 )
 
 
+@dataclass(frozen=True)
+class ToolWorkflowAggregate:
+    """一份同步工具计划的安全汇总结果。
+
+    单个 Step 的 Outcome 用于判断依赖和追踪；本对象则回答更直接的问题：
+    整个任务是否全部完成、是否只能部分回答、是否在等待用户确认，以及
+    哪些类别的步骤没有完成。它不保存参数、Provider 原始异常或工具正文，
+    因而可以安全写入 Trace、诊断信息和后续的外层策略。
+    """
+
+    status: str = "empty"
+    total_steps: int = 0
+    attempted_steps: int = 0
+    executed_successfully_steps: int = 0
+    completed_valid_steps: int = 0
+    prompt_eligible_steps: int = 0
+    failed_steps: int = 0
+    blocked_steps: int = 0
+    independent_failed_steps: int = 0
+    independent_blocked_steps: int = 0
+    dependent_failed_steps: int = 0
+    dependency_blocked_steps: int = 0
+    waiting_approval_steps: int = 0
+    invalid_quality_steps: int = 0
+    uncertain_quality_steps: int = 0
+
+    @classmethod
+    def from_outcomes(cls, outcomes: list["ToolStepOutcome"]) -> "ToolWorkflowAggregate":
+        """从终态 Step 计算稳定的任务状态和无敏感计数摘要。
+
+        状态优先级刻意保守：只要存在已完成且质量有效的步骤，独立分支的
+        失败不会抹掉这些可靠结果，整体记为 ``partial``；但等待确认本身不
+        能被当成“已完成”，它在没有已完成结果时维持 ``waiting_approval``。
+        """
+
+        if not outcomes:
+            return cls()
+
+        completed_valid_steps = sum(outcome.unlocks_strict_dependents for outcome in outcomes)
+        attempted_steps = sum(
+            outcome.execution_status
+            in {"succeeded", "failed", "waiting_approval", "cancelled", "timed_out"}
+            for outcome in outcomes
+        )
+        executed_successfully_steps = sum(
+            outcome.execution_status == "succeeded" for outcome in outcomes
+        )
+        prompt_eligible_steps = sum(outcome.prompt_eligible for outcome in outcomes)
+        failed_steps = sum(
+            outcome.execution_status in {"failed", "timed_out", "cancelled"}
+            for outcome in outcomes
+        )
+        blocked_steps = sum(outcome.execution_status == "blocked" for outcome in outcomes)
+        independent_failed_steps = sum(
+            outcome.execution_status in {"failed", "timed_out", "cancelled"}
+            and not outcome.depends_on
+            for outcome in outcomes
+        )
+        dependency_blocked_steps = sum(
+            outcome.execution_status == "blocked" and bool(outcome.depends_on)
+            for outcome in outcomes
+        )
+        dependent_failed_steps = sum(
+            outcome.execution_status in {"failed", "timed_out", "cancelled"}
+            and bool(outcome.depends_on)
+            for outcome in outcomes
+        )
+        independent_blocked_steps = sum(
+            outcome.execution_status == "blocked" and not outcome.depends_on
+            for outcome in outcomes
+        )
+        waiting_approval_steps = sum(
+            outcome.execution_status == "waiting_approval" for outcome in outcomes
+        )
+        invalid_quality_steps = sum(outcome.quality_status == "invalid" for outcome in outcomes)
+        uncertain_quality_steps = sum(outcome.quality_status == "uncertain" for outcome in outcomes)
+
+        if completed_valid_steps:
+            status = "succeeded" if completed_valid_steps == len(outcomes) else "partial"
+        elif waiting_approval_steps:
+            status = "waiting_approval"
+        elif prompt_eligible_steps:
+            # 该分支主要覆盖兼容性的只读预览结果。它有可展示信息，但不能
+            # 被误写成所有步骤均已完成。
+            status = "partial"
+        elif failed_steps:
+            status = "failed"
+        elif blocked_steps:
+            status = "blocked"
+        else:
+            status = "empty"
+
+        return cls(
+            status=status,
+            total_steps=len(outcomes),
+            attempted_steps=attempted_steps,
+            executed_successfully_steps=executed_successfully_steps,
+            completed_valid_steps=completed_valid_steps,
+            prompt_eligible_steps=prompt_eligible_steps,
+            failed_steps=failed_steps,
+            blocked_steps=blocked_steps,
+            independent_failed_steps=independent_failed_steps,
+            independent_blocked_steps=independent_blocked_steps,
+            dependent_failed_steps=dependent_failed_steps,
+            dependency_blocked_steps=dependency_blocked_steps,
+            waiting_approval_steps=waiting_approval_steps,
+            invalid_quality_steps=invalid_quality_steps,
+            uncertain_quality_steps=uncertain_quality_steps,
+        )
+
+    def to_trace_payload(self) -> dict[str, int | str | bool]:
+        """返回可安全暴露给诊断和前端的汇总信息。"""
+
+        return {
+            "status": self.status,
+            "total_steps": self.total_steps,
+            "attempted_steps": self.attempted_steps,
+            "executed_successfully_steps": self.executed_successfully_steps,
+            "completed_valid_steps": self.completed_valid_steps,
+            "prompt_eligible_steps": self.prompt_eligible_steps,
+            "failed_steps": self.failed_steps,
+            "blocked_steps": self.blocked_steps,
+            "independent_failed_steps": self.independent_failed_steps,
+            "independent_blocked_steps": self.independent_blocked_steps,
+            "dependent_failed_steps": self.dependent_failed_steps,
+            "dependency_blocked_steps": self.dependency_blocked_steps,
+            "waiting_approval_steps": self.waiting_approval_steps,
+            "invalid_quality_steps": self.invalid_quality_steps,
+            "uncertain_quality_steps": self.uncertain_quality_steps,
+            "has_reliable_completed_result": self.completed_valid_steps > 0,
+            "has_pending_user_confirmation": self.waiting_approval_steps > 0,
+            # 独立分支失败只影响自身；带依赖的 blocked Step 不得被当成
+            # 可以脱离上游继续执行的普通失败。
+            "has_independent_soft_failure": independent_failure_exists(self),
+            "has_strict_dependency_block": self.dependency_blocked_steps > 0,
+            "has_dependency_branch_failure": bool(
+                self.dependent_failed_steps or self.dependency_blocked_steps
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class ToolWorkflowAction:
+    """外层 Chat 对一次工具聚合结果采取的确定动作。
+
+    该决策由代码侧状态和预算决定，不接受 Planner 或 Tool 返回内容的直接改写。
+    ``finalize_partial`` 表示仅使用已经通过质量门的证据；``replan`` 表示在
+    剩余轮次内允许 Planner 基于脱敏观察重新规划；``clarify`` 需要用户补充或
+    确认；``stop`` 则是本次同步请求的终止状态。
+    """
+
+    action: str
+    reason: str
+    notice: str = ""
+
+
+def decide_workflow_action(
+    *,
+    aggregate: ToolWorkflowAggregate,
+    has_sources: bool,
+    has_error: bool = False,
+    planner_need_more_rounds: bool,
+    quality_replan_required: bool,
+    round_index: int,
+    max_rounds: int,
+) -> ToolWorkflowAction:
+    """把工具聚合状态映射为同步 Chat 的下一步动作。
+
+    ``has_sources`` 只用于兼容自定义 Workflow；正式 Workflow 的 source 都已经
+    经过质量门。任何需要继续的动作都必须同时满足五轮预算，否则明确停止。
+    """
+
+    if aggregate.waiting_approval_steps:
+        return ToolWorkflowAction(
+            action="clarify",
+            reason="waiting_approval",
+            notice="有工具操作需要你的确认，已暂停后续执行。",
+        )
+
+    # 严格依赖阻断是代码侧安全结论。Planner 即使继续请求工具，也不能把
+    # 未满足的上游关系当成可选项绕过；先让用户补充/确认依赖信息。
+    if aggregate.status == "blocked" and aggregate.dependency_blocked_steps:
+        return ToolWorkflowAction(
+            action="clarify",
+            reason="dependency_blocked",
+            notice="工具依赖未满足，相关下游操作未执行；请补充必要信息后重试。",
+        )
+
+    followup_requested = planner_need_more_rounds or quality_replan_required
+    if followup_requested and round_index >= max_rounds:
+        return ToolWorkflowAction(
+            action="stop",
+            reason="max_rounds_reached",
+            notice="工具观察已达到同步对话轮次上限；如需更长的只读任务，请显式发起可恢复工作流。",
+        )
+
+    if quality_replan_required:
+        return ToolWorkflowAction(
+            action="replan",
+            reason="tool_result_quality",
+            notice="工具结果未达到当前任务的质量要求，正在基于安全反馈重新规划。",
+        )
+
+    if aggregate.status == "partial":
+        if planner_need_more_rounds:
+            return ToolWorkflowAction(
+                action="replan",
+                reason="partial_result_followup",
+            )
+        return ToolWorkflowAction(
+            action="finalize_partial",
+            reason="partial_result_available",
+            notice="部分工具已成功返回，回答仅使用通过质量校验的结果；其它分支未纳入回答。",
+        )
+
+    if aggregate.status == "succeeded":
+        if planner_need_more_rounds:
+            return ToolWorkflowAction(action="replan", reason="planner_requested_followup")
+        return ToolWorkflowAction(action="stop", reason="completed")
+
+    if aggregate.status in {"failed", "blocked"}:
+        if planner_need_more_rounds:
+            return ToolWorkflowAction(action="replan", reason="workflow_failure_followup")
+        if aggregate.status == "blocked":
+            return ToolWorkflowAction(
+                action="clarify",
+                reason="dependency_blocked",
+                notice="工具依赖未满足，相关下游操作未执行；请补充必要信息后重试。",
+            )
+        return ToolWorkflowAction(
+            action="stop",
+            reason="all_tool_branches_failed",
+            notice="未获得可用于回答的外部工具结果，请检查输入或稍后重试。",
+        )
+
+    # ``empty`` 既可能是没有规划工具，也可能来自兼容性 Workflow。只有确实
+    # 有证据或错误观察且 Planner 请求续轮时才继续，避免空转消耗五轮预算。
+    if planner_need_more_rounds and (has_sources or has_error or quality_replan_required):
+        return ToolWorkflowAction(action="replan", reason="planner_requested_followup")
+    return ToolWorkflowAction(action="stop", reason="no_evidence_or_error")
+
+
+def independent_failure_exists(aggregate: ToolWorkflowAggregate) -> bool:
+    """判断是否存在可以与其它独立结果并存的失败分支。"""
+
+    return bool(aggregate.independent_failed_steps or aggregate.independent_blocked_steps)
+
+
 @dataclass
 class ToolWorkflowResult:
     sources: list[ExternalSource] = field(default_factory=list)
@@ -41,6 +289,9 @@ class ToolWorkflowResult:
     # the workflow's source of truth; feedback and trace events are projections
     # for separate consumers.
     step_outcomes: list["ToolStepOutcome"] = field(default_factory=list)
+    # ``aggregate_status`` 保留给已有调用方兼容读取；新代码应优先读取
+    # ``aggregate``，以获得状态之外的安全计数摘要。
+    aggregate: ToolWorkflowAggregate = field(default_factory=ToolWorkflowAggregate)
     aggregate_status: str = "empty"
     selected_tool: str = "none"
     error_message: str = ""
@@ -136,6 +387,22 @@ class ToolStepOutcome:
     def unlocks_strict_dependents(self) -> bool:
         return self.execution_status == "succeeded" and self.quality_status == "valid"
 
+    @property
+    def is_dependency_blocked(self) -> bool:
+        """当前步骤是否因显式上游关系而不能独立执行。"""
+
+        return self.execution_status == "blocked" and bool(self.depends_on)
+
+    @property
+    def failure_scope(self) -> str:
+        """把独立失败、依赖分支失败和依赖阻断区分开。"""
+
+        if self.is_dependency_blocked:
+            return "dependency_blocked"
+        if self.depends_on:
+            return "dependent_branch"
+        return "independent"
+
     def to_trace_payload(self) -> dict[str, Any]:
         return {
             "call_id": self.call_id,
@@ -172,6 +439,7 @@ class ToolWorkflowFeedback:
     reasons: tuple[str, ...] = ()
     depends_on: tuple[str, ...] = ()
     error_category: str = ""
+    failure_scope: str = "independent"
 
     @classmethod
     def from_outcome(cls, outcome: ToolStepOutcome) -> "ToolWorkflowFeedback | None":
@@ -195,6 +463,7 @@ class ToolWorkflowFeedback:
             reasons=outcome.quality_reasons[:4],
             depends_on=outcome.depends_on,
             error_category=outcome.error_category,
+            failure_scope=outcome.failure_scope,
         )
 
     def to_planner_observation(self, *, round_index: int) -> dict[str, Any]:
@@ -202,6 +471,7 @@ class ToolWorkflowFeedback:
         display_text = (
             f"{self.display_name}（{self.tool_key}）执行结果为 {self.outcome}，"
             f"质量状态为 {self.quality_status}；原因：{readable_reasons}；"
+            f"失败范围：{ {'dependency_blocked': '严格依赖下游', 'dependent_branch': '有依赖的分支', 'independent': '独立分支'}.get(self.failure_scope, '受控分支') }；"
             f"建议动作：{self.next_action}。"
         )
         return {
@@ -215,6 +485,7 @@ class ToolWorkflowFeedback:
             "reasons": list(self.reasons[:4]),
             "depends_on": list(self.depends_on),
             "error_category": self.error_category,
+            "failure_scope": self.failure_scope,
             "display_text": display_text,
             "metadata": {},
         }
@@ -289,6 +560,8 @@ class ToolWorkflowService:
         plan: ToolPlan,
         query: str,
         call_ledger: ToolRunCallLedger | None = None,
+        max_tool_calls: int | None = None,
+        max_parallel_calls: int | None = None,
     ) -> ToolWorkflowResult:
         """Run one bounded ToolPlan and emit immutable terminal outcomes.
 
@@ -300,8 +573,18 @@ class ToolWorkflowService:
         started = time.perf_counter()
         result = ToolWorkflowResult(selected_tool=plan.calls[0].category if plan.calls else "none")
         call_ledger = call_ledger or ToolRunCallLedger()
-        calls = plan.calls[: self.max_tool_calls]
-        fallback_call_ids = self._select_fallback_call_ids(plan=plan, calls=calls, query=query)
+        effective_max_tool_calls = self._effective_max_tool_calls(max_tool_calls)
+        effective_max_parallel_calls = self._effective_max_parallel_calls(
+            max_parallel_calls=max_parallel_calls,
+            max_tool_calls=effective_max_tool_calls,
+        )
+        calls = plan.calls[:effective_max_tool_calls]
+        fallback_call_ids = self._select_fallback_call_ids(
+            plan=plan,
+            calls=calls,
+            query=query,
+            max_tool_calls=effective_max_tool_calls,
+        )
         terminal_by_call_id: dict[str, ToolStepOutcome] = {}
         sources_by_call_id: dict[str, list[ExternalSource]] = {}
         emitted_states: set[tuple[str, str]] = set()
@@ -351,7 +634,8 @@ class ToolWorkflowService:
                     "workflow": "tool_workflow_v2",
                     "plan_id": plan.plan_id,
                     "planned_calls": len(plan.calls),
-                    "max_tool_calls": self.max_tool_calls,
+                    "max_tool_calls": effective_max_tool_calls,
+                    "max_parallel_calls": effective_max_parallel_calls,
                     "executing_calls": len(calls),
                 },
             )
@@ -360,7 +644,7 @@ class ToolWorkflowService:
         # Calls past the per-plan budget are not silently discarded. They have
         # a terminal Outcome but are intentionally not added to the run ledger:
         # a later, smaller plan may safely include them.
-        for call in plan.calls[self.max_tool_calls :]:
+        for call in plan.calls[effective_max_tool_calls:]:
             outcome = self._blocked_outcome(
                 call=call,
                 error_category="tool_call_budget_exceeded",
@@ -443,6 +727,8 @@ class ToolWorkflowService:
             non_parallel = [call for call in ready if not call.can_parallel]
             if non_parallel:
                 ready = [non_parallel[0]]
+            else:
+                ready = ready[:effective_max_parallel_calls]
 
             executable: list[PlannedToolCall] = []
             for call in ready:
@@ -591,6 +877,7 @@ class ToolWorkflowService:
                         "workflow": "tool_workflow_v2",
                         "step": step,
                         "mode": "parallel" if len(executable) > 1 else "single",
+                        "max_parallel_calls": effective_max_parallel_calls,
                         "call_ids": [call.call_id for call in executable],
                         "tool_keys": [call.tool_key for call in executable],
                     },
@@ -644,7 +931,10 @@ class ToolWorkflowService:
                 record_outcome(self._outcome_from_step_result(step_result))
                 pending.pop(step_result.call.call_id, None)
 
-        result.aggregate_status = self._aggregate_status(result.step_outcomes)
+        result.aggregate = ToolWorkflowAggregate.from_outcomes(result.step_outcomes)
+        # 兼容既有 API、诊断字段和测试；阶段 3.1 起完整摘要以
+        # ``ToolWorkflowResult.aggregate`` 为唯一计算来源。
+        result.aggregate_status = result.aggregate.status
         result.elapsed_ms = int((time.perf_counter() - started) * 1000)
         result.events.append(
             ToolTraceEvent(
@@ -656,6 +946,7 @@ class ToolWorkflowService:
                     "elapsed_ms": result.elapsed_ms,
                     "sources_count": len(result.sources),
                     "step_outcomes_count": len(result.step_outcomes),
+                    "aggregate": result.aggregate.to_trace_payload(),
                     "error": result.error_message or None,
                 },
             )
@@ -708,21 +999,25 @@ class ToolWorkflowService:
 
     @staticmethod
     def _aggregate_status(outcomes: list[ToolStepOutcome]) -> str:
-        if not outcomes:
-            return "empty"
-        strict_successes = [outcome for outcome in outcomes if outcome.unlocks_strict_dependents]
-        non_successes = [outcome for outcome in outcomes if not outcome.unlocks_strict_dependents]
-        if strict_successes:
-            return "succeeded" if not non_successes else "partial"
-        if any(outcome.execution_status == "waiting_approval" for outcome in outcomes):
-            return "waiting_approval"
-        if any(outcome.prompt_eligible for outcome in outcomes):
-            return "partial"
-        if any(outcome.execution_status == "failed" for outcome in outcomes):
-            return "failed"
-        if any(outcome.execution_status == "blocked" for outcome in outcomes):
-            return "blocked"
-        return "empty"
+        """兼容旧调用方的状态读取，避免复制汇总规则。"""
+
+        return ToolWorkflowAggregate.from_outcomes(outcomes).status
+
+    def _effective_max_tool_calls(self, requested_limit: int | None) -> int:
+        """把外层 Budget 限额与 Workflow 自身硬上限取较小值。"""
+
+        if requested_limit is None:
+            return self.max_tool_calls
+        return max(0, min(self.max_tool_calls, int(requested_limit)))
+
+    @staticmethod
+    def _effective_max_parallel_calls(*, max_parallel_calls: int | None, max_tool_calls: int) -> int:
+        """并发额度不能超过本轮实际允许执行的调用数。"""
+
+        if max_tool_calls <= 0:
+            return 1
+        requested = max_tool_calls if max_parallel_calls is None else int(max_parallel_calls)
+        return max(1, min(max_tool_calls, requested))
 
     async def _execute_call(
         self,
@@ -1150,6 +1445,7 @@ class ToolWorkflowService:
         plan: ToolPlan,
         calls: list[PlannedToolCall],
         query: str,
+        max_tool_calls: int,
     ) -> set[str]:
         """Reserve fallback slots before parallel execution.
 
@@ -1161,7 +1457,7 @@ class ToolWorkflowService:
             return set()
         if not self._fallback_definition_is_safe(plan.fallback_tool_key):
             return set()
-        remaining_slots = max(0, self.max_tool_calls - len(calls))
+        remaining_slots = max(0, max_tool_calls - len(calls))
         if remaining_slots == 0:
             return set()
 

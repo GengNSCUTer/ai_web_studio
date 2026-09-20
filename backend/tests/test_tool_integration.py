@@ -9,7 +9,15 @@ from typing import Any
 
 from app.services.external_context_service import ExternalContextService
 from app.services.tools.catalog import ToolCatalog
-from app.services.tools.schemas import PlannedToolCall, ToolDefinition, ToolPlan
+from app.services.tools.schemas import (
+    ExternalSource,
+    PlannedToolCall,
+    ToolCallResult,
+    ToolDefinition,
+    ToolPlan,
+    ToolTraceEvent,
+)
+from app.services.tools.workflow import ToolWorkflowService
 
 
 class FixedPlanner:
@@ -125,6 +133,94 @@ class RecordingMcpHandler(BaseHTTPRequestHandler):
         return
 
 
+class MultiToolPlanner:
+    """固定 Planner，用于验证外层 Chat 如何收口并发与严格依赖。"""
+
+    def __init__(self, *, dependency: bool = False) -> None:
+        self.dependency = dependency
+
+    async def plan(self, **_: Any) -> ToolPlan:
+        weather = PlannedToolCall(
+            call_id="weather",
+            tool_key="amap.maps.weather",
+            provider="amap",
+            category="weather",
+            display_name="高德天气",
+            confidence=1.0,
+            reason="stage 3.4 integration",
+            arguments={"city": "不存在的测试城市"},
+            can_parallel=not self.dependency,
+        )
+        if self.dependency:
+            route = PlannedToolCall(
+                call_id="route",
+                tool_key="amap.maps.direction.driving",
+                provider="amap",
+                category="map_route",
+                display_name="高德路线",
+                confidence=1.0,
+                reason="depends on weather",
+                arguments={"origin": "深圳", "destination": "广州"},
+                depends_on=["weather"],
+                can_parallel=False,
+            )
+            calls = [weather, route]
+        else:
+            calls = [
+                weather,
+                PlannedToolCall(
+                    call_id="search",
+                    tool_key="web.tavily.search",
+                    provider="tavily",
+                    category="web_search",
+                    display_name="Tavily 搜索",
+                    confidence=1.0,
+                    reason="independent branch",
+                    arguments={"query": "深圳天气", "max_results": 2},
+                    can_parallel=True,
+                ),
+            ]
+        return ToolPlan(
+            plan_id="stage-3-4-plan",
+            router="fixed_integration_planner",
+            external_context_allowed=True,
+            should_use_tools=True,
+            need_more_rounds=False,
+            calls=calls,
+        )
+
+
+class MultiToolExecutor:
+    """不联网的执行替身，只返回脱敏结果以验证外层状态传播。"""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def execute(self, call: PlannedToolCall):
+        self.calls.append(call.call_id)
+        source = ExternalSource(
+            source_type=call.category,
+            provider=call.provider,
+            title=f"{call.display_name}测试结果",
+            display_text=f"{call.display_name}测试证据",
+        )
+        invalid = call.call_id == "weather"
+        result = ToolCallResult(
+            call=call,
+            status="success",
+            sources=[source],
+            elapsed_ms=1,
+            quality_status="invalid" if invalid else "valid",
+            quality_reasons=["test_quality_failure"] if invalid else [],
+        )
+        return result, [
+            ToolTraceEvent(
+                type="tool_call_end",
+                payload={"call_id": call.call_id, "tool_key": call.tool_key, "status": "success"},
+            )
+        ]
+
+
 class ToolIntegrationTest(unittest.TestCase):
     def test_external_context_runs_complete_no_auth_mcp_success_chain(self) -> None:
         server = ThreadingHTTPServer(("127.0.0.1", 0), RecordingMcpHandler)
@@ -218,6 +314,43 @@ class ToolIntegrationTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
             server_thread.join(timeout=3)
+
+    def test_external_context_keeps_independent_success_when_one_branch_is_invalid(self) -> None:
+        catalog = ToolCatalog()
+        executor = MultiToolExecutor()
+        workflow = ToolWorkflowService(executor=executor, registry=catalog)
+        result = asyncio.run(
+            ExternalContextService(
+                registry=catalog,
+                executor=executor,
+                workflow=workflow,
+                planner=MultiToolPlanner(),
+            ).build_context(query="验证独立分支", enabled=True, max_chars=2000)
+        )
+
+        self.assertEqual(result.diagnostics["external_tool_workflow_aggregate_status"], "partial")
+        self.assertGreater(len(result.sources), 0)
+        self.assertTrue(all(source.source_type == "web_search" for source in result.sources))
+        self.assertNotIn("weather", [source.source_type for source in result.sources])
+        self.assertNotIn("route", executor.calls)
+
+    def test_external_context_blocks_strict_dependent_tool_after_invalid_upstream(self) -> None:
+        catalog = ToolCatalog()
+        executor = MultiToolExecutor()
+        workflow = ToolWorkflowService(executor=executor, registry=catalog)
+        result = asyncio.run(
+            ExternalContextService(
+                registry=catalog,
+                executor=executor,
+                workflow=workflow,
+                planner=MultiToolPlanner(dependency=True),
+            ).build_context(query="验证严格依赖", enabled=True, max_chars=2000)
+        )
+
+        self.assertEqual(result.diagnostics["external_tool_workflow_aggregate_status"], "blocked")
+        self.assertEqual(result.diagnostics["external_tool_next_action"], "clarify")
+        self.assertEqual(executor.calls.count("route"), 0)
+        self.assertIn("weather", executor.calls)
 
 
 if __name__ == "__main__":

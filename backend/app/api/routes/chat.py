@@ -203,6 +203,12 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
             ],
         }
 
+    # 运行模式和预算是前端诊断面板需要的安全摘要；不携带参数、URL 或 Provider 原文。
+    for key in ("tool_run_policy", "tool_run_budget"):
+        value = details.get(key)
+        if isinstance(value, dict):
+            compact[key] = value
+
     return compact
 
 
@@ -525,6 +531,7 @@ async def regenerate_last_answer_stream(
             knowledge_base_id=payload.knowledge_base_id,
             knowledge_base_ids=payload.knowledge_base_ids,
             skill_key=payload.skill_key,
+            tool_run_mode=payload.tool_run_mode,
         )
     )
     return _build_streaming_response(context, provider_service, event_stream=True)
@@ -593,6 +600,7 @@ async def edit_last_user_stream(
             knowledge_base_id=payload.knowledge_base_id,
             knowledge_base_ids=payload.knowledge_base_ids,
             skill_key=payload.skill_key,
+            tool_run_mode=payload.tool_run_mode,
         )
     )
     return _build_streaming_response(context, provider_service, event_stream=True)

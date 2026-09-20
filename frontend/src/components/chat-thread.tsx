@@ -28,6 +28,7 @@ import type {
 } from "@/lib/types";
 
 type UILanguage = "zh-CN" | "en-US";
+type ToolRunMode = "quick_chat" | "guided_research" | "workspace_review" | "edit_proposal";
 
 type ChatThreadProps = {
   initialConversationId: string | null;
@@ -92,6 +93,11 @@ const THREAD_TEXT = {
     noKnowledgeBase: "不使用知识库",
     skill: "Skill",
     noSkill: "不使用 Skill",
+    toolRunMode: "运行模式",
+    toolRunModeQuick: "快速对话 · 最多 5 轮 / 10 次工具调用",
+    toolRunModeResearch: "研究模式 · 最多 8 轮 / 16 次工具调用",
+    toolRunModeReview: "工作区审阅 · 最多 6 轮 / 12 次工具调用",
+    toolRunModeEdit: "编辑提案 · 最多 4 轮 / 6 次工具调用",
     reasoningTitle: "思考过程",
     toolTraceTitle: "工具过程",
     sourcesTitle: "来源",
@@ -133,6 +139,11 @@ const THREAD_TEXT = {
     contextPanelTitle: "上下文治理诊断",
     contextNoticesTitle: "上下文提示",
     contextMode: "上下文模式",
+    toolRunModeLabel: "工具运行模式",
+    toolPlanningRounds: "工具规划轮数",
+    toolCallsUsed: "工具调用次数",
+    toolRemainingReplans: "剩余重规划次数",
+    toolRemainingWallClock: "剩余工具时间",
     modelContextWindow: "模型上下文窗口",
     totalCharsEstimate: "本轮估算字符数",
     truncatedHistoryMessages: "被裁剪的历史消息数",
@@ -215,6 +226,11 @@ const THREAD_TEXT = {
     noKnowledgeBase: "No knowledge base",
     skill: "Skill",
     noSkill: "No Skill",
+    toolRunMode: "Run mode",
+    toolRunModeQuick: "Quick chat · 5 rounds / 10 tool calls",
+    toolRunModeResearch: "Guided research · 8 rounds / 16 tool calls",
+    toolRunModeReview: "Workspace review · 6 rounds / 12 tool calls",
+    toolRunModeEdit: "Edit proposal · 4 rounds / 6 tool calls",
     reasoningTitle: "Reasoning",
     toolTraceTitle: "Tool trace",
     sourcesTitle: "Sources",
@@ -256,6 +272,11 @@ const THREAD_TEXT = {
     contextPanelTitle: "Context governance diagnostics",
     contextNoticesTitle: "Context notices",
     contextMode: "Context mode",
+    toolRunModeLabel: "Tool run mode",
+    toolPlanningRounds: "Planning rounds",
+    toolCallsUsed: "Tool calls",
+    toolRemainingReplans: "Remaining replans",
+    toolRemainingWallClock: "Remaining tool time",
     modelContextWindow: "Model context window",
     totalCharsEstimate: "Estimated chars this turn",
     truncatedHistoryMessages: "Truncated history messages",
@@ -609,6 +630,7 @@ export function ChatThread({
   const [isGenerating, setIsGenerating] = useState(false);
   const [skills, setSkills] = useState<SkillInstallation[]>([]);
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
+  const [toolRunMode, setToolRunMode] = useState<ToolRunMode>("quick_chat");
   const [skillRecommendations, setSkillRecommendations] = useState<SkillRecommendation[]>([]);
   const [skillRecommendationQuery, setSkillRecommendationQuery] = useState("");
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -625,10 +647,43 @@ export function ChatThread({
   const statEntries = Object.entries(contextInfo?.stats ?? {});
   const statMap = Object.fromEntries(statEntries);
   const attachmentChunkDetails = contextInfo?.details?.attachment_chunks ?? [];
+  const toolRunPolicy = contextInfo?.details?.tool_run_policy ?? null;
+  const toolRunBudget = contextInfo?.details?.tool_run_budget ?? null;
   const formatBooleanStat = (value: string | undefined) =>
     value === "true" || value === "1" ? text.yes : value === "false" || value === "0" ? text.no : value;
   const overviewStatCards = [
     { key: "context_mode", label: text.contextMode, value: statMap.context_mode },
+    {
+      key: "tool_run_mode",
+      label: text.toolRunModeLabel,
+      value: toolRunPolicy?.mode,
+    },
+    {
+      key: "tool_planning_rounds",
+      label: text.toolPlanningRounds,
+      value:
+        toolRunBudget && toolRunPolicy
+          ? `${toolRunBudget.planning_rounds_used ?? 0} / ${toolRunPolicy.max_planning_rounds ?? "-"}`
+          : undefined,
+    },
+    {
+      key: "tool_calls_used",
+      label: text.toolCallsUsed,
+      value:
+        toolRunBudget && toolRunPolicy
+          ? `${toolRunBudget.tool_calls_used ?? 0} / ${toolRunPolicy.max_total_tool_calls ?? "-"}`
+          : undefined,
+    },
+    {
+      key: "tool_remaining_replans",
+      label: text.toolRemainingReplans,
+      value: toolRunBudget ? String(toolRunBudget.remaining_replans ?? 0) : undefined,
+    },
+    {
+      key: "tool_remaining_wall_clock",
+      label: text.toolRemainingWallClock,
+      value: toolRunBudget ? `${Math.ceil((toolRunBudget.remaining_wall_clock_ms ?? 0) / 1000)} s` : undefined,
+    },
     { key: "model_context_window", label: text.modelContextWindow, value: statMap.model_context_window },
     { key: "total_chars_estimate", label: text.totalCharsEstimate, value: statMap.total_chars_estimate },
     { key: "total_tokens_estimate", label: text.totalTokensEstimate, value: statMap.total_tokens_estimate },
@@ -1498,6 +1553,7 @@ export function ChatThread({
         knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
         knowledgeBaseIds: selectedKnowledgeBaseIds,
         skillKey: selectedSkillKey,
+        toolRunMode,
       }, assistantMessageId);
     } catch {
       // localError 已在 helper 中设置
@@ -1580,6 +1636,7 @@ export function ChatThread({
         knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
         knowledgeBaseIds: selectedKnowledgeBaseIds,
         skillKey: selectedSkillKey,
+        toolRunMode,
       }, latestAssistantMessageId);
     } catch {
       // 用户消息在后端已被更新，失败时保留编辑结果，只标记回答失败。
@@ -1675,6 +1732,7 @@ export function ChatThread({
           knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
           knowledgeBaseIds: selectedKnowledgeBaseIds,
           skillKey: selectedSkillKey,
+          toolRunMode,
           messages: [
             {
               role: "user",
@@ -1936,6 +1994,8 @@ export function ChatThread({
           skillRecommendations={skillRecommendations}
           skillRecommendationQuery={skillRecommendationQuery}
           selectedSkillKey={selectedSkillKey}
+          toolRunMode={toolRunMode}
+          onToolRunModeChange={setToolRunMode}
           isWebSearchEnabled={isWebSearchEnabled}
           isDeepThinkingEnabled={isDeepThinkingEnabled}
           contextInfo={contextInfo}

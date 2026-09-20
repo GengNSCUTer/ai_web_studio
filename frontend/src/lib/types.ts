@@ -551,6 +551,32 @@ export type ContextDiagnosticDetails = {
     display_name?: string;
     allowed_tool_keys?: string[];
   } | null;
+  tool_run_policy?: {
+    mode?: string;
+    max_planning_rounds?: number;
+    max_total_tool_calls?: number;
+    max_calls_per_plan?: number;
+    max_parallel_calls?: number;
+    max_replans?: number;
+    max_wall_clock_seconds?: number;
+    max_evidence_chars?: number;
+    synchronous?: boolean;
+  } | null;
+  tool_run_budget?: {
+    mode?: string;
+    planning_rounds_used?: number;
+    max_planning_rounds?: number;
+    tool_calls_used?: number;
+    max_total_tool_calls?: number;
+    remaining_tool_calls?: number;
+    replans_used?: number;
+    max_replans?: number;
+    remaining_replans?: number;
+    max_calls_per_plan?: number;
+    max_parallel_calls?: number;
+    elapsed_ms?: number;
+    remaining_wall_clock_ms?: number;
+  } | null;
 };
 
 export type ContextGovernanceInfo = {

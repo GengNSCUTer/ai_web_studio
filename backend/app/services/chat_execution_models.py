@@ -65,6 +65,7 @@ class ExistingTurnExecutionInput:
     knowledge_base_id: str | None = None
     knowledge_base_ids: list[str] | None = None
     skill_key: str | None = None
+    tool_run_mode: str = "quick_chat"
 
 
 @dataclass

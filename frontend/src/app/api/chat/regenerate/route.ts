@@ -15,6 +15,7 @@ type RegenerateRequestPayload = {
   knowledgeBaseId?: string | null;
   knowledgeBaseIds?: string[];
   skillKey?: string | null;
+  toolRunMode?: "quick_chat" | "guided_research" | "workspace_review" | "edit_proposal";
 };
 
 export async function POST(request: NextRequest) {
@@ -48,5 +49,6 @@ export async function POST(request: NextRequest) {
     knowledge_base_id: payload.knowledgeBaseId || null,
     knowledge_base_ids: payload.knowledgeBaseIds ?? [],
     skill_key: payload.skillKey || null,
+    tool_run_mode: payload.toolRunMode || "quick_chat",
   }, request.signal);
 }

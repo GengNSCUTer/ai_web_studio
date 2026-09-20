@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 
 from app.services.external_context_service import ExternalContextService
 from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.planner import DeterministicToolPlanner
+from app.services.tools.run_policy import ToolRunPolicy, resolve_tool_run_policy
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolCallResult, ToolPlan, ToolTraceEvent
 from app.services.tools.workflow import ToolWorkflowFeedback, ToolWorkflowResult, ToolWorkflowService
 
@@ -74,7 +76,11 @@ class FakeLoopPlanner:
 
 
 class AlwaysContinuePlanner:
+    def __init__(self) -> None:
+        self.calls = 0
+
     async def plan(self, *, query, enabled, runtime, recent_messages=None, observations=None):
+        self.calls += 1
         return ToolPlan(
             plan_id=f"continue-{len(observations or [])}",
             router="fake",
@@ -142,6 +148,18 @@ class FakeQualityFeedbackWorkflow:
                 )
             ],
             events=[ToolTraceEvent(type="tool_workflow_end", payload={"sources_count": 0})],
+        )
+
+
+class SlowWorkflow:
+    """模拟工具阶段超出当前模式墙钟预算。"""
+
+    async def run(self, *, plan, query, call_ledger=None):
+        await asyncio.sleep(1.2)
+        return ToolWorkflowResult(
+            sources=[],
+            selected_tool="web",
+            elapsed_ms=1200,
         )
 
 
@@ -484,6 +502,17 @@ class ToolRouterTest(unittest.TestCase):
                 result.diagnostics["external_tool_workflow_aggregate_status"],
                 "blocked",
             )
+            # 阶段 3.1：外层 Chat 不仅保留旧状态字段，也能取得由 Workflow
+            # 计算的安全汇总，供下一阶段决定停止、澄清或部分回答。
+            aggregate = result.details["tool_workflow_aggregate"]
+            self.assertEqual(aggregate["status"], "blocked")
+            self.assertEqual(aggregate["total_steps"], 1)
+            self.assertEqual(aggregate["blocked_steps"], 1)
+            self.assertFalse(aggregate["has_reliable_completed_result"])
+            self.assertEqual(
+                result.diagnostics["external_tool_workflow_aggregate"],
+                aggregate,
+            )
             feedback = next(
                 observation
                 for observation in planner.observations_seen[2]
@@ -515,6 +544,65 @@ class ToolRouterTest(unittest.TestCase):
             self.assertEqual(terminal[0].payload["max_rounds"], 5)
 
         import asyncio
+
+        asyncio.run(run_test())
+
+    def test_guided_research_can_use_eight_bounded_rounds(self) -> None:
+        async def run_test() -> None:
+            planner = AlwaysContinuePlanner()
+            service = ExternalContextService(
+                planner=planner,
+                workflow=FakeLoopWorkflow(),
+                run_policy=resolve_tool_run_policy("guided_research"),
+            )
+
+            result = await service.build_context(
+                query="持续收集公开资料",
+                enabled=True,
+                max_chars=2000,
+            )
+
+            self.assertEqual(planner.calls, 8)
+            self.assertEqual(result.diagnostics["external_agent_terminal_reason"], "max_rounds_reached")
+            self.assertEqual(result.diagnostics["external_tool_next_action"], "stop")
+            policy = result.diagnostics["external_tool_run_policy"]
+            budget = result.diagnostics["external_tool_run_budget"]
+            self.assertEqual(policy["mode"], "guided_research")
+            self.assertEqual(policy["max_planning_rounds"], 8)
+            self.assertEqual(budget["planning_rounds_used"], 8)
+            terminal = [event for event in result.tool_events if event.type == "tool_agent_terminal"]
+            self.assertEqual(terminal[-1].payload["budget"]["max_planning_rounds"], 8)
+
+        asyncio.run(run_test())
+
+    def test_tool_wall_clock_budget_stops_workflow_before_followup(self) -> None:
+        async def run_test() -> None:
+            policy = ToolRunPolicy(
+                mode="quick_chat",
+                max_planning_rounds=5,
+                max_total_tool_calls=10,
+                max_calls_per_plan=3,
+                max_parallel_calls=2,
+                max_replans=4,
+                max_wall_clock_seconds=1,
+                max_evidence_chars=6000,
+            )
+            service = ExternalContextService(
+                planner=AlwaysContinuePlanner(),
+                workflow=SlowWorkflow(),
+                run_policy=policy,
+            )
+
+            result = await service.build_context(
+                query="慢速工具",
+                enabled=True,
+                max_chars=2000,
+            )
+
+            self.assertEqual(result.diagnostics["external_agent_terminal_reason"], "tool_wall_clock_budget_exhausted")
+            self.assertEqual(result.diagnostics["external_tool_next_action"], "stop")
+            self.assertTrue(any("允许时长" in notice for notice in result.notices))
+            self.assertTrue(any(event.type == "tool_agent_budget_timeout" for event in result.tool_events))
 
         asyncio.run(run_test())
 

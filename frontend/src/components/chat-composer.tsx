@@ -25,6 +25,7 @@ type StatCard = {
   label: string;
   value?: string;
 };
+type ToolRunMode = "quick_chat" | "guided_research" | "workspace_review" | "edit_proposal";
 
 type ChatComposerText = {
   inputPlaceholder: string;
@@ -36,6 +37,11 @@ type ChatComposerText = {
   noKnowledgeBase: string;
   skill: string;
   noSkill: string;
+  toolRunMode: string;
+  toolRunModeQuick: string;
+  toolRunModeResearch: string;
+  toolRunModeReview: string;
+  toolRunModeEdit: string;
   stopGenerating: string;
   sending: string;
   send: string;
@@ -66,6 +72,7 @@ type ChatComposerProps = {
   skillRecommendations: SkillRecommendation[];
   skillRecommendationQuery: string;
   selectedSkillKey: string | null;
+  toolRunMode: ToolRunMode;
   isWebSearchEnabled: boolean;
   isDeepThinkingEnabled: boolean;
   contextInfo: ContextGovernanceInfo | null;
@@ -85,6 +92,7 @@ type ChatComposerProps = {
   onRemoveUploadedItem: (itemId: string) => void;
   onSelectedKnowledgeBaseIdsChange: (knowledgeBaseIds: string[]) => void;
   onSelectedSkillKeyChange: (skillKey: string | null) => void;
+  onToolRunModeChange: (mode: ToolRunMode) => void;
   onWebSearchEnabledChange: (enabled: boolean) => void;
   onDeepThinkingEnabledChange: (enabled: boolean) => void;
   onToggleContextPanel: () => void;
@@ -110,6 +118,7 @@ export function ChatComposer({
   skillRecommendations,
   skillRecommendationQuery,
   selectedSkillKey,
+  toolRunMode,
   isWebSearchEnabled,
   isDeepThinkingEnabled,
   contextInfo,
@@ -129,6 +138,7 @@ export function ChatComposer({
   onRemoveUploadedItem,
   onSelectedKnowledgeBaseIdsChange,
   onSelectedSkillKeyChange,
+  onToolRunModeChange,
   onWebSearchEnabledChange,
   onDeepThinkingEnabledChange,
   onToggleContextPanel,
@@ -344,6 +354,22 @@ export function ChatComposer({
                   </div>
                 ) : null}
               </div>
+              <label className="tool-chip inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs text-[var(--ink-soft)]">
+                <span className="sr-only">{text.toolRunMode}</span>
+                <select
+                  aria-label={text.toolRunMode}
+                  data-testid="tool-run-mode-selector"
+                  value={toolRunMode}
+                  onChange={(event) => onToolRunModeChange(event.target.value as ToolRunMode)}
+                  disabled={isEditingUserMessage || isGenerating}
+                  className="max-w-[13rem] cursor-pointer bg-transparent text-xs outline-none disabled:cursor-not-allowed"
+                >
+                  <option value="quick_chat">{text.toolRunModeQuick}</option>
+                  <option value="guided_research">{text.toolRunModeResearch}</option>
+                  <option value="workspace_review">{text.toolRunModeReview}</option>
+                  <option value="edit_proposal">{text.toolRunModeEdit}</option>
+                </select>
+              </label>
               <button
                 type="button"
                 onClick={() => onWebSearchEnabledChange(!isWebSearchEnabled)}

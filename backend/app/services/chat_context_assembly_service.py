@@ -24,6 +24,7 @@ from app.services.prompt_builder_service import ContextPromptBuilder
 from app.services.provider_capabilities import resolve_provider_capabilities
 from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.planner import PlannerRuntime
+from app.services.tools.run_policy import resolve_tool_run_policy
 
 
 def clean_optional_str(value: str | None) -> str | None:
@@ -141,6 +142,7 @@ class ChatContextAssemblyService:
         knowledge_base_id: str | None = None,
         knowledge_base_ids: list[str] | None = None,
         skill_context: SkillExecutionContext | None = None,
+        tool_run_mode: str = "quick_chat",
     ) -> ChatExecutionContext:
         # 这是 Chat prepare 阶段的核心方法：收集所有上下文来源，构造最终 prompt，并返回给流式执行层。
         query = getattr(user_message, "content", "") or ""
@@ -170,6 +172,7 @@ class ChatContextAssemblyService:
             max_attachment_chars=runtime.budget.max_attachment_chars,
             runtime=runtime,
             skill_context=skill_context,
+            tool_run_mode=tool_run_mode,
         )
         # 知识库上下文来自用户显式选择的知识库；检索日志会在后面绑定到本轮 user/assistant message。
         knowledge_context_result = await KnowledgeContextService(
@@ -271,6 +274,8 @@ class ChatContextAssemblyService:
             "tool_plan": external_context_result.details.get("tool_plan"),
             "tool_events": external_context_result.details.get("tool_events", []),
             "active_skill": external_context_result.details.get("active_skill"),
+            "tool_run_policy": external_context_result.details.get("tool_run_policy"),
+            "tool_run_budget": external_context_result.details.get("tool_run_budget"),
         }
 
         return ChatExecutionContext(
@@ -377,14 +382,26 @@ class ChatContextAssemblyService:
         max_attachment_chars: int,
         runtime: ChatRuntimeConfig,
         skill_context: SkillExecutionContext | None = None,
+        tool_run_mode: str = "quick_chat",
     ) -> object:
         # 工具层的输入不只是当前 query，还包含 recent_messages 和 planner_runtime。
         # 这让 LLM planner 可以根据上下文判断是否需要多工具调用，而不是纯正则匹配。
-        external_service = ExternalContextService(
-            db=self.db,
-            user_id=self.user_id,
-            project_id=getattr(conversation, "project_id", None),
-        )
+        # 真实服务支持运行模式；测试替身和第三方扩展可能仍是旧构造协议，保留兼容入口。
+        try:
+            external_service = ExternalContextService(
+                db=self.db,
+                user_id=self.user_id,
+                project_id=getattr(conversation, "project_id", None),
+                run_policy=resolve_tool_run_policy(tool_run_mode),
+            )
+        except TypeError as exc:
+            if "run_policy" not in str(exc):
+                raise
+            external_service = ExternalContextService(
+                db=self.db,
+                user_id=self.user_id,
+                project_id=getattr(conversation, "project_id", None),
+            )
         # 将聊天归属附加到真实 Executor；测试替身和自定义 ExternalContextService
         # 可以不实现该内部属性，保持旧扩展接口兼容。
         executor = getattr(external_service, "executor", None)
