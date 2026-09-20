@@ -331,6 +331,7 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
             title="agent-design.md",
             display_text="Durable checkpoint",
             metadata={
+                "tool_key": "workspace.files.search",
                 "file_id": "file-current",
                 "mime_type": "text/markdown",
                 "line_start": 2,
@@ -340,7 +341,11 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
             },
         )
 
-        observations = ExternalContextService._build_observations(round_index=1, sources=[source])
+        observations = ExternalContextService._build_observations(
+            round_index=1,
+            sources=[source],
+            registry=ToolCatalog(),
+        )
 
         self.assertEqual(observations[0]["metadata"]["file_id"], "file-current")
         self.assertNotIn("storage_key", observations[0]["metadata"])

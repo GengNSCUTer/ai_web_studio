@@ -22,6 +22,7 @@ from app.services.tools.workflow import (
     decide_workflow_action,
     ToolWorkflowService,
 )
+from app.services.tools.observation_projection import PlannerObservationProjection
 
 
 class ExternalContextService:
@@ -290,7 +291,13 @@ class ExternalContextService:
             error_message = workflow_result.error_message or error_message
             workflow_aggregate_status = workflow_result.aggregate_status
             workflow_aggregate = workflow_result.aggregate
-            observations.extend(self._build_observations(round_index=round_index, sources=workflow_result.sources))
+            observations.extend(
+                self._build_observations(
+                    round_index=round_index,
+                    sources=workflow_result.sources,
+                    registry=self.registry,
+                )
+            )
             quality_feedback = list(getattr(workflow_result, "feedback", []) or [])
             quality_observations = [
                 feedback.to_planner_observation(round_index=round_index)
@@ -539,46 +546,14 @@ class ExternalContextService:
         )
 
     @staticmethod
-    def _build_observations(*, round_index: int, sources: list) -> list[dict]:
-        allowed_metadata_keys = {
-            "call_id",
-            "tool_key",
-            "city",
-            "province",
-            "district",
-            "address",
-            "name",
-            "domain",
-            "origin",
-            "destination",
-            "mode",
-            # Workspace file tools expose an opaque ProjectFile id, never a path
-            # or storage key. Keeping it in the bounded observation lets round 2
-            # read a specific file after list/search discovered it.
-            "file_id",
-            "mime_type",
-            "line_start",
-            "line_end",
-        }
-        observations: list[dict] = []
-        for index, source in enumerate(sources[:8], start=1):
-            raw_metadata = getattr(source, "metadata", {})
-            safe_metadata = {
-                key: str(value)[:240]
-                for key, value in (raw_metadata.items() if isinstance(raw_metadata, dict) else [])
-                if key in allowed_metadata_keys and isinstance(value, (str, int, float, bool))
-            }
-            observations.append(
-                {
-                    "round": round_index,
-                    "index": index,
-                    "source_type": getattr(source, "source_type", ""),
-                    "provider": getattr(source, "provider", ""),
-                    "title": getattr(source, "title", ""),
-                    "display_text": str(getattr(source, "display_text", ""))[:1200],
-                    # Never send metadata.raw or nested remote payloads back to the
-                    # Planner; observations are untrusted evidence, not instructions.
-                    "metadata": safe_metadata,
-                }
-            )
-        return observations
+    def _build_observations(
+        *,
+        round_index: int,
+        sources: list,
+        registry: ToolCatalog | None = None,
+    ) -> list[dict]:
+        return PlannerObservationProjection.project_sources(
+            round_index=round_index,
+            sources=sources,
+            definition_resolver=registry.get_or_none if registry is not None else None,
+        )

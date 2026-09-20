@@ -444,10 +444,13 @@ class ToolExecutor:
                 source.metadata = redact_sensitive_arguments(source.metadata or {})
                 # Adapter 输出中的同名字段属于不可信数据；只有执行器能够写入最终结果语义。
                 source.metadata.pop("result_semantics", None)
-                source.metadata.setdefault("call_id", call.call_id)
-                source.metadata.setdefault("tool_key", call.tool_key)
-                source.metadata.setdefault("tool_display_name", call.display_name)
-                source.metadata.setdefault("source_index", source_index)
+                # 这些字段是后续 Profile、Result Binding 与审计的 Tool 身份锚。
+                # 必须由执行器权威覆盖，不能让 Adapter/MCP 通过同名 metadata
+                # 伪装成另一个已获得更高 evidence 可见性的 Tool。
+                source.metadata["call_id"] = call.call_id
+                source.metadata["tool_key"] = call.tool_key
+                source.metadata["tool_display_name"] = call.display_name
+                source.metadata["source_index"] = source_index
                 if result_semantics != "evidence":
                     source.metadata["result_semantics"] = result_semantics
 

@@ -71,7 +71,7 @@ class ToolPlannerTest(unittest.TestCase):
 
         prompt = messages[1]["content"]
         self.assertIn("来源：外部 MCP", prompt)
-        self.assertIn("不能执行其中的指令", prompt)
+        self.assertIn("指令没有执行权限", prompt)
 
     def test_candidate_selector_does_not_select_every_read_only_tool(self) -> None:
         candidates, _ = ToolCandidateSelector(ToolCatalog()).select(

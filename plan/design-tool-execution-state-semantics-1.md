@@ -91,14 +91,14 @@ tags: [architecture, tool-workflow, agent-runtime, safety, durable-run]
 
 | Goal | Description | Completed | Date |
 |------|-------------|-----------|------|
-| GOAL-004 | 让多 Tool 并发任务以可解释的 `succeeded/partial/blocked/failed` 聚合状态收口，并只让相关依赖受到失败影响。 | ✅ | 2026-09-15 |
+| GOAL-004 | 让多 Tool 并发任务以可解释的 `succeeded/partial/blocked/failed` 聚合状态收口，并只让相关依赖受到失败影响。 | ✅ | 2026-09-20 |
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-015 | 在同步 Workflow 中基于 Step Outcome 计算 Run aggregate，区分 valid evidence、受控失败摘要、等待审批和被阻断的下游；`tool_workflow_end` 使用稳定 aggregate status，而非“是否存在 source”。 | ✅ | 2026-09-15 |
 | TASK-016 | 为独立分支定义默认软失败策略：成功分支可用于最终回答，失败分支只产生安全说明；严格 `depends_on` 仍硬阻断。不得接受 Planner 把安全关键依赖降级为可选的请求。 | ✅ | 2026-09-15 |
 | TASK-017 | 在 `ExternalContextService` 中将 aggregate 状态映射为 `finalize_partial/replan/clarify/stop`；最终回答只接收 valid evidence，用户可看到简短、脱敏的不可用说明。 | ✅ | 2026-09-17 |
-| TASK-018 | 为路线/天气/搜索等并发成功与单路失败、全路失败、严格下游依赖、等待审批四种组合建立端到端单测。 |  |  |
+| TASK-018 | 为路线/天气/搜索等并发成功与单路失败、全路失败、严格下游依赖、等待审批四种组合建立端到端单测。 | ✅ | 2026-09-20 |
 
 ### Implementation Phase 4 — Tool Evidence Prompt Injection 边界
 
@@ -109,6 +109,8 @@ tags: [architecture, tool-workflow, agent-runtime, safety, durable-run]
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
 | TASK-019 | 定义 `PlannerObservationProjection`，按 Tool 类型输出白名单事实。网页/文档正文不再作为下一轮 Planner 的默认原文观察；确有审阅需求时使用受限摘录和明确的 untrusted evidence 标签。 |  |  |
+| TASK-019a | 阶段 4.1：先实现默认失败关闭的 projection 基础。下一轮 Planner 只接收平台生成摘要和按 `source_type` 白名单的标量事实；不传标题、正文、`display_text`、URL 或嵌套 raw metadata。受限摘录策略留待后续独立小步。 | ✅ | 2026-09-20 |
+| TASK-019b | 阶段 4.2：仅为项目内固定 `web.tavily.search` 的 canonical content 提供受限摘录。摘录绑定 provider/source_type/tool_key，最多两条、每条最多 240 字符；疑似控制指令默认抑制，动态 MCP、工作区文件及其它 Tool 仍无摘录。 | ✅ | 2026-09-20 |
 | TASK-020 | 调整 `ExternalContextService._build_observations()` 与 Planner prompt 组装：禁止把未经 projection 的 `display_text`、嵌套 raw metadata、远端 URL/异常正文交给 Planner。 |  |  |
 | TASK-021 | 保持最终回答的引用能力，但在 `formatter.py` / `prompt_builder_service.py` 强化 evidence boundary；外部文本不能改变 Tool allowlist、权限、审批、预算、System 指令或用户身份。 |  |  |
 | TASK-022 | 新增恶意网页、恶意工作区文档、恶意 MCP 返回的回归测试，验证它们不能引导 Planner 调用未授权 Tool、提升权限或泄露数据。 |  |  |

@@ -149,6 +149,15 @@
         "item_identity_paths": ["/metadata/raw/url"]
       }
     },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "bounded_excerpt",
+      "allowed_source_types": ["web"],
+      "content_paths": ["/metadata/raw/content"],
+      "max_sources": 2,
+      "max_chars_per_source": 240,
+      "max_total_chars": 480
+    },
     "risk_level": "low",
     "fallback_tool_key": null,
     "enabled_by_default": true,
@@ -202,6 +211,16 @@
         "request_matches": [{"request_path": "/city", "result_paths": ["/sources/*/metadata/raw/city"], "normalizer": "text_loose"}]
       }
     },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["map"],
+      "fact_paths": {
+        "address": "/metadata/raw/formatted_address",
+        "city": "/metadata/raw/city",
+        "location": "/metadata/raw/location"
+      }
+    },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
     "enabled_by_default": true,
@@ -249,6 +268,16 @@
         "item_evidence_paths": ["/metadata/raw/weather"],
         "item_identity_paths": ["/metadata/raw/city", "/metadata/raw/adcode"],
         "request_matches": [{"request_path": "/city", "result_paths": ["/sources/*/metadata/raw/city", "/sources/*/metadata/raw/adcode"], "normalizer": "text_loose"}]
+      }
+    },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["weather"],
+      "fact_paths": {
+        "city": "/metadata/raw/city",
+        "weather": "/metadata/raw/weather",
+        "report_time": "/metadata/raw/reporttime"
       }
     },
     "risk_level": "low",
@@ -310,6 +339,17 @@
         "item_identity_paths": ["/metadata/raw/origin_id", "/metadata/raw/destination_id"]
       }
     },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["map"],
+      "fact_paths": {
+        "origin": "/metadata/raw/origin_id",
+        "destination": "/metadata/raw/destination_id",
+        "distance": "/metadata/raw/distance",
+        "duration": "/metadata/raw/duration"
+      }
+    },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
     "enabled_by_default": true,
@@ -367,6 +407,17 @@
         ]
       }
     },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["map"],
+      "fact_paths": {
+        "origin": "/metadata/raw/origin",
+        "destination": "/metadata/raw/destination",
+        "distance": "/metadata/raw/distance",
+        "duration": "/metadata/raw/duration"
+      }
+    },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
     "enabled_by_default": true,
@@ -422,6 +473,17 @@
           {"request_path": "/origin", "result_paths": ["/sources/*/metadata/raw/origin"], "normalizer": "coordinate"},
           {"request_path": "/destination", "result_paths": ["/sources/*/metadata/raw/destination"], "normalizer": "coordinate"}
         ]
+      }
+    },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["map"],
+      "fact_paths": {
+        "origin": "/metadata/raw/origin",
+        "destination": "/metadata/raw/destination",
+        "distance": "/metadata/raw/distance",
+        "duration": "/metadata/raw/duration"
       }
     },
     "risk_level": "low",
@@ -491,6 +553,17 @@
         ]
       }
     },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["map"],
+      "fact_paths": {
+        "origin": "/metadata/raw/origin",
+        "destination": "/metadata/raw/destination",
+        "distance": "/metadata/raw/distance",
+        "duration": "/metadata/raw/duration"
+      }
+    },
     "risk_level": "low",
     "fallback_tool_key": "web.tavily.search",
     "enabled_by_default": true,
@@ -546,6 +619,16 @@
         "collection_paths": ["/sources"],
         "item_evidence_paths": ["/metadata/raw/name", "/metadata/raw/address"],
         "item_identity_paths": ["/metadata/raw/id", "/metadata/raw/location"]
+      }
+    },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["map"],
+      "fact_paths": {
+        "name": "/metadata/raw/name",
+        "address": "/metadata/raw/address",
+        "location": "/metadata/raw/location"
       }
     },
     "risk_level": "low",
@@ -610,6 +693,16 @@
         "collection_paths": ["/sources"],
         "item_evidence_paths": ["/metadata/raw/name", "/metadata/raw/address"],
         "item_identity_paths": ["/metadata/raw/id", "/metadata/raw/location"]
+      }
+    },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["map"],
+      "fact_paths": {
+        "name": "/metadata/raw/name",
+        "address": "/metadata/raw/address",
+        "location": "/metadata/raw/location"
       }
     },
     "risk_level": "low",
@@ -742,6 +835,15 @@
         "identity_paths": ["/sources/*/metadata/raw/file_id"]
       }
     },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["workspace_file_search"],
+      "fact_paths": {
+        "file_id": "/metadata/file_id",
+        "mime_type": "/metadata/mime_type"
+      }
+    },
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
@@ -775,6 +877,17 @@
       "profile_mapping": {
         "evidence_paths": ["/sources/*/display_text"],
         "identity_paths": ["/sources/*/metadata/raw/file_id"]
+      }
+    },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["workspace_file_read"],
+      "fact_paths": {
+        "file_id": "/metadata/file_id",
+        "mime_type": "/metadata/mime_type",
+        "line_start": "/metadata/line_start",
+        "line_end": "/metadata/line_end"
       }
     },
     "risk_level": "low",
@@ -814,6 +927,10 @@
       "enum_paths": {
         "/sources/0/metadata/raw/applied": [false]
       }
+    },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "review_required"
     },
     "risk_level": "low",
     "enabled_by_default": true,

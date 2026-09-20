@@ -134,10 +134,10 @@ class RecordingMcpHandler(BaseHTTPRequestHandler):
 
 
 class MultiToolPlanner:
-    """固定 Planner，用于验证外层 Chat 如何收口并发与严格依赖。"""
+    """固定 Planner，用于验证多工具组合在 Chat 外层的确定收口。"""
 
-    def __init__(self, *, dependency: bool = False) -> None:
-        self.dependency = dependency
+    def __init__(self, *, scenario: str = "partial") -> None:
+        self.scenario = scenario
 
     async def plan(self, **_: Any) -> ToolPlan:
         weather = PlannedToolCall(
@@ -149,9 +149,20 @@ class MultiToolPlanner:
             confidence=1.0,
             reason="stage 3.4 integration",
             arguments={"city": "不存在的测试城市"},
-            can_parallel=not self.dependency,
+            can_parallel=self.scenario != "waiting_approval",
         )
-        if self.dependency:
+        search = PlannedToolCall(
+            call_id="search",
+            tool_key="web.tavily.search",
+            provider="tavily",
+            category="web_search",
+            display_name="Tavily 搜索",
+            confidence=1.0,
+            reason="independent branch",
+            arguments={"query": "深圳天气", "max_results": 2},
+            can_parallel=True,
+        )
+        if self.scenario in {"dependency_invalid", "waiting_approval"}:
             route = PlannedToolCall(
                 call_id="route",
                 tool_key="amap.maps.direction.driving",
@@ -159,27 +170,14 @@ class MultiToolPlanner:
                 category="map_route",
                 display_name="高德路线",
                 confidence=1.0,
-                reason="depends on weather",
+                reason="depends on the first tool result",
                 arguments={"origin": "深圳", "destination": "广州"},
                 depends_on=["weather"],
                 can_parallel=False,
             )
             calls = [weather, route]
         else:
-            calls = [
-                weather,
-                PlannedToolCall(
-                    call_id="search",
-                    tool_key="web.tavily.search",
-                    provider="tavily",
-                    category="web_search",
-                    display_name="Tavily 搜索",
-                    confidence=1.0,
-                    reason="independent branch",
-                    arguments={"query": "深圳天气", "max_results": 2},
-                    can_parallel=True,
-                ),
-            ]
+            calls = [weather, search]
         return ToolPlan(
             plan_id="stage-3-4-plan",
             router="fixed_integration_planner",
@@ -191,34 +189,81 @@ class MultiToolPlanner:
 
 
 class MultiToolExecutor:
-    """不联网的执行替身，只返回脱敏结果以验证外层状态传播。"""
+    """不联网的执行替身，覆盖阶段 3.4 的组合状态传播。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, scenario: str = "partial") -> None:
+        self.scenario = scenario
         self.calls: list[str] = []
+        self.active_calls = 0
+        self.max_active_calls = 0
 
     async def execute(self, call: PlannedToolCall):
         self.calls.append(call.call_id)
-        source = ExternalSource(
-            source_type=call.category,
-            provider=call.provider,
-            title=f"{call.display_name}测试结果",
-            display_text=f"{call.display_name}测试证据",
-        )
-        invalid = call.call_id == "weather"
-        result = ToolCallResult(
-            call=call,
-            status="success",
-            sources=[source],
-            elapsed_ms=1,
-            quality_status="invalid" if invalid else "valid",
-            quality_reasons=["test_quality_failure"] if invalid else [],
-        )
-        return result, [
-            ToolTraceEvent(
-                type="tool_call_end",
-                payload={"call_id": call.call_id, "tool_key": call.tool_key, "status": "success"},
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        # 让并发全成功用例能够验证实际并发，而不只检查 Plan 中的标志位。
+        if self.scenario == "all_success":
+            await asyncio.sleep(0.01)
+        try:
+            if self.scenario == "all_failed":
+                return (
+                    ToolCallResult(
+                        call=call,
+                        status="failed",
+                        sources=[],
+                        elapsed_ms=1,
+                        error_message="模拟工具不可用",
+                    ),
+                    [],
+                )
+
+            if self.scenario == "waiting_approval" and call.call_id == "weather":
+                return (
+                    ToolCallResult(
+                        call=call,
+                        status="confirmation_required",
+                        sources=[
+                            ExternalSource(
+                                source_type="workspace_file_edit_preview",
+                                provider="workspace",
+                                title="待确认的修改提案",
+                                display_text="这是尚未写入的受控修改预览。",
+                            )
+                        ],
+                        elapsed_ms=1,
+                        error_message="等待用户确认",
+                    ),
+                    [
+                        ToolTraceEvent(
+                            type="tool_confirmation_required",
+                            payload={"call_id": call.call_id, "status": "waiting_approval"},
+                        )
+                    ],
+                )
+
+            source = ExternalSource(
+                source_type=call.category,
+                provider=call.provider,
+                title=f"{call.display_name}测试结果",
+                display_text=f"{call.display_name}测试证据",
             )
-        ]
+            invalid = self.scenario in {"partial", "dependency_invalid"} and call.call_id == "weather"
+            result = ToolCallResult(
+                call=call,
+                status="success",
+                sources=[source],
+                elapsed_ms=1,
+                quality_status="invalid" if invalid else "valid",
+                quality_reasons=["test_quality_failure"] if invalid else [],
+            )
+            return result, [
+                ToolTraceEvent(
+                    type="tool_call_end",
+                    payload={"call_id": call.call_id, "tool_key": call.tool_key, "status": "success"},
+                )
+            ]
+        finally:
+            self.active_calls -= 1
 
 
 class ToolIntegrationTest(unittest.TestCase):
@@ -317,14 +362,14 @@ class ToolIntegrationTest(unittest.TestCase):
 
     def test_external_context_keeps_independent_success_when_one_branch_is_invalid(self) -> None:
         catalog = ToolCatalog()
-        executor = MultiToolExecutor()
+        executor = MultiToolExecutor(scenario="partial")
         workflow = ToolWorkflowService(executor=executor, registry=catalog)
         result = asyncio.run(
             ExternalContextService(
                 registry=catalog,
                 executor=executor,
                 workflow=workflow,
-                planner=MultiToolPlanner(),
+                planner=MultiToolPlanner(scenario="partial"),
             ).build_context(query="验证独立分支", enabled=True, max_chars=2000)
         )
 
@@ -336,14 +381,14 @@ class ToolIntegrationTest(unittest.TestCase):
 
     def test_external_context_blocks_strict_dependent_tool_after_invalid_upstream(self) -> None:
         catalog = ToolCatalog()
-        executor = MultiToolExecutor()
+        executor = MultiToolExecutor(scenario="dependency_invalid")
         workflow = ToolWorkflowService(executor=executor, registry=catalog)
         result = asyncio.run(
             ExternalContextService(
                 registry=catalog,
                 executor=executor,
                 workflow=workflow,
-                planner=MultiToolPlanner(dependency=True),
+                planner=MultiToolPlanner(scenario="dependency_invalid"),
             ).build_context(query="验证严格依赖", enabled=True, max_chars=2000)
         )
 
@@ -351,6 +396,74 @@ class ToolIntegrationTest(unittest.TestCase):
         self.assertEqual(result.diagnostics["external_tool_next_action"], "clarify")
         self.assertEqual(executor.calls.count("route"), 0)
         self.assertIn("weather", executor.calls)
+
+    def test_external_context_keeps_all_parallel_successful_results(self) -> None:
+        """两个独立工具均成功时，Chat 应保留全部有效证据并真正并发执行。"""
+
+        catalog = ToolCatalog()
+        executor = MultiToolExecutor(scenario="all_success")
+        workflow = ToolWorkflowService(executor=executor, registry=catalog)
+        result = asyncio.run(
+            ExternalContextService(
+                registry=catalog,
+                executor=executor,
+                workflow=workflow,
+                planner=MultiToolPlanner(scenario="all_success"),
+            ).build_context(query="验证并发全成功", enabled=True, max_chars=2000)
+        )
+
+        self.assertEqual(result.diagnostics["external_tool_workflow_aggregate_status"], "succeeded")
+        self.assertEqual(result.diagnostics["external_tool_next_action"], "stop")
+        self.assertEqual({source.source_type for source in result.sources}, {"weather", "web_search"})
+        self.assertEqual(set(executor.calls), {"weather", "search"})
+        self.assertGreaterEqual(executor.max_active_calls, 2)
+
+    def test_external_context_stops_without_evidence_after_all_independent_branches_fail(self) -> None:
+        """全路失败可受限重规划，但耗尽轮次后不得伪造部分回答。"""
+
+        catalog = ToolCatalog()
+        executor = MultiToolExecutor(scenario="all_failed")
+        workflow = ToolWorkflowService(executor=executor, registry=catalog)
+        result = asyncio.run(
+            ExternalContextService(
+                registry=catalog,
+                executor=executor,
+                workflow=workflow,
+                planner=MultiToolPlanner(scenario="all_failed"),
+            ).build_context(query="验证全路失败", enabled=True, max_chars=2000)
+        )
+
+        self.assertEqual(result.diagnostics["external_tool_workflow_aggregate_status"], "failed")
+        self.assertEqual(result.diagnostics["external_tool_next_action"], "stop")
+        self.assertEqual(result.diagnostics["external_agent_terminal_reason"], "max_rounds_reached")
+        self.assertEqual(result.sources, [])
+        self.assertEqual(set(executor.calls), {"weather", "search"})
+        self.assertEqual(
+            result.diagnostics["external_tool_run_budget"]["planning_rounds_used"],
+            result.diagnostics["external_tool_run_budget"]["max_planning_rounds"],
+        )
+
+    def test_external_context_waits_for_confirmation_and_blocks_dependent_tool(self) -> None:
+        """确认前只展示草案，并阻断依赖步骤与后续自动执行。"""
+
+        catalog = ToolCatalog()
+        executor = MultiToolExecutor(scenario="waiting_approval")
+        workflow = ToolWorkflowService(executor=executor, registry=catalog)
+        result = asyncio.run(
+            ExternalContextService(
+                registry=catalog,
+                executor=executor,
+                workflow=workflow,
+                planner=MultiToolPlanner(scenario="waiting_approval"),
+            ).build_context(query="验证等待确认", enabled=True, max_chars=2000)
+        )
+
+        self.assertEqual(result.diagnostics["external_tool_workflow_aggregate_status"], "waiting_approval")
+        self.assertEqual(result.diagnostics["external_tool_next_action"], "clarify")
+        self.assertEqual(result.diagnostics["external_agent_terminal_reason"], "waiting_approval")
+        self.assertEqual(executor.calls, ["weather"])
+        self.assertNotIn("route", executor.calls)
+        self.assertEqual(len(result.sources), 1)
 
 
 if __name__ == "__main__":

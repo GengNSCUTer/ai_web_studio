@@ -1742,12 +1742,13 @@ class KnowledgeServiceTest(unittest.TestCase):
             KnowledgeEvalCaseCreate(query="evaluation error", expected_chunk_id=expected_chunk.id),
         )
 
-        outcome = service.run_eval(
-            knowledge_base.id,
-            eval_set.id,
-            self.user.id,
-            KnowledgeEvalRunRequest(top_k=3),
-        )
+        with self.assertLogs("app.services.knowledge_evaluation_service", level="WARNING") as captured:
+            outcome = service.run_eval(
+                knowledge_base.id,
+                eval_set.id,
+                self.user.id,
+                KnowledgeEvalRunRequest(top_k=3),
+            )
 
         assert outcome is not None
         self.assertEqual(outcome.run.status, "partial")
@@ -1755,6 +1756,8 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertNotIn("provider.internal", outcome.run.metrics["case_errors"][0]["message"])
         self.assertNotIn("secret-value", outcome.run.metrics["case_errors"][0]["message"])
         self.assertNotIn("provider.internal", outcome.run.error_message or "")
+        self.assertNotIn("provider.internal", "\n".join(captured.output))
+        self.assertNotIn("secret-value", "\n".join(captured.output))
 
     def test_eval_run_overrides_are_detached_and_snapshotted(self) -> None:
         knowledge_base, document, chunk_repo, setting_service = self._create_indexed_markdown_knowledge_base(
@@ -3173,21 +3176,24 @@ class KnowledgeServiceTest(unittest.TestCase):
             content="A retrieval error must not expose provider details.",
         )
 
-        result = asyncio.run(
-            KnowledgeContextService(
-                db=self.db,
-                user_id=self.user.id,
-                index_service=FailingKnowledgeIndexService(),  # type: ignore[arg-type]
-            ).build_context(
-                knowledge_base_id=knowledge_base.id,
-                query="retrieval error",
+        with self.assertLogs("app.services.knowledge_context_service", level="WARNING") as captured:
+            result = asyncio.run(
+                KnowledgeContextService(
+                    db=self.db,
+                    user_id=self.user.id,
+                    index_service=FailingKnowledgeIndexService(),  # type: ignore[arg-type]
+                ).build_context(
+                    knowledge_base_id=knowledge_base.id,
+                    query="retrieval error",
+                )
             )
-        )
 
         self.assertEqual(result.diagnostics["knowledge_retrieval_error"], 1)
         self.assertIn("检索失败", result.notices[0])
         self.assertNotIn("provider.internal", result.notices[0])
         self.assertNotIn("secret-value", result.notices[0])
+        self.assertNotIn("provider.internal", "\n".join(captured.output))
+        self.assertNotIn("secret-value", "\n".join(captured.output))
 
     def test_context_stats_header_supports_unicode_values(self) -> None:
         encoded = _stringify_stats(

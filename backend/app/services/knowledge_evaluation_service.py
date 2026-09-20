@@ -287,11 +287,13 @@ class KnowledgeEvaluationService:
                     retrieved = []
                     failure_count += 1
                     error_code = classify_knowledge_error(exc)
-                    logger.exception(
-                        "knowledge evaluation case failed: run_id=%s case_id=%s error_code=%s",
+                    # Provider 异常可能含 URL、查询参数或凭据；不可把 traceback 原样写入日志。
+                    logger.warning(
+                        "knowledge evaluation case failed: run_id=%s case_id=%s error_code=%s exception_type=%s",
                         run.id,
                         case.id,
                         error_code,
+                        type(exc).__name__,
                     )
                     case_errors.append(
                         {
@@ -412,10 +414,12 @@ class KnowledgeEvaluationService:
         except Exception as exc:
             run.status = "failed"
             error_code = classify_knowledge_error(exc)
-            logger.exception(
-                "knowledge evaluation run failed: run_id=%s error_code=%s",
+            # 同样避免让不可控异常正文进入运行日志。
+            logger.warning(
+                "knowledge evaluation run failed: run_id=%s error_code=%s exception_type=%s",
                 run.id,
                 error_code,
+                type(exc).__name__,
             )
             run.error_message = public_knowledge_error_message("evaluation_failed")
             run.finished_at = datetime.now(timezone.utc)

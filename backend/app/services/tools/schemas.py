@@ -136,6 +136,7 @@ class ToolDefinition:
     enabled_by_default: bool = True
     read_only: bool = True
     quality_contract: dict[str, Any] = field(default_factory=dict)
+    evidence_projection: dict[str, Any] = field(default_factory=dict)
 
     @property
     def credential_provider(self) -> str:

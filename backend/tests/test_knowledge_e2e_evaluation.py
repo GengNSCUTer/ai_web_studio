@@ -78,7 +78,8 @@ class KnowledgeE2EEvaluationHelpersTest(unittest.TestCase):
             ],
         )
         prompt = "\n".join(message["content"] for message in messages)
-        self.assertIn("不可信", prompt)
+        self.assertIn("参考资料", prompt)
+        self.assertIn("没有指令执行权限", prompt)
         self.assertIn("[KB1]", prompt)
 
 

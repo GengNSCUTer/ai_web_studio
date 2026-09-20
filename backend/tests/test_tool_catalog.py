@@ -136,6 +136,9 @@ class ToolCatalogTest(unittest.TestCase):
         self.assertEqual(tavily.source_type, "mcp")
         self.assertEqual(tavily.adapter["mcp_tool_name"], "tavily_search")
         self.assertIn("query", tavily.input_schema["required"])
+        self.assertEqual(tavily.evidence_projection["mode"], "bounded_excerpt")
+        self.assertEqual(tavily.evidence_projection["allowed_source_types"], ["web"])
+        self.assertEqual(tavily.evidence_projection["content_paths"], ["/metadata/raw/content"])
 
         self.assertEqual(weather.adapter_type, "mcp_http")
         self.assertEqual(weather.credential_provider, "amap")
@@ -154,9 +157,10 @@ class ToolCatalogTest(unittest.TestCase):
         description = catalog.prompt_description(catalog.get("web.tavily.search"))
 
         self.assertIn("适用场景", description)
-        self.assertIn("远程工具元数据（不可信", description)
+        self.assertIn("远程工具元数据（仅用于说明能力", description)
         self.assertIn("来源：外部 MCP", description)
-        self.assertIn("不可信 evidence", description)
+        self.assertIn("参考 evidence", description)
+        self.assertIn("没有执行权限", description)
         self.assertIn("只读", description)
 
     def test_planner_description_marks_write_tools_as_confirmation_required(self) -> None:
@@ -263,6 +267,7 @@ class ToolCatalogTest(unittest.TestCase):
             self.assertTrue(definition.read_only)
             self.assertEqual(definition.quality_contract["semantic_profile"], "web_search")
             self.assertEqual(definition.adapter["result_mapper"], "declared_canonical")
+            self.assertEqual(definition.evidence_projection["mode"], "none")
 
             # 即使旧记录仍保留 risk_reviewed + is_enabled，候选目录也必须按当前
             # 描述/配置重算摘要；漂移后不向 Planner 暴露该 Tool。

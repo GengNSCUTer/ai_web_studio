@@ -1,8 +1,8 @@
 """低风险只读 MCP Tool 的接入合同。
 
-本模块只定义并校验接入包，不发送网络请求、不执行映射规则，也不改变 Tool
-是否可被 Planner 选择。声明式 Mapper 的执行、fixture 验证和数据库审核状态
-会在阶段 2.3B/C/D 分别接入，避免“填写一段 JSON 就自动获得执行权限”。
+本模块定义并校验接入包，也在受控的离线 fixture 流程中复用声明式 Mapper、质量门
+和 evidence projection；它不发送网络请求，也不因 fixture 通过就自动改变 Tool
+是否可被 Planner 选择。最终仍需数据库审核状态、当前配置摘要和显式启用。
 """
 
 from __future__ import annotations
@@ -10,10 +10,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from types import SimpleNamespace
 from typing import Any
 
 from app.services.tools.quality import validate_json_pointer, validate_quality_contract
+from app.services.tools.evidence_projection_profile import (
+    validate_evidence_projection_profile,
+)
 
 
 class ToolOnboardingContractError(ValueError):
@@ -35,6 +39,7 @@ _CONTRACT_KEYS = {
     "quality_contract",
     "canonical_mapper",
     "fixture_manifest",
+    "evidence_projection",
 }
 _TOOL_IDENTITY_KEYS = {
     "tool_key",
@@ -63,8 +68,17 @@ _TOOL_KEY = re.compile(r"^[a-z][a-z0-9_.-]{1,219}$")
 _RESERVED_CANONICAL_FIELDS = frozenset({"result_semantics", "raw", "metadata"})
 _FIXTURE_BUNDLE_KEYS = {"format", "cases"}
 _FIXTURE_CASE_KEYS = {"id", "response", "expected", "request_context"}
-_FIXTURE_EXPECTED_KEYS = {"quality_status", "source_count"}
+_FIXTURE_EXPECTED_KEYS = {"quality_status", "source_count", "projection_status"}
 _FIXTURE_SOURCE_COUNT_KEYS = {"min", "max"}
+_FIXTURE_PROJECTION_STATUSES = frozenset(
+    {
+        "available",
+        "missing_canonical_content",
+        "empty_canonical_content",
+        "suppressed_suspicious_content",
+        "not_eligible",
+    }
+)
 _MAX_FIXTURE_BUNDLE_BYTES = 512 * 1024
 
 
@@ -77,17 +91,23 @@ class ToolOnboardingContract:
     quality_contract: dict[str, Any]
     canonical_mapper: dict[str, Any]
     fixture_manifest: dict[str, Any]
+    evidence_projection: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """返回稳定、可序列化的合同快照。"""
 
-        return {
+        payload = {
             "version": self.version,
             "tool": dict(self.tool),
             "quality_contract": dict(self.quality_contract),
             "canonical_mapper": dict(self.canonical_mapper),
             "fixture_manifest": dict(self.fixture_manifest),
         }
+        # 旧版 v1 合同没有该字段。缺省时不写入，保证历史合同摘要保持稳定；
+        # 新合同显式声明后才把 Profile 纳入审核摘要和版本漂移判断。
+        if self.evidence_projection is not None:
+            payload["evidence_projection"] = dict(self.evidence_projection)
+        return payload
 
     @property
     def digest(self) -> str:
@@ -153,12 +173,16 @@ def validate_tool_onboarding_contract(value: Any) -> ToolOnboardingContract:
     quality_contract = _validate_onboarding_quality_contract(value.get("quality_contract"))
     canonical_mapper = _validate_canonical_mapper(value.get("canonical_mapper"))
     fixture_manifest = _validate_fixture_manifest(value.get("fixture_manifest"))
+    evidence_projection = _validate_onboarding_evidence_projection(
+        value.get("evidence_projection")
+    )
     return ToolOnboardingContract(
         version=version,
         tool=tool,
         quality_contract=quality_contract,
         canonical_mapper=canonical_mapper,
         fixture_manifest=fixture_manifest,
+        evidence_projection=evidence_projection,
     )
 
 
@@ -227,12 +251,17 @@ def evaluate_tool_onboarding_fixture_bundle(
     contract: ToolOnboardingContract,
     bundle: ToolOnboardingFixtureBundle,
 ) -> ToolOnboardingFixtureEvaluation:
-    """离线执行受限 Mapper 与质量合同，并生成不含原始响应的审核报告。"""
+    """离线执行 Mapper、质量合同和受限 evidence 投影。
+
+    这里的 fixture 结果只用于审核 Profile 是否按声明工作；报告只保留状态和
+    字符数，绝不返回摘录正文、URL 或 Provider 原始响应。
+    """
 
     # 局部导入避免 result_mappers -> onboarding 的运行时循环依赖。该调用不发网络，
     # 只处理 fixture 中已经提供的脱敏 JSON。
     from app.services.tools.quality import evaluate_tool_result_quality
     from app.services.tools.result_mappers import map_declared_mcp_result
+    from app.services.tools.observation_projection import PlannerObservationProjection
 
     reports: list[dict[str, Any]] = []
     all_passed = True
@@ -251,9 +280,19 @@ def evaluate_tool_onboarding_fixture_bundle(
         )
         expected = case["expected"]
         count_rule = expected["source_count"]
+        projection_report = _evaluate_fixture_projection(
+            contract=contract,
+            sources=sources,
+        )
+        expected_projection = expected.get("projection_status")
+        projection_passed = (
+            expected_projection is None
+            or projection_report["projection_status"] == expected_projection
+        )
         passed = (
             quality.status == expected["quality_status"]
             and count_rule["min"] <= len(sources) <= count_rule["max"]
+            and projection_passed
         )
         all_passed = all_passed and passed
         # 原因来自本地 deterministic quality gate；即便如此也只记录受限 reason，
@@ -267,6 +306,11 @@ def evaluate_tool_onboarding_fixture_bundle(
                 "expected_source_count": dict(count_rule),
                 "actual_source_count": len(sources),
                 "reasons": list(quality.reasons[:12]),
+                "projection_status": projection_report["projection_status"],
+                "projection_passed": projection_passed,
+                "excerpt_present": projection_report["excerpt_present"],
+                "excerpt_chars": projection_report["excerpt_chars"],
+                "excerpt_source_count": projection_report["excerpt_source_count"],
             }
         )
     return ToolOnboardingFixtureEvaluation(
@@ -496,6 +540,22 @@ def _validate_onboarding_quality_contract(value: Any) -> dict[str, Any]:
     return normalized
 
 
+def _validate_onboarding_evidence_projection(value: Any) -> dict[str, Any] | None:
+    """校验动态 MCP 的 Profile；正文摘录必须通过 fixture 才能进入审核流程。"""
+
+    if value is None:
+        return None
+    try:
+        return validate_evidence_projection_profile(
+            value,
+            allow_bounded_excerpt=True,
+        )
+    except ValueError as exc:
+        raise ToolOnboardingContractError(
+            f"Invalid onboarding evidence_projection: {exc}"
+        ) from exc
+
+
 def _validate_canonical_mapper(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ToolOnboardingContractError("Tool onboarding canonical_mapper must be an object.")
@@ -671,7 +731,86 @@ def _validate_fixture_expected(
         or maximum > int(contract.canonical_mapper.get("max_items", 1))
     ):
         raise ToolOnboardingContractError("Tool onboarding fixture source_count range is invalid.")
-    return {"quality_status": quality_status, "source_count": {"min": minimum, "max": maximum}}
+    projection_status = value.get("projection_status")
+    profile = contract.evidence_projection
+    if profile and profile.get("mode") == "bounded_excerpt":
+        if projection_status not in _FIXTURE_PROJECTION_STATUSES:
+            raise ToolOnboardingContractError(
+                "Bounded excerpt fixture expected.projection_status must be one of: "
+                + ", ".join(sorted(_FIXTURE_PROJECTION_STATUSES))
+            )
+    elif projection_status is not None:
+        raise ToolOnboardingContractError(
+            "Fixture expected.projection_status is only allowed for bounded_excerpt profiles."
+        )
+    normalized = {
+        "quality_status": quality_status,
+        "source_count": {"min": minimum, "max": maximum},
+    }
+    if projection_status is not None:
+        normalized["projection_status"] = projection_status
+    return normalized
+
+
+def _evaluate_fixture_projection(
+    *,
+    contract: ToolOnboardingContract,
+    sources: list[object],
+) -> dict[str, Any]:
+    """在不暴露正文的前提下验证 Profile 实际投影结果。"""
+
+    from app.services.tools.observation_projection import PlannerObservationProjection
+
+    profile = contract.evidence_projection
+    if not profile or profile.get("mode") != "bounded_excerpt":
+        return {
+            "projection_status": "not_eligible",
+            "excerpt_present": False,
+            "excerpt_chars": 0,
+            "excerpt_source_count": 0,
+        }
+    # Mapper 的输出不携带可由远端伪造的 Tool 身份；fixture 验证时由审核合同
+    # 注入同一固定身份，和 Executor 生产路径的身份覆盖保持一致。
+    bound_sources = []
+    for source in sources:
+        metadata = getattr(source, "metadata", {})
+        metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        metadata["tool_key"] = contract.tool["tool_key"]
+        metadata["call_id"] = "fixture-call"
+        bound_sources.append(replace(source, metadata=metadata))
+    definition = SimpleNamespace(
+        tool_key=contract.tool["tool_key"],
+        provider=contract.tool["provider"],
+        evidence_projection=profile,
+    )
+    observations = PlannerObservationProjection.project_sources(
+        round_index=1,
+        sources=bound_sources,
+        definition_resolver=lambda tool_key: definition if tool_key == definition.tool_key else None,
+    )
+    statuses = [str(item.get("excerpt_status") or "not_eligible") for item in observations]
+    available = [item for item in observations if item.get("excerpt_status") == "available"]
+    if available:
+        status = "available"
+    elif statuses:
+        # 每个 bounded fixture case 通常只有一个 source；多 source 时优先保留
+        # 最明确的安全收口状态，避免报告把抑制内容误报成“缺正文”。
+        status_priority = (
+            "suppressed_suspicious_content",
+            "empty_canonical_content",
+            "missing_canonical_content",
+            "not_eligible",
+        )
+        status = next((item for item in status_priority if item in statuses), "not_eligible")
+    else:
+        status = "not_eligible"
+    excerpt_chars = sum(len(str(item.get("excerpt") or "")) for item in available)
+    return {
+        "projection_status": status,
+        "excerpt_present": bool(available),
+        "excerpt_chars": excerpt_chars,
+        "excerpt_source_count": len(available),
+    }
 
 
 def _validate_fixture_request_context(value: Any) -> dict[str, Any]:

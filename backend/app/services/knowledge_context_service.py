@@ -207,10 +207,12 @@ class KnowledgeContextService:
             )
         except Exception as exc:
             error_code = classify_knowledge_error(exc)
-            logger.exception(
-                "knowledge context retrieval failed: knowledge_base_id=%s error_code=%s",
+            # 异常文本可能带有远端 URL、查询参数或凭据，日志只记录稳定错误码和类型。
+            logger.warning(
+                "knowledge context retrieval failed: knowledge_base_id=%s error_code=%s exception_type=%s",
                 knowledge_base.id,
                 error_code,
+                type(exc).__name__,
             )
             return self._empty(
                 enabled=True,
