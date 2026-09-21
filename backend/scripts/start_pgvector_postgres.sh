@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Keep the PostgreSQL 18 + pgvector candidate isolated from the PostgreSQL 12
-# rollback cluster until the application migration is complete.
+# AI Web Studio 的唯一运行数据库：PostgreSQL 18 + pgvector，固定监听 35433。
+# 旧 PostgreSQL 12 数据目录只保留为离线备份，不在本项目中提供启动入口。
 PG_RUNTIME="${PG_RUNTIME:-/disk2/gengnan/conda_envs/pgvector_runtime}"
 PGDATA="${PGDATA:-/disk2/gengnan/ai_web_studio_runtime/pgdata18}"
 PGLOG="${PGLOG:-/disk2/gengnan/ai_web_studio_runtime/postgres18.log}"

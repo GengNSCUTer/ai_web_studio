@@ -539,6 +539,161 @@ class ToolRouterTest(unittest.TestCase):
         self.assertLessEqual(sum(len(item["excerpt"] or "") for item in available), 2400)
         self.assertTrue(all(len(item["excerpt"] or "") <= 720 for item in available))
 
+    def test_external_sources_dedupe_tracking_url_and_canonical_content(self) -> None:
+        """追踪参数、锚点和跨 Provider 的同正文不能放大同一次回答证据。"""
+        target = []
+        incoming = [
+            ExternalSource(
+                source_type="web",
+                provider="tavily",
+                title="同一网页",
+                display_text="第一份网页内容。" * 8,
+                url="https://Example.test/article?utm_source=feed&id=7#section",
+                metadata={"raw": {"content": "第一份网页内容。" * 8}},
+            ),
+            ExternalSource(
+                source_type="web",
+                provider="another_search",
+                title="同一网页的另一份结果",
+                display_text="来自另一个工具，但 URL 相同。",
+                url="https://example.test/article?id=7",
+                metadata={"raw": {"content": "来自另一个工具，但 URL 相同。"}},
+            ),
+            ExternalSource(
+                source_type="web",
+                provider="another_search",
+                title="重复正文",
+                display_text="完全相同的 canonical 正文。" * 8,
+                metadata={"raw": {"content": "完全相同的 canonical 正文。" * 8}},
+            ),
+            ExternalSource(
+                source_type="web",
+                provider="tavily",
+                title="重复正文副本",
+                display_text="完全相同的 canonical 正文。" * 8,
+                metadata={"raw": {"content": "完全相同的 canonical 正文。" * 8}},
+            ),
+        ]
+
+        added, duplicates = ExternalContextService._merge_sources(target, incoming)
+
+        self.assertEqual(len(added), 2)
+        self.assertEqual(len(target), 2)
+        self.assertEqual(duplicates, 2)
+        self.assertEqual(
+            ExternalContextService._normalize_source_url(
+                "https://Example.test/article?utm_source=feed&id=7#section"
+            ),
+            "https://example.test/article?id=7",
+        )
+
+    def test_external_sources_dedupe_keeps_distinct_short_results(self) -> None:
+        """无 URL 的短结果不能只因 Provider 和类型相同而误合并。"""
+
+        target: list[ExternalSource] = []
+        added, duplicates = ExternalContextService._merge_sources(
+            target,
+            [
+                ExternalSource(
+                    source_type="local_note",
+                    provider="workspace",
+                    title="",
+                    display_text="北京",
+                ),
+                ExternalSource(
+                    source_type="local_note",
+                    provider="workspace",
+                    title="",
+                    display_text="上海",
+                ),
+            ],
+        )
+
+        self.assertEqual(len(added), 2)
+        self.assertEqual(duplicates, 0)
+        self.assertEqual(len(target), 2)
+
+    def test_external_context_replan_does_not_repeat_same_source_observation(self) -> None:
+        """同一来源被重复调用时，下一轮 Planner 不应反复看到同一份证据。"""
+
+        class RepeatingSourcePlanner:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.observations_seen: list[list[dict]] = []
+
+            async def plan(self, *, query, enabled, runtime, recent_messages=None, observations=None):
+                self.calls += 1
+                self.observations_seen.append(list(observations or []))
+                if self.calls >= 3:
+                    return ToolPlan(
+                        plan_id="repeat-source-stop",
+                        router="fake",
+                        external_context_allowed=True,
+                        should_use_tools=False,
+                        calls=[],
+                    )
+                return ToolPlan(
+                    plan_id=f"repeat-source-{self.calls}",
+                    router="fake",
+                    external_context_allowed=True,
+                    should_use_tools=True,
+                    need_more_rounds=True,
+                    calls=[
+                        PlannedToolCall(
+                            call_id=f"search-{self.calls}",
+                            tool_key="web.tavily.search",
+                            provider="tavily",
+                            category="web_search",
+                            display_name="联网搜索",
+                            confidence=0.9,
+                            reason="repeat-source-test",
+                            arguments={"query": query},
+                        )
+                    ],
+                )
+
+        class RepeatingSourceWorkflow:
+            async def run(self, *, plan, query, call_ledger=None):
+                return ToolWorkflowResult(
+                    sources=[
+                        ExternalSource(
+                            source_type="web",
+                            provider="tavily",
+                            title="同一篇网页",
+                            display_text="同一篇网页内容，重复调用时不应重复进入观察列表。" * 4,
+                            url="https://example.test/repeated?utm_campaign=test#answer",
+                            metadata={
+                                "tool_key": "web.tavily.search",
+                                "raw": {"content": "同一篇网页内容，重复调用时不应重复进入观察列表。" * 4},
+                            },
+                        )
+                    ],
+                    selected_tool="web.tavily.search",
+                    elapsed_ms=1,
+                )
+
+        async def run_test() -> None:
+            planner = RepeatingSourcePlanner()
+            result = await ExternalContextService(
+                planner=planner,
+                workflow=RepeatingSourceWorkflow(),
+            ).build_context(
+                query="检查重复来源",
+                enabled=True,
+                max_chars=2000,
+                recent_messages=[],
+            )
+
+            self.assertEqual(planner.calls, 3)
+            self.assertEqual(len(planner.observations_seen[1]), 1)
+            self.assertEqual(len(planner.observations_seen[2]), 1)
+            self.assertEqual(len(result.sources), 1)
+            self.assertEqual(result.diagnostics["external_sources_raw_total"], 2)
+            self.assertEqual(result.diagnostics["external_sources_duplicate_count"], 1)
+            self.assertEqual(result.diagnostics["external_sources_total"], 1)
+
+        asyncio.run(run_test())
+
     def test_external_context_replans_with_bounded_tavily_excerpt(self) -> None:
         """多步研究的第二轮只能收到受限摘录，不会收到原始网页文本。"""
 

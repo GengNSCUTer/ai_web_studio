@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.orm import Session
 
@@ -96,6 +98,9 @@ class ExternalContextService:
                     "external_tool_called": "none",
                     "external_sources_total": 0,
                     "external_sources_included": 0,
+                    "external_sources_raw_total": 0,
+                    "external_sources_duplicate_count": 0,
+                    "external_sources_dedup_strategy": "normalized_url_or_canonical_content_hash",
                     "external_context_chars": 0,
                     "external_context_latency_ms": 0,
                     "external_context_error": 0,
@@ -140,6 +145,8 @@ class ExternalContextService:
         next_action = "stop"
         workflow_aggregate_status = "empty"
         workflow_aggregate = ToolWorkflowAggregate()
+        raw_sources_total = 0
+        duplicate_sources_total = 0
         budget = ToolRunBudget(policy=self.run_policy)
         # One request owns one in-memory ledger. It deliberately ends with this
         # synchronous Chat request; durable retries/replay keep using the
@@ -284,7 +291,9 @@ class ExternalContextService:
                 break
             budget.record_attempted_tool_calls(workflow_result.aggregate.attempted_steps)
             events.extend(workflow_result.events)
-            self._merge_sources(sources, workflow_result.sources)
+            raw_sources_total += len(workflow_result.sources)
+            newly_added_sources, duplicate_count = self._merge_sources(sources, workflow_result.sources)
+            duplicate_sources_total += duplicate_count
             notices.extend(workflow_result.notices)
             total_elapsed_ms += workflow_result.elapsed_ms
             selected_tool = workflow_result.selected_tool
@@ -294,7 +303,8 @@ class ExternalContextService:
             observations.extend(
                 self._build_observations(
                     round_index=round_index,
-                    sources=workflow_result.sources,
+                    # 同一来源在多轮重规划中只投影一次，避免重复占用 Planner 观察预算。
+                    sources=newly_added_sources,
                     registry=self.registry,
                 )
             )
@@ -402,6 +412,9 @@ class ExternalContextService:
                     "external_tool_called": "none",
                     "external_sources_total": 0,
                     "external_sources_included": 0,
+                    "external_sources_raw_total": 0,
+                    "external_sources_duplicate_count": 0,
+                    "external_sources_dedup_strategy": "normalized_url_or_canonical_content_hash",
                     "external_context_chars": 0,
                     "external_context_error": 0,
                     "external_tool_next_action": next_action,
@@ -459,6 +472,9 @@ class ExternalContextService:
                 "external_tool_called": selected_tool,
                 "external_sources_total": len(sources),
                 "external_sources_included": len(included_sources),
+                "external_sources_raw_total": raw_sources_total,
+                "external_sources_duplicate_count": duplicate_sources_total,
+                "external_sources_dedup_strategy": "normalized_url_or_canonical_content_hash",
                 "external_context_chars": len(context_text or ""),
                 "external_context_latency_ms": total_elapsed_ms,
                 "external_context_error": int(bool(error_message and not sources)),
@@ -515,35 +531,76 @@ class ExternalContextService:
         return "工具运行预算已用尽，未继续执行后续调用。"
 
     @staticmethod
-    def _merge_sources(target: list, incoming: list) -> None:
-        """合并同一请求内重复的 evidence，避免受控重规划放大上下文。"""
+    def _merge_sources(target: list, incoming: list) -> tuple[list, int]:
+        """合并同一请求内重复的 evidence，并返回新增来源与重复数量。"""
 
         seen = {
             ExternalContextService._source_identity(source)
             for source in target
         }
+        newly_added: list = []
+        duplicate_count = 0
         for source in incoming:
             identity = ExternalContextService._source_identity(source)
             if identity in seen:
+                duplicate_count += 1
                 continue
             target.append(source)
+            newly_added.append(source)
             seen.add(identity)
+        return newly_added, duplicate_count
 
     @staticmethod
     def _source_identity(source: object) -> tuple[str, ...]:
-        """使用稳定的公开字段去重，不读取或记录 Provider 原始响应。"""
+        """使用规范化 URL 或 canonical 内容摘要去重，不记录原始正文。"""
 
         url = str(getattr(source, "url", None) or "").strip()
-        title = " ".join(str(getattr(source, "title", "") or "").split())
-        display_text = " ".join(str(getattr(source, "display_text", "") or "").split())
         if url:
-            return (str(getattr(source, "provider", "") or ""), url)
+            return ("url", ExternalContextService._normalize_source_url(url))
+
+        metadata = getattr(source, "metadata", {})
+        raw = metadata.get("raw") if isinstance(metadata, dict) else None
+        canonical_text = raw.get("content") if isinstance(raw, dict) else None
+        if not isinstance(canonical_text, str) or not canonical_text.strip():
+            canonical_text = str(getattr(source, "display_text", "") or "")
+        normalized_text = " ".join(canonical_text.split())
+        if len(normalized_text) >= 32:
+            digest = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+            return ("content", digest)
+
+        title = " ".join(str(getattr(source, "title", "") or "").split())
         return (
             str(getattr(source, "provider", "") or ""),
             str(getattr(source, "source_type", "") or ""),
             title,
-            display_text,
+            # 短文本不足以作为跨 Provider 的正文摘要去重依据，但保留它可避免
+            # 多个没有 URL、标题为空的不同结果被误认为同一个来源。
+            normalized_text,
         )
+
+    @staticmethod
+    def _normalize_source_url(value: str) -> str:
+        """去掉 URL fragment 和常见追踪参数，保留实际资源定位参数。"""
+
+        try:
+            parsed = urlsplit(value)
+            query = [
+                (key, item)
+                for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+                if not key.lower().startswith("utm_")
+                and key.lower() not in {"gclid", "fbclid", "msclkid"}
+            ]
+            return urlunsplit(
+                (
+                    parsed.scheme.lower(),
+                    parsed.netloc.lower(),
+                    parsed.path or "/",
+                    urlencode(query, doseq=True),
+                    "",
+                )
+            )
+        except ValueError:
+            return value.strip()
 
     @staticmethod
     def _build_observations(
