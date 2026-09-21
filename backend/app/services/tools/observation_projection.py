@@ -52,8 +52,28 @@ class PlannerObservationProjection:
     ) -> list[dict[str, Any]]:
         """生成不含外部自由文本的 Planner observation 列表。"""
 
+        observations, _ = cls.project_sources_with_diagnostics(
+            round_index=round_index,
+            sources=sources,
+            definition_resolver=definition_resolver,
+        )
+        return observations
+
+    @classmethod
+    def project_sources_with_diagnostics(
+        cls,
+        *,
+        round_index: int,
+        sources: list[object],
+        definition_resolver: Callable[[str], object | None] | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """生成 Planner observation，并返回不含正文的预算诊断。"""
+
         observations: list[dict[str, Any]] = []
         excerpt_usage: dict[str, dict[str, int]] = {}
+        status_counts: dict[str, int] = {}
+        profile_diagnostics: dict[str, dict[str, Any]] = {}
+        source_limit = min(len(sources), cls.MAX_SOURCES)
         for index, source in enumerate(sources[: cls.MAX_SOURCES], start=1):
             source_type = str(getattr(source, "source_type", "") or "unknown")
             provider = str(getattr(source, "provider", "") or "unknown")
@@ -95,7 +115,105 @@ class PlannerObservationProjection:
                     "excerpt_status": excerpt_status,
                 }
             )
-        return observations
+            status_counts[excerpt_status] = status_counts.get(excerpt_status, 0) + 1
+            profile_key = cls._diagnostic_profile_key(
+                source=source,
+            )
+            profile_entry = profile_diagnostics.setdefault(
+                profile_key,
+                cls._new_profile_diagnostics(
+                    profile=profile,
+                    profile_status=profile_status,
+                ),
+            )
+            profile_entry["observed_sources"] += 1
+            profile_entry["status_counts"][excerpt_status] = (
+                profile_entry["status_counts"].get(excerpt_status, 0) + 1
+            )
+            if excerpt is not None:
+                profile_entry["included_sources"] += 1
+                profile_entry["included_chars"] += len(excerpt)
+
+        diagnostics = {
+            "round": round_index,
+            "input_sources": len(sources),
+            "projected_sources": len(observations),
+            "sources_dropped_by_global_limit": max(0, len(sources) - cls.MAX_SOURCES),
+            "global_source_limit": cls.MAX_SOURCES,
+            "status_counts": {
+                **status_counts,
+                **(
+                    {"global_source_limit_reached": len(sources) - cls.MAX_SOURCES}
+                    if len(sources) > cls.MAX_SOURCES
+                    else {}
+                ),
+            },
+            "profiles": profile_diagnostics,
+        }
+        return observations, diagnostics
+
+    @staticmethod
+    def _diagnostic_profile_key(*, source: object) -> str:
+        raw_metadata = getattr(source, "metadata", {})
+        tool_key = raw_metadata.get("tool_key") if isinstance(raw_metadata, dict) else None
+        # 未绑定 Tool 的来源可能来自尚未审核的扩展；不要把其 Provider 名称
+        # 或其它外部字符串写进 diagnostics，避免诊断字段成为数据回流通道。
+        return str(tool_key or "unbound")
+
+    @staticmethod
+    def _new_profile_diagnostics(
+        *,
+        profile: dict[str, Any] | None,
+        profile_status: str,
+    ) -> dict[str, Any]:
+        """建立安全的 Profile 预算摘要，不保留来源内容。"""
+
+        return {
+            "mode": profile.get("mode") if profile else "none",
+            "profile_status": profile_status,
+            "allowed_sources": profile.get("max_sources") if profile else None,
+            "allowed_chars": profile.get("max_total_chars") if profile else None,
+            "max_chars_per_source": profile.get("max_chars_per_source") if profile else None,
+            "observed_sources": 0,
+            "included_sources": 0,
+            "included_chars": 0,
+            "status_counts": {},
+        }
+
+    @classmethod
+    def aggregate_diagnostics(cls, reports: list[dict[str, Any]]) -> dict[str, Any]:
+        """聚合多轮投影诊断，仍只输出计数、预算和有限枚举。"""
+
+        status_counts: dict[str, int] = {}
+        profile_totals: dict[str, dict[str, Any]] = {}
+        for report in reports:
+            for status, count in (report.get("status_counts") or {}).items():
+                status_counts[status] = status_counts.get(status, 0) + int(count)
+            for profile_key, entry in (report.get("profiles") or {}).items():
+                if profile_key not in profile_totals:
+                    target = dict(entry)
+                    target["status_counts"] = dict(entry.get("status_counts") or {})
+                    profile_totals[profile_key] = target
+                    continue
+                target = profile_totals[profile_key]
+                for field in ("observed_sources", "included_sources", "included_chars"):
+                    target[field] = int(target.get(field, 0)) + int(entry.get(field, 0))
+                for status, count in (entry.get("status_counts") or {}).items():
+                    target["status_counts"][status] = (
+                        target["status_counts"].get(status, 0) + int(count)
+                    )
+
+        return {
+            "rounds": len(reports),
+            "input_sources": sum(int(report.get("input_sources", 0)) for report in reports),
+            "projected_sources": sum(int(report.get("projected_sources", 0)) for report in reports),
+            "sources_dropped_by_global_limit": sum(
+                int(report.get("sources_dropped_by_global_limit", 0)) for report in reports
+            ),
+            "global_source_limit": cls.MAX_SOURCES,
+            "status_counts": status_counts,
+            "profiles": profile_totals,
+        }
 
     @classmethod
     def _project_facts(

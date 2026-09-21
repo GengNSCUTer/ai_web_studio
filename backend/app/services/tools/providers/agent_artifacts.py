@@ -14,6 +14,7 @@ class AgentArtifactToolProvider:
 
     MAX_LIST_RESULTS = 20
     MAX_READ_CHARS = 12_000
+    ACCESS_SCOPE = "current_user_current_project"
 
     def __init__(self, *, db: Session | None, user_id: str | None, project_id: str | None) -> None:
         self.db = db
@@ -89,6 +90,7 @@ class AgentArtifactToolProvider:
                                     "step_id": artifact.step_id,
                                     "content_hash": artifact.content_hash,
                                     "char_count": artifact.char_count,
+                                    "access_scope": self.ACCESS_SCOPE,
                                 }
                                 for artifact, _ in rows
                             ]
@@ -127,12 +129,14 @@ class AgentArtifactToolProvider:
                         "run_id": artifact.run_id,
                         "step_id": artifact.step_id,
                         "content_hash": artifact.content_hash,
+                        "access_scope": self.ACCESS_SCOPE,
                         "truncated": truncated,
                         "raw": {
                             "artifact_id": artifact.id,
                             "run_id": artifact.run_id,
                             "step_id": artifact.step_id,
                             "content_hash": artifact.content_hash,
+                            "access_scope": self.ACCESS_SCOPE,
                         },
                     },
                 )

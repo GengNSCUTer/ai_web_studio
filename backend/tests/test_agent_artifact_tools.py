@@ -146,6 +146,14 @@ class AgentArtifactToolProviderTest(unittest.TestCase):
         self.assertEqual(read_result.quality_status, "valid")
         self.assertEqual(read_result.quality_metadata["semantic_profile"], "artifact_read")
         self.assertEqual(read_result.sources[0].metadata["raw"]["artifact_id"], artifact.id)
+        self.assertEqual(
+            read_result.sources[0].metadata["access_scope"],
+            "current_user_current_project",
+        )
+        self.assertEqual(
+            read_result.sources[0].metadata["raw"]["access_scope"],
+            "current_user_current_project",
+        )
 
 
 if __name__ == "__main__":

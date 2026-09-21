@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import difflib
-import hashlib
 import hmac
 import json
 import secrets
@@ -25,6 +24,7 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.project_file import ProjectFile
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
+from app.services.workspace_file_provenance import content_hash, ensure_current_revision
 
 
 def utcnow() -> datetime:
@@ -70,7 +70,7 @@ class AgentRuntimeService:
 
     @staticmethod
     def _hash_text(value: str) -> str:
-        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+        return content_hash(value)
 
     @classmethod
     def _arguments_hash(
@@ -81,6 +81,7 @@ class AgentRuntimeService:
         file_id: str,
         old_string: str,
         new_string: str,
+        expected_revision_id: str | None,
     ) -> str:
         payload = json.dumps(
             {
@@ -90,6 +91,7 @@ class AgentRuntimeService:
                 "file_id": file_id,
                 "old_string": old_string,
                 "new_string": new_string,
+                "expected_revision_id": expected_revision_id,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -110,6 +112,7 @@ class AgentRuntimeService:
         conversation_id: str | None = None,
         assistant_message_id: str | None = None,
         replace_entire_content: bool = False,
+        expected_revision_id: str | None = None,
     ) -> FileEditProposal:
         if not project_id:
             raise AgentRuntimeError("project_required", "文件写入必须关联当前工作区。")
@@ -143,6 +146,9 @@ class AgentRuntimeService:
             assistant_message_id=assistant_message_id,
         )
 
+        base_revision = self._ensure_current_revision(project_file)
+        if expected_revision_id and expected_revision_id != base_revision.id:
+            raise AgentRuntimeError("file_revision_conflict", "文件版本已变化，请重新读取并生成 Diff。")
         original = project_file.parsed_text or ""
         if replace_entire_content:
             updated = new_string
@@ -159,6 +165,7 @@ class AgentRuntimeService:
             file_id=file_id,
             old_string=old_string,
             new_string=new_string,
+            expected_revision_id=expected_revision_id,
         )
         # call_id 由 Planner 生成，跨请求重试时可能变化，不能作为幂等主键。
         # 参数哈希 + 当前基线内容哈希把“同一版本上的同一修改”稳定绑定在一起；
@@ -170,7 +177,6 @@ class AgentRuntimeService:
         if existing_run:
             return self._proposal_for_run(existing_run, user_id)
 
-        base_revision = self._ensure_current_revision(project_file)
         diff_text = "\n".join(
             difflib.unified_diff(
                 original.splitlines(),
@@ -204,7 +210,12 @@ class AgentRuntimeService:
             call_id=call_id,
             tool_key="workspace.files.apply_edit",
             arguments_json=json.dumps(
-                {"file_id": file_id, "old_string": old_string, "new_string": new_string},
+                {
+                    "file_id": file_id,
+                    "old_string": old_string,
+                    "new_string": new_string,
+                    "expected_revision_id": expected_revision_id,
+                },
                 ensure_ascii=False,
             ),
             arguments_hash=arguments_hash,
@@ -593,26 +604,7 @@ class AgentRuntimeService:
         return {"run": run, "steps": steps, "checkpoint": checkpoint, "approvals": approvals, "drafts": drafts}
 
     def _ensure_current_revision(self, project_file: ProjectFile) -> FileRevision:
-        current = project_file.parsed_text or ""
-        current_hash = self._hash_text(current)
-        latest = self.db.scalars(
-            select(FileRevision)
-            .where(FileRevision.project_file_id == project_file.id)
-            .order_by(FileRevision.revision_number.desc())
-            .limit(1)
-        ).first()
-        if latest and latest.content_hash == current_hash:
-            return latest
-        revision = FileRevision(
-            project_file_id=project_file.id,
-            revision_number=(latest.revision_number + 1) if latest else 1,
-            content_hash=current_hash,
-            parsed_text=current,
-            created_by="baseline_sync" if latest else "baseline",
-        )
-        self.db.add(revision)
-        self.db.flush()
-        return revision
+        return ensure_current_revision(db=self.db, project_file=project_file)
 
     def _proposal_for_run(self, run: AgentRun, user_id: str) -> FileEditProposal:
         if run.user_id != user_id:

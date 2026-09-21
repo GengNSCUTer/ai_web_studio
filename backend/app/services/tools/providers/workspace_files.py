@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.project_file import ProjectFile
+from app.services.workspace_file_provenance import current_file_provenance
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolExecutionFeedbackError
 
 
@@ -95,9 +96,19 @@ class WorkspaceFileToolProvider:
                 },
             )
 
-        lines = [
-            f"- id={item.id}; name={item.file_name}; type={item.mime_type or item.kind}; size={item.file_size or 0}"
+        file_records = [
+            {
+                **current_file_provenance(db=self.db, project_file=item),
+                "file_name": item.file_name,
+                "mime_type": item.mime_type or item.kind,
+                "file_size": item.file_size,
+            }
             for item in files
+        ]
+        lines = [
+            f"- id={record['file_id']}; name={record['file_name']}; "
+            f"type={record['mime_type']}; size={record['file_size']}"
+            for record in file_records
         ]
         return (
             [
@@ -106,17 +117,9 @@ class WorkspaceFileToolProvider:
                     provider="workspace",
                     title="工作区文件列表",
                     display_text="\n".join(lines),
-                    metadata={
+                        metadata={
                         "raw": {
-                            "files": [
-                                {
-                                    "file_id": item.id,
-                                    "file_name": item.file_name,
-                                    "mime_type": item.mime_type,
-                                    "file_size": item.file_size,
-                                }
-                                for item in files
-                            ]
+                            "files": file_records
                         }
                     },
                 )
@@ -146,6 +149,7 @@ class WorkspaceFileToolProvider:
         ranked.sort(key=lambda entry: (-entry[0], entry[1].file_name, entry[1].id))
         sources: list[ExternalSource] = []
         for score, item, snippet in ranked[: self.MAX_SEARCH_RESULTS]:
+            provenance = current_file_provenance(db=self.db, project_file=item)
             sources.append(
                 ExternalSource(
                     source_type="workspace_file_search",
@@ -154,9 +158,9 @@ class WorkspaceFileToolProvider:
                     display_text=snippet or "文件名匹配，暂无可用文本片段。",
                     score=score,
                     metadata={
-                        "file_id": item.id,
+                        **provenance,
                         "mime_type": item.mime_type or item.kind,
-                        "raw": {"file_id": item.id, "file_name": item.file_name, "score": score},
+                        "raw": {**provenance, "file_name": item.file_name, "score": score},
                     },
                 )
             )
@@ -199,6 +203,11 @@ class WorkspaceFileToolProvider:
             # Do not distinguish an absent file from another user's file.
             raise ToolExecutionFeedbackError("工作区中未找到该文件。")
         self._ensure_agent_file_allowed(item.file_name)
+        provenance = current_file_provenance(db=self.db, project_file=item)
+        self._ensure_expected_revision(
+            expected_revision_id=call.arguments.get("expected_revision_id"),
+            provenance=provenance,
+        )
         text = (item.parsed_text or "").strip()
         if not text:
             return (
@@ -208,12 +217,12 @@ class WorkspaceFileToolProvider:
                         provider="workspace",
                         title=item.file_name,
                         display_text="目标文件存在，但没有可读取的解析文本。",
-                        metadata={
-                            "file_id": item.id,
+                    metadata={
+                            **provenance,
                             "mime_type": item.mime_type or item.kind,
                             "empty_reason": "parsed_text_empty",
                             "result_semantics": "empty_answer",
-                            "raw": {"file_id": item.id, "content": ""},
+                            "raw": {**provenance, "content": ""},
                         },
                     )
                 ],
@@ -221,6 +230,7 @@ class WorkspaceFileToolProvider:
                     "adapter_type": "workspace_file",
                     "operation": "read",
                     "file_id": item.id,
+                    "revision_id": provenance["revision_id"],
                     "empty": True,
                     "result_semantics": "empty_answer",
                 },
@@ -251,12 +261,12 @@ class WorkspaceFileToolProvider:
                     title=item.file_name,
                     display_text=display_text,
                     metadata={
-                        "file_id": item.id,
+                        **provenance,
                         "mime_type": item.mime_type or item.kind,
                         "line_start": start_index + 1,
                         "line_end": min(end_index, start_index + len(rendered_lines)),
                         "raw": {
-                            "file_id": item.id,
+                            **provenance,
                             "file_name": item.file_name,
                             "line_start": start_index + 1,
                             "line_end": min(end_index, start_index + len(rendered_lines)),
@@ -268,6 +278,7 @@ class WorkspaceFileToolProvider:
                 "adapter_type": "workspace_file",
                 "operation": "read",
                 "file_id": item.id,
+                "revision_id": provenance["revision_id"],
                 "line_start": start_index + 1,
                 "line_end": min(end_index, start_index + len(rendered_lines)),
             },
@@ -287,6 +298,12 @@ class WorkspaceFileToolProvider:
         if not item:
             raise ToolExecutionFeedbackError("工作区中未找到该文件。")
         self._ensure_agent_file_allowed(item.file_name)
+
+        provenance = current_file_provenance(db=self.db, project_file=item)
+        self._ensure_expected_revision(
+            expected_revision_id=call.arguments.get("expected_revision_id"),
+            provenance=provenance,
+        )
 
         original = item.parsed_text or ""
         matches = original.count(old_string)
@@ -322,12 +339,12 @@ class WorkspaceFileToolProvider:
                 f"{diff_text or '[替换后文本无可见差异]'}"
             ),
             metadata={
-                "file_id": item.id,
+                **provenance,
                 "mime_type": item.mime_type or item.kind,
                 "line_start": start_line,
                 "line_end": end_line,
                 "raw": {
-                    "file_id": item.id,
+                    **provenance,
                     "line_start": start_line,
                     "line_end": end_line,
                     "applied": False,
@@ -338,6 +355,7 @@ class WorkspaceFileToolProvider:
             "adapter_type": "workspace_file",
             "operation": "propose_edit",
             "file_id": item.id,
+            "revision_id": provenance["revision_id"],
             "line_start": start_line,
             "line_end": end_line,
             "applied": False,
@@ -351,6 +369,15 @@ class WorkspaceFileToolProvider:
         except (TypeError, ValueError):
             return default
         return max(lower, min(parsed, upper))
+
+    @staticmethod
+    def _ensure_expected_revision(
+        *, expected_revision_id: Any,
+        provenance: dict[str, str | int],
+    ) -> None:
+        expected = str(expected_revision_id or "").strip()
+        if expected and expected != provenance["revision_id"]:
+            raise ToolExecutionFeedbackError("文件版本已变化，请重新读取当前内容后再继续。")
 
     @classmethod
     def is_sensitive_file_name(cls, file_name: str | None) -> bool:

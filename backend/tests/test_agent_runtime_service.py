@@ -153,6 +153,28 @@ class AgentRuntimeServiceTest(unittest.TestCase):
         self.assertEqual(self.file.parsed_text, "title\nconcurrent change\nend")
         self.assertEqual(self.db.get(AgentRun, proposal.run_id).status, "conflict")
 
+    def test_stale_expected_revision_cannot_create_a_new_approval_draft(self) -> None:
+        service = AgentRuntimeService(self.db)
+        base_revision = service._ensure_current_revision(self.file)
+        self.db.commit()
+
+        self.file.parsed_text = "title\nchanged by another editor\nend"
+        self.db.commit()
+
+        with self.assertRaisesRegex(AgentRuntimeError, "文件版本已变化") as raised:
+            service.propose_file_edit(
+                user_id=self.user.id,
+                project_id=self.project.id,
+                call_id="stale-revision",
+                file_id=self.file.id,
+                old_string="changed by another editor",
+                new_string="new value",
+                expected_revision_id=base_revision.id,
+            )
+
+        self.assertEqual(raised.exception.code, "file_revision_conflict")
+        self.assertEqual(self.db.query(AgentRun).count(), 0)
+
     def test_other_user_cannot_issue_challenge(self) -> None:
         proposal = self._propose()
         with self.assertRaisesRegex(AgentRuntimeError, "审批不存在"):

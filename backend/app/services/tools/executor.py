@@ -198,6 +198,7 @@ class ToolExecutor:
                         file_id=str(call.arguments.get("file_id") or ""),
                         old_string=str(call.arguments.get("old_string") or ""),
                         new_string=str(call.arguments.get("new_string") or ""),
+                        expected_revision_id=str(call.arguments.get("expected_revision_id") or "") or None,
                         depends_on=call.depends_on,
                         conversation_id=self.conversation_id,
                         assistant_message_id=self.assistant_message_id,

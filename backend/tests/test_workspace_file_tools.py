@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from dataclasses import replace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -9,11 +10,13 @@ from sqlalchemy.orm import sessionmaker
 from app.core.database import Base
 from app.models.project_file import ProjectFile
 from app.services.tools.catalog import ToolCatalog
+from app.services.tools.bindings import ToolResultBindingResolver
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
-from app.services.tools.schemas import ExternalSource, PlannedToolCall
+from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolResultBinding
 from app.services.tools.schemas import ToolExecutionFeedbackError
 from app.services.external_context_service import ExternalContextService
+from app.services.agent_runtime_service import AgentRuntimeService
 
 
 def build_call(tool_key: str, arguments: dict) -> PlannedToolCall:
@@ -116,6 +119,87 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
         self.assertEqual(read_metadata["line_end"], 2)
         self.assertEqual(read_sources[0].display_text, "2: Durable checkpoint and tool approval design.")
         self.assertNotIn("storage_key", str(read_sources[0].metadata))
+
+    def test_file_source_binds_current_revision_and_rejects_stale_follow_up(self) -> None:
+        read_sources, _ = asyncio.run(
+            self.provider.run(call=build_call("workspace.files.read", {"file_id": "file-current"}))
+        )
+        provenance = read_sources[0].metadata
+        revision_id = provenance["revision_id"]
+        self.assertEqual(provenance["file_id"], "file-current")
+        self.assertEqual(provenance["revision_number"], 1)
+        self.assertEqual(provenance["access_scope"], "current_user_current_project")
+        self.assertEqual(read_sources[0].metadata["raw"]["revision_id"], revision_id)
+
+        # Provider 不接收模型声称的工具身份；正式路径由执行器权威写入。
+        # 此处显式模拟该可信覆盖，验证后续的受限事实投影而非放宽 Provider。
+        bound_source = replace(
+            read_sources[0],
+            metadata={
+                **read_sources[0].metadata,
+                "tool_key": "workspace.files.read",
+                "call_id": "read-current",
+            },
+        )
+        observations = ExternalContextService._build_observations(
+            round_index=1,
+            sources=[bound_source],
+            registry=ToolCatalog(),
+        )
+        self.assertEqual(observations[0]["metadata"]["revision_id"], revision_id)
+        self.assertNotIn("content_hash", observations[0]["metadata"])
+        self.assertNotIn("access_scope", observations[0]["metadata"])
+
+        definition = ToolCatalog().get_or_none("workspace.files.propose_edit")
+        preview_call = build_call(
+            "workspace.files.propose_edit",
+            {
+                "file_id": "file-current",
+                "old_string": "Durable checkpoint",
+                "new_string": "Durable Agent checkpoint",
+            },
+        )
+        preview_call.depends_on = ["read-current"]
+        preview_call.result_bindings = [
+            ToolResultBinding(
+                source_call_id="read-current",
+                source_path="/sources/0/metadata/raw/revision_id",
+                target_argument="expected_revision_id",
+            )
+        ]
+        bound_call, _ = ToolResultBindingResolver().resolve(
+            call=preview_call,
+            sources_by_call_id={"read-current": [bound_source]},
+            definition=definition,
+        )
+        self.assertEqual(bound_call.arguments["expected_revision_id"], revision_id)
+
+        current = self.db.get(ProjectFile, "file-current")
+        current.parsed_text = "Architecture\nNew content after a concurrent edit.\nFinal line."
+        self.db.commit()
+        with self.assertRaisesRegex(ToolExecutionFeedbackError, "文件版本已变化"):
+            asyncio.run(
+                self.provider.run(
+                    call=build_call(
+                        "workspace.files.read",
+                        {"file_id": "file-current", "expected_revision_id": revision_id},
+                    )
+                )
+            )
+        with self.assertRaisesRegex(ToolExecutionFeedbackError, "文件版本已变化"):
+            asyncio.run(
+                self.provider.run(
+                    call=build_call(
+                        "workspace.files.propose_edit",
+                        {
+                            "file_id": "file-current",
+                            "old_string": "New content",
+                            "new_string": "Revised content",
+                            "expected_revision_id": revision_id,
+                        },
+                    )
+                )
+            )
 
     def test_empty_file_results_are_explicit_safe_answers(self) -> None:
         current = self.db.get(ProjectFile, "file-current")
@@ -323,6 +407,88 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
         self.assertEqual(passed_policy.payload["credential_source"], "not_required")
         checking_policy = [event for event in events if event.type == "tool_policy_check"][0]
         self.assertEqual(checking_policy.payload["adapter_type"], "workspace_file")
+
+    def test_user_story_review_edit_approve_and_re_read_file(self) -> None:
+        """按用户实际操作验证文件工具的完整闭环，而不是只测单个 Provider。"""
+
+        class AllowWorkspaceTool:
+            def is_tool_enabled_for_workspace(self, **_kwargs) -> bool:
+                return True
+
+        executor = ToolExecutor(
+            credential_resolver=AllowWorkspaceTool(),
+            catalog=ToolCatalog(),
+            db=self.db,
+            user_id="user-1",
+            project_id="project-current",
+        )
+
+        listed, _ = asyncio.run(executor.execute(build_call("workspace.files.list", {})))
+        self.assertEqual(listed.status, "success")
+        self.assertIn("file-current", listed.sources[0].display_text)
+
+        searched, _ = asyncio.run(
+            executor.execute(
+                build_call("workspace.files.search", {"query": "tool approval"})
+            )
+        )
+        self.assertEqual(searched.status, "success")
+        self.assertEqual(searched.sources[0].metadata["file_id"], "file-current")
+
+        read_call = build_call("workspace.files.read", {"file_id": "file-current"})
+        read_result, _ = asyncio.run(executor.execute(read_call))
+        self.assertEqual(read_result.status, "success")
+        base_revision_id = read_result.sources[0].metadata["revision_id"]
+        self.assertIn("Durable checkpoint", read_result.sources[0].display_text)
+
+        # 用户明确要求修改时，首次调用只产生可审阅 Diff，不直接改变文件。
+        apply_call = build_call(
+            "workspace.files.apply_edit",
+            {
+                "file_id": "file-current",
+                "old_string": "Durable checkpoint",
+                "new_string": "Durable Agent checkpoint",
+                "expected_revision_id": base_revision_id,
+            },
+        )
+        approval_result, approval_events = asyncio.run(executor.execute(apply_call))
+        self.assertEqual(approval_result.status, "confirmation_required")
+        self.assertEqual(approval_result.result_semantics, "approval_draft")
+        self.assertIn("尚未写入", approval_result.sources[0].display_text)
+        self.assertTrue(
+            any(event.type == "tool_confirmation_required" for event in approval_events)
+        )
+        self.assertIn(
+            "Durable checkpoint",
+            self.db.get(ProjectFile, "file-current").parsed_text,
+        )
+
+        # 模拟界面确认：challenge 只短暂返回给用户，之后由 Runtime 做参数哈希和 CAS。
+        approval_id = approval_result.sources[0].metadata["approval_id"]
+        runtime = AgentRuntimeService(self.db)
+        token = runtime.issue_approval_challenge(approval_id=approval_id, user_id="user-1")
+        applied = runtime.apply_approved_file_edit(
+            approval_id=approval_id,
+            user_id="user-1",
+            approval_token=token,
+        )
+        self.assertEqual(applied.status, "applied")
+        self.assertEqual(applied.revision_number, 2)
+
+        reread, _ = asyncio.run(
+            executor.execute(
+                build_call(
+                    "workspace.files.read",
+                    {
+                        "file_id": "file-current",
+                        "expected_revision_id": applied.revision_id,
+                    },
+                )
+            )
+        )
+        self.assertEqual(reread.status, "success")
+        self.assertIn("Durable Agent checkpoint", reread.sources[0].display_text)
+        self.assertEqual(reread.sources[0].metadata["revision_id"], applied.revision_id)
 
     def test_next_planning_round_receives_only_opaque_file_observation(self) -> None:
         source = ExternalSource(

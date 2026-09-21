@@ -101,6 +101,10 @@ class ExternalContextService:
                     "external_sources_raw_total": 0,
                     "external_sources_duplicate_count": 0,
                     "external_sources_dedup_strategy": "normalized_url_or_canonical_content_hash",
+                    "external_evidence_projection": {
+                        "rounds": [],
+                        "totals": PlannerObservationProjection.aggregate_diagnostics([]),
+                    },
                     "external_context_chars": 0,
                     "external_context_latency_ms": 0,
                     "external_context_error": 0,
@@ -147,6 +151,7 @@ class ExternalContextService:
         workflow_aggregate = ToolWorkflowAggregate()
         raw_sources_total = 0
         duplicate_sources_total = 0
+        projection_reports: list[dict] = []
         budget = ToolRunBudget(policy=self.run_policy)
         # One request owns one in-memory ledger. It deliberately ends with this
         # synchronous Chat request; durable retries/replay keep using the
@@ -306,6 +311,7 @@ class ExternalContextService:
                     # 同一来源在多轮重规划中只投影一次，避免重复占用 Planner 观察预算。
                     sources=newly_added_sources,
                     registry=self.registry,
+                    projection_reports=projection_reports,
                 )
             )
             quality_feedback = list(getattr(workflow_result, "feedback", []) or [])
@@ -415,6 +421,10 @@ class ExternalContextService:
                     "external_sources_raw_total": 0,
                     "external_sources_duplicate_count": 0,
                     "external_sources_dedup_strategy": "normalized_url_or_canonical_content_hash",
+                    "external_evidence_projection": {
+                        "rounds": [],
+                        "totals": PlannerObservationProjection.aggregate_diagnostics([]),
+                    },
                     "external_context_chars": 0,
                     "external_context_error": 0,
                     "external_tool_next_action": next_action,
@@ -475,6 +485,10 @@ class ExternalContextService:
                 "external_sources_raw_total": raw_sources_total,
                 "external_sources_duplicate_count": duplicate_sources_total,
                 "external_sources_dedup_strategy": "normalized_url_or_canonical_content_hash",
+                "external_evidence_projection": {
+                    "rounds": projection_reports,
+                    "totals": PlannerObservationProjection.aggregate_diagnostics(projection_reports),
+                },
                 "external_context_chars": len(context_text or ""),
                 "external_context_latency_ms": total_elapsed_ms,
                 "external_context_error": int(bool(error_message and not sources)),
@@ -608,9 +622,13 @@ class ExternalContextService:
         round_index: int,
         sources: list,
         registry: ToolCatalog | None = None,
+        projection_reports: list[dict] | None = None,
     ) -> list[dict]:
-        return PlannerObservationProjection.project_sources(
+        observations, diagnostics = PlannerObservationProjection.project_sources_with_diagnostics(
             round_index=round_index,
             sources=sources,
             definition_resolver=registry.get_or_none if registry is not None else None,
         )
+        if projection_reports is not None:
+            projection_reports.append(diagnostics)
+        return observations

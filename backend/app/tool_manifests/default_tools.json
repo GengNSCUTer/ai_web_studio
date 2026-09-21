@@ -841,7 +841,9 @@
       "allowed_source_types": ["workspace_file_search"],
       "fact_paths": {
         "file_id": "/metadata/file_id",
-        "mime_type": "/metadata/mime_type"
+        "mime_type": "/metadata/mime_type",
+        "revision_id": "/metadata/revision_id",
+        "revision_number": "/metadata/revision_number"
       }
     },
     "risk_level": "low",
@@ -861,7 +863,8 @@
       "properties": {
         "file_id": {"type": "string", "minLength": 1, "maxLength": 36},
         "start_line": {"type": "integer", "minimum": 1, "default": 1},
-        "max_lines": {"type": "integer", "minimum": 1, "maximum": 200, "default": 80}
+        "max_lines": {"type": "integer", "minimum": 1, "maximum": 200, "default": 80},
+        "expected_revision_id": {"type": "string", "minLength": 1, "maxLength": 36}
       },
       "required": ["file_id"],
       "additionalProperties": false
@@ -886,6 +889,8 @@
       "fact_paths": {
         "file_id": "/metadata/file_id",
         "mime_type": "/metadata/mime_type",
+        "revision_id": "/metadata/revision_id",
+        "revision_number": "/metadata/revision_number",
         "line_start": "/metadata/line_start",
         "line_end": "/metadata/line_end"
       }
@@ -907,7 +912,8 @@
       "properties": {
         "file_id": {"type": "string", "minLength": 1, "maxLength": 36},
         "old_string": {"type": "string", "minLength": 1, "maxLength": 12000},
-        "new_string": {"type": "string", "maxLength": 12000}
+        "new_string": {"type": "string", "maxLength": 12000},
+        "expected_revision_id": {"type": "string", "minLength": 1, "maxLength": 36}
       },
       "required": ["file_id", "old_string", "new_string"],
       "additionalProperties": false
@@ -949,7 +955,8 @@
       "properties": {
         "file_id": {"type": "string", "minLength": 1, "maxLength": 36},
         "old_string": {"type": "string", "minLength": 1, "maxLength": 12000},
-        "new_string": {"type": "string", "maxLength": 12000}
+        "new_string": {"type": "string", "maxLength": 12000},
+        "expected_revision_id": {"type": "string", "minLength": 1, "maxLength": 36}
       },
       "required": ["file_id", "old_string", "new_string"],
       "additionalProperties": false
