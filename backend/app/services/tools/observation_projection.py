@@ -12,7 +12,7 @@ from app.services.tools.quality import resolve_json_pointer
 class PlannerObservationProjection:
     """把 Tool evidence 收敛为下一轮 Planner 可读取的受限观察。
 
-    Tool 返回内容始终是不可信资料。这里不尝试判断自然语言是否“看起来像指令”，
+    Tool 返回内容始终是外部资料。这里不尝试判断自然语言是否“看起来像指令”，
     而是默认不把标题、正文、display_text、URL 或嵌套 raw metadata 回灌给 Planner。
     下一轮仅能知道某类 Tool 已经获得多少条资料，以及该类型允许暴露的少量结构化
     事实。最终回答仍可在 reference evidence 边界内引用资料，但不能据此改变权限。
@@ -30,7 +30,15 @@ class PlannerObservationProjection:
         r"ignore\s+(?:all\s+)?(?:previous|prior)|system\s+prompt|developer\s+message|"
         r"call\s+(?:a\s+)?tool|export\s+(?:all|the)|api[_ -]?key|access[_ -]?token|"
         r"忽略.{0,24}(规则|指令|提示)|系统提示|开发者消息|调用.{0,12}工具|"
-        r"导出.{0,12}(文件|数据)|泄露.{0,12}(数据|密钥|信息)",
+        r"导出.{0,12}(文件|数据)|泄露.{0,12}(数据|密钥|信息)|"
+        r"以前の指示.{0,16}(無視|無効)|システムプロンプト|開発者メッセージ|"
+        r"ツール.{0,8}(呼び出し|実行)|"
+        r"이전 지시.{0,16}(무시|무효)|시스템 프롬프트|개발자 메시지|"
+        r"도구.{0,8}(호출|실행)|"
+        r"ignore\s+(?:las\s+)?instrucciones\s+(?:anteriores|previas)|"
+        r"mensaje\s+del\s+sistema|llama\s+(?:a\s+)?una?\s+herramienta|"
+        r"ignorar\s+as\s+instruções\s+(?:anteriores|prévias)|"
+        r"prompt\s+do\s+sistema|chame\s+(?:uma\s+)?ferramenta",
         flags=re.IGNORECASE,
     )
 
@@ -75,9 +83,6 @@ class PlannerObservationProjection:
                     "provider": provider,
                     "observation_kind": "tool_evidence_projection",
                     # 资料可以支持相关事实判断，但没有任何指令执行权限。
-                    # ``untrusted`` 保留为兼容字段；对模型和新调用方应优先使用
-                    # 这两个更精确的语义字段，避免把“不能执行”误读成“不能参考”。
-                    "untrusted": True,
                     "evidence_role": "reference_evidence",
                     "instruction_authority": "none",
                     "display_text": cls._platform_summary(
@@ -172,12 +177,38 @@ class PlannerObservationProjection:
             return None, "empty_canonical_content"
         if cls.SUSPICIOUS_EXCERPT_PATTERN.search(compact):
             return None, "suppressed_suspicious_content"
-        excerpt = compact[: min(profile["max_chars_per_source"], remaining_chars)]
+        excerpt = cls._truncate_excerpt(
+            compact,
+            max_chars=min(profile["max_chars_per_source"], remaining_chars),
+        )
         if not excerpt:
             return None, "total_budget_exhausted"
         usage["sources"] += 1
         usage["chars"] += len(excerpt)
         return excerpt, "available"
+
+    @staticmethod
+    def _truncate_excerpt(text: str, *, max_chars: int) -> str:
+        """在有界预算内尽量保留完整句子，避免截断成难以理解的半句话。
+
+        这是可读性优化，不是安全过滤：调用方必须先对完整 canonical 文本执行
+        注入抑制检查，再调用这里的截断逻辑。若句号太靠前，宁可使用硬上限，
+        避免因为追求句子完整而把本来就很短的有效内容进一步缩短。
+        """
+
+        if max_chars <= 0:
+            return ""
+        normalized = " ".join(str(text).split())
+        if len(normalized) <= max_chars:
+            return normalized
+        candidate = normalized[:max_chars]
+        boundary = max(
+            candidate.rfind(mark)
+            for mark in ("。", "！", "？", ".", "!", "?", ";", "；")
+        )
+        if boundary >= int(max_chars * 0.7):
+            return candidate[: boundary + 1].rstrip()
+        return candidate.rstrip()
 
     @staticmethod
     def _resolve_profile(

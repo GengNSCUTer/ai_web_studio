@@ -9,6 +9,20 @@ from app.services.tools.evidence_projection_profile import (
 
 
 class EvidenceProjectionProfileTest(unittest.TestCase):
+    def test_bounded_excerpt_defaults_are_multi_source_but_still_bounded(self) -> None:
+        profile = validate_evidence_projection_profile(
+            {
+                "version": EVIDENCE_PROJECTION_PROFILE_VERSION,
+                "mode": "bounded_excerpt",
+                "allowed_source_types": ["web"],
+                "content_paths": ["/metadata/raw/content"],
+            }
+        )
+
+        self.assertEqual(profile["max_sources"], 4)
+        self.assertEqual(profile["max_chars_per_source"], 720)
+        self.assertEqual(profile["max_total_chars"], 2400)
+
     def test_missing_profile_fails_closed(self) -> None:
         self.assertEqual(
             validate_evidence_projection_profile(None),

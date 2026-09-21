@@ -154,9 +154,9 @@
       "mode": "bounded_excerpt",
       "allowed_source_types": ["web"],
       "content_paths": ["/metadata/raw/content"],
-      "max_sources": 2,
-      "max_chars_per_source": 240,
-      "max_total_chars": 480
+      "max_sources": 4,
+      "max_chars_per_source": 720,
+      "max_total_chars": 2400
     },
     "risk_level": "low",
     "fallback_tool_key": null,

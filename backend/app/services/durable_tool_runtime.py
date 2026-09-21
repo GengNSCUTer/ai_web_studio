@@ -283,7 +283,23 @@ class DurableToolRunService:
             current_step=0,
         )
         self.db.add(run)
-        self.db.flush()
+        try:
+            # 并发请求可能在这里先触发幂等键唯一索引，而不是等到
+            # commit。必须在 flush 阶段也走同一套“读取已存在 Run”收口逻辑。
+            self.db.flush()
+        except IntegrityError:
+            self.db.rollback()
+            existing = self.db.scalars(
+                select(AgentRun).where(AgentRun.idempotency_key == scoped_key).limit(1)
+            ).first()
+            if not existing:
+                raise
+            if self._request_hash(existing) != request_hash:
+                raise DurableToolRuntimeError(
+                    "idempotency_conflict",
+                    "同一个幂等键已绑定到不同的 Tool Run 请求。",
+                )
+            return existing
         for sequence, call in enumerate(normalized_calls, start=1):
             arguments_json = self._json(call["arguments"])
             step = AgentStep(

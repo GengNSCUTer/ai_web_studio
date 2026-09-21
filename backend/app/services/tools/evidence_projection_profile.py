@@ -115,20 +115,23 @@ def validate_evidence_projection_profile(
         }
 
     content_paths = _validate_content_paths(value.get("content_paths"))
+    # Profile 负责给每个 Tool 一份有限预算；默认值应足够支持多来源事实，
+    # 但仍保持硬上限。具体 Tool 可以按业务需要进一步收紧，不能通过 Profile
+    # 超出全局校验上限。
     max_sources = _bounded_int(
-        value.get("max_sources", 2),
+        value.get("max_sources", 4),
         field_name="max_sources",
         minimum=1,
         maximum=8,
     )
     max_chars_per_source = _bounded_int(
-        value.get("max_chars_per_source", 240),
+        value.get("max_chars_per_source", 720),
         field_name="max_chars_per_source",
         minimum=80,
         maximum=1600,
     )
     max_total_chars = _bounded_int(
-        value.get("max_total_chars", max_sources * max_chars_per_source),
+        value.get("max_total_chars", min(2400, max_sources * max_chars_per_source)),
         field_name="max_total_chars",
         minimum=max_chars_per_source,
         maximum=6400,

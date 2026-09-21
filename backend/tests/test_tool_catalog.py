@@ -139,6 +139,9 @@ class ToolCatalogTest(unittest.TestCase):
         self.assertEqual(tavily.evidence_projection["mode"], "bounded_excerpt")
         self.assertEqual(tavily.evidence_projection["allowed_source_types"], ["web"])
         self.assertEqual(tavily.evidence_projection["content_paths"], ["/metadata/raw/content"])
+        self.assertEqual(tavily.evidence_projection["max_sources"], 4)
+        self.assertEqual(tavily.evidence_projection["max_chars_per_source"], 720)
+        self.assertEqual(tavily.evidence_projection["max_total_chars"], 2400)
 
         self.assertEqual(weather.adapter_type, "mcp_http")
         self.assertEqual(weather.credential_provider, "amap")
