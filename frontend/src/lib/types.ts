@@ -539,6 +539,8 @@ export type ToolPlanPayload = {
     confidence?: number;
     reason?: string;
     arguments?: Record<string, unknown>;
+    depends_on?: string[];
+    result_bindings?: Array<Record<string, unknown>>;
   }>;
 };
 

@@ -218,6 +218,189 @@ function toolEventDetails(event: ToolTraceEvent, uiLanguage: UILanguage) {
   return rows;
 }
 
+function DurableHandoffActions({
+  event,
+  uiLanguage,
+  projectId,
+  conversationId,
+  assistantMessageId,
+  skillKey,
+}: {
+  event: ToolTraceEvent;
+  uiLanguage: UILanguage;
+  projectId: string | null;
+  conversationId: string | null;
+  assistantMessageId: string;
+  skillKey: string | null;
+}) {
+  const [state, setState] = useState<"idle" | "previewing" | "confirming" | "queued" | "error">("idle");
+  const [preview, setPreview] = useState<{
+    token: string;
+    tools: Array<{ display_name: string; tool_key: string; depends_on: string[] }>;
+    expires_at: string;
+  } | null>(null);
+  const [run, setRun] = useState<{
+    id: string;
+    status: string;
+    current_step: number;
+    max_steps: number;
+    steps?: Array<{ tool_key: string; status: string; error_message?: string | null }>;
+    artifacts?: Array<{ artifact_type: string; preview: string }>;
+  } | null>(null);
+  const [message, setMessage] = useState("");
+  const plan = event.plan;
+  const calls = plan?.calls ?? [];
+  if (event.type !== "tool_plan" || !plan?.should_use_tools || calls.length === 0 || !projectId) {
+    return null;
+  }
+
+  async function requestJson(path: string, init: RequestInit) {
+    const response = await fetch(path, { ...init, cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = payload?.detail?.message || payload?.detail || `HTTP ${response.status}`;
+      throw new Error(String(detail));
+    }
+    return payload;
+  }
+
+  async function createPreview() {
+    setState("previewing");
+    setMessage("");
+    try {
+      const payload = await requestJson("/api/backend/agent-runtime/tool-handoffs/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          conversation_id: conversationId,
+          assistant_message_id: assistantMessageId,
+          skill_key: skillKey,
+          calls: calls.map((call, index) => ({
+            call_id: call.call_id || `step-${index + 1}`,
+            tool_key: call.tool_key,
+            arguments: call.arguments || {},
+            depends_on: call.depends_on || [],
+            result_bindings: call.result_bindings || [],
+          })),
+        }),
+      });
+      setPreview({
+        token: payload.handoff_token,
+        tools: payload.tool_calls || [],
+        expires_at: payload.expires_at,
+      });
+      setState("idle");
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "无法生成可恢复任务预览");
+    }
+  }
+
+  async function confirmPreview() {
+    if (!preview) return;
+    setState("confirming");
+    setMessage("");
+    try {
+      const payload = await requestJson("/api/backend/agent-runtime/tool-handoffs/confirm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handoff_token: preview.token }),
+      });
+      setRun(payload);
+      setState("queued");
+      setPreview(null);
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "无法确认可恢复任务");
+    }
+  }
+
+  async function refreshRun() {
+    if (!run) return;
+    try {
+      const payload = await requestJson(`/api/backend/agent-runtime/runs/${encodeURIComponent(run.id)}`, {
+        method: "GET",
+      });
+      setRun({
+        ...payload.run,
+        steps: payload.steps || [],
+        artifacts: payload.artifacts || [],
+      });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "无法读取任务状态");
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-lg border border-[var(--hairline)] bg-[var(--soft-bg)] p-2">
+      {!preview && !run && state !== "error" ? (
+        <button
+          type="button"
+          onClick={() => void createPreview()}
+          disabled={state === "previewing" || state === "confirming"}
+          className="rounded-full border border-[var(--accent-strong)] px-3 py-1 text-[10px] text-[var(--accent-strong)] disabled:opacity-50"
+        >
+          {state === "previewing" ? "正在生成预览…" : uiLanguage === "zh-CN" ? "转为可恢复任务" : "Handoff to durable task"}
+        </button>
+      ) : null}
+      {preview ? (
+        <div className="grid gap-2">
+          <div className="text-[11px] font-medium text-[var(--ink-strong)]">将执行的只读步骤</div>
+          <div className="text-[10px] leading-4 text-[var(--ink-soft)]">
+            {preview.tools.map((tool) => tool.display_name || tool.tool_key).join("、")}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void confirmPreview()}
+              disabled={state === "confirming"}
+              className="rounded-full bg-[var(--accent-strong)] px-3 py-1 text-[10px] text-white disabled:opacity-50"
+            >
+              {state === "confirming" ? "正在确认…" : "确认并后台执行"}
+            </button>
+            <button type="button" onClick={() => setPreview(null)} className="rounded-full border px-3 py-1 text-[10px]">
+              取消
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {run ? (
+        <div className="grid gap-2 text-[10px] text-[var(--ink-soft)]">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>Durable Run：{run.status}</span>
+            <span>步骤 {run.current_step}/{run.max_steps}</span>
+            <button type="button" onClick={() => void refreshRun()} className="rounded-full border px-2 py-1">
+              刷新状态
+            </button>
+          </div>
+          {run.steps && run.steps.length > 0 ? (
+            <div className="grid gap-1">
+              {run.steps.map((step) => (
+                <div key={`${step.tool_key}-${step.status}`} className="flex flex-wrap gap-2">
+                  <span>{step.tool_key}</span>
+                  <span>{step.status}</span>
+                  {step.error_message ? <span className="text-[var(--danger-text)]">{step.error_message}</span> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {run.artifacts && run.artifacts.length > 0 ? (
+            <div className="rounded-md border border-[var(--hairline)] bg-[var(--control-bg)] p-2">
+              {run.artifacts.map((artifact, index) => (
+                <div key={`${artifact.artifact_type}-${index}`} className="whitespace-pre-wrap leading-4">
+                  {artifact.preview}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {message ? <p className="mt-1 text-[10px] text-[var(--danger-text)]">{message}</p> : null}
+    </div>
+  );
+}
+
 function ApprovalActions({ event, uiLanguage }: { event: ToolTraceEvent; uiLanguage: UILanguage }) {
   const [state, setState] = useState<"pending" | "working" | "applied" | "rejected" | "error">("pending");
   const [message, setMessage] = useState("");
@@ -300,10 +483,18 @@ export function ToolTracePanel({
   events,
   title,
   uiLanguage,
+  projectId,
+  conversationId,
+  assistantMessageId,
+  skillKey,
 }: {
   events: ToolTraceEvent[];
   title: string;
   uiLanguage: UILanguage;
+  projectId: string | null;
+  conversationId: string | null;
+  assistantMessageId: string;
+  skillKey: string | null;
 }) {
   if (events.length === 0) {
     return null;
@@ -352,6 +543,14 @@ export function ToolTracePanel({
                 </div>
               </details>
             ) : null}
+            <DurableHandoffActions
+              event={event}
+              uiLanguage={uiLanguage}
+              projectId={projectId}
+              conversationId={conversationId}
+              assistantMessageId={assistantMessageId}
+              skillKey={skillKey}
+            />
             <ApprovalActions event={event} uiLanguage={uiLanguage} />
           </div>
         ))}

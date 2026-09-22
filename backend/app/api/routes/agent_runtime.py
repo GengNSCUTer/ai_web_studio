@@ -15,6 +15,9 @@ from app.schemas.agent_runtime import (
     ApprovalApplyRequest,
     ApprovalChallengeResponse,
     DurableToolRunRequest,
+    DurableHandoffPreviewRequest,
+    DurableHandoffPreviewResponse,
+    DurableHandoffConfirmRequest,
     FileEditApplyResponse,
     FileEditProposalResponse,
     FileRevisionResponse,
@@ -23,6 +26,7 @@ from app.schemas.agent_runtime import (
 )
 from app.services.durable_tool_runtime import DurableToolRunService, DurableToolRuntimeError
 from app.services.agent_runtime_service import AgentRuntimeError, AgentRuntimeService
+from app.services.durable_handoff_service import DurableHandoffError, DurableHandoffService
 
 
 router = APIRouter(prefix="/agent-runtime", tags=["agent-runtime"])
@@ -48,6 +52,12 @@ def _durable_http_error(exc: DurableToolRuntimeError) -> HTTPException:
         "conversation_not_found",
         "assistant_message_not_found",
     }
+    code = status.HTTP_404_NOT_FOUND if exc.code in not_found else status.HTTP_409_CONFLICT
+    return HTTPException(status_code=code, detail={"code": exc.code, "message": str(exc)})
+
+
+def _handoff_http_error(exc: DurableHandoffError) -> HTTPException:
+    not_found = {"project_not_found", "conversation_not_found", "assistant_message_not_found", "unknown_tool"}
     code = status.HTTP_404_NOT_FOUND if exc.code in not_found else status.HTTP_409_CONFLICT
     return HTTPException(status_code=code, detail={"code": exc.code, "message": str(exc)})
 
@@ -116,6 +126,51 @@ def enqueue_durable_tool_run(
         )
     except DurableToolRuntimeError as exc:
         raise _durable_http_error(exc) from exc
+    return AgentRunResponse.model_validate(run)
+
+
+@router.post("/tool-handoffs/preview", response_model=DurableHandoffPreviewResponse)
+def preview_durable_handoff(
+    payload: DurableHandoffPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DurableHandoffPreviewResponse:
+    try:
+        preview = DurableHandoffService(db).preview(
+            user_id=current_user.id,
+            project_id=payload.project_id,
+            conversation_id=payload.conversation_id,
+            assistant_message_id=payload.assistant_message_id,
+            calls=[call.model_dump() for call in payload.calls],
+            skill_key=payload.skill_key,
+            max_attempts=payload.max_attempts,
+        )
+    except DurableHandoffError as exc:
+        raise _handoff_http_error(exc) from exc
+    return DurableHandoffPreviewResponse(
+        handoff_token=preview.handoff_token,
+        expires_at=preview.expires_at,
+        skill_key=preview.skill_key,
+        skill_display_name=preview.skill_display_name,
+        tool_calls=preview.tool_calls,
+        max_attempts=preview.max_attempts,
+        safety_notice="仅低风险只读工具可进入可恢复任务；确认后才会创建 Agent Run，普通 Chat 不会自动后台化。",
+    )
+
+
+@router.post("/tool-handoffs/confirm", response_model=AgentRunResponse, status_code=status.HTTP_202_ACCEPTED)
+def confirm_durable_handoff(
+    payload: DurableHandoffConfirmRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AgentRunResponse:
+    try:
+        run = DurableHandoffService(db).confirm(
+            user_id=current_user.id,
+            handoff_token=payload.handoff_token,
+        )
+    except DurableHandoffError as exc:
+        raise _handoff_http_error(exc) from exc
     return AgentRunResponse.model_validate(run)
 
 

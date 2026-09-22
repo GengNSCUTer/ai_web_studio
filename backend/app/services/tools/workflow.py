@@ -192,6 +192,7 @@ def decide_workflow_action(
     quality_replan_required: bool,
     round_index: int,
     max_rounds: int,
+    completion_replan_required: bool = False,
 ) -> ToolWorkflowAction:
     """把工具聚合状态映射为同步 Chat 的下一步动作。
 
@@ -215,7 +216,11 @@ def decide_workflow_action(
             notice="工具依赖未满足，相关下游操作未执行；请补充必要信息后重试。",
         )
 
-    followup_requested = planner_need_more_rounds or quality_replan_required
+    followup_requested = (
+        planner_need_more_rounds
+        or quality_replan_required
+        or completion_replan_required
+    )
     if followup_requested and round_index >= max_rounds:
         return ToolWorkflowAction(
             action="stop",
@@ -228,6 +233,13 @@ def decide_workflow_action(
             action="replan",
             reason="tool_result_quality",
             notice="工具结果未达到当前任务的质量要求，正在基于安全反馈重新规划。",
+        )
+
+    if completion_replan_required:
+        return ToolWorkflowAction(
+            action="replan",
+            reason="skill_completion_contract",
+            notice="当前 Skill 还缺少核对原文所需的证据，正在执行受限补充读取。",
         )
 
     if aggregate.status == "partial":

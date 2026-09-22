@@ -17,7 +17,11 @@ from app.api.routes.tools import (
     update_mcp_tool,
     update_workspace_agent_policy,
 )
+from app.api.routes.agent_runtime import apply_approval, issue_approval_challenge
 from app.core.database import Base
+from app.models.agent_runtime import FileRevision
+from app.models.project_file import ProjectFile
+from app.models.user import User
 from app.models.tool_config import McpServer, McpTool
 from app.models.project import Project
 from app.schemas.tool_config import (
@@ -27,11 +31,14 @@ from app.schemas.tool_config import (
     McpToolUpdate,
     WorkspaceAgentPolicyUpdate,
 )
+from app.schemas.agent_runtime import ApprovalApplyRequest
 from app.services.tools.onboarding import (
     ONBOARDING_CONTRACT_VERSION,
     ONBOARDING_FIXTURE_FORMAT,
     fixture_bundle_digest,
 )
+from app.services.tools.executor import ToolExecutor
+from app.services.tools.schemas import PlannedToolCall
 
 
 def _onboarding_payload(*, tool: McpTool, server: McpServer) -> McpToolOnboardingSubmit:
@@ -294,6 +301,105 @@ class ToolRoutesTest(unittest.TestCase):
             self.assertFalse(renamed.is_enabled)
         finally:
             db.close()
+            engine.dispose()
+
+    def test_file_edit_api_confirmation_flow_is_idempotent(self) -> None:
+        """验证提案经实际审批路由确认后只写入一个新版本。"""
+
+        class AllowWorkspaceTool:
+            def is_tool_enabled_for_workspace(self, **_kwargs) -> bool:
+                return True
+
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+        Base.metadata.create_all(bind=engine)
+        db = SessionLocal()
+        try:
+            user = User(username="file-api-user", email="file-api@example.test")
+            db.add(user)
+            db.flush()
+            project = Project(user_id=user.id, name="file-api-project")
+            db.add(project)
+            db.flush()
+            project_file = ProjectFile(
+                project_id=project.id,
+                user_id=user.id,
+                kind="text",
+                file_name="notes.md",
+                storage_key="file-api/notes.md",
+                parsed_text="标题\n待修改内容\n结尾",
+            )
+            db.add(project_file)
+            db.commit()
+
+            executor = ToolExecutor(
+                credential_resolver=AllowWorkspaceTool(),
+                db=db,
+                user_id=user.id,
+                project_id=project.id,
+            )
+            proposal_result, events = asyncio.run(
+                executor.execute(
+                    PlannedToolCall(
+                        call_id="api-edit-call",
+                        tool_key="workspace.files.apply_edit",
+                        provider="workspace",
+                        category="workspace_file",
+                        display_name="工作区文件受控修改",
+                        confidence=1.0,
+                        reason="用户明确要求修改项目文档",
+                        arguments={
+                            "file_id": project_file.id,
+                            "old_string": "待修改内容",
+                            "new_string": "已修改内容",
+                        },
+                    )
+                )
+            )
+
+            self.assertEqual(proposal_result.status, "confirmation_required")
+            self.assertEqual(
+                len([event for event in events if event.type == "tool_confirmation_required"]),
+                1,
+            )
+            approval_id = proposal_result.sources[0].metadata["approval_id"]
+            self.assertIn("待修改内容", db.get(ProjectFile, project_file.id).parsed_text)
+
+            challenge = issue_approval_challenge(
+                approval_id=approval_id,
+                db=db,
+                current_user=user,
+            )
+            applied = apply_approval(
+                approval_id=approval_id,
+                payload=ApprovalApplyRequest(approval_token=challenge.approval_token),
+                db=db,
+                current_user=user,
+            )
+            self.assertEqual(applied.status, "applied")
+            self.assertEqual(applied.revision_number, 2)
+            self.assertIn("已修改内容", db.get(ProjectFile, project_file.id).parsed_text)
+            self.assertEqual(
+                db.query(FileRevision).filter(FileRevision.project_file_id == project_file.id).count(),
+                2,
+            )
+
+            # 重复点击不会再次写入；已消费审批直接返回第一次的结果。
+            repeated = apply_approval(
+                approval_id=approval_id,
+                payload=ApprovalApplyRequest(approval_token="already-consumed-token"),
+                db=db,
+                current_user=user,
+            )
+            self.assertEqual(repeated.status, "applied")
+            self.assertEqual(repeated.revision_number, 2)
+            self.assertEqual(
+                db.query(FileRevision).filter(FileRevision.project_file_id == project_file.id).count(),
+                2,
+            )
+        finally:
+            db.close()
+            Base.metadata.drop_all(bind=engine)
             engine.dispose()
 
 

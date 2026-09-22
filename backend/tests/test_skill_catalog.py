@@ -140,6 +140,37 @@ class SkillCatalogTest(unittest.TestCase):
             with self.assertRaisesRegex(SkillCatalogError, "未审核字段"):
                 SkillCatalog(manifest_path=path)
 
+    def test_manifest_accepts_reviewed_completion_strategy(self) -> None:
+        """完成合同只能引用平台策略，且已审核策略必须可被完整清单加载。"""
+
+        record = {
+            "skill_key": "workspace.replace-title",
+            "version": "1.0.0",
+            "display_name": "标题替换提案",
+            "description": "先读取，再生成需确认的修改提案。",
+            "instructions": ["只处理当前工作区。"],
+            "output_contract": ["未确认前不得声称已经写入。"],
+            "required_tool_keys": ["workspace.files.read", "workspace.files.apply_edit"],
+            "optional_tool_keys": [],
+            "requires_project": True,
+            "requires_tool_execution": True,
+            "completion_contract": {
+                "intent_patterns": ["替换"],
+                "prerequisite_tool_keys": ["workspace.files.read"],
+                "required_tool_keys": ["workspace.files.read", "workspace.files.apply_edit"],
+                "completion_strategy": "workspace_file_read_then_apply_exact_replacement",
+                "require_edit_for_exact_replacement": True,
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "skills.json"
+            path.write_text(json.dumps([record]), encoding="utf-8")
+            catalog = SkillCatalog(manifest_path=path)
+
+        contract = catalog._definitions["workspace.replace-title"]["completion_contract"]
+        self.assertEqual(contract["completion_strategy"], "workspace_file_read_then_apply_exact_replacement")
+        self.assertTrue(contract["require_edit_for_exact_replacement"])
+
     def test_installation_locks_snapshot_until_explicit_upgrade_or_rollback(self) -> None:
         base = {
             "skill_key": "review.snapshot",

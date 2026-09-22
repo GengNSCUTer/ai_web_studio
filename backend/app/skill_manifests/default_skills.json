@@ -51,7 +51,47 @@
     "requires_project": true,
     "requires_tool_execution": true,
     "activation_examples": ["审阅当前项目文档是否存在矛盾", "从工作区文件中查找并核对某项实现"],
-    "risk_declaration": "read_only_analysis; edits_require_separate_approval"
+    "risk_declaration": "read_only_analysis; edits_require_separate_approval",
+    "completion_contract": {
+      "intent_patterns": ["原文", "第一行", "标题", "内容", "读取", "核对", "审阅", "事实"],
+      "prerequisite_tool_keys": ["workspace.files.search", "workspace.files.list"],
+      "required_tool_keys": ["workspace.files.read"],
+      "completion_strategy": "workspace_file_read"
+    }
+  },
+  {
+    "skill_key": "workspace.document-edit",
+    "version": "1.0.0",
+    "source": {"kind": "builtin", "publisher": "AI Web Studio", "release_channel": "stable"},
+    "signature": {"scheme": "repository_attestation", "key_id": "aiws-builtin-review-v1"},
+    "security_review": {"status": "approved", "reviewer": "platform", "reviewed_at": "2026-09-22"},
+    "compatibility": {"contract": "skill-v1", "min_runtime": "0.1.0", "tool_policy": "approval_required"},
+    "durable_eligible": false,
+    "display_name": "项目文档修改提案",
+    "description": "在当前工作区定位并读取文件后，针对用户明确给出的唯一文本替换生成 Diff；默认必须经用户确认后才可写入。",
+    "instructions": [
+      "只能访问当前工作区的 ProjectFile，不得猜测本机路径或扩大到其它项目。",
+      "先定位并读取文件；仅当用户明确给出旧文本和新文本时，才可规划 apply_edit 生成 Diff。",
+      "apply_edit 首次调用只生成审批草案，不得声称已经修改文件；等待用户确认 continuation 后才可应用。"
+    ],
+    "output_contract": [
+      "明确区分已读取、已生成 Diff、等待确认和已写入四种状态。",
+      "未确认前只能说已生成修改提案，不能说文件已更新。",
+      "发生版本冲突、目标文本不存在或不唯一时，说明原因并要求重新读取或澄清。"
+    ],
+    "required_tool_keys": ["workspace.files.list", "workspace.files.search", "workspace.files.read", "workspace.files.apply_edit"],
+    "optional_tool_keys": ["workspace.files.propose_edit"],
+    "requires_project": true,
+    "requires_tool_execution": true,
+    "activation_examples": ["把当前项目文件中的一段明确文本替换为新文本并生成 Diff", "修改工作区文档的指定标题，确认后应用"],
+    "risk_declaration": "workspace_scoped_edit_proposal_only; user_confirmation_and_revision_cas_required",
+    "completion_contract": {
+      "intent_patterns": ["修改", "编辑", "替换", "改为", "更新"],
+      "prerequisite_tool_keys": ["workspace.files.search", "workspace.files.list"],
+      "required_tool_keys": ["workspace.files.read", "workspace.files.apply_edit"],
+      "completion_strategy": "workspace_file_read_then_apply_exact_replacement",
+      "require_edit_for_exact_replacement": true
+    }
   },
   {
     "skill_key": "travel.route-planner",

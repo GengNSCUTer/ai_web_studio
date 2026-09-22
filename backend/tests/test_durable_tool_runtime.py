@@ -385,6 +385,15 @@ class DurableToolRuntimeTest(unittest.TestCase):
             self.assertEqual(result.status, "success")
             self.assertIn("safe structured tool result", result.sources[0].display_text)
 
+    def test_single_step_success_closes_run_terminal_state(self) -> None:
+        run_id = self._enqueue([{"call_id": "only", "tool_key": "workspace.files.list", "arguments": {}}])
+        worker = DurableToolWorker(session_factory=self.SessionLocal, owner="worker-single", executor_factory=SuccessfulExecutor)
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            self.assertIsNotNone(run)
+            self.assertEqual(run.status, "succeeded")
+
     def test_worker_persists_empty_answer_quality_semantics_for_audit(self) -> None:
         run_id = self._enqueue([{"call_id": "empty-list", "tool_key": "workspace.files.list", "arguments": {}}])
         worker = DurableToolWorker(

@@ -11,6 +11,7 @@ from app.services.chat_provider_service import ChatProviderService
 from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.bindings import ToolResultBindingError, ToolResultBindingResolver
 from app.services.tools.catalog import ToolCatalog
+from app.services.tools.completion_contract import augment_plan
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.schemas import PlannedToolCall, ToolPlan, ToolResultBinding, redact_sensitive_arguments
 from app.services.tools.selector import ToolCandidateSelector
@@ -133,6 +134,13 @@ class LLMToolPlanner:
                 timeout=self.planner_timeout_seconds,
             )
             plan = self._parse_llm_plan(text=text, query=query, allowed_tool_keys={tool.tool_key for tool in candidate_tools})
+            augment_plan(
+                plan=plan,
+                query=query,
+                observations=observations or [],
+                skill_context=skill_context,
+                catalog=self.catalog,
+            )
             if not plan.should_use_tools:
                 if skill_context and skill_context.requires_tool_execution:
                     fallback_reason = "当前 Skill 要求获取工具证据，但 LLM 规划器未选择工具。"

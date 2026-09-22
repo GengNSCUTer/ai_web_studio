@@ -1276,6 +1276,8 @@ class DurableToolWorker:
         event.lease_owner = None
         event.lease_expires_at = None
         run.state_version += 1
+        # 全局会话关闭了 autoflush，终态查询前必须先刷新 Step 状态。
+        db.flush()
         self._update_run_terminal_state(db, run)
         DurableToolRunService(db)._checkpoint(run, step=step, observations=[{"type": "step_succeeded", "artifact_id": artifact.id}])
         db.commit()
@@ -1295,6 +1297,7 @@ class DurableToolWorker:
         event.lease_owner = None
         event.lease_expires_at = None
         run.state_version += 1
+        db.flush()
         self._update_run_terminal_state(db, run)
         DurableToolRunService(db)._checkpoint(run, step=step, observations=[{"type": f"step_{status}", "error_code": error_code}])
         db.commit()
@@ -1318,6 +1321,7 @@ class DurableToolWorker:
             event.lease_owner = None
             event.lease_expires_at = None
             run.state_version += 1
+            db.flush()
             self._update_run_terminal_state(db, run)
             DurableToolRunService(db)._checkpoint(run, step=step, observations=[{"type": "step_dead_letter", "error": message}])
             db.commit()
@@ -1353,6 +1357,7 @@ class DurableToolWorker:
         event.error_message = error_message
         event.lease_owner = None
         event.lease_expires_at = None
+        db.flush()
         self._update_run_terminal_state(db, run)
         if record_checkpoint:
             run.state_version += 1

@@ -18,6 +18,7 @@ from app.services.chat_execution_models import (
 )
 from app.services.chat_provider_service import ChatProviderService
 from app.services.external_context_service import ExternalContextService
+from app.services.evidence_sufficiency import assess_evidence_sufficiency
 from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import ContextPromptBuilder
@@ -174,6 +175,13 @@ class ChatContextAssemblyService:
             skill_context=skill_context,
             tool_run_mode=tool_run_mode,
         )
+        # 证据充分性是代码侧的最终回答约束。它仅依据已通过执行边界的 Tool
+        # 来源类型和状态生成，不读取自由文本，也不授予模型额外权限。
+        evidence_sufficiency = assess_evidence_sufficiency(
+            query=query,
+            sources=external_context_result.sources,
+            skill_key=skill_context.skill_key if skill_context else None,
+        )
         # 知识库上下文来自用户显式选择的知识库；检索日志会在后面绑定到本轮 user/assistant message。
         knowledge_context_result = await KnowledgeContextService(
             db=self.db,
@@ -236,6 +244,7 @@ class ChatContextAssemblyService:
             skill_instructions=(
                 skill_context.final_answer_instructions if skill_context else None
             ),
+            evidence_guidance=evidence_sufficiency.guidance,
         )
         governed_context = runtime.governance_service.govern_messages(prompt_result.messages)
         prompt_diagnostics = self._build_prompt_diagnostics(
@@ -276,6 +285,7 @@ class ChatContextAssemblyService:
             "active_skill": external_context_result.details.get("active_skill"),
             "tool_run_policy": external_context_result.details.get("tool_run_policy"),
             "tool_run_budget": external_context_result.details.get("tool_run_budget"),
+            "evidence_sufficiency": evidence_sufficiency.to_public_dict(),
         }
 
         return ChatExecutionContext(
@@ -346,6 +356,8 @@ class ChatContextAssemblyService:
                 "skill_active": int(bool(skill_context)),
                 "skill_key": skill_context.skill_key if skill_context else "none",
                 "skill_version": skill_context.version if skill_context else "none",
+                "evidence_sufficiency_status": evidence_sufficiency.status,
+                "evidence_sufficiency_reasons": ",".join(evidence_sufficiency.reasons),
                 "tokenizer_encoding": runtime.tokenizer.estimate.encoding_name,
                 "prompt_prefix_hash": prompt_diagnostics.prompt_prefix_hash,
                 "prompt_prefix_tokens": prompt_diagnostics.prompt_prefix_tokens,

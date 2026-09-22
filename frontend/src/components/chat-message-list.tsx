@@ -17,6 +17,7 @@ import type { ExternalSource, ToolTraceEvent, UploadItem } from "@/lib/types";
 
 type ThreadMessage = {
   id: string;
+  conversation_id?: string;
   role: "user" | "assistant" | "system" | string;
   content: string;
   reasoningContent?: string | null;
@@ -92,6 +93,9 @@ type ChatMessageListProps = {
   onRegenerateLastAssistant: (assistantMessageId: string) => void | Promise<void>;
   onBeginEditLastUser: (message: ThreadMessage) => void;
   formatMessageTime: (value: string, uiLanguage: UILanguage) => string;
+  projectId: string | null;
+  conversationId: string | null;
+  selectedSkillKey: string | null;
 };
 
 export function ChatMessageList({
@@ -128,6 +132,9 @@ export function ChatMessageList({
   onRegenerateLastAssistant,
   onBeginEditLastUser,
   formatMessageTime,
+  projectId,
+  conversationId,
+  selectedSkillKey,
 }: ChatMessageListProps) {
   return (
     <div className="chat-scroll min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
@@ -178,6 +185,9 @@ export function ChatMessageList({
             onEnterManageMode={onEnterManageMode}
             onRegenerateLastAssistant={onRegenerateLastAssistant}
             onBeginEditLastUser={onBeginEditLastUser}
+            projectId={projectId}
+            conversationId={conversationId}
+            selectedSkillKey={selectedSkillKey}
             formatMessageTime={formatMessageTime}
           />
         ))}
@@ -236,6 +246,9 @@ function MessageItem({
   onRegenerateLastAssistant,
   onBeginEditLastUser,
   formatMessageTime,
+  projectId,
+  conversationId,
+  selectedSkillKey,
 }: Omit<ChatMessageListProps, "messages" | "isLoadingMessages" | "messageEndRef"> & {
   message: ThreadMessage;
 }) {
@@ -331,7 +344,15 @@ function MessageItem({
       ) : null}
 
       {!isUser && message.toolEvents && message.toolEvents.length > 0 ? (
-        <ToolTracePanel events={message.toolEvents} title={text.toolTraceTitle} uiLanguage={uiLanguage} />
+        <ToolTracePanel
+          events={message.toolEvents}
+          title={text.toolTraceTitle}
+          uiLanguage={uiLanguage}
+          projectId={projectId}
+          conversationId={conversationId}
+          assistantMessageId={message.id}
+          skillKey={selectedSkillKey}
+        />
       ) : null}
 
       {!isUser && message.externalSources && message.externalSources.length > 0 ? (

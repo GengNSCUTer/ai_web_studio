@@ -203,6 +203,15 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
             ],
         }
 
+    evidence_sufficiency = details.get("evidence_sufficiency")
+    if isinstance(evidence_sufficiency, dict):
+        compact["evidence_sufficiency"] = {
+            "status": evidence_sufficiency.get("status"),
+            "required_source_types": evidence_sufficiency.get("required_source_types", []),
+            "available_source_types": evidence_sufficiency.get("available_source_types", []),
+            "reasons": evidence_sufficiency.get("reasons", []),
+        }
+
     # 运行模式和预算是前端诊断面板需要的安全摘要；不携带参数、URL 或 Provider 原文。
     for key in ("tool_run_policy", "tool_run_budget"):
         value = details.get(key)

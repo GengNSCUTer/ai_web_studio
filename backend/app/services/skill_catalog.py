@@ -43,6 +43,8 @@ class SkillExecutionContext:
     signature_status: str = "repository_attested"
     security_review_status: str = "approved"
     durable_eligible: bool = False
+    # 仅包含审核过的任务完成条件；它不能扩大候选工具或用户权限。
+    completion_contract: dict[str, Any] | None = None
 
     @property
     def final_answer_instructions(self) -> str:
@@ -68,6 +70,7 @@ class SkillExecutionContext:
             "signature_status": self.signature_status,
             "security_review_status": self.security_review_status,
             "durable_eligible": self.durable_eligible,
+            "completion_contract": self.completion_contract,
         }
 
 
@@ -98,6 +101,7 @@ class SkillCatalog:
         "security_review",
         "compatibility",
         "durable_eligible",
+        "completion_contract",
     }
     MAX_INSTRUCTION_CHARS = 2_000
     MAX_OUTPUT_CONTRACT_CHARS = 1_500
@@ -319,6 +323,7 @@ class SkillCatalog:
             signature_status=skill["signature_status"],
             security_review_status=skill["security_review_status"],
             durable_eligible=bool(skill["durable_eligible"]),
+            completion_contract=skill.get("completion_contract"),
         )
 
     def rollback(self, *, db: Session, user_id: str, skill_key: str) -> UserSkillInstallation:
@@ -492,6 +497,14 @@ class SkillCatalog:
             or signature_status != "repository_attested"
         ):
             raise SkillCatalogError("Skill manifest 来源或安全审核状态不满足发布要求。")
+        completion_contract = self._normalize_completion_contract(raw.get("completion_contract"))
+        if completion_contract:
+            declared_tools = set(required).union(optional)
+            contract_tools = set(completion_contract["prerequisite_tool_keys"]).union(
+                completion_contract["required_tool_keys"]
+            )
+            if not contract_tools.issubset(declared_tools):
+                raise SkillCatalogError("completion_contract 不能引用未在 Skill 中声明的工具。")
         normalized = {
             "skill_key": key,
             "version": version,
@@ -511,9 +524,68 @@ class SkillCatalog:
             "security_review_status": security_status,
             "compatibility": {str(k): str(v)[:128] for k, v in compatibility.items()},
             "durable_eligible": bool(raw.get("durable_eligible", False)),
+            "completion_contract": completion_contract,
         }
         normalized["manifest_digest"] = self._digest(normalized)
         return normalized
+
+    @staticmethod
+    def _normalize_completion_contract(value: Any) -> dict[str, Any] | None:
+        """校验声明式完成条件，禁止它成为隐式的权限扩展入口。"""
+
+        if value in (None, {}):
+            return None
+        if not isinstance(value, dict):
+            raise SkillCatalogError("completion_contract 必须是对象。")
+        allowed = {
+            "intent_patterns",
+            "prerequisite_tool_keys",
+            "required_tool_keys",
+            "completion_strategy",
+            "require_edit_for_exact_replacement",
+        }
+        unknown = sorted(set(value) - allowed)
+        if unknown:
+            raise SkillCatalogError("completion_contract 包含未审核字段：" + ", ".join(unknown))
+
+        def normalized_list(field_name: str, *, required: bool) -> list[str]:
+            raw_items = value.get(field_name)
+            if raw_items is None and not required:
+                return []
+            if not isinstance(raw_items, list) or len(raw_items) > 8 or (required and not raw_items):
+                raise SkillCatalogError(f"completion_contract.{field_name} 格式非法。")
+            items: list[str] = []
+            for raw_item in raw_items:
+                item = str(raw_item or "").strip()
+                if not item or len(item) > 128:
+                    raise SkillCatalogError(f"completion_contract.{field_name} 包含非法值。")
+                if item not in items:
+                    items.append(item)
+            return items
+
+        raw_require_edit = value.get("require_edit_for_exact_replacement", False)
+        if not isinstance(raw_require_edit, bool):
+            raise SkillCatalogError("completion_contract.require_edit_for_exact_replacement 必须是 boolean。")
+        return {
+            "intent_patterns": normalized_list("intent_patterns", required=True),
+            "prerequisite_tool_keys": normalized_list("prerequisite_tool_keys", required=False),
+            "required_tool_keys": normalized_list("required_tool_keys", required=True),
+            "completion_strategy": SkillCatalog._completion_strategy(value.get("completion_strategy")),
+            "require_edit_for_exact_replacement": raw_require_edit,
+        }
+
+    @staticmethod
+    def _completion_strategy(value: Any) -> str:
+        """只允许平台实现过的受限补全策略，Manifest 不能携带可执行代码。"""
+
+        strategy = str(value or "workspace_file_read").strip()
+        allowed = {
+            "workspace_file_read",
+            "workspace_file_read_then_apply_exact_replacement",
+        }
+        if strategy not in allowed:
+            raise SkillCatalogError("completion_contract.completion_strategy 不受支持。")
+        return strategy
 
     @classmethod
     def _digest(cls, definition: dict[str, Any]) -> str:

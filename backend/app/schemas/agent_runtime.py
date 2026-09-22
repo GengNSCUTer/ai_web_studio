@@ -165,6 +165,34 @@ class DurableToolRunRequest(BaseModel):
     calls: list[DurableToolCallRequest] = Field(min_length=1, max_length=12)
 
 
+class DurableHandoffPreviewRequest(DurableToolRunRequest):
+    """用户显式确认前的可恢复任务预览请求。"""
+
+    pass
+
+
+class DurableHandoffToolSummary(BaseModel):
+    call_id: str
+    tool_key: str
+    display_name: str
+    depends_on: list[str] = Field(default_factory=list)
+
+
+class DurableHandoffPreviewResponse(BaseModel):
+    handoff_token: str
+    expires_at: datetime
+    skill_key: str | None = None
+    skill_display_name: str | None = None
+    tool_calls: list[DurableHandoffToolSummary]
+    max_attempts: int
+    confirmation_required: bool = True
+    safety_notice: str
+
+
+class DurableHandoffConfirmRequest(BaseModel):
+    handoff_token: str = Field(min_length=32, max_length=24_000)
+
+
 class FileRevisionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -25,6 +25,7 @@ from app.services.tools.workflow import (
     ToolWorkflowService,
 )
 from app.services.tools.observation_projection import PlannerObservationProjection
+from app.services.tools.completion_contract import needs_followup
 
 
 class ExternalContextService:
@@ -338,6 +339,22 @@ class ExternalContextService:
                 observation.get("next_action") == "replan"
                 for observation in quality_observations
             )
+            completion_replan_required = needs_followup(
+                query=routed_query,
+                observations=observations,
+                contract=skill_context.completion_contract if skill_context else None,
+            )
+            if completion_replan_required:
+                events.append(
+                    ToolTraceEvent(
+                        type="tool_agent_replan_required",
+                        payload={
+                            "round": round_index,
+                            "reason": "skill_completion_contract",
+                            "skill_key": skill_context.skill_key if skill_context else None,
+                        },
+                    )
+                )
             if quality_replan_required:
                 events.append(
                     ToolTraceEvent(
@@ -363,6 +380,7 @@ class ExternalContextService:
                 quality_replan_required=quality_replan_required,
                 round_index=round_index,
                 max_rounds=self.run_policy.max_planning_rounds,
+                completion_replan_required=completion_replan_required,
             )
             if workflow_action.action == "replan" and not budget.can_replan():
                 budget_reason = budget.replan_limit_reason() or "tool_replan_budget_exhausted"
@@ -382,6 +400,7 @@ class ExternalContextService:
                         "round": round_index,
                         "need_more_rounds": plan.need_more_rounds,
                         "quality_replan_required": quality_replan_required,
+                        "completion_replan_required": completion_replan_required,
                         "next_action": workflow_action.action,
                         "decision_reason": workflow_action.reason,
                         "budget": budget.to_trace_payload(),

@@ -44,6 +44,43 @@ class ToolPlannerTest(unittest.TestCase):
             ),
             optional_tool_keys=(),
             requires_tool_execution=True,
+            completion_contract={
+                "intent_patterns": ["原文", "标题", "读取"],
+                "prerequisite_tool_keys": ["workspace.files.search", "workspace.files.list"],
+                "required_tool_keys": ["workspace.files.read"],
+            },
+        )
+
+    @staticmethod
+    def _document_edit_skill() -> SkillExecutionContext:
+        return SkillExecutionContext(
+            skill_key="workspace.document-edit",
+            version="1.0.0",
+            display_name="项目文档修改提案",
+            description="edit",
+            planner_instructions=("先读取后生成 Diff。",),
+            output_contract=("修改必须等待确认。",),
+            allowed_tool_keys=(
+                "workspace.files.list",
+                "workspace.files.search",
+                "workspace.files.read",
+                "workspace.files.apply_edit",
+            ),
+            required_tool_keys=(
+                "workspace.files.list",
+                "workspace.files.search",
+                "workspace.files.read",
+                "workspace.files.apply_edit",
+            ),
+            optional_tool_keys=(),
+            requires_tool_execution=True,
+            completion_contract={
+                "intent_patterns": ["替换", "修改"],
+                "prerequisite_tool_keys": ["workspace.files.search", "workspace.files.list"],
+                "required_tool_keys": ["workspace.files.read", "workspace.files.apply_edit"],
+                "completion_strategy": "workspace_file_read_then_apply_exact_replacement",
+                "require_edit_for_exact_replacement": True,
+            },
         )
 
     def test_candidate_selector_picks_relevant_map_and_weather_tools(self) -> None:
@@ -178,9 +215,85 @@ class ToolPlannerTest(unittest.TestCase):
             plan=plan,
             allowed_tool_keys={"workspace.files.read", "workspace.files.list"},
         )
-
         self.assertEqual(plan.calls, [])
         self.assertFalse(plan.should_use_tools)
+
+    def test_document_review_contract_adds_read_after_search_returns_opaque_file_id(self) -> None:
+        async def run_test() -> None:
+            planner = LLMToolPlanner(
+                chat_provider=FakeChatProvider(
+                    json.dumps({"should_use_tools": False, "calls": []})
+                )
+            )
+            plan = await planner.plan(
+                query="读取并核对这个文件的原文标题",
+                enabled=True,
+                runtime=PlannerRuntime(
+                    provider_type="openai-compatible",
+                    base_url="https://example.invalid",
+                    api_key="test",
+                    model_name="test",
+                ),
+                observations=[
+                    {
+                        "source_type": "workspace_file_search",
+                        "metadata": {
+                            "tool_key": "workspace.files.search",
+                            "call_id": "search-1",
+                            "file_id": "12345678-1234-1234-1234-123456789012",
+                            "revision_id": "87654321-1234-1234-1234-123456789012",
+                        },
+                    }
+                ],
+                skill_context=self._document_review_skill(),
+            )
+
+            self.assertTrue(plan.should_use_tools)
+            self.assertEqual(len(plan.calls), 1)
+            call = plan.calls[0]
+            self.assertEqual(call.tool_key, "workspace.files.read")
+            self.assertEqual(call.arguments["file_id"], "12345678-1234-1234-1234-123456789012")
+            self.assertEqual(call.depends_on, [])
+            self.assertTrue(any(event["type"] == "tool_completion_contract" for event in plan.trace_events))
+
+        asyncio.run(run_test())
+
+    def test_document_edit_contract_adds_approval_protected_edit_after_read(self) -> None:
+        async def run_test() -> None:
+            planner = LLMToolPlanner(
+                chat_provider=FakeChatProvider(json.dumps({"should_use_tools": False, "calls": []}))
+            )
+            plan = await planner.plan(
+                query="把“旧标题”替换为“新标题”",
+                enabled=True,
+                runtime=PlannerRuntime(
+                    provider_type="openai-compatible",
+                    base_url="https://example.invalid",
+                    api_key="test",
+                    model_name="test",
+                ),
+                observations=[
+                    {
+                        "source_type": "workspace_file_read",
+                        "metadata": {
+                            "tool_key": "workspace.files.read",
+                            "call_id": "read-1",
+                            "file_id": "12345678-1234-1234-1234-123456789012",
+                            "revision_id": "87654321-1234-1234-1234-123456789012",
+                        },
+                    }
+                ],
+                skill_context=self._document_edit_skill(),
+            )
+            self.assertEqual(len(plan.calls), 1)
+            call = plan.calls[0]
+            self.assertEqual(call.tool_key, "workspace.files.apply_edit")
+            self.assertEqual(call.arguments["old_string"], "旧标题")
+            self.assertEqual(call.arguments["new_string"], "新标题")
+            self.assertEqual(call.arguments["file_id"], "12345678-1234-1234-1234-123456789012")
+            self.assertEqual(call.depends_on, [])
+
+        asyncio.run(run_test())
 
     def test_schema_validator_normalizes_array_and_enum_defaults(self) -> None:
         catalog = ToolCatalog()

@@ -48,6 +48,7 @@ class ContextPromptBuilder:
         knowledge_context: str | None = None,
         model_name: str | None = None,
         skill_instructions: str | None = None,
+        evidence_guidance: str | None = None,
     ) -> PromptBuildResult:
         prompt_messages: list[dict[str, Any]] = []
         layers: list[str] = []
@@ -56,6 +57,12 @@ class ContextPromptBuilder:
         system_sections = [self._build_system_instruction(system_prompt)]
         if skill_instructions:
             system_sections.append(self._build_skill_instruction(skill_instructions))
+        if evidence_guidance:
+            system_sections.append(
+                "【当前回答证据约束】\n"
+                "以下是平台基于已执行 Tool 结果计算的证据状态；它只能收紧回答，不能扩大权限：\n"
+                f"{evidence_guidance}"
+            )
         # 会话摘要只在达到压缩阈值时变化，适合放在历史之前；当前轮 RAG、Tool、附件和
         # query-aware Memory 每轮都会变化，必须跟随当前 user message 放到 prompt 尾部，
         # 否则 Provider 的最长公共前缀会在第二条消息处失效。
@@ -205,6 +212,7 @@ class ContextPromptBuilder:
                 "prompt_external_context_injected": int(bool(external_context)),
                 "prompt_knowledge_context_injected": int(bool(knowledge_context)),
                 "prompt_skill_instructions_injected": int(bool(skill_instructions)),
+                "prompt_evidence_guidance_injected": int(bool(evidence_guidance)),
                 "prompt_image_messages": image_messages,
             },
             stable_prefix_messages=stable_prefix_messages,
