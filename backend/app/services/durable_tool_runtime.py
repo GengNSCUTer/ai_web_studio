@@ -29,6 +29,7 @@ from app.models.message import Message
 from app.models.observability import ChatRuntimeMetric
 from app.models.project import Project
 from app.models.tool_trace import ToolCallRun, ToolRouteRun
+from app.repositories.message_repo import MessageRepository
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.bindings import ToolResultBindingError, ToolResultBindingResolver
 from app.services.tools.executor import ToolExecutor
@@ -1422,6 +1423,14 @@ class DurableToolWorker:
 
     @staticmethod
     def _update_run_terminal_state(db: Session, run: AgentRun) -> None:
+        # 多个独立分支可能几乎同时完成；先锁定 Run 行，再判断全部 Step 是否终态，
+        # 确保结果消息投影不会出现两个 Worker 同时通过幂等检查的窗口。
+        locked_run = db.scalars(
+            select(AgentRun).where(AgentRun.id == run.id).with_for_update().limit(1)
+        ).first()
+        if not locked_run:
+            return
+        run = locked_run
         statuses = list(db.scalars(select(AgentStep.status).where(AgentStep.run_id == run.id)).all())
         terminal_statuses = {"succeeded", "skipped", "cancelled", "failed", "dead_letter"}
         if statuses and all(status in terminal_statuses for status in statuses):
@@ -1432,6 +1441,82 @@ class DurableToolWorker:
             else:
                 run.status = "failed"
             run.finished_at = utcnow()
+            DurableToolWorker._project_terminal_message(db, run)
         else:
             run.status = "running" if any(status in {"running", "waiting_approval"} for status in statuses) else "queued"
             run.finished_at = None
+
+    @staticmethod
+    def _project_terminal_message(db: Session, run: AgentRun) -> None:
+        """把 Durable Run 终态可靠投影回原会话，并用 Run 状态保证幂等。
+
+        该消息只面向用户展示，不会再次注入 Planner；完整工具结果仍保存在
+        AgentArtifact 中。投影与 Run 终态在同一事务提交，进程崩溃时会一起回滚。
+        """
+        if not run.conversation_id:
+            return
+        planner_state = DurableToolWorker._json_object(run.planner_state_json)
+        if planner_state.get("durable_result_message_id"):
+            return
+        conversation = db.scalars(
+            select(Conversation).where(
+                Conversation.id == run.conversation_id,
+                Conversation.user_id == run.user_id,
+            ).limit(1)
+        ).first()
+        if not conversation:
+            logger.warning("durable_result_projection_skipped run=%s reason=conversation_missing", run.id)
+            return
+
+        steps = list(
+            db.scalars(select(AgentStep).where(AgentStep.run_id == run.id).order_by(AgentStep.sequence)).all()
+        )
+        artifacts = list(
+            db.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run.id).order_by(AgentArtifact.created_at)).all()
+        )
+        if run.status == "succeeded":
+            title = "后台任务已完成"
+            sections = [artifact.preview.strip() for artifact in artifacts if artifact.preview and artifact.preview.strip()]
+            body = "\n\n".join(sections) or "只读工具已执行完成，但没有可展示的文本结果。"
+        else:
+            title = "后台任务未完成"
+            errors = [
+                f"Step {step.sequence}（{step.tool_key}）：{step.error_message or step.error_code or step.status}"
+                for step in steps
+                if step.status not in {"succeeded", "skipped"}
+            ]
+            body = "\n".join(errors) or "任务未能完成，请打开任务详情查看执行状态。"
+            if artifacts:
+                body = f"{body}\n\n已完成的只读步骤结果：\n" + "\n\n".join(
+                    artifact.preview.strip() for artifact in artifacts if artifact.preview and artifact.preview.strip()
+                )
+        content = f"{title}（Run {run.id}）\n\n{body}"[:200000]
+        external_sources = json.dumps(
+            [{
+                "source_type": "durable_run",
+                "provider": "agent_runtime",
+                "title": title,
+                "display_text": f"可恢复任务 {run.id} 已收口，状态：{run.status}",
+                "metadata": {"run_id": run.id, "status": run.status},
+            }],
+            ensure_ascii=False,
+        )
+        message = Message(
+            conversation_id=run.conversation_id,
+            role="assistant",
+            content=content,
+            external_sources=external_sources,
+            status="done" if run.status == "succeeded" else "failed",
+        )
+        MessageRepository(db).create(message)
+        planner_state["durable_result_message_id"] = message.id
+        planner_state["durable_result_projected_at"] = utcnow().isoformat()
+        run.planner_state_json = DurableToolRunService._json(planner_state)
+
+    @staticmethod
+    def _json_object(value: str | None) -> dict[str, Any]:
+        try:
+            parsed = json.loads(value or "{}")
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}

@@ -225,6 +225,7 @@ function DurableHandoffActions({
   conversationId,
   assistantMessageId,
   skillKey,
+  onConversationMessagesChanged,
 }: {
   event: ToolTraceEvent;
   uiLanguage: UILanguage;
@@ -232,6 +233,7 @@ function DurableHandoffActions({
   conversationId: string | null;
   assistantMessageId: string;
   skillKey: string | null;
+  onConversationMessagesChanged?: (conversationId: string | null) => Promise<void>;
 }) {
   const [state, setState] = useState<"idle" | "previewing" | "confirming" | "queued" | "error">("idle");
   const [preview, setPreview] = useState<{
@@ -327,6 +329,13 @@ function DurableHandoffActions({
         steps: payload.steps || [],
         artifacts: payload.artifacts || [],
       });
+      if (
+        onConversationMessagesChanged &&
+        conversationId &&
+        ["succeeded", "failed", "dead_letter", "cancelled"].includes(payload.run?.status)
+      ) {
+        await onConversationMessagesChanged(conversationId);
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "无法读取任务状态");
     }
@@ -487,6 +496,7 @@ export function ToolTracePanel({
   conversationId,
   assistantMessageId,
   skillKey,
+  onConversationMessagesChanged,
 }: {
   events: ToolTraceEvent[];
   title: string;
@@ -495,6 +505,7 @@ export function ToolTracePanel({
   conversationId: string | null;
   assistantMessageId: string;
   skillKey: string | null;
+  onConversationMessagesChanged?: (conversationId: string | null) => Promise<void>;
 }) {
   if (events.length === 0) {
     return null;
@@ -550,6 +561,7 @@ export function ToolTracePanel({
               conversationId={conversationId}
               assistantMessageId={assistantMessageId}
               skillKey={skillKey}
+              onConversationMessagesChanged={onConversationMessagesChanged}
             />
             <ApprovalActions event={event} uiLanguage={uiLanguage} />
           </div>

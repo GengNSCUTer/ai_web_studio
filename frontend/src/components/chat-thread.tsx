@@ -1944,6 +1944,7 @@ export function ChatThread({
         projectId={projectId}
         conversationId={activeConversationId}
         selectedSkillKey={selectedSkillKey}
+        onConversationMessagesChanged={onConversationMessagesChanged}
       />
 
       <footer className="composer-footer border-t px-3 py-2.5 sm:px-5">

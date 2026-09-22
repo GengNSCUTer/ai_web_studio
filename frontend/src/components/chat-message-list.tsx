@@ -96,6 +96,7 @@ type ChatMessageListProps = {
   projectId: string | null;
   conversationId: string | null;
   selectedSkillKey: string | null;
+  onConversationMessagesChanged: (conversationId: string | null) => Promise<void>;
 };
 
 export function ChatMessageList({
@@ -135,6 +136,7 @@ export function ChatMessageList({
   projectId,
   conversationId,
   selectedSkillKey,
+  onConversationMessagesChanged,
 }: ChatMessageListProps) {
   return (
     <div className="chat-scroll min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
@@ -188,6 +190,7 @@ export function ChatMessageList({
             projectId={projectId}
             conversationId={conversationId}
             selectedSkillKey={selectedSkillKey}
+            onConversationMessagesChanged={onConversationMessagesChanged}
             formatMessageTime={formatMessageTime}
           />
         ))}
@@ -249,6 +252,7 @@ function MessageItem({
   projectId,
   conversationId,
   selectedSkillKey,
+  onConversationMessagesChanged,
 }: Omit<ChatMessageListProps, "messages" | "isLoadingMessages" | "messageEndRef"> & {
   message: ThreadMessage;
 }) {
@@ -352,6 +356,7 @@ function MessageItem({
           conversationId={conversationId}
           assistantMessageId={message.id}
           skillKey={selectedSkillKey}
+          onConversationMessagesChanged={onConversationMessagesChanged}
         />
       ) : null}
 

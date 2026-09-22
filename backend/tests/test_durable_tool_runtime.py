@@ -335,16 +335,72 @@ class DurableToolRuntimeTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.engine.dispose()
 
-    def _enqueue(self, calls, *, attempts: int = 3):
+    def _enqueue(self, calls, *, attempts: int = 3, with_conversation: bool = False):
         with self.SessionLocal() as db:
             return DurableToolRunService(db).enqueue(
                 user_id=self.user_id,
                 project_id=self.project_id,
-                conversation_id=None,
-                assistant_message_id=None,
+                conversation_id=self.conversation_id if with_conversation else None,
+                assistant_message_id=self.assistant_message_id if with_conversation else None,
                 calls=calls,
                 max_attempts=attempts,
             ).id
+
+    def test_terminal_success_projects_one_assistant_message_to_conversation(self) -> None:
+        run_id = self._enqueue(
+            [{"call_id": "list", "tool_key": "workspace.files.list", "arguments": {}}],
+            with_conversation=True,
+        )
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-projection-success",
+            executor_factory=SuccessfulExecutor,
+        )
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            messages = list(
+                db.scalars(
+                    select(Message)
+                    .where(Message.conversation_id == self.conversation_id, Message.role == "assistant")
+                    .order_by(Message.sequence)
+                ).all()
+            )
+            self.assertEqual(run.status, "succeeded")
+            self.assertIn("后台任务已完成", messages[-1].content)
+            self.assertEqual(messages[-1].status, "done")
+            state = json.loads(run.planner_state_json)
+            self.assertEqual(state["durable_result_message_id"], messages[-1].id)
+            message_count = len(messages)
+            DurableToolWorker._project_terminal_message(db, run)
+            db.commit()
+            self.assertEqual(
+                db.query(Message).filter(Message.conversation_id == self.conversation_id, Message.role == "assistant").count(),
+                message_count,
+            )
+
+    def test_terminal_failure_projects_failed_message_with_error(self) -> None:
+        run_id = self._enqueue(
+            [{"call_id": "fails", "tool_key": "workspace.files.list", "arguments": {}}],
+            attempts=1,
+            with_conversation=True,
+        )
+        worker = DurableToolWorker(
+            session_factory=self.SessionLocal,
+            owner="worker-projection-failure",
+            executor_factory=PermanentFailureExecutor,
+        )
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            message = db.scalars(
+                select(Message)
+                .where(Message.conversation_id == self.conversation_id, Message.content.contains("后台任务未完成"))
+            ).first()
+            self.assertEqual(run.status, "failed")
+            self.assertIsNotNone(message)
+            self.assertEqual(message.status, "failed")
+            self.assertIn("resource does not exist", message.content)
 
     def test_enqueue_is_idempotent_and_worker_persists_artifact(self) -> None:
         calls = [
