@@ -64,25 +64,12 @@ npm run build
 
 ## 3. 飞书同步要求
 
-默认将“阶段总结或增量更新”追加到飞书项目总览文档：
+维护飞书[当前项目入口](https://my.feishu.cn/docx/ZyS5dt57nobU51xysZfcJjrYnwg)，不再为每次同步创建本地“飞书同步更新”临时稿，也不再向旧总览无限追加：
 
-- 总览文档：
+- 历史总览（含画板，保留归档）：
   `https://my.feishu.cn/docx/Mx2KdT3FboSwn3xw6PucH0N2nOf`
 
-目录映射参考：
-
-- `docs/11_飞书文档目录补充_2026-05-10.md`
-
-同步命令（示例）：
-
-```bash
-cd /disk2/gengnan/ai_web_studio
-lark-cli docs +update \
-  --api-version v2 \
-  --doc https://my.feishu.cn/docx/Mx2KdT3FboSwn3xw6PucH0N2nOf \
-  --command append \
-  --content @./docs/12_飞书同步更新_2026-05-10.md
-```
+当前本地目录和飞书入口见 `docs/README.md`。阶段细节保留在带日期的原始文档里，飞书优先定点更新当前入口。
 
 注意：
 
