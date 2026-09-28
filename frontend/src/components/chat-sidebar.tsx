@@ -265,7 +265,7 @@ export function ChatSidebar({
       <div className="sidebar-user-card rounded-2xl border p-3 text-sm">
         <p className="font-medium">{currentUser?.username ?? text.unnamedUser}</p>
         <p className="mt-1 break-all text-xs text-white/45">{currentUser?.email ?? "--"}</p>
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-4 gap-2">
           <Link
             href="/"
             className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-center text-xs transition hover:bg-white/14"
@@ -277,6 +277,12 @@ export function ChatSidebar({
             className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-center text-xs transition hover:bg-white/14"
           >
             {text.knowledgeBase}
+          </Link>
+          <Link
+            href="/tasks"
+            className="rounded-full border border-white/12 bg-white/8 px-2 py-1.5 text-center text-xs transition hover:bg-white/14"
+          >
+            任务
           </Link>
           <button
             type="button"

@@ -95,7 +95,6 @@ type ChatMessageListProps = {
   formatMessageTime: (value: string, uiLanguage: UILanguage) => string;
   projectId: string | null;
   conversationId: string | null;
-  selectedSkillKey: string | null;
   onConversationMessagesChanged: (conversationId: string | null) => Promise<void>;
 };
 
@@ -135,7 +134,6 @@ export function ChatMessageList({
   formatMessageTime,
   projectId,
   conversationId,
-  selectedSkillKey,
   onConversationMessagesChanged,
 }: ChatMessageListProps) {
   return (
@@ -189,7 +187,6 @@ export function ChatMessageList({
             onBeginEditLastUser={onBeginEditLastUser}
             projectId={projectId}
             conversationId={conversationId}
-            selectedSkillKey={selectedSkillKey}
             onConversationMessagesChanged={onConversationMessagesChanged}
             formatMessageTime={formatMessageTime}
           />
@@ -251,7 +248,6 @@ function MessageItem({
   formatMessageTime,
   projectId,
   conversationId,
-  selectedSkillKey,
   onConversationMessagesChanged,
 }: Omit<ChatMessageListProps, "messages" | "isLoadingMessages" | "messageEndRef"> & {
   message: ThreadMessage;
@@ -355,7 +351,6 @@ function MessageItem({
           projectId={projectId}
           conversationId={conversationId}
           assistantMessageId={message.id}
-          skillKey={selectedSkillKey}
           onConversationMessagesChanged={onConversationMessagesChanged}
         />
       ) : null}

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import type { ExternalSource } from "@/lib/types";
 
 function sourceMeta(source: ExternalSource, key: string) {
@@ -11,6 +13,9 @@ function sourceMeta(source: ExternalSource, key: string) {
 }
 
 function sourceKindLabel(source: ExternalSource) {
+  if (source.source_type === "durable_run") {
+    return "后台任务";
+  }
   const tool = sourceMeta(source, "tool");
   if (source.source_type === "knowledge") {
     return "知识库";
@@ -72,6 +77,10 @@ export function ExternalSourceCard({
   const toolDisplayName = sourceMeta(source, "tool_display_name");
   const callId = sourceMeta(source, "call_id");
   const contentPreview = source.display_text;
+  const runId = source.source_type === "durable_run" ? sourceMeta(source, "run_id") : "";
+  const runHref = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(runId)
+    ? `/tasks?run=${encodeURIComponent(runId)}`
+    : null;
 
   const cardBody =
     source.source_type === "knowledge" ? (
@@ -133,6 +142,7 @@ export function ExternalSourceCard({
       </div>
       {cardBody}
       <div className="mt-2 flex flex-wrap gap-2">
+        {runHref ? <Link href={runHref} className="text-[var(--accent-strong)] hover:underline">查看任务详情</Link> : null}
         {toolDisplayName ? (
           <span className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-muted)]">
             工具：{toolDisplayName}

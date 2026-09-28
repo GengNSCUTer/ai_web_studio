@@ -1,10 +1,12 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
+from app.models.agent_runtime import AgentRun
 from app.schemas.agent_runtime import (
     AgentApprovalResponse,
     AgentArtifactResponse,
@@ -27,6 +29,7 @@ from app.schemas.agent_runtime import (
 from app.services.durable_tool_runtime import DurableToolRunService, DurableToolRuntimeError
 from app.services.agent_runtime_service import AgentRuntimeError, AgentRuntimeService
 from app.services.durable_handoff_service import DurableHandoffError, DurableHandoffService
+from app.services.durable_audit_service import DurableAuditError, DurableAuditService
 
 
 router = APIRouter(prefix="/agent-runtime", tags=["agent-runtime"])
@@ -60,6 +63,10 @@ def _handoff_http_error(exc: DurableHandoffError) -> HTTPException:
     not_found = {"project_not_found", "conversation_not_found", "assistant_message_not_found", "unknown_tool"}
     code = status.HTTP_404_NOT_FOUND if exc.code in not_found else status.HTTP_409_CONFLICT
     return HTTPException(status_code=code, detail={"code": exc.code, "message": str(exc)})
+
+
+def _audit_http_error(exc: DurableAuditError) -> HTTPException:
+    return HTTPException(status_code=404, detail={"code": "run_not_found", "message": str(exc)})
 
 
 @router.get("/runs", response_model=list[AgentRunResponse])
@@ -107,6 +114,27 @@ def get_agent_run(
     )
 
 
+@router.get("/tool-runs/{run_id}/audit.jsonl")
+def export_durable_run_audit(
+    run_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """下载当前用户 Durable Run 的脱敏 JSONL 审计记录。"""
+    try:
+        content = DurableAuditService(db).export_jsonl(run_id=run_id, user_id=current_user.id)
+    except DurableAuditError as exc:
+        raise _audit_http_error(exc) from exc
+    return Response(
+        content=content,
+        media_type="application/x-ndjson",
+        headers={
+            "Content-Disposition": f'attachment; filename="agent-run-{run_id}.jsonl"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @router.post("/tool-runs", response_model=AgentRunResponse, status_code=status.HTTP_202_ACCEPTED)
 def enqueue_durable_tool_run(
     payload: DurableToolRunRequest,
@@ -127,6 +155,26 @@ def enqueue_durable_tool_run(
     except DurableToolRuntimeError as exc:
         raise _durable_http_error(exc) from exc
     return AgentRunResponse.model_validate(run)
+
+
+@router.get("/tool-runs", response_model=list[AgentRunResponse])
+def list_durable_tool_runs(
+    run_status: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100000),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AgentRunResponse]:
+    if run_status and run_status not in {"queued", "running", "succeeded", "failed", "dead_letter", "cancelled"}:
+        raise HTTPException(status_code=422, detail="不支持的任务状态。")
+    query = select(AgentRun).where(
+        AgentRun.user_id == current_user.id,
+        AgentRun.runtime_kind == "durable_tool_workflow",
+    )
+    if run_status:
+        query = query.where(AgentRun.status == run_status)
+    runs = db.scalars(query.order_by(AgentRun.created_at.desc(), AgentRun.id.desc()).offset(offset).limit(limit)).all()
+    return [AgentRunResponse.model_validate(run) for run in runs]
 
 
 @router.post("/tool-handoffs/preview", response_model=DurableHandoffPreviewResponse)

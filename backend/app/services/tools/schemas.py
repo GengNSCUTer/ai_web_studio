@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -152,6 +154,57 @@ class ToolDefinition:
         return asdict(self)
 
 
+def tool_execution_snapshot(definition: ToolDefinition) -> dict[str, Any]:
+    """返回不含凭据的工具执行身份摘要与稳定指纹。
+
+    Durable Run 不能在回放时盲目使用“当前同名工具”。指纹覆盖会影响
+    执行语义和安全边界的字段，但只持久化摘要与哈希，不把 adapter 参数、
+    固定租户值或认证配置写入审计记录。
+    """
+    adapter = definition.adapter if isinstance(definition.adapter, dict) else {}
+    adapter_identity = {
+        "type": definition.adapter_type,
+        "endpoint_template": adapter.get("endpoint_template"),
+        "mcp_tool_name": adapter.get("mcp_tool_name"),
+        "result_mapper": adapter.get("result_mapper"),
+        "canonical_mapper": adapter.get("canonical_mapper"),
+        "auth_type": adapter.get("auth_type"),
+        "credential_provider": adapter.get("credential_provider"),
+        # 值本身不能落库，但值的哈希必须参与指纹，避免租户/工作区等
+        # 固定作用域变化后仍被误认为是同一个执行合同。
+        "default_arguments_hash": hashlib.sha256(
+            json.dumps(adapter.get("default_arguments") or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        "fixed_arguments_hash": hashlib.sha256(
+            json.dumps(adapter.get("fixed_arguments") or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+    }
+    canonical = {
+        "tool_key": definition.tool_key,
+        "provider": definition.provider,
+        "category": definition.category,
+        "adapter": adapter_identity,
+        "source_type": definition.source_type,
+        "risk_level": definition.risk_level,
+        "read_only": definition.read_only,
+        "fallback_tool_key": definition.fallback_tool_key,
+        "input_schema": definition.input_schema,
+        "output_schema": definition.output_schema,
+        "quality_contract": definition.quality_contract,
+        "evidence_projection": definition.evidence_projection,
+    }
+    encoded = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return {
+        "tool_key": definition.tool_key,
+        "provider": definition.provider,
+        "category": definition.category,
+        "source_type": definition.source_type,
+        "risk_level": definition.risk_level,
+        "read_only": bool(definition.read_only),
+        "fingerprint": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+    }
+
+
 @dataclass
 class ToolResultBinding:
     source_call_id: str
@@ -191,6 +244,8 @@ class ToolPlan:
     original_query: str | None = None
     rewritten_query: str | None = None
     need_more_rounds: bool = False
+    execution_mode: str = "sync"
+    execution_reason: str = ""
     trace_events: list[dict[str, Any]] = field(default_factory=list)
 
     def to_public_dict(self) -> dict[str, Any]:
@@ -204,6 +259,8 @@ class ToolPlan:
             "original_query": self.original_query,
             "rewritten_query": self.rewritten_query,
             "need_more_rounds": self.need_more_rounds,
+            "execution_mode": self.execution_mode,
+            "execution_reason": self.execution_reason,
         }
 
 

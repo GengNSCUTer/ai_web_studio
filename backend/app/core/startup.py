@@ -10,6 +10,7 @@ from app.models import (  # noqa: F401
     AgentArtifact,
     AgentCheckpoint,
     AgentOutboxEvent,
+    AgentWorkerHeartbeat,
     AgentRun,
     AgentStep,
     FileRevision,

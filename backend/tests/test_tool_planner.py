@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from dataclasses import replace
 
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.planner import DeterministicToolPlanner, LLMToolPlanner, PlannerRuntime
@@ -23,6 +24,95 @@ class FakeChatProvider:
 
 
 class ToolPlannerTest(unittest.TestCase):
+    @staticmethod
+    def _execution_advice_plan(*, calls: list[dict], mode: str = "durable_candidate", reason: str = "多个步骤") -> str:
+        return json.dumps(
+            {
+                "should_use_tools": True,
+                "execution_mode": mode,
+                "execution_reason": reason,
+                "calls": calls,
+            },
+            ensure_ascii=False,
+        )
+
+    def test_planner_keeps_safe_multi_step_durable_suggestion_without_enqueuing(self) -> None:
+        async def run_test() -> None:
+            planner = LLMToolPlanner(chat_provider=FakeChatProvider(self._execution_advice_plan(calls=[
+                {"id": "weather-a", "tool_key": "amap.maps.weather", "arguments": {"city": "深圳"}},
+                {"id": "weather-b", "tool_key": "amap.maps.weather", "arguments": {"city": "广州"}},
+            ])))
+            plan = await planner.plan(
+                query="深圳和广州天气怎么样",
+                enabled=True,
+                runtime=PlannerRuntime("openai-compatible", "https://example.invalid", "test", "test"),
+            )
+            self.assertEqual(plan.execution_mode, "durable_candidate")
+            self.assertEqual(plan.to_public_dict()["execution_reason"], "多个步骤")
+            self.assertEqual(len(plan.calls), 2)
+
+        asyncio.run(run_test())
+
+    def test_planner_rejects_unsafe_or_unqualified_durable_suggestion(self) -> None:
+        cases = [
+            ([{"tool_key": "amap.maps.weather", "arguments": {"city": "深圳"}}], None),
+            ([
+                {"tool_key": "workspace.files.list", "arguments": {}},
+                {"tool_key": "workspace.files.search", "arguments": {"query": "标题"}},
+            ], self._document_review_skill()),
+        ]
+        for raw_calls, skill in cases:
+            with self.subTest(calls=raw_calls, skill=skill):
+                planner = LLMToolPlanner()
+                plan = planner._parse_llm_plan(
+                    text=self._execution_advice_plan(calls=raw_calls),
+                    query="查看项目文档",
+                    allowed_tool_keys=None,
+                )
+                planner._validate_execution_advice(plan=plan, skill_context=skill)
+                self.assertEqual(plan.execution_mode, "sync")
+
+        catalog = ToolCatalog()
+        catalog._definitions = {
+            "test.safe": ToolDefinition(
+                tool_key="test.safe", provider="test", category="test", display_name="Safe",
+                description="Safe", input_schema={"type": "object"},
+            ),
+            "test.write": ToolDefinition(
+                tool_key="test.write", provider="test", category="test", display_name="Write",
+                description="Write", input_schema={"type": "object"}, read_only=False, risk_level="high",
+            ),
+        }
+        planner = LLMToolPlanner(catalog=catalog)
+        unsafe_plan = planner._parse_llm_plan(
+            text=self._execution_advice_plan(calls=[
+                {"tool_key": "test.safe", "arguments": {}},
+                {"tool_key": "test.write", "arguments": {}},
+            ]),
+            query="执行两个步骤",
+        )
+        self.assertEqual(len(unsafe_plan.calls), 2)
+        planner._validate_execution_advice(plan=unsafe_plan, skill_context=None)
+        self.assertEqual(unsafe_plan.execution_mode, "sync")
+
+    def test_planner_accepts_explicit_durable_skill_and_defaults_old_json_to_sync(self) -> None:
+        planner = LLMToolPlanner()
+        calls = [
+            {"tool_key": "workspace.files.list", "arguments": {}},
+            {"tool_key": "workspace.files.search", "arguments": {"query": "标题"}},
+        ]
+        plan = planner._parse_llm_plan(
+            text=self._execution_advice_plan(calls=calls), query="查看项目文档"
+        )
+        planner._validate_execution_advice(
+            plan=plan, skill_context=replace(self._document_review_skill(), durable_eligible=True)
+        )
+        self.assertEqual(plan.execution_mode, "durable_candidate")
+        old_plan = planner._parse_llm_plan(
+            text=json.dumps({"should_use_tools": True, "calls": calls}), query="查看项目文档"
+        )
+        self.assertEqual(old_plan.execution_mode, "sync")
+
     @staticmethod
     def _document_review_skill() -> SkillExecutionContext:
         return SkillExecutionContext(

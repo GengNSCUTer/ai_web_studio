@@ -343,6 +343,17 @@ function DurableHandoffActions({
 
   return (
     <div className="mt-2 rounded-lg border border-[var(--hairline)] bg-[var(--soft-bg)] p-2">
+      {plan?.execution_mode === "durable_candidate" ? (
+        <p className="mb-2 text-[11px] leading-4 text-[var(--ink-strong)]">
+          {uiLanguage === "zh-CN" ? "Planner 建议：这组步骤适合可恢复任务。" : "Planner suggestion: these steps may suit a durable task."}
+          {plan.execution_reason ? ` ${plan.execution_reason}` : ""}
+        </p>
+      ) : null}
+      <p className="mb-2 text-[10px] leading-4 text-[var(--ink-soft)]">
+        {uiLanguage === "zh-CN"
+          ? "当前 Chat 按同步流程处理。后台预览只接受低风险只读步骤；确认后会独立执行，可能重复本轮查询。"
+          : "This chat follows the synchronous flow. Preview only accepts low-risk read-only steps; confirmation runs them separately and may repeat queries."}
+      </p>
       {!preview && !run && state !== "error" ? (
         <button
           type="button"
@@ -350,7 +361,7 @@ function DurableHandoffActions({
           disabled={state === "previewing" || state === "confirming"}
           className="rounded-full border border-[var(--accent-strong)] px-3 py-1 text-[10px] text-[var(--accent-strong)] disabled:opacity-50"
         >
-          {state === "previewing" ? "正在生成预览…" : uiLanguage === "zh-CN" ? "转为可恢复任务" : "Handoff to durable task"}
+          {state === "previewing" ? "正在生成预览…" : uiLanguage === "zh-CN" ? "预览后台重执行" : "Preview durable rerun"}
         </button>
       ) : null}
       {preview ? (
@@ -495,7 +506,6 @@ export function ToolTracePanel({
   projectId,
   conversationId,
   assistantMessageId,
-  skillKey,
   onConversationMessagesChanged,
 }: {
   events: ToolTraceEvent[];
@@ -504,12 +514,13 @@ export function ToolTracePanel({
   projectId: string | null;
   conversationId: string | null;
   assistantMessageId: string;
-  skillKey: string | null;
   onConversationMessagesChanged?: (conversationId: string | null) => Promise<void>;
 }) {
   if (events.length === 0) {
     return null;
   }
+  const activatedSkill = events.find((event) => event.type === "skill_activation");
+  const traceSkillKey = typeof activatedSkill?.skill_key === "string" ? activatedSkill.skill_key : null;
 
   return (
     <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">
@@ -560,7 +571,7 @@ export function ToolTracePanel({
               projectId={projectId}
               conversationId={conversationId}
               assistantMessageId={assistantMessageId}
-              skillKey={skillKey}
+              skillKey={traceSkillKey}
               onConversationMessagesChanged={onConversationMessagesChanged}
             />
             <ApprovalActions event={event} uiLanguage={uiLanguage} />

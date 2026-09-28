@@ -30,6 +30,7 @@ import type {
 type ChatAppProps = {
   initialUser: User | null;
   initialConversations: Conversation[];
+  initialConversationId: string | null;
   initialMessages: Message[];
   initialProviderInfo: ProviderInfo | null;
   initialSettings: UserSettings | null;
@@ -525,6 +526,7 @@ async function requestVoid(input: RequestInfo, init?: RequestInit): Promise<void
 export function ChatApp({
   initialUser,
   initialConversations,
+  initialConversationId,
   initialMessages,
   initialProviderInfo,
   initialSettings,
@@ -534,7 +536,7 @@ export function ChatApp({
   const [currentUser, setCurrentUser] = useState<User | null>(initialUser);
   const [conversations, setConversations] = useState<Conversation[]>(initialConversations);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
-    initialConversations[0]?.id ?? null
+    initialConversationId
   );
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(initialProviderInfo);
@@ -1224,6 +1226,9 @@ export function ChatApp({
   const selectedConversation = selectedConversationId
     ? conversations.find((item) => item.id === selectedConversationId) ?? null
     : null;
+  const selectedConversationProject = selectedConversation?.project_id
+    ? projects.find((project) => project.id === selectedConversation.project_id) ?? null
+    : null;
   const normalizedConversationQuery = conversationQuery.trim().toLowerCase();
   const filteredConversations = conversations.filter((conversation) => {
     if (selectedProjectScope === "unassigned" && conversation.project_id) {
@@ -1415,8 +1420,11 @@ export function ChatApp({
             initialMessages={messages}
             isLoadingMessages={isLoadingMessages}
             selectedModel={selectedModel}
-            systemPrompt={activeProject?.system_prompt ?? userSettings?.system_prompt ?? null}
-            projectId={activeProject?.id ?? null}
+            systemPrompt={
+              (selectedConversation ? selectedConversationProject?.system_prompt : activeProject?.system_prompt)
+              ?? userSettings?.system_prompt ?? null
+            }
+            projectId={selectedConversation ? selectedConversation.project_id : activeProject?.id ?? null}
             contextInfo={contextInfo}
             highlightedMessageId={highlightedMessageId}
             uiLanguage={uiLanguage}

@@ -23,6 +23,8 @@ from app.services.durable_tool_runtime import (
     DurableToolWorker,
     utcnow,
 )
+from app.services.durable_audit_service import DurableAuditError, DurableAuditService
+from app.api.routes.agent_runtime import list_durable_tool_runs
 from app.services.skill_catalog import SkillCatalog
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolCallResult, ToolDefinition, ToolTraceEvent
@@ -378,6 +380,53 @@ class DurableToolRuntimeTest(unittest.TestCase):
                 db.query(Message).filter(Message.conversation_id == self.conversation_id, Message.role == "assistant").count(),
                 message_count,
             )
+
+    def test_enqueue_persists_tool_execution_snapshot(self) -> None:
+        run_id = self._enqueue([{"call_id": "list", "tool_key": "workspace.files.list", "arguments": {}}])
+        with self.SessionLocal() as db:
+            state = json.loads(db.get(AgentRun, run_id).planner_state_json)
+            snapshot = state["tool_snapshots"]["workspace.files.list"]
+            self.assertEqual(snapshot["tool_key"], "workspace.files.list")
+            self.assertTrue(len(snapshot["fingerprint"]) == 64)
+            self.assertTrue(snapshot["read_only"])
+
+    def test_replay_fails_closed_when_tool_snapshot_changed(self) -> None:
+        run_id = self._enqueue(
+            [{"call_id": "search", "tool_key": "workspace.files.search", "arguments": {"query": "test"}}],
+            attempts=1,
+        )
+        worker = DurableToolWorker(session_factory=self.SessionLocal, owner="worker-snapshot-drift", executor_factory=FailingExecutor)
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            state = json.loads(run.planner_state_json)
+            state["tool_snapshots"]["workspace.files.search"]["fingerprint"] = "0" * 64
+            run.planner_state_json = json.dumps(state)
+            db.commit()
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id))
+            with self.assertRaises(DurableToolRuntimeError) as ctx:
+                DurableToolRunService(db).replay_dead_letter(run_id=run_id, step_id=step.id, user_id=self.user_id)
+            self.assertEqual(ctx.exception.code, "tool_snapshot_mismatch")
+
+    def test_audit_jsonl_is_owner_scoped_and_does_not_export_raw_inputs(self) -> None:
+        run_id = self._enqueue(
+            [{"call_id": "search", "tool_key": "workspace.files.search", "arguments": {"query": "secret query"}}]
+        )
+        worker = DurableToolWorker(session_factory=self.SessionLocal, owner="worker-audit", executor_factory=SuccessfulExecutor)
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.SessionLocal() as db:
+            content = DurableAuditService(db).export_jsonl(run_id=run_id, user_id=self.user_id)
+            lines = [json.loads(line) for line in content.splitlines()]
+            self.assertTrue(any(item["event_type"] == "run.execution_snapshot" for item in lines))
+            self.assertTrue(any(item["event_type"] == "artifact.summary" for item in lines))
+            self.assertIn("arguments_hash", content)
+            self.assertNotIn("secret query", content)
+            self.assertNotIn("content_json", content)
+            other = User(username="audit-other", email="audit-other@example.test")
+            db.add(other)
+            db.commit()
+            with self.assertRaises(DurableAuditError):
+                DurableAuditService(db).export_jsonl(run_id=run_id, user_id=other.id)
 
     def test_terminal_failure_projects_failed_message_with_error(self) -> None:
         run_id = self._enqueue(
@@ -1028,6 +1077,62 @@ class DurableToolRuntimeTest(unittest.TestCase):
         self.assertTrue(asyncio.run(successful_worker.run_once()))
         with self.SessionLocal() as db:
             self.assertEqual(db.get(AgentRun, run_id).status, "succeeded")
+
+    def test_replay_updates_original_conversation_result_in_place(self) -> None:
+        run_id = self._enqueue(
+            [{"call_id": "search", "tool_key": "workspace.files.search", "arguments": {"query": "test"}}],
+            attempts=1,
+            with_conversation=True,
+        )
+        failed_worker = DurableToolWorker(
+            session_factory=self.SessionLocal, owner="worker-projected-failure", executor_factory=FailingExecutor,
+        )
+        self.assertTrue(asyncio.run(failed_worker.run_once()))
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            message_id = json.loads(run.planner_state_json)["durable_result_message_id"]
+            self.assertEqual(db.get(Message, message_id).status, "failed")
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id))
+            DurableToolRunService(db).replay_dead_letter(run_id=run_id, step_id=step.id, user_id=self.user_id)
+            self.assertIn("已重新排队", db.get(Message, message_id).content)
+            with self.assertRaises(DurableToolRuntimeError):
+                DurableToolRunService(db).replay_dead_letter(run_id=run_id, step_id=step.id, user_id=self.user_id)
+        succeeded_worker = DurableToolWorker(
+            session_factory=self.SessionLocal, owner="worker-projected-replay", executor_factory=SuccessfulExecutor,
+        )
+        self.assertTrue(asyncio.run(succeeded_worker.run_once()))
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            result_message = db.get(Message, message_id)
+            self.assertEqual(run.status, "succeeded")
+            self.assertEqual(result_message.status, "done")
+            self.assertIn("后台任务已完成", result_message.content)
+            self.assertEqual(json.loads(run.planner_state_json)["durable_result_message_id"], message_id)
+            self.assertEqual(db.query(Message).filter(Message.conversation_id == self.conversation_id).count(), 2)
+
+    def test_task_list_filters_owner_kind_status_and_offset(self) -> None:
+        first_id = self._enqueue([{"call_id": "first", "tool_key": "workspace.files.list", "arguments": {}}])
+        second_id = self._enqueue([{"call_id": "second", "tool_key": "workspace.files.list", "arguments": {}}])
+        with self.SessionLocal() as db:
+            other = User(username="other-task-user", email="other-task@example.test")
+            db.add(other)
+            db.flush()
+            db.add(AgentRun(
+                user_id=other.id, runtime_kind="durable_tool_workflow", status="dead_letter",
+                idempotency_key="other-task-run",
+            ))
+            db.add(AgentRun(
+                user_id=self.user_id, runtime_kind="file_edit", status="failed",
+                idempotency_key="legacy-task-run",
+            ))
+            db.commit()
+            current_user = db.get(User, self.user_id)
+            page = list_durable_tool_runs(run_status=None, limit=1, offset=0, db=db, current_user=current_user)
+            next_page = list_durable_tool_runs(run_status=None, limit=1, offset=1, db=db, current_user=current_user)
+            self.assertEqual({page[0].id, next_page[0].id}, {first_id, second_id})
+            self.assertEqual(list_durable_tool_runs(
+                run_status="dead_letter", limit=50, offset=0, db=db, current_user=current_user,
+            ), [])
 
     def test_dead_letter_replay_requeues_dependency_failed_descendants(self) -> None:
         ReplayableExecutor.attempts = {}

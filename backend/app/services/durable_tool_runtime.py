@@ -13,9 +13,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import socket
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 from typing import Any, Callable
 
 from sqlalchemy import and_, func, or_, select
@@ -43,9 +45,11 @@ from app.services.tools.schemas import (
     ToolResultBinding,
     redact_sensitive_arguments,
     redact_sensitive_text,
+    tool_execution_snapshot,
 )
 from app.services.tools.validation import ToolSchemaValidationError, ToolSchemaValidator
 from app.services.skill_catalog import SkillCatalog, SkillCatalogError, SkillExecutionContext
+from app.services.durable_worker_registry import DurableWorkerRegistry
 
 
 logger = logging.getLogger(__name__)
@@ -135,6 +139,7 @@ class DurableToolRunService:
         catalog = ToolCatalog(db=self.db, user_id=user_id, project_id=project_id)
         validator = ToolSchemaValidator()
         normalized_calls: list[dict[str, Any]] = []
+        tool_snapshots: dict[str, dict[str, Any]] = {}
         call_ids: set[str] = set()
 
         for index, raw in enumerate(calls, start=1):
@@ -149,6 +154,7 @@ class DurableToolRunService:
                     "unsafe_tool_not_supported",
                     f"可恢复队列当前只接受低风险只读工具，{tool_key} 必须走专用审批链路。",
                 )
+            tool_snapshots[tool_key] = tool_execution_snapshot(definition)
             if skill_context and tool_key not in skill_context.allowed_tool_keys:
                 raise DurableToolRuntimeError("skill_scope_violation", f"{tool_key} 不在当前 Skill 的允许范围内。")
             arguments = raw.get("arguments") or {}
@@ -277,6 +283,7 @@ class DurableToolRunService:
                     "call_ids": [item["call_id"] for item in normalized_calls],
                     "request_hash": request_hash,
                     "skill": skill_context.to_public_dict() if skill_context else None,
+                    "tool_snapshots": tool_snapshots,
                 }
             ),
             idempotency_key=scoped_key,
@@ -381,6 +388,45 @@ class DurableToolRunService:
             return None
         value = state.get("request_hash") if isinstance(state, dict) else None
         return str(value) if value else None
+
+    @staticmethod
+    def _verify_execution_snapshot(
+        *,
+        run: AgentRun,
+        step: AgentStep,
+        definition: Any,
+        db: Session,
+    ) -> None:
+        """回放或执行前检查工具和 Skill 是否仍是原审核版本。"""
+        state = DurableToolRunService._safe_json(run.planner_state_json)
+        snapshots = state.get("tool_snapshots") if isinstance(state, dict) else None
+        if isinstance(snapshots, dict) and snapshots:
+            stored = snapshots.get(step.tool_key)
+            if not isinstance(stored, dict) or not stored.get("fingerprint"):
+                raise DurableToolRuntimeError("tool_snapshot_missing", "Durable Step 缺少工具执行快照，已拒绝继续。")
+            current = tool_execution_snapshot(definition)
+            if str(stored.get("fingerprint")) != current["fingerprint"]:
+                raise DurableToolRuntimeError("tool_snapshot_mismatch", "工具定义或安全合同已变化，不能直接回放。")
+        # 旧 Run 没有快照时保留兼容读取和既有低风险检查；新的 Run 都会带快照，
+        # 审计服务会明确标记 legacy_snapshot，避免把旧数据伪装成完整审计。
+        skill = state.get("skill") if isinstance(state, dict) else None
+        if not isinstance(skill, dict) or not skill.get("skill_key"):
+            return
+        expected_version = str(skill.get("version") or "")
+        expected_digest = str(skill.get("manifest_digest") or "")
+        if not expected_version and not expected_digest:
+            return
+        try:
+            current_skill = SkillCatalog().resolve_for_execution(
+                db=db,
+                user_id=run.user_id,
+                project_id=run.project_id,
+                skill_key=str(skill["skill_key"]),
+            )
+        except SkillCatalogError as exc:
+            raise DurableToolRuntimeError("skill_snapshot_mismatch", "Skill 已失效或不再满足审核条件。") from exc
+        if current_skill.version != expected_version or current_skill.manifest_digest != expected_digest:
+            raise DurableToolRuntimeError("skill_snapshot_mismatch", "Skill 版本或审核摘要已变化，不能直接回放。")
 
     def claim_next(self, *, owner: str, lease_seconds: int | None = None) -> DurableStepClaim | None:
         now = utcnow()
@@ -502,11 +548,7 @@ class DurableToolRunService:
         }
 
     def replay_dead_letter(self, *, run_id: str, step_id: str, user_id: str) -> AgentRun:
-        """Explicitly replay one read-only dead-letter Step with a new event.
-
-        This is deliberately user-triggered. A permanent Tool/schema failure must
-        not be silently reintroduced into the worker queue.
-        """
+        """用户显式重放只读死信步骤；永久失败不能静默回到队列。"""
         run = self.db.scalars(
             select(AgentRun)
             .where(
@@ -533,12 +575,9 @@ class DurableToolRunService:
         definition = ToolCatalog(db=self.db, user_id=user_id, project_id=run.project_id).get_or_none(step.tool_key)
         if not definition or not definition.read_only or definition.risk_level != "low":
             raise DurableToolRuntimeError("unsafe_or_missing_tool", "工具已失效或不再满足只读低风险约束。")
+        self._verify_execution_snapshot(run=run, step=step, definition=definition, db=self.db)
 
-        # A failed upstream normally leaves its descendants as dependency_failed
-        # and their original events as succeeded/skipped. Replaying only the
-        # source would therefore leave the Run permanently incomplete. Restore a
-        # dependency closure, but only when every other dependency is already
-        # successful so an unrelated failed branch cannot be bypassed.
+        # 重放失败上游时同步恢复被依赖阻断的下游；其它独立依赖仍须已成功。
         all_steps = list(
             self.db.scalars(
                 select(AgentStep)
@@ -630,6 +669,18 @@ class DurableToolRunService:
         run.status = "queued"
         run.finished_at = None
         run.state_version = next_version
+        projected_message_id = state.get("durable_result_message_id") if isinstance(state, dict) else None
+        projected_message = self.db.get(Message, projected_message_id) if isinstance(projected_message_id, str) else None
+        if projected_message and projected_message.conversation_id == run.conversation_id:
+            projected_message.content = f"后台任务已重新排队（Run {run.id}）\n\n将重新执行 {len(replay_steps)} 个只读步骤。"
+            projected_message.status = "done"
+            projected_message.external_sources = self._json([{
+                "source_type": "durable_run",
+                "provider": "agent_runtime",
+                "title": "后台任务已重新排队",
+                "display_text": f"可恢复任务 {run.id} 已重新排队",
+                "metadata": {"run_id": run.id, "status": "queued"},
+            }])
         self._checkpoint(run, step=step, observations=observations)
         self.db.commit()
         self.db.refresh(run)
@@ -849,6 +900,8 @@ class DurableToolRunService:
             alerts.append({"code": "durable_dlq_nonempty", "severity": "warning", "count": dead_letter_steps})
         if expired_running_events:
             alerts.append({"code": "durable_lease_expired", "severity": "warning", "count": expired_running_events})
+        worker_health = DurableWorkerRegistry(self.db).summary(user_id=user_id)
+        alerts.extend(worker_health["alerts"])
 
         return {
             "observation_window": {
@@ -891,6 +944,7 @@ class DurableToolRunService:
             "durable_health": {
                 "dead_letter_steps": dead_letter_steps,
                 "expired_running_events": expired_running_events,
+                "workers": worker_health,
                 "alerts": alerts,
             },
             "rag": {
@@ -946,38 +1000,81 @@ class DurableToolWorker:
         executor_factory: Callable[..., ToolExecutor] = ToolExecutor,
     ) -> None:
         self.session_factory = session_factory
-        self.owner = owner or f"agent-worker:{socket.gethostname()}"
+        self.owner = owner or f"agent-worker:{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
+        if len(self.owner) > 128:
+            raise ValueError("Worker ID 不能超过 128 个字符。")
         self.executor_factory = executor_factory
         self._last_reconcile_at = 0.0
+        self._stop_requested = asyncio.Event()
+        self._instance_id: str | None = None
+
+    def request_stop(self) -> None:
+        self._stop_requested.set()
 
     async def run_once(self) -> bool:
+        if self._stop_requested.is_set():
+            return False
         with self.session_factory() as db:
             claim = DurableToolRunService(db).claim_next(owner=self.owner)
         if not claim:
             return False
+        if self._instance_id:
+            self._update_worker_status("running", claim.step_id)
         with self.session_factory() as db:
-            await self._execute_claim(db, claim)
+            try:
+                await self._execute_claim(db, claim)
+            finally:
+                if self._instance_id:
+                    self._update_worker_status("idle")
         return True
 
-    async def run_forever(self, *, poll_interval_seconds: float = 1.0) -> None:
-        """Keep polling after an empty queue and isolate transient loop failures."""
+    def _update_worker_status(self, status: str, step_id: str | None = None) -> None:
+        if not self._instance_id:
+            return
+        with self.session_factory() as db:
+            if not DurableWorkerRegistry(db).heartbeat(
+                owner=self.owner, instance_id=self._instance_id, status=status, step_id=step_id,
+            ):
+                raise RuntimeError("Worker 实例已失去注册身份，停止领取任务。")
 
-        delay = max(0.1, float(poll_interval_seconds))
-        while True:
-            try:
-                loop_time = asyncio.get_running_loop().time()
-                if loop_time - self._last_reconcile_at >= self.RECONCILE_INTERVAL_SECONDS:
-                    with self.session_factory() as reconcile_db:
-                        DurableToolRunService(reconcile_db).reconcile_orphaned_steps(limit=100)
-                    self._last_reconcile_at = loop_time
-                worked = await self.run_once()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("durable Tool worker loop failed")
-                worked = False
-            if not worked:
-                await asyncio.sleep(delay)
+    async def run_forever(self, *, poll_interval_seconds: float = 1.0) -> None:
+        """空队列时持续轮询，隔离瞬时故障并响应优雅停机。"""
+
+        delay = min(30.0, max(0.1, float(poll_interval_seconds)))
+        with self.session_factory() as db:
+            registry = DurableWorkerRegistry(db)
+            registry.check_database()
+            self._instance_id = registry.register(owner=self.owner)
+        try:
+            while not self._stop_requested.is_set():
+                try:
+                    loop_time = asyncio.get_running_loop().time()
+                    if loop_time - self._last_reconcile_at >= self.RECONCILE_INTERVAL_SECONDS:
+                        with self.session_factory() as reconcile_db:
+                            DurableToolRunService(reconcile_db).reconcile_orphaned_steps(limit=100)
+                        self._last_reconcile_at = loop_time
+                    self._update_worker_status("idle")
+                    worked = await self.run_once()
+                except asyncio.CancelledError:
+                    raise
+                except RuntimeError as exc:
+                    if "失去注册身份" in str(exc):
+                        raise
+                    logger.exception("durable Tool worker loop failed")
+                    worked = False
+                except Exception:
+                    logger.exception("durable Tool worker loop failed")
+                    worked = False
+                if not worked:
+                    try:
+                        await asyncio.wait_for(self._stop_requested.wait(), timeout=delay)
+                    except asyncio.TimeoutError:
+                        pass
+        finally:
+            if self._instance_id:
+                with self.session_factory() as db:
+                    DurableWorkerRegistry(db).stop(owner=self.owner, instance_id=self._instance_id)
+                self._instance_id = None
 
     async def _execute_claim(self, db: Session, claim: DurableStepClaim) -> None:
         event = db.get(AgentOutboxEvent, claim.outbox_event_id)
@@ -1108,13 +1205,15 @@ class DurableToolWorker:
             try:
                 await asyncio.wait_for(stop.wait(), timeout=self.HEARTBEAT_SECONDS)
                 return
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 try:
                     with self.session_factory() as heartbeat_db:
                         renewed = DurableToolRunService(heartbeat_db).renew_claim(
                             claim=claim,
                             owner=self.owner,
                         )
+                    if self._instance_id:
+                        self._update_worker_status("running", claim.step_id)
                 except Exception:
                     logger.exception("durable Tool lease heartbeat failed")
                     return
@@ -1126,6 +1225,7 @@ class DurableToolWorker:
         definition = catalog.get_or_none(step.tool_key)
         if not definition or not definition.read_only or definition.risk_level != "low":
             raise DurableToolRuntimeError("unsafe_or_missing_tool", "工具已失效或不再满足只读低风险约束。")
+        DurableToolRunService._verify_execution_snapshot(run=run, step=step, definition=definition, db=db)
         state = DurableToolRunService._safe_json(run.planner_state_json)
         skill = state.get("skill") if isinstance(state, dict) else None
         if isinstance(skill, dict):
@@ -1456,8 +1556,7 @@ class DurableToolWorker:
         if not run.conversation_id:
             return
         planner_state = DurableToolWorker._json_object(run.planner_state_json)
-        if planner_state.get("durable_result_message_id"):
-            return
+        previous_message_id = planner_state.get("durable_result_message_id")
         conversation = db.scalars(
             select(Conversation).where(
                 Conversation.id == run.conversation_id,
@@ -1501,14 +1600,22 @@ class DurableToolWorker:
             }],
             ensure_ascii=False,
         )
-        message = Message(
-            conversation_id=run.conversation_id,
-            role="assistant",
-            content=content,
-            external_sources=external_sources,
-            status="done" if run.status == "succeeded" else "failed",
-        )
-        MessageRepository(db).create(message)
+        message = db.get(Message, previous_message_id) if isinstance(previous_message_id, str) else None
+        if message and message.conversation_id != run.conversation_id:
+            message = None
+        if message:
+            message.content = content
+            message.external_sources = external_sources
+            message.status = "done" if run.status == "succeeded" else "failed"
+        else:
+            message = Message(
+                conversation_id=run.conversation_id,
+                role="assistant",
+                content=content,
+                external_sources=external_sources,
+                status="done" if run.status == "succeeded" else "failed",
+            )
+            MessageRepository(db).create(message)
         planner_state["durable_result_message_id"] = message.id
         planner_state["durable_result_projected_at"] = utcnow().isoformat()
         run.planner_state_json = DurableToolRunService._json(planner_state)

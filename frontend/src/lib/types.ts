@@ -459,6 +459,7 @@ export type ExternalSource = {
 
 export type ToolTraceEvent = {
   type:
+    | "skill_activation"
     | "tool_planner_start"
     | "tool_planner_llm_output"
     | "tool_planner_end"
@@ -529,6 +530,8 @@ export type ToolPlanPayload = {
   router?: string;
   external_context_allowed?: boolean;
   should_use_tools?: boolean;
+  execution_mode?: "sync" | "durable_candidate";
+  execution_reason?: string;
   fallback_tool_key?: string | null;
   calls?: Array<{
     call_id?: string;

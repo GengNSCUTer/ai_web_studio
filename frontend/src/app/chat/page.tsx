@@ -16,7 +16,11 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-export default async function ChatPage() {
+export default async function ChatPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ conversation?: string | string[] }>;
+}) {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
 
@@ -51,10 +55,15 @@ export default async function ChatPage() {
   initialConversations = conversationsResult ?? [];
   initialProjects = projectsResult ?? [];
   initialKnowledgeBases = knowledgeBasesResult ?? [];
-  if (initialConversations[0]?.id) {
+  const requestedConversation = (await searchParams).conversation;
+  const requestedId = typeof requestedConversation === "string" ? requestedConversation : null;
+  const initialConversationId = initialConversations.some((item) => item.id === requestedId)
+    ? requestedId
+    : initialConversations[0]?.id ?? null;
+  if (initialConversationId) {
     initialMessages =
       (await fetchBackendJsonOrNull<Message[]>(
-        `/api/conversations/${initialConversations[0].id}/messages`,
+        `/api/conversations/${initialConversationId}/messages`,
         token
       )) ?? [];
   }
@@ -63,6 +72,7 @@ export default async function ChatPage() {
     <ChatApp
       initialUser={currentUser}
       initialConversations={initialConversations}
+      initialConversationId={initialConversationId}
       initialMessages={initialMessages}
       initialProviderInfo={initialProviderInfo}
       initialSettings={initialSettings}

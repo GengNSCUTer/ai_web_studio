@@ -1943,7 +1943,6 @@ export function ChatThread({
         formatMessageTime={formatMessageTime}
         projectId={projectId}
         conversationId={activeConversationId}
-        selectedSkillKey={selectedSkillKey}
         onConversationMessagesChanged={onConversationMessagesChanged}
       />
 
