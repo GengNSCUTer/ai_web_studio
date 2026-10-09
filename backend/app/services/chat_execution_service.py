@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
-from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.message_repo import MessageRepository
 from app.repositories.message_repo import MessageGenerationConflict
 from app.repositories.project_repo import ProjectRepository
@@ -22,7 +21,6 @@ from app.services.chat_execution_models import (
 from app.services.chat_provider_service import resolve_provider_base_url
 from app.services.chat_turn_bootstrapper import ChatTurnBootstrapper, clean_optional_str
 from app.services.context_governance_service import ContextBudgetPlanner, ContextGovernanceService
-from app.services.memory_service import MemoryService
 from app.services.message_service import MessageService
 from app.services.setting_service import SettingService
 from app.services.skill_catalog import SkillCatalog, SkillCatalogError, SkillExecutionContext
@@ -49,7 +47,6 @@ class ChatExecutionService:
             self.conversation_repo,
         )
         self.setting_service = SettingService(UserSettingRepository(db))
-        self.memory_service = MemoryService(UserMemoryRepository(db))
         self.tool_trace_repo = ToolTraceRepository(db)
         self.turn_bootstrapper = ChatTurnBootstrapper(
             conversation_repo=self.conversation_repo,
@@ -64,7 +61,6 @@ class ChatExecutionService:
             conversation_repo=self.conversation_repo,
             message_service=self.message_service,
             tool_trace_repo=self.tool_trace_repo,
-            memory_service=self.memory_service,
         )
 
     @staticmethod

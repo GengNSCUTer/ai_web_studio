@@ -28,9 +28,9 @@ class SettingService:
     DEFAULT_THEME_MODE = "system"
     DEFAULT_MEMORY_ENABLED = True
     DEFAULT_MEMORY_MAX_CHARS = 4000
-    # Auto mode creates pending candidates only. It never activates a memory
-    # or injects it into a prompt before the user approves it.
+    # 自动提取与自动生效分开授权；升级时绝不替用户打开自动生效。
     DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED = True
+    DEFAULT_MEMORY_AUTO_ACTIVATE_ENABLED = False
     DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL = 4
     DEFAULT_KNOWLEDGE_PARSER_PROVIDER = "local_basic"
     DEFAULT_KNOWLEDGE_MODEL_BASE_URL = "https://api.siliconflow.cn/v1"
@@ -158,6 +158,7 @@ class SettingService:
             memory_enabled=cls.DEFAULT_MEMORY_ENABLED,
             memory_max_chars=cls.DEFAULT_MEMORY_MAX_CHARS,
             memory_auto_candidate_enabled=cls.DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED,
+            memory_auto_activate_enabled=cls.DEFAULT_MEMORY_AUTO_ACTIVATE_ENABLED,
             memory_auto_candidate_turn_interval=cls.DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL,
             ui_language=cls.DEFAULT_UI_LANGUAGE,
             theme_mode=cls.DEFAULT_THEME_MODE,
@@ -247,6 +248,9 @@ class SettingService:
                 should_save = True
             if not getattr(setting, "memory_auto_candidate_turn_interval", None):
                 setting.memory_auto_candidate_turn_interval = self.DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL
+                should_save = True
+            if getattr(setting, "memory_auto_activate_enabled", None) is None:
+                setting.memory_auto_activate_enabled = self.DEFAULT_MEMORY_AUTO_ACTIVATE_ENABLED
                 should_save = True
             if not getattr(setting, "knowledge_parser_provider", None):
                 setting.knowledge_parser_provider = self.DEFAULT_KNOWLEDGE_PARSER_PROVIDER
@@ -396,6 +400,8 @@ class SettingService:
         setting.memory_max_chars = max(500, min(int(setting.memory_max_chars), 20000))
         if getattr(setting, "memory_auto_candidate_enabled", None) is None:
             setting.memory_auto_candidate_enabled = self.DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED
+        if getattr(setting, "memory_auto_activate_enabled", None) is None:
+            setting.memory_auto_activate_enabled = self.DEFAULT_MEMORY_AUTO_ACTIVATE_ENABLED
         setting.memory_auto_candidate_turn_interval = max(
             1,
             min(
@@ -478,6 +484,7 @@ class SettingService:
                 "context_mode": setting.context_mode,
                 "memory_enabled": setting.memory_enabled,
                 "memory_max_chars": setting.memory_max_chars,
+                "memory_auto_activate_enabled": bool(getattr(setting, "memory_auto_activate_enabled", False)),
                 "memory_auto_candidate_enabled": getattr(
                     setting, "memory_auto_candidate_enabled", self.DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED
                 ),

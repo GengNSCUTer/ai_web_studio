@@ -1,6 +1,6 @@
 "use client";
 
-import type { ContextAttachmentChunk } from "@/lib/types";
+import type { ContextAttachmentChunk, ContextDiagnosticDetails } from "@/lib/types";
 
 type StatCard = {
   key: string;
@@ -28,6 +28,8 @@ type ContextDiagnosticsPopoverProps = {
   overviewStatCards: StatCard[];
   advancedStatCards: StatCard[];
   attachmentChunks: ContextAttachmentChunk[];
+  memoryRetrieval?: ContextDiagnosticDetails["memory_retrieval"];
+  uiLanguage?: string;
   expandedChunkKeys: string[];
   onToggleOpen: () => void;
   onClose: () => void;
@@ -41,6 +43,8 @@ export function ContextDiagnosticsPopover({
   overviewStatCards,
   advancedStatCards,
   attachmentChunks,
+  memoryRetrieval,
+  uiLanguage,
   expandedChunkKeys,
   onToggleOpen,
   onClose,
@@ -128,6 +132,22 @@ export function ContextDiagnosticsPopover({
                     );
                   })}
                 </div>
+              </div>
+            ) : null}
+
+            {memoryRetrieval ? (
+              <div className="mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-3">
+                <p className="text-xs text-[var(--ink-muted)]">
+                  {uiLanguage === "en-US" ? "Memories included in this answer" : "本轮实际注入的长期记忆"}
+                </p>
+                <p className="mt-2 text-xs text-[var(--ink-soft)]">
+                  {uiLanguage === "en-US" ? "Selected / included" : "选中 / 注入"}：{memoryRetrieval.selected_count ?? 0} / {memoryRetrieval.injected_count ?? 0}
+                </p>
+                {memoryRetrieval.injected?.map((memory) => (
+                  <p key={memory.id} className="mt-2 break-all text-xs text-[var(--ink-soft)]">
+                    {memory.id} · v{memory.version} · {memory.reason} · {memory.project_id ? (uiLanguage === "en-US" ? "Project" : "项目范围") : (uiLanguage === "en-US" ? "Global" : "全局")}
+                  </p>
+                ))}
               </div>
             ) : null}
 

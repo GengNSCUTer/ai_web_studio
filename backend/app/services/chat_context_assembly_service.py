@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
+from sqlalchemy.orm import sessionmaker
 
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.tool_trace_repo import ToolTraceRepository
@@ -12,7 +13,6 @@ from app.services.attachment_context_service import AttachmentContextService
 from app.services.chat_execution_models import (
     ChatExecutionContext,
     ChatRuntimeConfig,
-    MemoryContextBundle,
     PromptDiagnosticsBundle,
     SummaryRefreshBundle,
 )
@@ -21,6 +21,7 @@ from app.services.external_context_service import ExternalContextService
 from app.services.evidence_sufficiency import assess_evidence_sufficiency
 from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.message_service import MessageService
+from app.services.memory_retrieval_service import MemoryRetrievalResult, MemoryRetrievalService
 from app.services.prompt_builder_service import ContextPromptBuilder
 from app.services.provider_capabilities import resolve_provider_capabilities
 from app.services.skill_catalog import SkillExecutionContext
@@ -101,33 +102,29 @@ class ChatContextAssemblyService:
         conversation_repo: ConversationRepository,
         message_service: MessageService,
         tool_trace_repo: ToolTraceRepository,
-        memory_service: object,
     ) -> None:
         self.db = db
         self.user_id = user_id
         self.conversation_repo = conversation_repo
         self.message_service = message_service
         self.tool_trace_repo = tool_trace_repo
-        self.memory_service = memory_service
 
-    def build_memory_context(
+    async def build_memory_context(
         self,
         settings: object,
         *,
         query: str | None = None,
         project_id: str | None = None,
-    ) -> MemoryContextBundle:
+    ) -> MemoryRetrievalResult:
         # 长期记忆是用户级上下文，不属于单个 conversation；是否注入由用户设置控制。
         if not getattr(settings, "memory_enabled", True):
-            return MemoryContextBundle(context_text=None, count=0, chars=0)
+            return MemoryRetrievalResult(diagnostics={"mode": "disabled"})
 
-        context_text, count, chars = self.memory_service.build_memory_context(
-            self.user_id,
-            max_chars=int(getattr(settings, "memory_max_chars", 4000) or 4000),
-            query=query,
-            project_id=project_id,
-        )
-        return MemoryContextBundle(context_text=context_text, count=count, chars=chars)
+        max_chars = int(getattr(settings, "memory_max_chars", 4000) or 4000)
+        # 结束主链的只读事务；召回使用独立短 Session，外部向量请求期间不占数据库连接。
+        self.db.commit()
+        retrieval = MemoryRetrievalService(session_factory=sessionmaker(bind=self.db.get_bind(), autoflush=False))
+        return await retrieval.retrieve(user_id=self.user_id, max_chars=max_chars, query=query or "", project_id=project_id)
 
     async def build_execution_context(
         self,
@@ -150,7 +147,7 @@ class ChatContextAssemblyService:
         # Prepare 过程中会有外部调用和多次 commit；必须固定本次 generation 的 token，
         # 避免 ORM 刷新后读到后来 generation 的新 token，削弱流式收口的 CAS 保护。
         assistant_generation_id = getattr(assistant_message, "generation_id", None)
-        memory_bundle = self.build_memory_context(
+        memory_bundle = await self.build_memory_context(
             runtime.settings,
             query=query,
             project_id=getattr(conversation, "project_id", None),
@@ -190,6 +187,12 @@ class ChatContextAssemblyService:
             knowledge_base_id=knowledge_base_id,
             knowledge_base_ids=knowledge_base_ids,
             query=query,
+            rewrite_provider={
+                "provider_type": runtime.provider_type,
+                "base_url": runtime.base_url,
+                "api_key": runtime.provider_api_key,
+                "model_name": runtime.resolved_model,
+            },
             recent_messages=[
                 message
                 for message in history_rows
@@ -247,6 +250,8 @@ class ChatContextAssemblyService:
             evidence_guidance=evidence_sufficiency.guidance,
         )
         governed_context = runtime.governance_service.govern_messages(prompt_result.messages)
+        memory_diagnostics = memory_bundle.after_governance(
+            governed_context.retained_reference_texts.get("long_term_memory", ""))
         prompt_diagnostics = self._build_prompt_diagnostics(
             conversation=conversation,
             prompt_result=prompt_result,
@@ -276,6 +281,7 @@ class ChatContextAssemblyService:
         )
         combined_public_sources = [source.to_public_dict() for source in combined_sources]
         context_details = {
+            "memory_retrieval": memory_diagnostics,
             "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
             "external_sources": combined_public_sources,
             "knowledge_sources": knowledge_context_result.details.get("knowledge_sources", []),
@@ -349,9 +355,13 @@ class ChatContextAssemblyService:
                 "attachment_context_tokens": attachment_context_tokens,
                 "knowledge_context_tokens": knowledge_context_tokens,
                 "memory_enabled": int(bool(getattr(runtime.settings, "memory_enabled", True))),
-                "memory_injected": int(bool(memory_bundle.context_text)),
-                "memory_count": memory_bundle.count,
-                "memory_chars": memory_bundle.chars,
+                "memory_injected": int(bool(memory_diagnostics["injected_count"])),
+                "memory_count": memory_diagnostics["injected_count"],
+                "memory_chars": memory_diagnostics["injected_chars"],
+                "memory_selected_count": memory_bundle.count,
+                "memory_retrieval_mode": memory_diagnostics.get("mode", "lexical"),
+                "memory_fallback_reason": memory_diagnostics.get("fallback_reason") or "none",
+                "memory_retrieval": memory_diagnostics,
                 "thinking_enabled": int(bool(thinking_enabled)),
                 "skill_active": int(bool(skill_context)),
                 "skill_key": skill_context.skill_key if skill_context else "none",

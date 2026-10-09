@@ -548,6 +548,14 @@ export type ToolPlanPayload = {
 };
 
 export type ContextDiagnosticDetails = {
+  memory_retrieval?: {
+    mode?: string;
+    selected_count?: number;
+    injected_count?: number;
+    dropped_by_total_budget?: number;
+    fallback_reason?: string | null;
+    injected?: Array<{ id: string; type: string; project_id: string | null; version: number; reason: string }>;
+  };
   attachment_chunks?: ContextAttachmentChunk[];
   external_sources?: ExternalSource[];
   active_skill?: {
@@ -654,6 +662,7 @@ export type UserSettings = {
   memory_enabled: boolean;
   memory_max_chars: number;
   memory_auto_candidate_enabled: boolean;
+  memory_auto_activate_enabled?: boolean;
   memory_auto_candidate_turn_interval: number;
   ui_language: string;
   theme_mode: string;
@@ -712,6 +721,9 @@ export type PublicConversationShare = {
 
 export type UserMemory = {
   id: string;
+  version?: number;
+  fact_key?: string | null;
+  fact_value?: string | null;
   user_id: string;
   memory_type: string;
   title: string;
@@ -720,6 +732,7 @@ export type UserMemory = {
   source_conversation_id: string | null;
   source_conversation_title: string | null;
   source_message_ids: string | null;
+  evidence_quote?: string | null;
   confidence: string | null;
   is_enabled: boolean;
   status: string;

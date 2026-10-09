@@ -258,6 +258,13 @@ def _ensure_runtime_schema_unlocked() -> None:
             "alter table user_settings add column memory_auto_candidate_turn_interval integer default 4"
         )
 
+    if "memory_auto_activate_enabled" not in columns:
+        statements.append("alter table user_settings add column memory_auto_activate_enabled boolean not null default false")
+    job_columns = _get_column_names("memory_extraction_jobs")
+    for name, definition in {"source_snapshot": "text", "cursor_end": "integer not null default 0"}.items():
+        if job_columns and name not in job_columns:
+            statements.append(f"alter table memory_extraction_jobs add column {name} {definition}")
+
     memory_columns = _get_column_names("user_memories")
     memory_additions = {
         "status": "varchar(24) not null default 'active'",
@@ -266,7 +273,15 @@ def _ensure_runtime_schema_unlocked() -> None:
         "sensitivity": "varchar(24) not null default 'normal'",
         "risk_level": "varchar(32) not null default 'safe'",
         "candidate_reason": "text",
+        "evidence_quote": "text",
+        "extraction_job_id": "varchar(36)",
         "content_hash": "varchar(64)",
+        "fact_key": "varchar(180)",
+        "fact_value": "text",
+        "version": "integer not null default 1",
+        "embedding_vector": "text",
+        "embedding_signature": "varchar(64)",
+        "embedding_text_hash": "varchar(64)",
         "supersedes_memory_id": "varchar(36)",
         "expires_at": "timestamptz",
         "review_at": "timestamptz",
@@ -446,6 +461,8 @@ def _ensure_runtime_schema_unlocked() -> None:
         statements.append("alter table knowledge_eval_results add column matched_chunk_ids_json text")
 
     conversation_columns = _get_column_names("conversations")
+    if "memory_extraction_cursor" not in conversation_columns:
+        statements.append("alter table conversations add column memory_extraction_cursor integer not null default 0")
     if "project_id" not in conversation_columns:
         statements.append("alter table conversations add column project_id varchar(36)")
     if "context_summary" not in conversation_columns:

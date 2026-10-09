@@ -5,6 +5,7 @@ import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { AttachmentPreviewModal } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessageList } from "@/components/chat-message-list";
+import { MemoryActivityPanel } from "@/components/memory-activity-panel";
 import {
   KnowledgeSourcePreviewDialog,
   type KnowledgeSourcePreviewTarget,
@@ -14,7 +15,7 @@ import {
   cloneUploadItems,
 } from "@/lib/attachments";
 import type {
-  ContextAttachmentChunk,
+  ContextDiagnosticDetails,
   ContextGovernanceInfo,
   ExternalSource,
   KnowledgeBase,
@@ -402,7 +403,7 @@ function parseContextNoticesHeader(value: string | null): string[] {
 
 function parseContextDetailsHeader(
   value: string | null
-): { attachment_chunks?: ContextAttachmentChunk[] } | null {
+): ContextDiagnosticDetails | null {
   if (!value) {
     return null;
   }
@@ -411,7 +412,7 @@ function parseContextDetailsHeader(
     const decoded = atob(value);
     const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
     const text = new TextDecoder().decode(bytes);
-    const parsed = JSON.parse(text) as { attachment_chunks?: ContextAttachmentChunk[] };
+    const parsed = JSON.parse(text) as ContextDiagnosticDetails;
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;
@@ -549,6 +550,7 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T
 }
 
 type ChatStreamEvent =
+  | { type: "context_info"; conversation_id: string; info: ContextGovernanceInfo }
   | { type: "answer_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_sources"; sources: ExternalSource[] }
@@ -734,6 +736,16 @@ export function ChatThread({
       key: "memory_count",
       label: text.memoryCount,
       value: statMap.memory_count,
+    },
+    {
+      key: "memory_selected_count",
+      label: uiLanguage === "en-US" ? "Memories selected before budget" : "预算前选中记忆数",
+      value: statMap.memory_selected_count,
+    },
+    {
+      key: "memory_retrieval_mode",
+      label: uiLanguage === "en-US" ? "Memory retrieval" : "记忆召回方式",
+      value: statMap.memory_retrieval_mode === "hybrid" ? (uiLanguage === "en-US" ? "Semantic + lexical" : "语义 + 词法") : statMap.memory_retrieval_mode,
     },
     {
       key: "memory_chars",
@@ -1445,7 +1457,9 @@ export function ChatThread({
         const parsed = parseStreamEvents(eventBuffer);
         eventBuffer = parsed.rest;
         for (const streamEvent of parsed.events) {
-          if (streamEvent.type === "answer_delta") {
+          if (streamEvent.type === "context_info") {
+            onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
+          } else if (streamEvent.type === "answer_delta") {
             assistantText += streamEvent.text;
           } else if (streamEvent.type === "reasoning_delta") {
             reasoningText += streamEvent.text;
@@ -1476,7 +1490,9 @@ export function ChatThread({
       eventBuffer += decoder.decode();
       const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
       for (const streamEvent of finalParsed.events) {
-        if (streamEvent.type === "answer_delta") {
+        if (streamEvent.type === "context_info") {
+          onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
+        } else if (streamEvent.type === "answer_delta") {
           assistantText += streamEvent.text;
         } else if (streamEvent.type === "reasoning_delta") {
           reasoningText += streamEvent.text;
@@ -1795,7 +1811,9 @@ export function ChatThread({
         const parsed = parseStreamEvents(eventBuffer);
         eventBuffer = parsed.rest;
         for (const streamEvent of parsed.events) {
-          if (streamEvent.type === "answer_delta") {
+          if (streamEvent.type === "context_info") {
+            onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
+          } else if (streamEvent.type === "answer_delta") {
             assistantText += streamEvent.text;
           } else if (streamEvent.type === "reasoning_delta") {
             reasoningText += streamEvent.text;
@@ -1828,7 +1846,9 @@ export function ChatThread({
       eventBuffer += decoder.decode();
       const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
       for (const streamEvent of finalParsed.events) {
-        if (streamEvent.type === "answer_delta") {
+        if (streamEvent.type === "context_info") {
+          onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
+        } else if (streamEvent.type === "answer_delta") {
           assistantText += streamEvent.text;
         } else if (streamEvent.type === "reasoning_delta") {
           reasoningText += streamEvent.text;
@@ -1947,6 +1967,12 @@ export function ChatThread({
       />
 
       <footer className="composer-footer border-t px-3 py-2.5 sm:px-5">
+        {activeConversationId ? <MemoryActivityPanel
+          key={activeConversationId}
+          conversationId={activeConversationId}
+          refreshKey={`${latestAssistantMessageId}:${latestAssistantMessage?.status}:${isGenerating}`}
+          uiLanguage={uiLanguage}
+        /> : null}
         {displayError ? (
           <div className="mx-auto mb-2.5 w-full max-w-[74rem] rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-text)]">
             {displayError}

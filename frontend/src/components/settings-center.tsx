@@ -717,14 +717,16 @@ export function SettingsCenter({
           }
           expiresAt = input;
         }
-        body = JSON.stringify({ expires_at: expiresAt });
+        body = JSON.stringify({ expires_at: expiresAt, expected_version: memory.version });
       }
-      const updated = await requestJson<UserMemory>(`/api/backend/memories/${memory.id}/${action}`, {
+      await requestJson<UserMemory>(`/api/backend/memories/${memory.id}/${action}`, {
         method: "POST",
         headers: body ? { "content-type": "application/json" } : undefined,
         body,
       });
-      setMemories((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      // 审核可能同时替换旧版本，重新读取列表才能显示事务提交后的完整状态。
+      const latest = await requestJson<UserMemory[]>("/api/backend/memories");
+      setMemories(latest);
       setSettingsMessage(
         uiLanguage === "zh-CN"
           ? action === "approve"
@@ -1753,7 +1755,18 @@ export function SettingsCenter({
                           }))
                         }
                       />
-                      {uiLanguage === "zh-CN" ? "自动生成待审核记忆候选" : "Auto-create reviewable memory candidates"}
+                      {uiLanguage === "zh-CN" ? "自动提取记忆候选" : "Auto-extract memory candidates"}
+                    </label>
+                    <label className="flex items-center gap-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(userSettings.memory_auto_activate_enabled)}
+                        onChange={(event) => setUserSettings((current) => ({
+                          ...current,
+                          memory_auto_activate_enabled: event.target.checked,
+                        }))}
+                      />
+                      {uiLanguage === "zh-CN" ? "自动启用有原文证据的低风险事实" : "Auto-enable low-risk facts with verified evidence"}
                     </label>
                     <label className="block text-sm">
                       <span className="mb-2 block text-[var(--ink-soft)]">
@@ -1774,6 +1787,11 @@ export function SettingsCenter({
                       />
                     </label>
                   </div>
+                  <p className="text-xs leading-6 text-[var(--ink-muted)]">
+                    {uiLanguage === "zh-CN"
+                      ? "自动启用默认关闭，需同时开启自动提取与记忆注入。只有完整原文直接支持的明确稳定陈述才可能自动生效；改写无法核实、冲突、敏感信息、临时要求与长期指令仍需审核。“请记住”可提前触发提取，忘记和更正请操作对应记忆。"
+                      : "Auto-enable is off by default and requires extraction and memory to be enabled. Clear stable statements with verified evidence may take effect; uncertain paraphrases, conflicts and sensitive or temporary content require review. Use memory controls to forget or correct a fact."}
+                  </p>
                   <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
                     <div className="mb-3 flex items-center justify-between">
                       <p className="text-sm font-semibold text-[var(--ink-strong)]">{text.memory}</p>
@@ -1795,6 +1813,12 @@ export function SettingsCenter({
                               </span>
                             </div>
                             <p className="mt-2 text-xs leading-6 text-[var(--ink-soft)]">{memory.content}</p>
+                            {memory.source === "auto_confirmed" ? (
+                              <p className="mt-2 text-xs text-[var(--ink-muted)]">{uiLanguage === "zh-CN" ? "按已开启的自动模式记住，可撤销" : "Remembered in opt-in automatic mode; revocable"}</p>
+                            ) : null}
+                            {memory.evidence_quote ? (
+                              <p className="mt-2 text-xs text-[var(--ink-muted)]">{uiLanguage === "zh-CN" ? "用户原话：" : "User evidence: "}{memory.evidence_quote}</p>
+                            ) : null}
                             {memory.candidate_reason ? (
                               <p className="mt-2 text-xs text-[var(--ink-muted)]">
                                 {memory.risk_level}: {memory.candidate_reason}

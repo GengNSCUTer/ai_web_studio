@@ -12,6 +12,8 @@ class UserMemoryCreate(BaseModel):
     source_message_ids: str | None = None
     confidence: str | None = Field(default=None, max_length=16)
     expires_at: datetime | None = None
+    project_id: str | None = Field(default=None, max_length=36)
+    supersedes_memory_id: str | None = Field(default=None, max_length=36)
 
 
 class UserMemoryUpdate(BaseModel):
@@ -23,6 +25,7 @@ class UserMemoryUpdate(BaseModel):
     source_message_ids: str | None = None
     confidence: str | None = Field(default=None, max_length=16)
     expires_at: datetime | None = None
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 class UserMemoryResponse(BaseModel):
@@ -39,6 +42,7 @@ class UserMemoryResponse(BaseModel):
     source_message_ids: str | None = None
     confidence: str | None = None
     is_enabled: bool
+    evidence_quote: str | None = None
     status: str = "active"
     project_id: str | None = None
     importance: float = 0.5
@@ -46,6 +50,9 @@ class UserMemoryResponse(BaseModel):
     risk_level: str = "safe"
     candidate_reason: str | None = None
     supersedes_memory_id: str | None = None
+    fact_key: str | None = None
+    fact_value: str | None = None
+    version: int = 1
     expires_at: datetime | None = None
     review_at: datetime | None = None
     created_at: datetime
@@ -69,6 +76,10 @@ class MemorySuggestion(BaseModel):
     source_conversation_id: str | None = None
     source_message_ids: str | None = None
     confidence: str | None = None
+    project_id: str | None = None
+    source_message_id: str | None = None
+    evidence_quote: str | None = None
+    evidence_verified: bool = False
 
 
 class MemorySuggestResponse(BaseModel):
@@ -78,6 +89,7 @@ class MemorySuggestResponse(BaseModel):
 class MemoryReviewRequest(BaseModel):
     expires_at: datetime | None = None
     supersedes_memory_id: str | None = Field(default=None, max_length=36)
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 class MemoryExtractionJobResponse(BaseModel):
@@ -90,7 +102,25 @@ class MemoryExtractionJobResponse(BaseModel):
     attempts: int
     max_attempts: int
     result_count: int
+    cursor_end: int = 0
     error_code: str | None = None
     error_message: str | None = None
     created_at: datetime
     finished_at: datetime | None = None
+
+
+class MemoryActivityItem(BaseModel):
+    event_id: str
+    memory_id: str
+    job_id: str
+    title: str
+    content: str
+    status: str
+    version: int
+    created_at: datetime
+
+
+class MemoryActivityResponse(BaseModel):
+    conversation_id: str
+    has_pending_jobs: bool
+    items: list[MemoryActivityItem]

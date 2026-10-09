@@ -86,15 +86,6 @@ class ChatRuntimeConfig:
 
 
 @dataclass
-class MemoryContextBundle:
-    """长期记忆注入结果。"""
-
-    context_text: str | None
-    count: int
-    chars: int
-
-
-@dataclass
 class SummaryRefreshBundle:
     """滚动摘要刷新结果。"""
 

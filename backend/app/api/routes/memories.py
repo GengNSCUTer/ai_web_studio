@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -9,6 +9,7 @@ from app.repositories.message_repo import MessageRepository
 from app.repositories.setting_repo import UserSettingRepository
 from app.schemas.memory import (
     MemoryExtractionJobResponse,
+    MemoryActivityResponse,
     MemoryReviewRequest,
     UserMemoryCreate,
     UserMemoryResponse,
@@ -17,7 +18,9 @@ from app.schemas.memory import (
 from app.schemas.memory import MemorySuggestRequest, MemorySuggestResponse
 from app.services.chat_provider_service import ChatProviderService, resolve_provider_base_url
 from app.services.memory_service import MemoryService
-from app.services.memory_candidate_runtime import MemoryExtractionJobService
+from app.services.memory_activity_service import MemoryActivityService
+from app.services.memory_candidate_runtime import MemoryExtractionJobService, _source_text
+from app.services.memory_extraction_policy import extraction_prompt, verify_evidence
 from app.repositories.memory_job_repo import MemoryExtractionJobRepository
 from app.services.setting_service import SettingService
 
@@ -25,28 +28,14 @@ router = APIRouter(prefix="/memories", tags=["memories"])
 
 
 def _build_recent_messages_text(messages: list[object], *, max_chars: int = 12000) -> str:
-    lines: list[str] = []
-    total = 0
-    for message in messages[-24:]:
-        role = getattr(message, "role", "")
-        if role not in {"user", "assistant"}:
-            continue
-        content = " ".join((getattr(message, "content", None) or "").split()).strip()
-        if not content:
-            continue
-        line = f"{role}: {content[:1200]}"
-        if total + len(line) > max_chars:
-            break
-        lines.append(line)
-        total += len(line)
-    return "\n".join(lines).strip()
+    return _source_text(messages[-24:], max_chars=max_chars)
 
 
 def _build_source_message_ids(messages: list[object]) -> str:
     ids: list[str] = []
     for message in messages[-24:]:
         role = getattr(message, "role", "")
-        if role not in {"user", "assistant"}:
+        if role != "user":
             continue
         message_id = getattr(message, "id", None)
         if message_id:
@@ -60,36 +49,8 @@ def _build_suggestion_prompt(
     existing_memory_text: str,
     max_candidates: int,
 ) -> list[dict[str, str]]:
-    system_prompt = (
-        "你是长期记忆候选提取器。只从对话中提取适合长期保存、未来跨会话有价值的信息。"
-        "不要提取寒暄、临时问题、一次性操作或不确定推测。"
-    )
-    user_prompt = f"""请从下面的最近对话中提取最多 {max_candidates} 条“候选长期记忆”。
-
-可用类型：
-- profile：用户稳定偏好、身份、交流习惯、技术偏好
-- project：长期项目背景、项目目标、技术栈、架构约束
-- fact：用户明确告诉系统的重要事实
-- instruction：用户希望系统长期遵守的规则
-
-要求：
-- 不要重复已有长期记忆。
-- 不要自动保存，只生成候选。
-- 内容必须是确定、稳定、可复用的信息。
-- 输出必须是 JSON 数组，不要 Markdown，不要解释。
-- 每项字段：memory_type、title、content、reason、confidence。
-- confidence 只能是 high、medium、low。
-
-【已有长期记忆】
-{existing_memory_text}
-
-【最近对话】
-{recent_messages_text or "无"}
-"""
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+    return extraction_prompt(recent_text=recent_messages_text, existing_text=existing_memory_text,
+                             max_candidates=max_candidates)
 
 
 @router.get("", response_model=list[UserMemoryResponse])
@@ -111,13 +72,17 @@ def list_memories(
 
 
 @router.post("", response_model=UserMemoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/remember", response_model=UserMemoryResponse, status_code=status.HTTP_201_CREATED)
 def create_memory(
     payload: UserMemoryCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserMemoryResponse:
     service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
-    return service.create_memory(current_user.id, payload)
+    try:
+        return service.create_memory(current_user.id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post(
@@ -130,9 +95,12 @@ def enqueue_extraction_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MemoryExtractionJobResponse:
+    if not ConversationRepository(db).get_by_user(conversation_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
     messages = MessageRepository(db).list_by_conversation(conversation_id)
     assistant = next(
-        (message for message in reversed(messages) if getattr(message, "role", None) == "assistant"),
+        (message for message in reversed(messages) if getattr(message, "role", None) == "assistant"
+         and message.status == "done"),
         None,
     )
     if not assistant:
@@ -144,7 +112,7 @@ def enqueue_extraction_job(
         force=True,
     )
     if not job:
-        raise HTTPException(status_code=404, detail="Conversation not found or has no source messages")
+        raise HTTPException(status_code=409, detail="没有新的可提取用户消息")
     return MemoryExtractionJobResponse.model_validate(job)
 
 
@@ -157,6 +125,20 @@ def list_extraction_jobs(
         MemoryExtractionJobResponse.model_validate(job)
         for job in MemoryExtractionJobRepository(db).list_by_user(current_user.id)
     ]
+
+
+@router.get("/activity/{conversation_id}", response_model=MemoryActivityResponse)
+def get_memory_activity(
+    conversation_id: str,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MemoryActivityResponse:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return MemoryActivityService(db).get_activity(current_user.id, conversation_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
 
 @router.post("/{memory_id}/approve", response_model=UserMemoryResponse)
@@ -175,6 +157,7 @@ def approve_memory_candidate(
             memory=memory,
             expires_at=payload.expires_at,
             supersedes_memory_id=payload.supersedes_memory_id,
+            expected_version=payload.expected_version,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -197,6 +180,7 @@ def reject_memory_candidate(
 
 
 @router.post("/{memory_id}/revoke", response_model=UserMemoryResponse)
+@router.post("/{memory_id}/forget", response_model=UserMemoryResponse)
 def revoke_memory(
     memory_id: str,
     db: Session = Depends(get_db),
@@ -246,7 +230,7 @@ async def suggest_memories(
             model_name=settings.default_model,
             messages=_build_suggestion_prompt(
                 recent_messages_text=recent_messages_text,
-                existing_memory_text=memory_service.build_existing_memory_text(current_user.id),
+                existing_memory_text=memory_service.build_existing_memory_text(current_user.id, project_id=conversation.project_id),
                 max_candidates=payload.max_candidates,
             ),
             temperature=0.1,
@@ -267,8 +251,11 @@ async def suggest_memories(
         source_message_ids=source_message_ids,
     )
     suggestions = memory_service.enrich_suggestion_risks(
-        suggestions=suggestions,
-        existing_memories=UserMemoryRepository(db).list_by_user(current_user.id),
+        suggestions=[verified.model_copy(update={"project_id": conversation.project_id})
+                     for item in suggestions if (verified := verify_evidence(item, messages[-24:]))],
+        existing_memories=[item for item in UserMemoryRepository(db).list_by_user(current_user.id)
+                           if memory_service._memory_scope(item, current_user.id) == conversation.project_id],
+        scoped=True,
     )
     return MemorySuggestResponse(suggestions=suggestions)
 
@@ -303,4 +290,7 @@ def delete_memory(
     if not memory:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
 
-    repo.delete(memory)
+    try:
+        repo.delete(memory)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

@@ -18,9 +18,12 @@ class UserMemory(Base):
     source: Mapped[str] = mapped_column(String(32), default="manual")
     source_conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_message_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 后台结果与提取任务精确绑定；历史记忆不按时间猜测补关联。
+    extraction_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    # pending 候选永远不会进入 Prompt；只有用户确认后的 active 才能被检索注入。
+    # pending 不进入 Prompt；active 来自人工确认或显式开启的保守自动规则。
     status: Mapped[str] = mapped_column(String(24), default="active", index=True)
     project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     importance: Mapped[float] = mapped_column(Float, default=0.5)
@@ -28,6 +31,14 @@ class UserMemory(Base):
     risk_level: Mapped[str] = mapped_column(String(32), default="safe")
     candidate_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # 标识由服务端生成；旧记录按需识别，不在升级时猜测或覆盖用户内容。
+    fact_key: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    fact_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # 记忆专用向量缓存；签名不同或正文/版本变化时绝不复用，不混入知识库 Chunk。
+    embedding_vector: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_signature: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    embedding_text_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     supersedes_memory_id: Mapped[str | None] = mapped_column(
         ForeignKey("user_memories.id"), nullable=True, index=True
     )
@@ -42,7 +53,7 @@ class UserMemory(Base):
 
 
 class MemoryExtractionJob(Base):
-    """Persistent asynchronous request to extract pending memory candidates."""
+    """持久化增量提取任务；快照用于拒绝来源被编辑后的旧结果。"""
 
     __tablename__ = "memory_extraction_jobs"
 
@@ -52,6 +63,8 @@ class MemoryExtractionJob(Base):
     project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     idempotency_key: Mapped[str] = mapped_column(String(192), unique=True, index=True)
     source_message_ids: Mapped[str] = mapped_column(Text)
+    source_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cursor_end: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)

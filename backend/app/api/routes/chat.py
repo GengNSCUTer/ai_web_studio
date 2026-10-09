@@ -5,6 +5,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -25,6 +26,7 @@ from app.services.chat_execution_service import (
     ExistingTurnExecutionInput,
 )
 from app.services.chat_provider_service import ChatProviderService
+from app.services.chat_persistence_service import ChatPersistenceSnapshot, persist_stream_result
 from app.services.message_service import MessageService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -104,7 +106,9 @@ def _stringify_stats(stats: dict[str, Any]) -> str:
     # HTTP header 只能放短文本；复杂诊断信息用 JSON 后再 base64，避免中文/特殊字符破坏 header。
     if not stats:
         return ""
-    payload = json.dumps(stats, ensure_ascii=False, default=str).encode("utf-8")
+    # 逐条记忆诊断通过 details 传输，并留在持久化 stats；不在两个响应头重复占空间。
+    payload = json.dumps({key: value for key, value in stats.items() if key != "memory_retrieval"},
+                         ensure_ascii=False, default=str).encode("utf-8")
     value = f"json64:{base64.b64encode(payload).decode('ascii')}"
     return value if len(value) <= 4096 else ""
 
@@ -139,6 +143,9 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
     防止代理/浏览器因为 header 过大直接中断流式响应。
     """
     compact: dict[str, Any] = {}
+    memory = details.get("memory_retrieval")
+    if isinstance(memory, dict):
+        compact["memory_retrieval"] = memory
 
     attachment_chunks = details.get("attachment_chunks")
     if isinstance(attachment_chunks, list):
@@ -303,6 +310,46 @@ def _persist_stream_result(
     return True
 
 
+async def _persist_stream_result_nonblocking(
+    context: ChatExecutionContext,
+    *,
+    status_value: str,
+    content_parts: list[str],
+    reasoning_parts: list[str],
+    assistant_message_id: str,
+    conversation_id: str,
+    user_id: str,
+    postgresql: bool,
+) -> bool:
+    """在流式事件循环外收口 PostgreSQL 写入，保留 SQLite 测试兼容路径。"""
+
+    if not postgresql:
+        # 内存 SQLite 测试数据库没有可复用的全局异步连接串，继续使用测试会话。
+        return _persist_stream_result(
+            context,
+            status_value=status_value,
+            content_parts=content_parts,
+            reasoning_parts=reasoning_parts,
+        )
+
+    snapshot = ChatPersistenceSnapshot(
+        assistant_message_id=assistant_message_id,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        generation_id=getattr(context, "generation_id", None),
+        provider_type=context.provider_type,
+        model_name=context.resolved_model,
+        status=status_value,
+        content="".join(content_parts),
+        reasoning_content="".join(reasoning_parts) or None,
+        external_sources=(
+            json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
+        ),
+        context_stats=context.context_stats,
+    )
+    return await persist_stream_result(snapshot)
+
+
 def _build_streaming_response(
     context: ChatExecutionContext,
     provider_service: ChatProviderService,
@@ -315,11 +362,25 @@ def _build_streaming_response(
     这个函数只负责调用模型 provider，并把增量 token 写回前端，同时最终落库 assistant 消息。
     """
 
+    # 先把 ORM 对象身份冻结为普通字符串。后续模型流可能持续数分钟，不能让
+    # 请求 Session 因一次 ORM 属性刷新在 PostgreSQL 中保持 idle-in-transaction。
+    db = context.message_service.repo.db
+    postgresql = getattr(getattr(db.bind, "dialect", None), "name", "") == "postgresql"
+    conversation_id = str(context.conversation.id)
+    user_id = str(context.conversation.user_id)
+    assistant_message_id = str(context.assistant_message.id)
+
     async def text_generator():
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         try:
             if event_stream:
+                # 诊断不能仅依赖有大小上限的响应头；NDJSON 内发送一份完整、安全的摘要。
+                yield _encode_stream_event("context_info", conversation_id=conversation_id, info={
+                    "notices": context.context_notices,
+                    "stats": {key: str(value) for key, value in context.context_stats.items() if key != "memory_retrieval"},
+                    "details": _compact_context_details_for_header(context.context_details),
+                })
                 # 工具事件先发给前端，让用户看到“为什么调用工具、调用了什么、是否成功”。
                 for tool_event in context.tool_events:
                     event_type = str(tool_event.get("type") or "")
@@ -389,11 +450,15 @@ def _build_streaming_response(
                         yield _encode_stream_event("provider_usage", **event.data)
 
             # 模型正常结束后，一次性把完整 answer/reasoning/sources 写回 assistant 消息。
-            persisted = _persist_stream_result(
+            persisted = await _persist_stream_result_nonblocking(
                 context,
                 status_value="done",
                 content_parts=content_parts,
                 reasoning_parts=reasoning_parts,
+                assistant_message_id=assistant_message_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                postgresql=postgresql,
             )
             if not persisted:
                 if event_stream:
@@ -401,19 +466,31 @@ def _build_streaming_response(
                         "model_error",
                         error="该回答已被新的生成请求接管。",
                         error_code="generation_superseded",
-                        assistant_message_id=context.assistant_message.id,
+                        assistant_message_id=assistant_message_id,
                     )
                 return
             if event_stream:
-                yield _encode_stream_event("done", assistant_message_id=context.assistant_message.id)
+                yield _encode_stream_event("done", assistant_message_id=assistant_message_id)
         except asyncio.CancelledError:
             # 客户端主动停止或连接断开时，保存 partial content，前端用 cancelled 展示“已停止”。
-            _persist_stream_result(
-                context,
-                status_value="cancelled",
-                content_parts=content_parts,
-                reasoning_parts=reasoning_parts,
-            )
+            # Starlette 的断连取消会影响当前取消作用域。短时间 shield 数据库收口，
+            # 否则异步驱动刚开始 await 时又被取消，partial 回答可能永久留在 streaming。
+            with anyio.move_on_after(10, shield=True) as save_scope:
+                try:
+                    await _persist_stream_result_nonblocking(
+                        context,
+                        status_value="cancelled",
+                        content_parts=content_parts,
+                        reasoning_parts=reasoning_parts,
+                        assistant_message_id=assistant_message_id,
+                        conversation_id=conversation_id,
+                        user_id=user_id,
+                        postgresql=postgresql,
+                    )
+                except Exception:
+                    logger.warning("Failed to persist cancelled chat stream")
+            if save_scope.cancel_called:
+                logger.warning("Timed out while persisting cancelled chat stream")
             raise
         except Exception as exc:
             # 模型错误也要保存 partial content/reasoning/sources，否则刷新后会丢失已生成片段和诊断线索。
@@ -422,11 +499,15 @@ def _build_streaming_response(
                 logger.warning("Chat provider stream timed out: %s", exc.timeout_kind)
             else:
                 logger.error("Chat provider stream failed: %s", type(exc).__name__)
-            persisted = _persist_stream_result(
+            persisted = await _persist_stream_result_nonblocking(
                 context,
                 status_value="failed",
                 content_parts=content_parts,
                 reasoning_parts=reasoning_parts,
+                assistant_message_id=assistant_message_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                postgresql=postgresql,
             )
             if not persisted:
                 if event_stream:
@@ -434,7 +515,7 @@ def _build_streaming_response(
                         "model_error",
                         error="该回答已被新的生成请求接管。",
                         error_code="generation_superseded",
-                        assistant_message_id=context.assistant_message.id,
+                        assistant_message_id=assistant_message_id,
                     )
                 return
             if event_stream:
@@ -443,18 +524,18 @@ def _build_streaming_response(
                     "model_error",
                     error=public_error,
                     error_code=error_code,
-                    assistant_message_id=context.assistant_message.id,
+                    assistant_message_id=assistant_message_id,
                 )
                 return
             raise
 
-    return StreamingResponse(
+    response = StreamingResponse(
         text_generator(),
         media_type="application/x-ndjson; charset=utf-8" if event_stream else "text/plain; charset=utf-8",
         headers={
             "cache-control": "no-cache, no-transform",
-            "x-conversation-id": context.conversation.id,
-            "x-assistant-message-id": context.assistant_message.id,
+            "x-conversation-id": conversation_id,
+            "x-assistant-message-id": assistant_message_id,
             "x-context-notices": _encode_context_notices(context.context_notices),
             "x-context-stats": _stringify_stats(context.context_stats),
             "x-context-details": _encode_json_payload(
@@ -462,6 +543,11 @@ def _build_streaming_response(
             ),
         },
     )
+    if postgresql:
+        # prepare 已提交自己的业务事务；这里结束任何 ORM 属性刷新后自动开启的
+        # 只读事务。流式完成/失败改用独立 AsyncSession，不再复用请求 Session。
+        db.close()
+    return response
 
 
 @router.post("/text-stream")

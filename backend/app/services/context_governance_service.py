@@ -32,6 +32,8 @@ class GovernedContext:
     summary: str | None = None
     summary_triggered: bool = False
     summary_boundary_message_id: str | None = None
+    # 仅供组装层核对实际注入，不发送给 Provider 或把原文作为指标保存。
+    retained_reference_texts: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,11 @@ class ContextGovernanceService:
             # 预算裁剪后再临时生成摘要却不重新注入，只会产生误导诊断。
             summary=None,
             summary_triggered=False,
+            retained_reference_texts={
+                layer: "\n".join(section["text"] for message in governed_messages
+                    for section in self._reference_sections(message) if section["layer"] == layer)
+                for layer in self._reference_layers(governed_messages)
+            },
         )
 
     @staticmethod
@@ -448,6 +455,12 @@ class ContextGovernanceService:
                 best = original_text[:middle]
                 low = middle + 1
         clipped = max(0, len(original_text) - len(best))
+        if layer == "long_term_memory" and clipped:
+            # 不把半条事实送给模型：最后一行被截断时退回到上一条完整记忆。
+            best = best.rsplit("\n", 1)[0] if "\n" in best else ""
+            if not any(line.startswith("- [") for line in best.splitlines()):
+                best = ""
+            clipped = len(original_text) - len(best)
         if not best.strip():
             return self._remove_reference_layer(messages, layer), clipped, False
         replacement = [dict(section) for section in sections]

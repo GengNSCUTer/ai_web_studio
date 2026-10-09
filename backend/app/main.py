@@ -1,4 +1,6 @@
 # 导入FastAPI核心应用类
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 # 导入跨域中间件
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,12 +27,22 @@ from app.api.routes import (
 from app.core.config import settings as app_settings, validate_runtime_security_settings
 # 导入初始化函数：确保运行时数据库表/结构存在
 from app.core.startup import ensure_runtime_schema
+from app.services.chat_persistence_service import dispose_async_engine
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """退出时释放 Chat 异步数据库连接池。"""
+
+    yield
+    await dispose_async_engine()
 
 
 # 实例化FastAPI主应用
 app = FastAPI(
     title=app_settings.app_name,  # 接口文档标题，读取配置文件应用名
     version="0.1.0",              # 后端服务版本号
+    lifespan=lifespan,
 )
 
 # 服务启动前置初始化：校验并创建运行所需数据库结构

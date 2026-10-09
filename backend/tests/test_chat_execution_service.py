@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.core.config import settings
@@ -220,7 +221,8 @@ class MaliciousEvidenceExternalContextService:
 
 class ChatExecutionServiceTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        # 记忆召回使用独立短 Session 在线程池读取；同一测试库必须共享内存连接。
+        self.engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         self.SessionLocal = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
         Base.metadata.create_all(bind=self.engine)
         self.db = self.SessionLocal()
@@ -358,6 +360,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.assertEqual(context.assistant_message.content, "已基于可用参考资料给出安全回答。")
             self.assertEqual(context.context_stats["prompt_external_context_injected"], 1)
             self.assertIn('"type": "done"', body)
+            self.assertIn('"type": "context_info"', body)
 
             system_text = "\n".join(
                 str(message.get("content") or "")

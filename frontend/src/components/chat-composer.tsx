@@ -398,6 +398,8 @@ export function ChatComposer({
                   overviewStatCards={overviewStatCards}
                   advancedStatCards={advancedStatCards}
                   attachmentChunks={attachmentChunkDetails}
+                  memoryRetrieval={contextInfo.details?.memory_retrieval}
+                  uiLanguage={uiLanguage}
                   expandedChunkKeys={expandedChunkKeys}
                   onToggleOpen={onToggleContextPanel}
                   onClose={onCloseContextPanel}
