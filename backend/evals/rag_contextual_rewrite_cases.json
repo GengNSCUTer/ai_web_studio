@@ -1,0 +1,69 @@
+[
+  {
+    "id": "adaptive_efficiency",
+    "source_query": "Adaptive-RAG 的评测为什么要同时报告效果指标和效率指标？它相对复杂多步策略的效率结论是什么？",
+    "previous_user": "我想比较 Adaptive-RAG 和 FLARE 的检索效率与效果。",
+    "followup": "前者的评测为什么同时看效果和效率？和复杂多步策略相比效率如何？"
+  },
+  {
+    "id": "sparse_moe_components",
+    "source_query": "Sparsely-Gated Mixture-of-Experts 层由哪些组件组成？稀疏门控如何在提升模型容量的同时控制计算量？",
+    "previous_user": "我想比较 Sparsely-Gated Mixture-of-Experts 和 Dynamic Routing MoE。",
+    "followup": "前者的稀疏门控层包含什么？如何提高容量又控制计算量？"
+  },
+  {
+    "id": "adaptive_routes",
+    "source_query": "Adaptive-RAG 如何依据问题复杂度，在无检索、单步检索和多步检索之间选择策略？",
+    "previous_user": "Adaptive-RAG 和 FLARE 的检索触发逻辑不同。",
+    "followup": "前者怎么按问题复杂度在无检索、单步和多步检索之间选？"
+  },
+  {
+    "id": "dynamic_moe_routes",
+    "source_query": "Dynamic Routing MoE 如何根据输入难度和专家选择置信度动态决定激活多少专家，并如何控制负载均衡？",
+    "previous_user": "Sparsely-Gated MoE 和 Dynamic Routing MoE 都会选择专家。",
+    "followup": "后者怎么根据输入难度和置信度决定激活多少专家？如何控制负载均衡？"
+  },
+  {
+    "id": "df_rag_diversity",
+    "source_query": "DF-RAG 为什么需要多样性检索，它如何缓解余弦相似度带来的冗余证据问题？",
+    "previous_user": "Adaptive-RAG 和 DF-RAG 都与检索有关。",
+    "followup": "后者为什么要多样性检索？怎么减少余弦相似度带来的冗余证据？"
+  },
+  {
+    "id": "evolver_experience",
+    "source_query": "EvolveR 如何把 Agent 的交互轨迹提炼为经验，并在后续任务中检索这些经验？",
+    "previous_user": "SkillDAG 和 EvolveR 都涉及经验与技能复用。",
+    "followup": "后者怎样把 Agent 交互轨迹提炼成可检索的经验？"
+  },
+  {
+    "id": "skillrouter_body",
+    "source_query": "SkillRouter 的实验为什么说明完整 skill body 对路由很重要？移除 body 会带来什么影响？",
+    "previous_user": "SkillRouter 和 SkillDAG 都涉及技能路由。",
+    "followup": "前者移除完整 skill body 会有什么影响？"
+  },
+  {
+    "id": "flare_trigger",
+    "source_query": "FLARE 为什么要前瞻性地预测下一句，并根据低概率词触发主动检索？",
+    "previous_user": "FLARE 和 Adaptive-RAG 采用不同的检索触发策略。",
+    "followup": "前者为什么要预测下一句，并按低概率词主动检索？"
+  },
+  {
+    "id": "skilldag_graph",
+    "source_query": "SkillDAG 为什么把技能库表示为 typed directed graph，而不是只使用 embedding 相似度检索？它如何处理依赖和冲突关系？",
+    "previous_user": "SkillRouter 和 SkillDAG 的技能组织方式不一样。",
+    "followup": "后者为什么用 typed directed graph 表示技能库？怎么处理依赖和冲突？"
+  },
+  {
+    "id": "complete_query_control",
+    "source_query": "MoTE 如何将 reasoning chain 与 step-level expert routing 结合起来进行 self-alignment？",
+    "previous_user": "我们刚才讨论过 Adaptive-RAG 与 FLARE。",
+    "followup": "MoTE 如何将 reasoning chain 与 step-level expert routing 结合起来进行 self-alignment？",
+    "expect_unchanged": true
+  },
+  {
+    "id": "ambiguous_pronoun_control",
+    "previous_user": "Adaptive-RAG 与 FLARE 的检索策略不同。",
+    "followup": "它是怎么触发检索的？",
+    "expect_unchanged": true
+  }
+]

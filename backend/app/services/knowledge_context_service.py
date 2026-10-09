@@ -73,11 +73,16 @@ class KnowledgeContextService:
         knowledge_base_ids: list[str] | None = None,
         query: str,
         recent_messages: list[object] | None = None,
+        rewrite_provider: dict[str, str | None] | None = None,
     ) -> KnowledgeContextResult:
         resolved_ids = self._normalize_knowledge_base_ids(knowledge_base_id, knowledge_base_ids)
         if not resolved_ids:
             return self._empty(enabled=False)
-        rewrite = self.query_rewriter.rewrite(query=query, recent_messages=recent_messages)
+        rewrite = await self.query_rewriter.rewrite_async(
+            query=query,
+            recent_messages=recent_messages,
+            **(rewrite_provider or {}),
+        )
         if len(resolved_ids) == 1:
             return await self._build_single_context(
                 knowledge_base_id=resolved_ids[0],

@@ -2943,32 +2943,46 @@ class KnowledgeServiceTest(unittest.TestCase):
         )
         index_service = CapturingKnowledgeIndexService()
 
-        result = asyncio.run(
-            KnowledgeContextService(
-                db=self.db,
-                user_id=self.user.id,
-                index_service=index_service,
-            ).build_context(
-                knowledge_base_id=knowledge_base.id,
-                query="它为什么需要 CAS 激活？",
-                recent_messages=[
-                    SimpleNamespace(
-                        id="previous-user-message",
-                        role="user",
-                        content="请解释 KnowledgeIndexGeneration。",
-                    ),
-                    SimpleNamespace(
-                        id="previous-assistant-message",
-                        role="assistant",
-                        content="不应使用这条模型回答改写检索词。",
-                    ),
-                ],
+        with patch(
+            "app.services.knowledge_query_rewriter.ChatProviderService.complete_chat",
+            new_callable=AsyncMock,
+            return_value=(
+                '{"resolved": true, "standalone_query": '
+                '"KnowledgeIndexGeneration 为什么需要 CAS 激活？"}'
+            ),
+        ):
+            result = asyncio.run(
+                KnowledgeContextService(
+                    db=self.db,
+                    user_id=self.user.id,
+                    index_service=index_service,
+                ).build_context(
+                    knowledge_base_id=knowledge_base.id,
+                    query="它为什么需要 CAS 激活？",
+                    rewrite_provider={
+                        "provider_type": "openai-compatible",
+                        "base_url": "https://example.invalid/v1",
+                        "api_key": "test-key",
+                        "model_name": "test-model",
+                    },
+                    recent_messages=[
+                        SimpleNamespace(
+                            id="previous-user-message",
+                            role="user",
+                            content="请解释 KnowledgeIndexGeneration。",
+                        ),
+                        SimpleNamespace(
+                            id="previous-assistant-message",
+                            role="assistant",
+                            content="不应使用这条模型回答改写检索词。",
+                        ),
+                    ],
+                )
             )
-        )
 
         self.assertEqual(
             index_service.queries,
-            ["请解释 KnowledgeIndexGeneration。；追问：它为什么需要 CAS 激活？"],
+            ["KnowledgeIndexGeneration 为什么需要 CAS 激活？"],
         )
         self.assertEqual(result.diagnostics["knowledge_query_rewrite_used"], 1)
         self.assertEqual(
@@ -2982,7 +2996,7 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertEqual(public_log["query"], "它为什么需要 CAS 激活？")
         self.assertEqual(
             public_log["diagnostics"]["knowledge_retrieval_query"],
-            "请解释 KnowledgeIndexGeneration。；追问：它为什么需要 CAS 激活？",
+            "KnowledgeIndexGeneration 为什么需要 CAS 激活？",
         )
 
     def test_knowledge_context_sources_match_chunks_injected_into_prompt(self) -> None:
