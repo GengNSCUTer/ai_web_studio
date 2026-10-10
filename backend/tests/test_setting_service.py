@@ -31,6 +31,13 @@ class SettingServiceTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.db.close()
 
+    def test_new_online_default_uses_deepseek_v32_without_changing_local_provider_defaults(self) -> None:
+        response = SettingService(UserSettingRepository(self.db)).get_or_create_user_settings(self.user.id)
+        self.assertEqual(response.provider_type, "openai-compatible")
+        self.assertEqual(response.default_model, "deepseek-ai/DeepSeek-V3.2")
+        self.assertEqual(SettingService.default_model_for_provider("ollama"), settings.ollama_default_model)
+        self.assertEqual(SettingService.default_model_for_provider("vllm"), SettingService.DEFAULT_VLLM_MODEL)
+
     def test_knowledge_model_keys_are_dedicated_only(self) -> None:
         service = SettingService(UserSettingRepository(self.db))
         response = service.update_user_settings(

@@ -630,6 +630,13 @@ export function ChatThread({
     toThreadMessages(initialMessages)
   );
   const [isGenerating, setIsGenerating] = useState(false);
+  const [serverMessageSnapshot, setServerMessageSnapshot] = useState(initialMessages);
+  // 同会话只同步消息，保留输入与工具选择；生成期间不让旧服务器快照覆盖流式内容。
+  // 条件更新自身状态会立即重渲染，不需要异步 Effect 或重新挂载整个组件。
+  if (!isGenerating && !isLoadingMessages && serverMessageSnapshot !== initialMessages) {
+    setServerMessageSnapshot(initialMessages);
+    setThreadMessages(toThreadMessages(initialMessages));
+  }
   const [skills, setSkills] = useState<SkillInstallation[]>([]);
   const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
   const [toolRunMode, setToolRunMode] = useState<ToolRunMode>("quick_chat");

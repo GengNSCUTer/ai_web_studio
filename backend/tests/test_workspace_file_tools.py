@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.models.project_file import ProjectFile
@@ -34,7 +35,7 @@ def build_call(tool_key: str, arguments: dict) -> PlannedToolCall:
 
 class WorkspaceFileToolProviderTest(unittest.TestCase):
     def setUp(self) -> None:
-        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
         self.engine = engine
         self.SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
         Base.metadata.create_all(bind=engine)

@@ -637,6 +637,73 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_prepare_cancellation_closes_placeholder_as_cancelled(self) -> None:
+        """上游任务取消与组装异常不同，消息不能遗留 streaming 或被标成 failed。"""
+
+        async def run_test() -> None:
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+            with patch.object(
+                service.context_assembly_service, "build_execution_context",
+                new=AsyncMock(side_effect=asyncio.CancelledError),
+            ):
+                with self.assertRaises(asyncio.CancelledError):
+                    await service.prepare_chat_execution(
+                        ChatStreamRequest(content="取消工具准备", model_name="qwen-test")
+                    )
+            message = self.db.scalars(select(Message).where(Message.role == "assistant")).one()
+            self.assertEqual(message.status, "cancelled")
+
+        asyncio.run(run_test())
+
+    def test_prepare_existing_turn_cancellation_closes_placeholder_as_cancelled(self) -> None:
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+            with patch.object(
+                service.context_assembly_service, "build_execution_context",
+                new=AsyncMock(side_effect=asyncio.CancelledError),
+            ):
+                with self.assertRaises(asyncio.CancelledError):
+                    await service.prepare_existing_turn_execution(
+                        ExistingTurnExecutionInput(
+                            conversation=context.conversation, history_rows=[],
+                            user_message=context.user_message, assistant_message=context.assistant_message,
+                            model_name="qwen-test", system_prompt=None, thinking_enabled=False,
+                            thinking_budget=None, web_search_enabled=False, knowledge_base_id=None,
+                            knowledge_base_ids=[], skill_key=None, tool_run_mode="quick_chat",
+                        )
+                    )
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "cancelled")
+
+        asyncio.run(run_test())
+
+    def test_prepare_cancellation_cannot_overwrite_a_newer_generation(self) -> None:
+        async def run_test() -> None:
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+
+            async def replace_generation_and_cancel(**kwargs) -> None:
+                message = kwargs["assistant_message"]
+                message.generation_id = str(uuid4())
+                message.status = "done"
+                message.content = "较新的生成结果"
+                self.db.commit()
+                raise asyncio.CancelledError
+
+            with patch.object(
+                service.context_assembly_service, "build_execution_context",
+                new=AsyncMock(side_effect=replace_generation_and_cancel),
+            ):
+                with self.assertRaises(asyncio.CancelledError):
+                    await service.prepare_chat_execution(
+                        ChatStreamRequest(content="旧请求取消", model_name="qwen-test")
+                    )
+            message = self.db.scalars(select(Message).where(Message.role == "assistant")).one()
+            self.assertEqual(message.status, "done")
+            self.assertEqual(message.content, "较新的生成结果")
+
+        asyncio.run(run_test())
+
     def test_prepare_failure_rolls_back_broken_session_before_closing_placeholder(self) -> None:
         async def run_test() -> None:
             service = ChatExecutionService(db=self.db, current_user=self.user)

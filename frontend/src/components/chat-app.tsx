@@ -538,6 +538,8 @@ export function ChatApp({
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
     initialConversationId
   );
+  const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
+  const [draftThreadVersion, setDraftThreadVersion] = useState(0);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(initialProviderInfo);
   const [projects, setProjects] = useState<Project[]>(initialProjects);
@@ -710,6 +712,8 @@ export function ChatApp({
   }
 
   function handleNewConversation() {
+    setDraftConversationId(null);
+    setDraftThreadVersion((current) => current + 1);
     setSelectedConversationId(null);
     setMessages([]);
     setErrorMessage(null);
@@ -974,6 +978,8 @@ export function ChatApp({
   function refreshAfterChat(conversationId: string, shouldSelectConversation: boolean) {
     startTransition(() => {
       if (shouldSelectConversation) {
+        // 草稿首次获得真实 ID 时仍是同一个会话，保留输入、模式与 Skill。
+        setDraftConversationId(conversationId);
         setSelectedConversationId(conversationId);
       }
       void loadConversations().catch(() => undefined);
@@ -1254,9 +1260,11 @@ export function ChatApp({
   const contextInfo = selectedConversationId
     ? contextInfoByConversationId[selectedConversationId] ?? null
     : null;
-  const threadKey = `${selectedConversationId ?? "draft"}:${
-    messages[messages.length - 1]?.id ?? "empty"
-  }:${messages.length}`;
+  // 消息刷新不能重建整个会话，否则会清空用户正在输入的追问、模式和 Skill。
+  const isCurrentDraft = selectedConversationId === draftConversationId;
+  const threadKey = isCurrentDraft
+    ? `draft:${activeProject?.id ?? "none"}:${draftThreadVersion}`
+    : selectedConversationId ?? `cleared-draft:${draftThreadVersion}`;
 
   function handleContextInfoChange(
     info: ContextGovernanceInfo | null,

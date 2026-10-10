@@ -166,6 +166,12 @@ class ToolRunBudget:
         return max(0, int((time.perf_counter() - self.started_at) * 1000))
 
     @property
+    def deadline(self) -> float:
+        """规划和工具执行共用的单调时钟截止时间，不在续轮时重新计时。"""
+
+        return self.started_at + self.policy.max_wall_clock_seconds
+
+    @property
     def remaining_wall_clock_ms(self) -> int:
         return max(0, self.policy.max_wall_clock_seconds * 1000 - self.elapsed_ms)
 

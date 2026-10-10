@@ -784,10 +784,13 @@
     "provider": "workspace",
     "category": "workspace_file",
     "display_name": "工作区文件列表",
-    "description": "List files belonging to the current user's active project. Returns file IDs and metadata only; never exposes local paths.",
+    "description": "列出当前用户当前项目的一页文件（最多 30 个），仅返回文件 ID 和元信息，不暴露本机路径。已知准确文件名时传 file_name 定向查找；has_more=true 时用 next_cursor 继续，保持同一筛选条件。单页为空不能代表整个项目没有文件。",
     "when_to_use": ["用户询问当前项目有哪些文件、资料或文档，或需要先定位文件 ID 时使用。"],
     "when_not_to_use": ["不能读取其他用户、其他项目或任意本机路径。"],
-    "input_schema": {"type": "object", "properties": {}, "additionalProperties": false},
+    "input_schema": {"type": "object", "properties": {
+      "file_name": {"type": "string", "minLength": 1, "maxLength": 255},
+      "cursor": {"type": "string", "minLength": 1, "maxLength": 160}
+    }, "additionalProperties": false},
     "output_schema": {},
     "adapter_type": "workspace_file",
     "adapter": {"auth_type": "none"},
@@ -804,6 +807,18 @@
         "item_identity_paths": ["/file_id"]
       }
     },
+    "evidence_projection": {
+      "version": "evidence_projection_v1",
+      "mode": "facts_only",
+      "allowed_source_types": ["workspace_file_list"],
+      "fact_paths": {
+        "has_more": "/metadata/has_more",
+        "next_cursor": "/metadata/next_cursor",
+        "scanned_files": "/metadata/scanned_files",
+        "coverage_complete": "/metadata/coverage_complete",
+        "first_file_id": "/metadata/raw/files/0/file_id"
+      }
+    },
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
@@ -813,12 +828,17 @@
     "provider": "workspace",
     "category": "workspace_file",
     "display_name": "工作区文件搜索",
-    "description": "Search parsed text in files belonging to the current user's active project. Returns a bounded snippet and opaque file ID.",
+    "description": "按页搜索当前用户当前项目文件的文件名及解析文本（每页检查最多 120 个文件，返回最多 5 个匹配片段和 file_id）。已知准确文件名或 ID 时传 file_name/file_id 定向搜索，不受旧文件顺序影响。has_more=true 表示还有未检查文件，请用 next_cursor 作为 cursor、保持 query 和筛选条件继续搜索；空结果只表示已检查范围未命中，不能宣称整个项目没有文件。results_truncated 表示本页匹配超过返回上限，可进一步收窄条件。",
     "when_to_use": ["用户要求从当前项目文件、报告、文档或资料中寻找内容时使用。"],
     "when_not_to_use": ["不能搜索任意磁盘文件、用户没有权限的项目或未解析的二进制内容。"],
     "input_schema": {
       "type": "object",
-      "properties": {"query": {"type": "string", "minLength": 1, "maxLength": 500}},
+      "properties": {
+        "query": {"type": "string", "minLength": 1, "maxLength": 500},
+        "file_name": {"type": "string", "minLength": 1, "maxLength": 255},
+        "file_id": {"type": "string", "minLength": 1, "maxLength": 36},
+        "cursor": {"type": "string", "minLength": 1, "maxLength": 160}
+      },
       "required": ["query"],
       "additionalProperties": false
     },
@@ -843,7 +863,13 @@
         "file_id": "/metadata/file_id",
         "mime_type": "/metadata/mime_type",
         "revision_id": "/metadata/revision_id",
-        "revision_number": "/metadata/revision_number"
+        "revision_number": "/metadata/revision_number",
+        "scanned_files": "/metadata/scanned_files",
+        "has_more": "/metadata/has_more",
+        "next_cursor": "/metadata/next_cursor",
+        "coverage_complete": "/metadata/coverage_complete",
+        "matched_files_total": "/metadata/matched_files_total",
+        "results_truncated": "/metadata/results_truncated"
       }
     },
     "risk_level": "low",

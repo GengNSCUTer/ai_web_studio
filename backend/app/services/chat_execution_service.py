@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -97,6 +99,9 @@ class ChatExecutionService:
                 skill_context=skill_context,
                 tool_run_mode=payload.tool_run_mode,
             )
+        except asyncio.CancelledError:
+            self._mark_prepare_cancelled(turn.assistant_message, generation_id=generation_id)
+            raise
         except Exception:
             # StreamingResponse 尚未创建，generator 的异常收口不会执行。
             # 这里必须先把占位消息从 streaming 收口，否则它只能等 15 分钟自愈。
@@ -140,9 +145,29 @@ class ChatExecutionService:
                 skill_context=skill_context,
                 tool_run_mode=execution_input.tool_run_mode,
             )
+        except asyncio.CancelledError:
+            self._mark_prepare_cancelled(execution_input.assistant_message, generation_id=generation_id)
+            raise
         except Exception:
             self._mark_prepare_failed(execution_input.assistant_message, generation_id=generation_id)
             raise
+
+    def _mark_prepare_cancelled(self, assistant_message: object, *, generation_id: str | None) -> None:
+        """准备阶段被上游任务取消时，按生成版本收口，避免遗留 streaming 占位。"""
+
+        try:
+            self.db.rollback()
+            self.message_service.save_generation_result(
+                message=assistant_message,
+                generation_id=generation_id,
+                content="",
+                reasoning_content=None,
+                external_sources=None,
+                status="cancelled",
+            )
+        except Exception:
+            # 请求 Session 会随取消退出而关闭；收口失败也不能覆盖原始取消异常。
+            pass
 
     def _mark_prepare_failed(self, assistant_message: object, *, generation_id: str | None = None) -> None:
         """收口模型调用前失败的 assistant 占位消息。

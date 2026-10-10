@@ -13,7 +13,7 @@ export const PROVIDER_PRESETS = {
   "openai-compatible": {
     ollamaBaseUrl: "http://127.0.0.1:11435",
     apiBaseUrl: "https://api.siliconflow.cn/v1",
-    model: "Qwen/Qwen3.5-35B-A3B",
+    model: "deepseek-ai/DeepSeek-V3.2",
     modelContextWindow: 128000,
   },
   vllm: {

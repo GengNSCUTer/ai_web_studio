@@ -39,7 +39,7 @@ class ToolTraceRepository:
         external_context: ExternalContextResult,
     ) -> ToolRouteRun | None:
         plan = external_context.tool_plan
-        if not plan:
+        if not plan and not external_context.diagnostics.get("external_context_error"):
             return None
 
         old_route_ids = list(
@@ -53,11 +53,16 @@ class ToolTraceRepository:
 
         events = [event.to_public_dict() for event in external_context.tool_events]
         sources = [source.to_public_dict() for source in external_context.sources]
-        selected_tools = [call.to_public_dict() for call in plan.calls]
+        selected_tools = [call.to_public_dict() for call in plan.calls] if plan else []
         status = "success"
         if external_context.diagnostics.get("external_context_error"):
             status = "error"
-        elif not plan.should_use_tools:
+        elif (
+            external_context.diagnostics.get("external_tool_workflow_aggregate_status") == "partial"
+            or external_context.diagnostics.get("external_tool_next_action") == "finalize_partial"
+        ):
+            status = "partial"
+        elif plan and not plan.should_use_tools:
             status = "skipped"
 
         route_run = ToolRouteRun(
@@ -65,10 +70,14 @@ class ToolTraceRepository:
             conversation_id=conversation_id,
             user_message_id=user_message_id,
             assistant_message_id=assistant_message_id,
-            router_type=plan.router,
+            router_type=plan.router if plan else "planner_incomplete",
             query=query,
-            external_context_allowed=plan.external_context_allowed,
-            plan_json=_json_dumps(plan.to_public_dict()),
+            external_context_allowed=(
+                plan.external_context_allowed
+                if plan
+                else bool(external_context.diagnostics.get("external_context_enabled"))
+            ),
+            plan_json=_json_dumps(plan.to_public_dict() if plan else {}),
             selected_tools_json=_json_dumps(selected_tools),
             events_json=_json_dumps(events),
             sources_json=_json_dumps(sources),
@@ -164,6 +173,27 @@ class ToolTraceRepository:
                         "finished_at": datetime.now(timezone.utc),
                     }
                 )
+            elif event_type == "tool_workflow_step_outcome":
+                # Workflow 的终态覆盖尚未收到结束事件的 running 记录，不能伪装为成功。
+                status_by_outcome = {
+                    "succeeded": "success",
+                    "failed": "error",
+                    "blocked": "skipped",
+                    "waiting_approval": "waiting_approval",
+                    "timed_out": "timed_out",
+                    "cancelled": "cancelled",
+                }
+                outcome_status = status_by_outcome.get(event.get("execution_status"))
+                if outcome_status:
+                    current.update(
+                        {
+                            "tool_key": event.get("tool_key") or current.get("tool_key") or "",
+                            "status": outcome_status,
+                            "elapsed_ms": event.get("elapsed_ms"),
+                            "error_message": event.get("error_category") or current.get("error_message"),
+                            "finished_at": datetime.now(timezone.utc),
+                        }
+                    )
 
         call_runs: list[ToolCallRun] = []
         for call in calls.values():

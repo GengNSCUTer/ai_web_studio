@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.orm import Session
@@ -143,7 +144,8 @@ class ExternalContextService:
         sources = []
         notices: list[str] = []
         last_plan = None
-        total_elapsed_ms = 0
+        planning_elapsed_ms = 0
+        execution_elapsed_ms = 0
         selected_tool = "none"
         error_message = ""
         terminal_reason = "no_tool_needed"
@@ -154,10 +156,41 @@ class ExternalContextService:
         duplicate_sources_total = 0
         projection_reports: list[dict] = []
         budget = ToolRunBudget(policy=self.run_policy)
-        # One request owns one in-memory ledger. It deliberately ends with this
-        # synchronous Chat request; durable retries/replay keep using the
-        # persisted AgentRun/Step runtime instead.
+        # 同步请求共享一个内存账本；跨请求恢复仍由持久化 Durable Runtime 负责。
         call_ledger = ToolRunCallLedger()
+
+        def record_budget_timeout(*, round_index: int, stage: str) -> None:
+            """超时只结束工具阶段；已获得的有效证据仍可用于有限回答。"""
+
+            nonlocal terminal_reason, next_action, error_message
+            terminal_reason = "tool_wall_clock_budget_exhausted"
+            next_action = "finalize_partial" if sources else "stop"
+            error_message = error_message or "工具阶段超过当前模式允许时长。"
+            notices.append(self._budget_exhausted_notice(terminal_reason, has_sources=bool(sources)))
+            events.append(
+                ToolTraceEvent(
+                    type="tool_agent_budget_timeout",
+                    payload={
+                        "reason": terminal_reason,
+                        "stage": stage,
+                        "round": round_index,
+                        "budget": budget.to_trace_payload(),
+                        "preserved_sources_count": len(sources),
+                    },
+                )
+            )
+            events.append(
+                ToolTraceEvent(
+                    type="tool_agent_terminal",
+                    payload={
+                        "reason": terminal_reason,
+                        "round": round_index,
+                        "max_rounds": self.run_policy.max_planning_rounds,
+                        "next_action": next_action,
+                        "budget": budget.to_trace_payload(),
+                    },
+                )
+            )
 
         events.append(
             ToolTraceEvent(
@@ -171,6 +204,9 @@ class ExternalContextService:
                 budget.begin_round()
             except ValueError as exc:
                 terminal_reason = str(exc)
+                if terminal_reason == "tool_wall_clock_budget_exhausted":
+                    record_budget_timeout(round_index=round_index - 1, stage="before_planner")
+                    break
                 next_action = "stop"
                 notices.append(self._budget_exhausted_notice(terminal_reason, has_sources=bool(sources)))
                 events.append(
@@ -195,9 +231,21 @@ class ExternalContextService:
             }
             if skill_context:
                 planner_kwargs["skill_context"] = skill_context
-            plan = await self.planner.plan(
-                **planner_kwargs,
-            )
+            planning_started = time.perf_counter()
+            try:
+                plan = await asyncio.wait_for(
+                    self.planner.plan(**planner_kwargs),
+                    timeout=max(0.0, budget.deadline - time.perf_counter()),
+                )
+            except asyncio.TimeoutError:
+                record_budget_timeout(round_index=round_index, stage="planner")
+                break
+            finally:
+                planning_elapsed_ms += max(0, int((time.perf_counter() - planning_started) * 1000))
+            # 同步处理或取消清理可能越过截止时间，不能将晚到的计划记成正常结束。
+            if time.perf_counter() >= budget.deadline:
+                record_budget_timeout(round_index=round_index, stage="planner")
+                break
             last_plan = plan
             plan.original_query = rewrite.original_query
             plan.rewritten_query = routed_query if rewrite.did_rewrite else None
@@ -222,8 +270,24 @@ class ExternalContextService:
             )
             events.extend(plan_events)
             if not enabled or not plan.should_use_tools:
-                terminal_reason = "no_tool_needed"
-                next_action = "stop"
+                # 规划失败且规则无法给出候选内调用，不等于模型确认无需工具。
+                # 明确不用工具的空候选仍正常结束，避免把用户的禁止要求误记成失败。
+                planning_failed = any(event.type == "tool_fallback" for event in plan_events) and any(
+                    event.type == "tool_candidate_selection" and bool(event.payload.get("candidates"))
+                    for event in plan_events
+                )
+                if enabled and planning_failed:
+                    terminal_reason = "tool_planning_unavailable"
+                    next_action = "finalize_partial" if sources else "stop"
+                    error_message = "工具规划失败，候选内规则兜底没有产生可执行调用。"
+                    notices.append("本次工具核验未完成，请稍后重试或明确要查询的对象。")
+                    events.append(ToolTraceEvent(type="tool_agent_terminal", payload={
+                        "reason": terminal_reason, "round": round_index, "next_action": next_action,
+                        "preserved_sources_count": len(sources),
+                    }))
+                else:
+                    terminal_reason = "no_tool_needed"
+                    next_action = "stop"
                 break
 
             events.append(
@@ -261,47 +325,30 @@ class ExternalContextService:
                             budget.remaining_tool_calls,
                         ),
                         "max_parallel_calls": self.run_policy.max_parallel_calls,
+                        "deadline": budget.deadline,
                     }
                 )
+            execution_started = time.perf_counter()
             try:
-                workflow_result = await asyncio.wait_for(
-                    self.workflow.run(**workflow_kwargs),
-                    timeout=max(0.001, budget.remaining_wall_clock_ms / 1000),
-                )
+                if isinstance(self.workflow, ToolWorkflowService):
+                    # 正式 Workflow 在截止时间内收集部分结果；外层不再次整体取消它。
+                    workflow_result = await self.workflow.run(**workflow_kwargs)
+                else:
+                    workflow_result = await asyncio.wait_for(
+                        self.workflow.run(**workflow_kwargs),
+                        timeout=max(0.0, budget.deadline - time.perf_counter()),
+                    )
             except asyncio.TimeoutError:
-                terminal_reason = "tool_wall_clock_budget_exhausted"
-                next_action = "stop"
-                notices.append(self._budget_exhausted_notice(terminal_reason, has_sources=bool(sources)))
-                events.append(
-                    ToolTraceEvent(
-                        type="tool_agent_budget_timeout",
-                        payload={
-                            "reason": terminal_reason,
-                            "round": round_index,
-                            "budget": budget.to_trace_payload(),
-                        },
-                    )
-                )
-                events.append(
-                    ToolTraceEvent(
-                        type="tool_agent_terminal",
-                        payload={
-                            "reason": terminal_reason,
-                            "round": round_index,
-                            "max_rounds": self.run_policy.max_planning_rounds,
-                            "next_action": next_action,
-                            "budget": budget.to_trace_payload(),
-                        },
-                    )
-                )
+                record_budget_timeout(round_index=round_index, stage="execution")
                 break
+            finally:
+                execution_elapsed_ms += max(0, int((time.perf_counter() - execution_started) * 1000))
             budget.record_attempted_tool_calls(workflow_result.aggregate.attempted_steps)
             events.extend(workflow_result.events)
             raw_sources_total += len(workflow_result.sources)
             newly_added_sources, duplicate_count = self._merge_sources(sources, workflow_result.sources)
             duplicate_sources_total += duplicate_count
             notices.extend(workflow_result.notices)
-            total_elapsed_ms += workflow_result.elapsed_ms
             selected_tool = workflow_result.selected_tool
             error_message = workflow_result.error_message or error_message
             workflow_aggregate_status = workflow_result.aggregate_status
@@ -335,6 +382,22 @@ class ExternalContextService:
                         "metadata": {},
                     }
                 )
+            if getattr(workflow_result, "deadline_exhausted", False) or time.perf_counter() >= budget.deadline:
+                # 先合并有效证据、计数和终态，再停止；不因超时重新执行已完成步骤。
+                record_budget_timeout(round_index=round_index, stage="execution")
+                events.append(
+                    ToolTraceEvent(
+                        type="tool_agent_round_end",
+                        payload={
+                            "round": round_index,
+                            "next_action": next_action,
+                            "decision_reason": terminal_reason,
+                            "sources_count": len(workflow_result.sources),
+                            "budget": budget.to_trace_payload(),
+                        },
+                    )
+                )
+                break
             quality_replan_required = any(
                 observation.get("next_action") == "replan"
                 for observation in quality_observations
@@ -426,37 +489,6 @@ class ExternalContextService:
                 )
                 break
 
-        if not last_plan:
-            public_events = [event.to_public_dict() for event in events]
-            return ExternalContextResult(
-                context_text=None,
-                sources=[],
-                notices=[],
-                diagnostics={
-                    "external_context_enabled": 0,
-                    "external_tool_called": "none",
-                    "external_sources_total": 0,
-                    "external_sources_included": 0,
-                    "external_sources_raw_total": 0,
-                    "external_sources_duplicate_count": 0,
-                    "external_sources_dedup_strategy": "normalized_url_or_canonical_content_hash",
-                    "external_evidence_projection": {
-                        "rounds": [],
-                        "totals": PlannerObservationProjection.aggregate_diagnostics([]),
-                    },
-                    "external_context_chars": 0,
-                    "external_context_error": 0,
-                    "external_tool_next_action": next_action,
-                },
-                details={
-                    "external_sources": [],
-                    "tool_plan": None,
-                    "tool_events": public_events,
-                    "tool_workflow_next_action": next_action,
-                },
-                tool_plan=None,
-                tool_events=events,
-            )
         if error_message and not sources and not notices:
             # Provider/Adapter 错误可能携带 URL、响应正文或凭据片段；外层只
             # 给用户稳定的脱敏说明，详细原因留在受保护的服务端日志中。
@@ -470,14 +502,16 @@ class ExternalContextService:
                         "skill_key": skill_context.skill_key,
                         "version": skill_context.version,
                         "status": (
-                            "success"
+                            "partial"
+                            if sources and next_action == "finalize_partial"
+                            else "success"
                             if sources
                             else "error"
                             if error_message
                             else "empty"
                         ),
-                        "planner": last_plan.router,
-                        "planned_tool_keys": [call.tool_key for call in last_plan.calls],
+                        "planner": last_plan.router if last_plan else "none",
+                        "planned_tool_keys": [call.tool_key for call in last_plan.calls] if last_plan else [],
                         "sources_count": len(sources),
                         "rounds_observed": sum(
                             1 for event in events if event.type == "tool_agent_round_end"
@@ -487,7 +521,26 @@ class ExternalContextService:
                 )
             )
 
-        context_text = self.assembler.format_sources_for_prompt(sources, max_chars=max_chars)
+        execution_status_text = ""
+        if terminal_reason == "tool_wall_clock_budget_exhausted":
+            # 状态来自代码，不是工具正文；最终模型也需知道本次任务没有全部完成。
+            execution_status_text = (
+                "[工具执行状态（系统记录）]\n"
+                "本次工具阶段达到总时长限制，部分计划可能未完成。"
+                "仅根据下列已获得的证据回答；缺少结果的部分请明确说明未完成，不能猜测工具输出。"
+            )[:max(0, max_chars)]
+        elif terminal_reason == "tool_planning_unavailable":
+            execution_status_text = (
+                "[工具执行状态（系统记录）]\n"
+                "本轮工具规划未完成，未取得本轮要求核验的新结果。"
+                "只可使用下列已有证据；没有取得的原文、行内容或外部事实应明确说明无法核实，"
+                "不得根据文件名、历史摘要或模型记忆编造，也不得声称已读取或已完成。"
+            )[:max(0, max_chars)]
+        evidence_text = self.assembler.format_sources_for_prompt(
+            sources,
+            max_chars=max(0, max_chars - len(execution_status_text)),
+        )
+        context_text = "\n\n".join(part for part in (execution_status_text, evidence_text) if part) or None
         included_sources = [source for source in sources if source.used_in_prompt]
         public_sources = [source.to_public_dict() for source in sources]
         public_events = [event.to_public_dict() for event in events]
@@ -509,7 +562,9 @@ class ExternalContextService:
                     "totals": PlannerObservationProjection.aggregate_diagnostics(projection_reports),
                 },
                 "external_context_chars": len(context_text or ""),
-                "external_context_latency_ms": total_elapsed_ms,
+                "external_context_latency_ms": budget.elapsed_ms,
+                "external_planning_latency_ms": planning_elapsed_ms,
+                "external_execution_latency_ms": execution_elapsed_ms,
                 "external_context_error": int(bool(error_message and not sources)),
                 "external_tool_events_total": len(events),
                 "external_agent_terminal_reason": terminal_reason,
@@ -524,7 +579,7 @@ class ExternalContextService:
             },
             details={
                 "external_sources": public_sources,
-                "tool_plan": last_plan.to_public_dict(),
+                "tool_plan": last_plan.to_public_dict() if last_plan else None,
                 "tool_events": public_events,
                 "active_skill": skill_context.to_public_dict() if skill_context else None,
                 "tool_workflow_aggregate_status": workflow_aggregate_status,
@@ -592,6 +647,13 @@ class ExternalContextService:
             return ("url", ExternalContextService._normalize_source_url(url))
 
         metadata = getattr(source, "metadata", {})
+        # 两个空文件页可能有完全相同的说明文字，却携带不同的继续查询位置。
+        # 按页和文件身份去重，避免把新 cursor 当成重复正文丢掉，卡在前一页。
+        source_type = str(getattr(source, "source_type", "") or "")
+        if (isinstance(metadata, dict) and metadata.get("page_id")
+                and getattr(source, "provider", None) == "workspace"
+                and source_type in {"workspace_file_search", "workspace_file_list"}):
+            return ("workspace_page", source_type, str(metadata["page_id"]), str(metadata.get("file_id") or "list"))
         raw = metadata.get("raw") if isinstance(metadata, dict) else None
         canonical_text = raw.get("content") if isinstance(raw, dict) else None
         if not isinstance(canonical_text, str) or not canonical_text.strip():

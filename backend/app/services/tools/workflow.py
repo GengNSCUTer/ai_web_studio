@@ -308,6 +308,7 @@ class ToolWorkflowResult:
     selected_tool: str = "none"
     error_message: str = ""
     elapsed_ms: int = 0
+    deadline_exhausted: bool = False
 
 
 @dataclass
@@ -525,6 +526,9 @@ class ToolRunCallLedger:
 
     @staticmethod
     def _is_reexecution_blocker(outcome: ToolStepOutcome) -> bool:
+        # 超时或取消不能证明外部操作没有执行，当前请求不得自动重发。
+        if outcome.execution_status in {"timed_out", "cancelled"}:
+            return True
         if outcome.execution_status == "waiting_approval":
             return True
         if outcome.execution_status == "failed" and outcome.quality_status in {"invalid", "uncertain"}:
@@ -574,12 +578,12 @@ class ToolWorkflowService:
         call_ledger: ToolRunCallLedger | None = None,
         max_tool_calls: int | None = None,
         max_parallel_calls: int | None = None,
+        deadline: float | None = None,
     ) -> ToolWorkflowResult:
-        """Run one bounded ToolPlan and emit immutable terminal outcomes.
+        """执行有限计划，按共用截止时间收口，并保留已完成的有效结果。
 
-        ``call_ledger`` lives for the outer synchronous Chat request and is
-        shared across re-plans.  The workflow itself remains fully usable on
-        its own, which preserves the existing direct/unit-test call sites.
+        ``call_ledger`` 仅在本次同步 Chat 内共享；独立调用可不传截止时间。
+        用户取消继续向上抛出，不能被转换成一次正常的部分回答。
         """
 
         started = time.perf_counter()
@@ -704,6 +708,42 @@ class ToolWorkflowService:
 
         step = 0
         while pending:
+            if deadline is not None and time.perf_counter() >= deadline:
+                result.deadline_exhausted = True
+                for call in list(pending.values()):
+                    failed_dependencies = [
+                        dependency
+                        for dependency in call.depends_on
+                        if dependency in terminal_by_call_id
+                        and not terminal_by_call_id[dependency].unlocks_strict_dependents
+                    ]
+                    reason = (
+                        "dependency_not_succeeded"
+                        if failed_dependencies
+                        else "tool_wall_clock_budget_exhausted"
+                    )
+                    record_outcome(
+                        self._blocked_outcome(
+                            call=call,
+                            error_category=reason,
+                            next_action="stop",
+                            reasons=(reason,),
+                        )
+                    )
+                    result.events.append(
+                        ToolTraceEvent(
+                            type="tool_workflow_step_skipped",
+                            payload={
+                                "workflow": "tool_workflow_v2",
+                                "call_id": call.call_id,
+                                "tool_key": call.tool_key,
+                                "reason": reason,
+                                "failed_dependencies": failed_dependencies,
+                            },
+                        )
+                    )
+                pending.clear()
+                break
             ready = [
                 call
                 for call in pending.values()
@@ -879,6 +919,9 @@ class ToolWorkflowService:
 
             if not executable:
                 continue
+            if deadline is not None and time.perf_counter() >= deadline:
+                # 参数绑定等同步校验也消耗预算，截止后不能再启动实际调用。
+                continue
             step += 1
             for call in executable:
                 record_state(call, "running")
@@ -895,18 +938,14 @@ class ToolWorkflowService:
                     },
                 )
             )
-            step_results = await asyncio.gather(
-                *[
-                    self._execute_call(
-                        call=call,
-                        query=query,
-                        plan=plan,
-                        allow_fallback=call.call_id in fallback_call_ids,
-                        call_fingerprint=self.call_fingerprint_for(call),
-                    )
-                    for call in executable
-                ]
+            step_results, batch_timed_out = await self._execute_batch(
+                calls=executable,
+                query=query,
+                plan=plan,
+                fallback_call_ids=fallback_call_ids,
+                deadline=deadline,
             )
+            result.deadline_exhausted = result.deadline_exhausted or batch_timed_out
             for step_result in step_results:
                 result.events.extend(step_result.events)
                 if step_result.sources and not step_result.expose_sources_to_prompt:
@@ -960,10 +999,89 @@ class ToolWorkflowService:
                     "step_outcomes_count": len(result.step_outcomes),
                     "aggregate": result.aggregate.to_trace_payload(),
                     "error": result.error_message or None,
+                    "deadline_exhausted": result.deadline_exhausted,
                 },
             )
         )
         return result
+
+    async def _execute_batch(
+        self,
+        *,
+        calls: list[PlannedToolCall],
+        query: str,
+        plan: ToolPlan,
+        fallback_call_ids: set[str],
+        deadline: float | None,
+    ) -> tuple[list[ToolStepResult], bool]:
+        """截止时仅取消未完成调用，保留已完成结果并清理所有子任务。"""
+
+        started = time.perf_counter()
+        tasks = {
+            asyncio.create_task(
+                self._execute_call(
+                    call=call,
+                    query=query,
+                    plan=plan,
+                    allow_fallback=call.call_id in fallback_call_ids,
+                    call_fingerprint=self.call_fingerprint_for(call),
+                )
+            ): call
+            for call in calls
+        }
+        try:
+            done, unfinished = await asyncio.wait(
+                tasks,
+                timeout=None if deadline is None else max(0.0, deadline - time.perf_counter()),
+            )
+            for task in unfinished:
+                task.cancel()
+            if unfinished:
+                await asyncio.gather(*unfinished, return_exceptions=True)
+            results: list[ToolStepResult] = []
+            for task, call in tasks.items():
+                if task in done and not task.cancelled():
+                    results.append(task.result())
+                    continue
+                status = "timed_out" if task in unfinished else "cancelled"
+                reason = (
+                    "tool_wall_clock_budget_exhausted"
+                    if status == "timed_out"
+                    else "tool_call_cancelled"
+                )
+                elapsed_ms = max(0, int((time.perf_counter() - started) * 1000))
+                results.append(
+                    ToolStepResult(
+                        call=call,
+                        execution_status=status,
+                        quality_status="not_applicable",
+                        quality_reasons=[reason],
+                        quality_action="stop",
+                        error_category=reason,
+                        call_fingerprint=self.call_fingerprint_for(call),
+                        elapsed_ms=elapsed_ms,
+                        notices=[f"{call.display_name}未完成，未将其结果用于回答。"],
+                        events=[
+                            ToolTraceEvent(
+                                type="tool_call_timeout" if status == "timed_out" else "tool_call_cancelled",
+                                payload={
+                                    "call_id": call.call_id,
+                                    "tool_key": call.tool_key,
+                                    "status": status,
+                                    "elapsed_ms": elapsed_ms,
+                                    "reason": reason,
+                                },
+                            )
+                        ],
+                    )
+                )
+            return results, bool(unfinished)
+        finally:
+            # 外层主动取消或异常退出时仍等待清理；CancelledError 保持向上传播。
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     @classmethod
     def _blocked_outcome(

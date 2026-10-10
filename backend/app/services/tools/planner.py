@@ -27,7 +27,8 @@ class PlannerRuntime:
 
 
 class LLMToolPlanner:
-    planner_timeout_seconds = 15
+    # 单次在线规划也有上限；外层仍以整个工具阶段的剩余时间进一步收紧。
+    planner_timeout_seconds = 25
 
     def __init__(
         self,
@@ -59,6 +60,7 @@ class LLMToolPlanner:
             query=query,
             enabled=enabled,
             allowed_tool_keys=skill_allowed_tool_keys,
+            recent_messages=recent_messages,
         )
         start_event = {
             "type": "tool_planner_start",
@@ -87,9 +89,10 @@ class LLMToolPlanner:
             ]
             return plan
         deterministic_plan = self.fallback_planner.plan(query=query, enabled=True)
+        candidate_keys = {tool.tool_key for tool in candidate_tools}
         self._constrain_plan_to_allowed_tools(
             plan=deterministic_plan,
-            allowed_tool_keys=skill_allowed_tool_keys,
+            allowed_tool_keys=candidate_keys,
         )
         if (
             skill_context
@@ -195,8 +198,7 @@ class LLMToolPlanner:
                 "category": tool.category,
                 "display_name": tool.display_name,
                 "description": self.catalog.prompt_description(tool),
-                "when_to_use": tool.when_to_use,
-                "when_not_to_use": tool.when_not_to_use,
+                # 适用/禁用说明已包含在标准化 description 中，避免重复输入。
                 "input_schema": tool.input_schema,
                 "risk_level": tool.risk_level,
                 "read_only": tool.read_only,
@@ -227,9 +229,13 @@ class LLMToolPlanner:
             "17. 工作区文件只能访问当前项目的 ProjectFile：先 list/search 获取 file_id，再 read 原文。propose_edit 仅生成临时预览；用户明确要求修改时可规划 workspace.files.apply_edit，但第一次调用只会持久化 Diff 和审批，必须等待用户确认 continuation，绝不能声称已写入。不要猜测本机路径，也不要规划删除、执行文件、Bash 或 SQL。\n"
             "18. 下游需要上游结构化字段时可声明 result_bindings；source_call_id 必须同时出现在 depends_on，source_path 只能是 /sources/<序号>/metadata/raw/...，target_argument 只能是下游顶层参数。\n"
             "19. 可建议 execution_mode=sync 或 durable_candidate，并用 execution_reason 简短解释。仅当多个只读低风险步骤适合较长任务时建议 durable_candidate；这只是建议，当前 Chat 仍同步执行，不会自动创建后台任务或扩大权限。\n"
+            "20. 文件 list/search 是分页结果。观察 metadata.has_more=true 时尚未查完；需要继续定位目标或确认全局未命中时，保持原 query/file_name/file_id，用 next_cursor 填下一次 cursor。不要重做同一第一页，不要把部分范围未命中说成整个项目不存在。用户提供准确文件名时优先 file_name 定向查找；检索出 file_id 后 read 原文。预算不足时明确范围未穷尽。\n"
+            "21. 用户要求文件正文、标题或某行原文时，search 只定位文件，必须 read 核实后结束；可以在同一计划中通过 result_bindings 连接 search 和 read，或 need_more_rounds=true 后续读取。\n"
+            "22. 输出紧凑 JSON，不缩进，不附解释；reason/execution_reason 最多 20 字。不复制工具描述或 Schema，不输出空的可选字段。没有依赖时可省略 depends_on/can_parallel/result_bindings；只有需要传递上游参数时才输出 result_bindings。\n"
             "示例 A：用户问“深圳和广州天气怎么样”，输出两个 amap.maps.weather 调用，分别 city=深圳、city=广州，depends_on=[]。\n"
             "示例 B：用户问“深圳到汕头路上有哪些服务区，顺便看天气和预计耗时”，输出驾车路线、深圳天气、汕头天气、服务区/地点搜索、网页搜索；路线和天气可并行，依赖路线结果再继续精查时设置 need_more_rounds=true。\n"
-            "输出格式：{\"should_use_tools\": true, \"need_more_rounds\": false, \"execution_mode\": \"sync\", \"execution_reason\": \"简短原因\", \"calls\": [{\"id\":\"call_1\", \"tool_key\": \"...\", \"confidence\": 0.0-1.0, \"reason\": \"...\", \"depends_on\": [], \"can_parallel\": true, \"arguments\": {...}, \"result_bindings\": [{\"source_call_id\":\"call_0\", \"source_path\":\"/sources/0/metadata/raw/location\", \"target_argument\":\"destination\", \"required\":true}]}]}\n"
+            "无依赖调用格式：{\"should_use_tools\":true,\"need_more_rounds\":false,\"calls\":[{\"id\":\"call_1\",\"tool_key\":\"...\",\"arguments\":{}}]}。"
+            "有依赖时添加 depends_on 和 result_bindings，例如 {\"source_call_id\":\"call_0\",\"source_path\":\"/sources/0/metadata/raw/location\",\"target_argument\":\"destination\"}。\n"
         )
         if skill_context:
             skill_lines = "\n".join(f"- {item}" for item in skill_context.planner_instructions)
@@ -614,6 +620,7 @@ class LLMToolPlanner:
             for call in calls
             if (definition := self.catalog.get_or_none(call.tool_key))
             and definition.fallback_tool_key
+            and (allowed_tool_keys is None or definition.fallback_tool_key in allowed_tool_keys)
         }
         return ToolPlan(
             plan_id=str(uuid4()),

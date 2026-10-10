@@ -12,7 +12,7 @@ class SettingService:
     """用户设置业务层：负责默认值、归一化、密钥加密、响应脱敏。"""
 
     DEFAULT_OPENAI_BASE_URL = "https://api.siliconflow.cn/v1"
-    DEFAULT_OPENAI_MODEL = "Qwen/Qwen3.5-35B-A3B"
+    DEFAULT_OPENAI_MODEL = "deepseek-ai/DeepSeek-V3.2"
     DEFAULT_OPENAI_API_KEY = None
     DEFAULT_CONTEXT_MODE = "balanced"
     DEFAULT_OPENAI_CONTEXT_WINDOW = 128000

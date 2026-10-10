@@ -1,31 +1,34 @@
 from __future__ import annotations
 
+import asyncio
 import difflib
+import hashlib
 import re
+import threading
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_, select
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.project_file import ProjectFile
 from app.services.workspace_file_provenance import current_file_provenance
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolExecutionFeedbackError
+from app.services.tools.providers.workspace_file_paging import WorkspaceFileCursor
 
 
 class WorkspaceFileToolProvider:
-    """Constrained, read-only access to project files already owned by the user.
+    """在独立线程和会话中访问当前用户、当前项目的文件，不接受本机路径。
 
-    This provider never accepts an OS path, storage key, or shell expression from
-    the model.  The only addressable identifier is a ProjectFile id, and every
-    database lookup is scoped by ``user_id`` and, when present, ``project_id``.
+    列表和搜索按页获取快照，释放连接后匹配文本；返回来源时短事务复核版本。
+    独立会话绝不提交调用者正在准备的 Chat、审批或 Worker 事务。
     """
 
     MAX_LIST_RESULTS = 30
     MAX_SEARCH_RESULTS = 5
+    MAX_SEARCH_FILES = 120
     MAX_READ_LINES = 200
     MAX_SOURCE_CHARS = 12_000
-    # ProjectFile IDs are scoped, but a scoped file can still contain a secret
-    # that should never be sent to an LLM/provider.
+    # 有权访问的文件仍可能包含凭据，不能因为通过项目隔离就把秘密送给模型。
     SENSITIVE_FILE_NAME_PATTERN = re.compile(
         r"(^|/)(\.env(?:\..*)?|.*(?:credentials?|secrets?|id_rsa|\.pem|\.key))$",
         flags=re.IGNORECASE,
@@ -37,18 +40,46 @@ class WorkspaceFileToolProvider:
         re.compile(r"(?i)\b(?:sk-[a-z0-9_-]{16,}|ghp_[a-z0-9]{20,}|AKIA[0-9A-Z]{16})\b"),
     )
 
-    def __init__(self, *, db: Session | None, user_id: str | None, project_id: str | None) -> None:
+    def __init__(self, *, db: Session | None, user_id: str | None, project_id: str | None,
+                 session_factory=None) -> None:
         self.db = db
         self.user_id = user_id
         self.project_id = project_id
+        self.session_factory = session_factory or (
+            sessionmaker(bind=db.get_bind().engine, autoflush=False, expire_on_commit=False) if db is not None else None
+        )
+        self._cancelled: threading.Event | None = None
 
     async def run(self, *, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
-        if not self.db or not self.user_id:
+        if not self.session_factory or not self.user_id:
             raise ToolExecutionFeedbackError("工作区文件工具缺少用户数据库上下文。")
         if not self.project_id:
-            # ProjectFile is a project-scoped resource. Falling back to every
-            # file owned by the user would silently widen the workspace boundary.
+            # 缺少项目时不能退化成搜索该用户的全部文件，避免扩大工作区边界。
             raise ToolExecutionFeedbackError("工作区文件工具需要关联项目后才能使用。")
+        cancelled = threading.Event()
+        try:
+            return await asyncio.to_thread(self._run_isolated, call, cancelled)
+        except asyncio.CancelledError:
+            # Python 无法强杀正在查询的线程。查询返回后，线程自行回滚并关闭自己的会话。
+            cancelled.set()
+            raise
+
+    def _run_isolated(self, call: PlannedToolCall, cancelled: threading.Event):
+        with self.session_factory() as db:
+            worker = WorkspaceFileToolProvider(db=db, user_id=self.user_id, project_id=self.project_id)
+            worker._cancelled = cancelled
+            worker._check_cancelled()
+            result = worker._run_sync(call)
+            worker._check_cancelled()
+            # 只提交文件版本基线；文件正文、审批和原始 Chat 事务不在此处写入。
+            db.commit()
+            return result
+
+    def _check_cancelled(self) -> None:
+        if self._cancelled is not None and self._cancelled.is_set():
+            raise ToolExecutionFeedbackError("文件操作已取消。")
+
+    def _run_sync(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
         if call.tool_key == "workspace.files.list":
             return self._list_files(call)
         if call.tool_key == "workspace.files.search":
@@ -65,14 +96,59 @@ class WorkspaceFileToolProvider:
             ProjectFile.project_id == self.project_id,
         )
 
+    def _page(self, call: PlannedToolCall, *, size: int) -> tuple[list[ProjectFile], dict]:
+        statement = self._base_statement()
+        file_name = str(call.arguments.get("file_name") or "").strip()
+        file_id = str(call.arguments.get("file_id") or "").strip()
+        if file_name:
+            statement = statement.where(ProjectFile.file_name == file_name)
+        if file_id:
+            statement = statement.where(ProjectFile.id == file_id)
+        scope = WorkspaceFileCursor.scope(user_id=self.user_id, project_id=self.project_id,
+                                          operation=call.tool_key, arguments=call.arguments)
+        cursor = call.arguments.get("cursor")
+        if cursor:
+            created_at, previous_id = WorkspaceFileCursor.decode(cursor, scope=scope)
+            statement = statement.where(or_(ProjectFile.created_at < created_at,
+                and_(ProjectFile.created_at == created_at, ProjectFile.id < previous_id)))
+        rows = list(self.db.scalars(statement.order_by(ProjectFile.created_at.desc(), ProjectFile.id.desc())
+                                    .limit(size + 1)).all())
+        page = rows[:size]
+        has_more = len(rows) > size
+        next_cursor = WorkspaceFileCursor.encode(created_at=page[-1].created_at, file_id=page[-1].id,
+                                                 scope=scope) if has_more else None
+        files = [row for row in page if not self.is_sensitive_file_name(row.file_name)]
+        # 文本快照脱离 ORM 后再计算匹配分数，不在 CPU 搜索期间占用连接或行锁。
+        self.db.expunge_all()
+        self.db.rollback()
+        return files, {"page_id": hashlib.sha256(f"{scope}:{cursor or 'first'}".encode()).hexdigest()[:16],
+                       "scanned_files": len(files), "has_more": has_more, "next_cursor": next_cursor,
+                       "coverage_complete": not has_more, "scope_kind": "exact_file" if file_name or file_id else "project_page"}
+
+    @staticmethod
+    def _page_notice(page: dict) -> str:
+        matches_notice = (f" 本页快照匹配 {page['matched_files_total']} 个文件，仅返回最相关的前 {WorkspaceFileToolProvider.MAX_SEARCH_RESULTS} 个。"
+                          if page.get("results_truncated") else "")
+        if page["has_more"]:
+            return f"本页检查 {page['scanned_files']} 个可访问文件；还有更早文件未检查，可用返回的 cursor 继续查询。" + matches_notice
+        return f"本页检查 {page['scanned_files']} 个可访问文件，已到当前查询范围的最后一页。" + matches_notice
+
+    def _refresh_provenance(self, files: list[ProjectFile]) -> dict[str, tuple[ProjectFile, dict]]:
+        records = {}
+        # 统一锁顺序避免不同列表/搜索同时补建基线时互相死锁。
+        for item in sorted(files, key=lambda row: row.id):
+            self._check_cancelled()
+            current = self.db.scalars(self._base_statement().where(ProjectFile.id == item.id)
+                                      .with_for_update()).first()
+            if current is None or self.is_sensitive_file_name(current.file_name):
+                continue
+            records[current.id] = (current, current_file_provenance(db=self.db, project_file=current))
+        return records
+
     def _list_files(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
-        files = [
-            item
-            for item in self.db.scalars(
-                self._base_statement().order_by(ProjectFile.created_at.desc()).limit(self.MAX_LIST_RESULTS * 4)
-            ).all()
-            if not self.is_sensitive_file_name(item.file_name)
-        ][: self.MAX_LIST_RESULTS]
+        files, page = self._page(call, size=self.MAX_LIST_RESULTS)
+        refreshed = self._refresh_provenance(files)
+        files = [refreshed[item.id][0] for item in files if item.id in refreshed]
         if not files:
             return (
                 [
@@ -80,8 +156,10 @@ class WorkspaceFileToolProvider:
                         source_type="workspace_file_list",
                         provider="workspace",
                         title="工作区文件列表",
-                        display_text="当前项目没有可供 Agent 访问的文件。",
+                        display_text=("当前已检查范围没有可供 Agent 访问的文件。" if page["has_more"]
+                                      else "当前查询范围没有可供 Agent 访问的文件。") + "\n" + self._page_notice(page),
                         metadata={
+                            **page,
                             "empty_reason": "no_accessible_files",
                             "result_semantics": "empty_answer",
                             "raw": {"files": []},
@@ -92,13 +170,14 @@ class WorkspaceFileToolProvider:
                     "adapter_type": "workspace_file",
                     "operation": "list",
                     "files_count": 0,
+                    **page,
                     "result_semantics": "empty_answer",
                 },
             )
 
         file_records = [
             {
-                **current_file_provenance(db=self.db, project_file=item),
+                **refreshed[item.id][1],
                 "file_name": item.file_name,
                 "mime_type": item.mime_type or item.kind,
                 "file_size": item.file_size,
@@ -116,49 +195,60 @@ class WorkspaceFileToolProvider:
                     source_type="workspace_file_list",
                     provider="workspace",
                     title="工作区文件列表",
-                    display_text="\n".join(lines),
-                        metadata={
+                    display_text=self._page_notice(page) + "\n" + "\n".join(lines),
+                    metadata={
+                        **page,
                         "raw": {
                             "files": file_records
                         }
                     },
                 )
             ],
-            {"adapter_type": "workspace_file", "operation": "list", "files_count": len(files)},
+            {"adapter_type": "workspace_file", "operation": "list", "files_count": len(files), **page},
         )
 
     def _search_files(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
         query = str(call.arguments.get("query") or "").strip()
         if not query:
             raise ToolExecutionFeedbackError("文件搜索缺少 query。")
-        candidates = [
-            item
-            for item in self.db.scalars(self._base_statement().order_by(ProjectFile.created_at.desc()).limit(480)).all()
-            if not self.is_sensitive_file_name(item.file_name)
-        ][:120]
+        candidates, page = self._page(call, size=self.MAX_SEARCH_FILES)
         query_terms = self._search_terms(query)
-        ranked: list[tuple[float, ProjectFile, str]] = []
+        ranked: list[tuple[float, ProjectFile]] = []
         for item in candidates:
+            self._check_cancelled()
             text = (item.parsed_text or "").strip()
             haystack = f"{item.file_name}\n{text}"
             score = self._score(query_terms, haystack)
             if score <= 0:
                 continue
-            ranked.append((score, item, self._redact_text(self._snippet(text=text, query_terms=query_terms))))
+            ranked.append((score, item))
 
         ranked.sort(key=lambda entry: (-entry[0], entry[1].file_name, entry[1].id))
+        page["matched_files_total"] = len(ranked)
+        page["results_truncated"] = len(ranked) > self.MAX_SEARCH_RESULTS
+        selected = ranked[:self.MAX_SEARCH_RESULTS]
+        refreshed = self._refresh_provenance([item for _, item in selected])
         sources: list[ExternalSource] = []
-        for score, item, snippet in ranked[: self.MAX_SEARCH_RESULTS]:
-            provenance = current_file_provenance(db=self.db, project_file=item)
+        for _, item in selected:
+            if item.id not in refreshed:
+                continue
+            item, provenance = refreshed[item.id]
+            # 快照匹配后文件可能被修改；返回的摘要和版本必须来自同一份当前正文。
+            text = (item.parsed_text or "").strip()
+            score = self._score(query_terms, f"{item.file_name}\n{text}")
+            if score <= 0:
+                continue
+            snippet = self._redact_text(self._snippet(text=text, query_terms=query_terms))
             sources.append(
                 ExternalSource(
                     source_type="workspace_file_search",
                     provider="workspace",
                     title=item.file_name,
-                    display_text=snippet or "文件名匹配，暂无可用文本片段。",
+                    display_text=self._page_notice(page) + "\n" + (snippet or "文件名匹配，暂无可用文本片段。"),
                     score=score,
                     metadata={
                         **provenance,
+                        **page,
                         "mime_type": item.mime_type or item.kind,
                         "raw": {**provenance, "file_name": item.file_name, "score": score},
                     },
@@ -171,8 +261,9 @@ class WorkspaceFileToolProvider:
                         source_type="workspace_file_search",
                         provider="workspace",
                         title="工作区文件搜索",
-                        display_text="当前项目中未找到与本次查询匹配的文件。",
+                        display_text="当前已检查范围未找到与本次查询匹配的文件。\n" + self._page_notice(page),
                         metadata={
+                            **page,
                             "empty_reason": "no_matching_files",
                             "result_semantics": "empty_answer",
                             "raw": {"matches": []},
@@ -184,6 +275,7 @@ class WorkspaceFileToolProvider:
                     "operation": "search",
                     "query_length": len(query),
                     "matched_files": 0,
+                    **page,
                     "result_semantics": "empty_answer",
                 },
             )
@@ -192,15 +284,16 @@ class WorkspaceFileToolProvider:
             "operation": "search",
             "query_length": len(query),
             "matched_files": len(sources),
+            **page,
         }
 
     def _read_file(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
         file_id = str(call.arguments.get("file_id") or "").strip()
         if not file_id:
             raise ToolExecutionFeedbackError("读取文件缺少 file_id。")
-        item = self.db.scalars(self._base_statement().where(ProjectFile.id == file_id).limit(1)).first()
+        item = self.db.scalars(self._base_statement().where(ProjectFile.id == file_id).with_for_update()).first()
         if not item:
-            # Do not distinguish an absent file from another user's file.
+            # 不区分文件不存在与无权访问，避免暴露其他用户或项目的文件。
             raise ToolExecutionFeedbackError("工作区中未找到该文件。")
         self._ensure_agent_file_allowed(item.file_name)
         provenance = current_file_provenance(db=self.db, project_file=item)
@@ -285,7 +378,7 @@ class WorkspaceFileToolProvider:
         )
 
     def _propose_edit(self, call: PlannedToolCall) -> tuple[list[ExternalSource], dict[str, Any]]:
-        """Validate one exact replacement and return a diff without mutating data."""
+        """验证唯一替换并生成 Diff，不修改文件正文。"""
 
         file_id = str(call.arguments.get("file_id") or "").strip()
         old_string = str(call.arguments.get("old_string") or "")
@@ -294,7 +387,7 @@ class WorkspaceFileToolProvider:
             raise ToolExecutionFeedbackError("编辑预览缺少 file_id。")
         if not old_string:
             raise ToolExecutionFeedbackError("编辑预览的 old_string 不能为空。")
-        item = self.db.scalars(self._base_statement().where(ProjectFile.id == file_id).limit(1)).first()
+        item = self.db.scalars(self._base_statement().where(ProjectFile.id == file_id).with_for_update()).first()
         if not item:
             raise ToolExecutionFeedbackError("工作区中未找到该文件。")
         self._ensure_agent_file_allowed(item.file_name)
