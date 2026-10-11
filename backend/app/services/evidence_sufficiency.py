@@ -10,6 +10,8 @@ Tool quality 只判断某一次调用是否可用；这里判断当前问题是�
 from dataclasses import dataclass
 from typing import Any
 
+from app.services.tools.completion_contract import contract_applies, required_tool_keys
+
 
 @dataclass(frozen=True)
 class EvidenceSufficiency:
@@ -18,6 +20,8 @@ class EvidenceSufficiency:
     available_source_types: tuple[str, ...]
     reasons: tuple[str, ...]
     guidance: str
+    required_tools: tuple[str, ...] = ()
+    available_tools: tuple[str, ...] = ()
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -25,6 +29,8 @@ class EvidenceSufficiency:
             "required_source_types": list(self.required_source_types),
             "available_source_types": list(self.available_source_types),
             "reasons": list(self.reasons),
+            "required_tool_keys": list(self.required_tools),
+            "available_tool_keys": list(self.available_tools),
         }
 
 
@@ -38,6 +44,7 @@ def assess_evidence_sufficiency(
     query: str,
     sources: list[object],
     skill_key: str | None = None,
+    completion_contract: dict[str, Any] | None = None,
 ) -> EvidenceSufficiency:
     """按当前已注入的来源判断回答能否声称已经核对原文。"""
 
@@ -50,7 +57,32 @@ def assess_evidence_sufficiency(
         )
     )
     direct_file_claim = any(term.lower() in normalized_query for term in _DIRECT_FILE_EVIDENCE_TERMS)
-    if skill_key != "workspace.document-review" or not direct_file_claim:
+    contract_active = contract_applies(query=query, contract=completion_contract)
+    if contract_active and (completion_contract or {}).get("completion_strategy") == "required_tools":
+        required = required_tool_keys(completion_contract)
+        available = tuple(dict.fromkeys(
+            str(getattr(source, "metadata", {}).get("tool_key") or "")
+            for source in sources
+            if isinstance(getattr(source, "metadata", None), dict)
+            and getattr(source, "metadata").get("tool_key")
+            and not getattr(source, "metadata").get("empty_reason")
+            and getattr(source, "used_in_prompt", True)
+            and str(getattr(source, "display_text", "") or "").strip()
+        ))
+        missing = tuple(key for key in required if key not in available)
+        return EvidenceSufficiency(
+            status="insufficient" if missing else "sufficient",
+            required_source_types=(), available_source_types=source_types,
+            reasons=tuple(f"missing_required_tool:{key}" for key in missing),
+            guidance=(
+                "证据不足：尚未取得任务要求的工具证据（" + "、".join(missing) + "）。"
+                "不能把库候选、搜索摘要或模型记忆说成已经查证的正文；明确说明未完成部分。"
+                if missing else "已取得任务要求的工具证据。只依据已注入片段回答，说明来源和读取范围，不能声称已读全部原文。"
+            ),
+            required_tools=required, available_tools=available,
+        )
+    declared_read = contract_active and "workspace.files.read" in required_tool_keys(completion_contract)
+    if not declared_read and (skill_key != "workspace.document-review" or not direct_file_claim):
         return EvidenceSufficiency(
             status="not_required",
             required_source_types=(),
@@ -78,6 +110,8 @@ def assess_evidence_sufficiency(
 
     usable_read_sources = []
     for source in read_sources:
+        if not getattr(source, "used_in_prompt", True):
+            continue
         metadata = getattr(source, "metadata", {})
         display_text = str(getattr(source, "display_text", "") or "").strip()
         if not display_text:

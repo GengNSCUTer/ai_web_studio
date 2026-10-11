@@ -37,6 +37,8 @@ class ToolCandidateSelector:
 
     CATEGORY_PATTERNS: dict[str, re.Pattern[str]] = {
         "web_search": re.compile(r"(最新|今天|现在|新闻|官网|搜索|查询|资料|总统|版本|政策|价格|实时)"),
+        "web_fetch": re.compile(r"https?://|网页正文|阅读网页|读取网页|打开链接|链接内容", re.I),
+        "documentation": re.compile(r"(官方文档|技术文档|库文档|API文档|context7|sqlalchemy|fastapi|react|next\.js|redis|pgvector)", re.I),
         "weather": re.compile(r"(天气|气温|温度|下雨|降雨|台风|空气质量|冷不冷|热不热|明天|后天)"),
         "map_route": re.compile(r"(路线|怎么去|怎么走|导航|驾车|开车|步行|地铁|公交|多久到|开车多久|要多久|耗时|预计耗时|路上|沿途|途中)"),
         "map_distance": re.compile(r"(多远|相距|距离|几公里|多少公里|哪个近|更近|分别离|离.+远)"),
@@ -65,7 +67,7 @@ class ToolCandidateSelector:
             for tool in self.catalog.list_definitions()
             if tool.enabled_by_default
             and (allowed_tool_keys is None or tool.tool_key in allowed_tool_keys)
-            and not (tool.category == "web_search" and self.WEB_EXCLUSION_PATTERN.search(query))
+            and not (tool.category in {"web_search", "web_fetch", "documentation"} and self.WEB_EXCLUSION_PATTERN.search(query))
         ]
         if not enabled:
             return [], self._trace(
@@ -86,7 +88,8 @@ class ToolCandidateSelector:
             )
 
         file_hint = self._file_hint(query=query, recent_messages=recent_messages or [])
-        scored = [self._score_tool(tool=tool, query=query, file_hint=file_hint) for tool in definitions]
+        scored = [self._score_tool(tool=tool, query=query, file_hint=file_hint,
+                                   skill_scope=allowed_tool_keys is not None) for tool in definitions]
         scored.sort(key=lambda candidate: (-candidate.score, candidate.definition.tool_key))
 
         # 先固定专业工具容量，再保留联网兜底；满额后不得先添加再截断。
@@ -95,6 +98,14 @@ class ToolCandidateSelector:
             web_fallback
             and any(tool.tool_key == web_fallback.tool_key for tool in definitions)
         )
+        # 普通任务保留一个搜索兜底，避免新增搜索服务挤占专业工具候选。
+        # 用户显式选 Skill 时，由该 Skill 的范围决定是否提供多个搜索工具。
+        def is_reserved_search(candidate: ToolCandidate) -> bool:
+            return candidate.definition.tool_key == "web.tavily.search" or bool(
+                reserve_web_slot and allowed_tool_keys is None
+                and candidate.definition.category == "web_search"
+            )
+
         specialized_budget = max(0, self.max_candidates - int(reserve_web_slot))
         selected: list[ToolCandidate] = []
         seen: set[str] = set()
@@ -102,7 +113,7 @@ class ToolCandidateSelector:
         for candidate in scored:
             if len(selected) >= specialized_budget:
                 break
-            if candidate.score <= 0 or candidate.definition.tool_key == "web.tavily.search":
+            if candidate.score <= 0 or is_reserved_search(candidate):
                 continue
             if candidate.definition.category in seen_categories:
                 continue
@@ -115,7 +126,7 @@ class ToolCandidateSelector:
             if (
                 candidate.score <= 0
                 or candidate.definition.tool_key in seen
-                or candidate.definition.tool_key == "web.tavily.search"
+                or is_reserved_search(candidate)
             ):
                 continue
             selected.append(candidate)
@@ -196,7 +207,8 @@ class ToolCandidateSelector:
             break
         return None
 
-    def _score_tool(self, *, tool: ToolDefinition, query: str, file_hint: str | None = None) -> ToolCandidate:
+    def _score_tool(self, *, tool: ToolDefinition, query: str, file_hint: str | None = None,
+                    skill_scope: bool = False) -> ToolCandidate:
         score = 0.0
         reasons: list[str] = []
         # 编辑预览虽不落正文、标为 read_only，也不应被普通文件追问一并召回。
@@ -207,6 +219,14 @@ class ToolCandidateSelector:
             return ToolCandidate(definition=tool, score=0.0, reasons=["file_edit_intent_absent"])
 
         category_pattern = self.CATEGORY_PATTERNS.get(tool.category)
+        if tool.category in {"web_search", "web_fetch", "documentation"}:
+            if not skill_scope and category_pattern and not category_pattern.search(query):
+                # 通用“读取/资料”等元数据不能挤掉文件任务的真正候选。
+                return ToolCandidate(definition=tool, score=0.0, reasons=["public_lookup_intent_absent"])
+            if skill_scope:
+                # 用户已选 Skill 时保留其证据步骤，库定位后仍能继续查正文。
+                score += 0.2
+                reasons.append("explicit_skill_capability")
         if category_pattern and category_pattern.search(query) and not (
             tool.category == "workspace_file" and self.FILE_EXCLUSION_PATTERN.search(query)
         ):

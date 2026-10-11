@@ -224,6 +224,7 @@ def _credential_response(
     credential: UserToolCredential | None,
     resolver: ToolCredentialResolver,
     user_id: str,
+    anonymous_allowed: bool = False,
 ) -> UserToolCredentialResponse:
     resolved = resolver.resolve(user_id=user_id, provider_key=provider_key)
     if credential:
@@ -238,11 +239,11 @@ def _credential_response(
         )
     return UserToolCredentialResponse(
         provider_key=provider_key,
-        credential_name="环境变量 fallback",
-        is_enabled=resolved.is_enabled,
+        credential_name="可选凭据（未配置时使用匿名限额）" if anonymous_allowed else "环境变量 fallback",
+        is_enabled=resolved.is_enabled or anonymous_allowed,
         has_api_key=bool(resolved.api_key),
         api_key_masked=secret_service.mask(resolved.api_key),
-        source=resolved.source,
+        source="anonymous" if anonymous_allowed and not resolved.api_key else resolved.source,
     )
 
 
@@ -262,7 +263,8 @@ def get_tool_settings(
     mcp_servers = repo.list_mcp_servers(current_user.id, project_id=project_id)
     mcp_tool_pairs = repo.list_mcp_tools(user_id=current_user.id, project_id=project_id)
     provider_keys = sorted(
-        {tool.credential_provider for tool in registry.list_definitions() if tool.credential_required}
+        {tool.credential_provider for tool in registry.list_definitions()
+         if tool.credential_required or tool.credential_optional}
         | {
             server.credential_provider or server.server_key
             for server in mcp_servers
@@ -297,6 +299,8 @@ def get_tool_settings(
                 credential=credentials.get(provider_key),
                 resolver=resolver,
                 user_id=current_user.id,
+                anonymous_allowed=any(tool.credential_optional and tool.credential_provider == provider_key
+                                      for tool in registry.list_definitions()),
             )
             for provider_key in provider_keys
         ],
@@ -607,7 +611,8 @@ async def test_tool_credential(
     current_user: User = Depends(get_current_user),
 ) -> ToolConnectionTestResponse:
     credential = ToolCredentialResolver(db).resolve(user_id=current_user.id, provider_key=provider_key)
-    if not credential.is_enabled or not credential.api_key:
+    anonymous = provider_key in {"exa", "context7"} and credential.source in {"missing", "env_fallback_disabled"}
+    if not anonymous and (not credential.is_enabled or not credential.api_key):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="工具未启用或未配置 API Key")
 
     try:
@@ -615,6 +620,26 @@ async def test_tool_credential(
             sources = await TavilySearchProvider().query("AI news", api_key=credential.api_key)
         elif provider_key == "amap":
             sources = await AmapToolProvider().query_weather("广州天气", api_key=credential.api_key)
+        elif provider_key in {"exa", "context7"}:
+            from app.services.tools.adapters import ToolAdapterRunner
+            from app.services.tools.quality import evaluate_tool_result_quality
+            from app.services.tools.schemas import PlannedToolCall
+
+            definition = ToolCatalog().get("web.exa.search" if provider_key == "exa" else "docs.context7.resolve")
+            arguments = (
+                {"query": "SQLAlchemy official documentation", "objective": "Find official public documentation", "numResults": 1}
+                if provider_key == "exa" else {"libraryName": "SQLAlchemy", "query": "SQLAlchemy official documentation"}
+            )
+            sources, _ = await ToolAdapterRunner().run(
+                definition=definition,
+                call=PlannedToolCall(call_id="connection_test", tool_key=definition.tool_key,
+                                     provider=provider_key, category=definition.category,
+                                     display_name=definition.display_name, confidence=1.0,
+                                     reason="用户主动测试工具凭据", arguments=arguments),
+                api_key=credential.api_key,
+            )
+            if evaluate_tool_result_quality(sources=sources, contract=definition.quality_contract).status != "valid":
+                raise RuntimeError("连接未返回有效公开资料。")
         else:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool provider not found")
     except HTTPException:
@@ -628,7 +653,7 @@ async def test_tool_credential(
     return ToolConnectionTestResponse(
         ok=True,
         provider_key=provider_key,
-        message=f"连接成功，返回 {len(sources)} 个来源，凭证来源：{credential.source}",
+        message=f"连接成功，返回 {len(sources)} 个来源，凭证来源：{'anonymous' if anonymous else credential.source}",
     )
 
 

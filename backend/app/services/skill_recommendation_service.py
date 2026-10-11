@@ -17,6 +17,9 @@ class SkillRecommendationService:
     """
 
     HINTS: dict[str, tuple[str, ...]] = {
+        "research.source-brief": ("网页正文", "阅读网页", "打开链接", "来源对比", "资料简报", "https://", "http://"),
+        "knowledge.technical-docs": ("官方文档", "技术文档", "API文档", "context7", "sqlalchemy", "fastapi"),
+        "workspace.doc-coauthoring": ("起草", "协作写作", "方案文档", "文档改写", "写一份", "提案"),
         "research.web-brief": ("最新", "当前", "新闻", "政策", "版本", "调研", "来源", "核查", "事实", "网页"),
         "workspace.document-review": ("工作区", "项目文件", "文档", "资料", "审阅", "核对", "读取", "文件", "实现"),
         "travel.route-planner": ("路线", "怎么去", "驾车", "公交", "地铁", "天气", "距离", "附近", "出行"),

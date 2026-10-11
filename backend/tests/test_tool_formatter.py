@@ -49,6 +49,35 @@ class ExternalContextAssemblerTest(unittest.TestCase):
         self.assertIn("结果已按上下文预算压缩", context or "")
         self.assertTrue(all(source.used_in_prompt for source in sources))
 
+    def test_library_descriptions_do_not_crowd_out_documentation_conditions(self) -> None:
+        """小预算中应保留正文末尾条件，而不是给五条库简介分配证据份额。"""
+        libraries = [ExternalSource(source_type="documentation_library", provider="context7",
+                                    title=f"library {i}", display_text="简介" * 120) for i in range(5)]
+        document = ExternalSource(source_type="documentation", provider="context7", title="API behavior",
+                                  display_text="说明" * 60 + "New transaction begins only upon the NEXT_STATEMENT.")
+        context = ExternalContextAssembler.format_sources_for_prompt([*libraries, document], max_chars=420)
+        self.assertIn("NEXT_STATEMENT", context)
+        self.assertIn("[T6]", context)
+        self.assertNotIn("library 0", context)
+        self.assertTrue(document.used_in_prompt)
+        self.assertTrue(all(not source.used_in_prompt for source in libraries))
+
+    def test_catalog_only_and_other_providers_keep_their_results(self) -> None:
+        library = ExternalSource(source_type="documentation_library", provider="a", title="Candidate", display_text="Library ID")
+        other = ExternalSource(source_type="documentation", provider="b", title="Other", display_text="Independent evidence")
+        self.assertIn("Candidate", ExternalContextAssembler.format_sources_for_prompt([library], max_chars=500))
+        context = ExternalContextAssembler.format_sources_for_prompt([library, other], max_chars=500)
+        self.assertIn("Candidate", context)
+        self.assertIn("Independent evidence", context)
+
+    def test_reformat_with_smaller_budget_clears_stale_injection_flags(self) -> None:
+        sources = [ExternalSource(source_type="web", provider="a", title=str(i), display_text="evidence" * 40) for i in range(3)]
+        ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=2000)
+        ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=80)
+        self.assertEqual([source.used_in_prompt for source in sources], [True, False, False])
+        self.assertIsNone(ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=0))
+        self.assertFalse(any(source.used_in_prompt for source in sources))
+
 
 if __name__ == "__main__":
     unittest.main()

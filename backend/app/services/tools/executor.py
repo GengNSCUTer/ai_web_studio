@@ -371,10 +371,14 @@ class ToolExecutor:
                 user_id=self.user_id,
                 provider_key=definition.credential_provider,
             )
-            if definition.credential_required
+            if definition.credential_required or definition.credential_optional
             else None
         )
-        credential_enabled = bool(credential.is_enabled) if credential else True
+        # 无可选 Key 时沿用匿名限额；用户明确关闭 Provider 时不能匿名绕过。
+        credential_enabled = (
+            bool(credential.is_enabled)
+            or (definition.credential_optional and credential.source in {"missing", "env_fallback_disabled"})
+        ) if credential else True
         credential_source = credential.source if credential else "not_required"
         events.append(
             ToolTraceEvent(

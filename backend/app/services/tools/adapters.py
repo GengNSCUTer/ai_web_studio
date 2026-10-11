@@ -4,12 +4,13 @@ import re
 from typing import Any
 
 from app.services.tools.mcp_client import McpHttpClient
-from app.services.tools.mcp_security import enforce_mcp_endpoint_target_policy, validate_mcp_endpoint_url
+from app.services.tools.mcp_security import McpEndpointPolicyError, enforce_mcp_endpoint_target_policy, validate_mcp_endpoint_url
+from app.services.tools.public_research import validate_public_lookup_arguments
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.providers.agent_artifacts import AgentArtifactToolProvider
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.tools.result_mappers import extract_mcp_payload, map_mcp_result
-from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolDefinition, redact_sensitive_arguments
+from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolDefinition, ToolExecutionFeedbackError, redact_sensitive_arguments
 
 
 class ToolAdapterRunner:
@@ -57,12 +58,25 @@ class ToolAdapterRunner:
         if needs_api_key and not api_key:
             raise RuntimeError(f"工具 {definition.tool_key} 未配置 API Key。")
 
+        if definition.credential_optional and api_key:
+            auth_type = str(definition.adapter["optional_auth_type"])
+
         validate_mcp_endpoint_url(endpoint_template, auth_type=auth_type)
         endpoint = endpoint_template.replace("{api_key}", api_key or "")
         if definition.source_type == "mcp_server":
             # 内置 manifest endpoint 由项目维护；用户动态添加的 Server 必须在每次调用前做 SSRF 检查。
             await enforce_mcp_endpoint_target_policy(endpoint)
         arguments = self._build_adapter_arguments(definition=definition, call=call)
+        if definition.adapter.get("public_lookup") is True:
+            urls = validate_public_lookup_arguments(
+                arguments, url_fields=list(definition.adapter.get("public_url_arguments") or []),
+            )
+            for url in urls:
+                try:
+                    # 即使私网 MCP 被管理员允许，公共网页读取仍禁止私网目标。
+                    await enforce_mcp_endpoint_target_policy(url, allow_private=False)
+                except McpEndpointPolicyError:
+                    raise ToolExecutionFeedbackError("网页读取目标未通过公开地址检查。") from None
         client = McpHttpClient(endpoint=endpoint, extra_headers=self._mcp_auth_headers(auth_type=auth_type, api_key=api_key))
         arguments = await self._normalize_raw_amap_arguments(client=client, mcp_tool_name=mcp_tool_name, arguments=arguments)
 
@@ -81,6 +95,7 @@ class ToolAdapterRunner:
             # 动态 MCP 的 mapper 由已审核 onboarding contract 注入 Catalog。
             # 这里不解释或执行任何远端字段，仅交给受限声明式映射器读取。
             canonical_mapper=definition.adapter.get("canonical_mapper"),
+            request_arguments=arguments,
         )
         return sources, {
             "adapter_type": "mcp_http",

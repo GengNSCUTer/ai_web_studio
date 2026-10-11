@@ -31,6 +31,65 @@ class SkillCatalogTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.engine.dispose()
 
+    def test_optional_public_credentials_keep_skills_ready_but_explicit_disable_blocks(self) -> None:
+        """匿名可安装；保存 Key 后仍隔离到用户，关闭 Provider 后不可匿名绕过。"""
+        from app.api.routes.tools import get_tool_settings
+        from app.models.tool_config import UserToolCredential
+        from app.services.secret_service import SecretService
+        from app.services.tools.credentials import ToolCredentialResolver
+        with self.SessionLocal() as db:
+            catalog = SkillCatalog()
+            catalog.install_or_update(db=db, user_id=self.user_id, skill_key="knowledge.technical-docs", is_enabled=True)
+            user = db.get(User, self.user_id)
+            response = get_tool_settings(db=db, current_user=user)
+            credentials = {item.provider_key: item for item in response.credentials}
+            self.assertTrue(credentials["context7"].is_enabled)
+            self.assertFalse(credentials["context7"].has_api_key)
+            self.assertEqual(credentials["context7"].source, "anonymous")
+            credential = UserToolCredential(user_id=self.user_id, provider_key="context7",
+                                            credential_name="可选文档凭据", is_enabled=False,
+                                            api_key=SecretService().encrypt("fixture-context-key"))
+            db.add(credential)
+            db.commit()
+            self.assertEqual(catalog._availability(db=db, user_id=self.user_id, project_id=None)
+                             ["knowledge.technical-docs"]["missing_required_tool_keys"],
+                             ["docs.context7.resolve", "docs.context7.query"])
+            credential.is_enabled = True
+            db.commit()
+            resolved = ToolCredentialResolver(db).resolve(user_id=self.user_id, provider_key="context7")
+            self.assertEqual(resolved.api_key, "fixture-context-key")
+            self.assertEqual(catalog._availability(db=db, user_id=self.user_id, project_id=None)
+                             ["knowledge.technical-docs"]["missing_required_tool_keys"], [])
+            response = get_tool_settings(db=db, current_user=user)
+            self.assertNotIn("fixture-context-key", str(response))
+            self.assertIsNone(ToolCredentialResolver(db).resolve(user_id="another-user", provider_key="context7").api_key)
+
+    def test_public_provider_connection_test_accepts_anonymous_and_rejects_explicit_disable(self) -> None:
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        from fastapi import HTTPException
+        from app.api.routes.tools import test_tool_credential
+        from app.models.tool_config import UserToolCredential
+        from app.services.tools.schemas import ExternalSource
+        with self.SessionLocal() as db:
+            user = db.get(User, self.user_id)
+            source = ExternalSource(source_type="web", provider="exa", title="Official documentation",
+                                    display_text="Official public documentation explaining database sessions.",
+                                    url="https://docs.sqlalchemy.org/en/20/orm/session_basics.html")
+            with patch("app.services.tools.adapters.ToolAdapterRunner.run", new=AsyncMock(return_value=([source], {}))) as run:
+                result = asyncio.run(test_tool_credential(provider_key="exa", db=db, current_user=user))
+                self.assertTrue(result.ok)
+                self.assertIn("anonymous", result.message)
+                self.assertIsNone(run.call_args.kwargs["api_key"])
+                db.add(UserToolCredential(user_id=self.user_id, provider_key="exa",
+                                          credential_name="关闭公共查询", is_enabled=False))
+                db.commit()
+                run.reset_mock()
+                with self.assertRaises(HTTPException) as raised:
+                    asyncio.run(test_tool_credential(provider_key="exa", db=db, current_user=user))
+                self.assertEqual(raised.exception.status_code, 400)
+                run.assert_not_called()
+
     def test_missing_credential_is_reported_and_blocks_enable(self) -> None:
         with self.SessionLocal() as db:
             catalog = SkillCatalog()

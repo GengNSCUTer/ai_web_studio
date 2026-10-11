@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from app.services.tools.onboarding import ToolOnboardingContractError, validate_canonical_mapper
 from app.services.tools.quality import resolve_json_pointer
 from app.services.tools.schemas import ExternalSource, redact_sensitive_text
+from app.services.tools.public_research import map_public_research_text
 
 
 MAX_CANONICAL_EVIDENCE_CHARS = 1600
@@ -22,8 +23,14 @@ def map_mcp_result(
     query: str,
     raw: dict[str, Any],
     canonical_mapper: dict[str, Any] | None = None,
+    request_arguments: dict[str, Any] | None = None,
 ) -> list[ExternalSource]:
     payload = extract_mcp_payload(raw)
+    if mapper in {"public_web_pages", "public_fetched_pages", "documentation_text", "library_catalog_text"}:
+        profiles = {"public_web_pages": "web_pages", "public_fetched_pages": "fetched_pages",
+                    "documentation_text": "documentation", "library_catalog_text": "library_catalog"}
+        return map_public_research_text(payload=payload, provider=provider,
+                                        profile=profiles[mapper], arguments=request_arguments)
     if mapper == "tavily_search":
         return _map_tavily(payload)
     if mapper == "amap_weather":

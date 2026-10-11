@@ -22,6 +22,9 @@ def contract_applies(*, query: str, contract: dict[str, Any] | None) -> bool:
     if not isinstance(contract, dict):
         return False
     normalized = str(query or "").strip().lower()
+    if normalized and contract.get("completion_strategy") == "required_tools":
+        # 用户已选择此类查证 Skill，必要证据不能依赖某个中文触发词是否出现。
+        return bool(required_tool_keys(contract))
     return bool(
         normalized
         and any(
@@ -111,10 +114,10 @@ def augment_plan(
     skill_context: SkillExecutionContext | None,
     catalog: ToolCatalog,
 ) -> bool:
-    """使用已获得的 opaque file_id 补充缺失的只读文件读取调用。
+    """用已核实的文件 ID 补充读取或用户明确要求的精确替换提案。
 
-    只处理当前已声明的 `workspace.files.read` 合同：文件 ID 必须来自执行器
-    生成的受限 observation，且 Tool 必须仍在显式 Skill allowlist 内。
+    文件 ID 必须来自执行器生成的受限 observation，Tool 必须仍在显式
+    Skill 范围内；通用必要工具策略只检查完成条件，不构造新工具参数。
     """
 
     contract = skill_context.completion_contract if skill_context else None
@@ -133,6 +136,9 @@ def augment_plan(
         if definition is None:
             continue
         strategy = str((contract or {}).get("completion_strategy") or "workspace_file_read")
+        if strategy == "required_tools":
+            # 通用完成条件只要求真实证据步骤；不猜测参数、不替模型构造请求。
+            continue
         if tool_key == "workspace.files.apply_edit":
             if strategy != "workspace_file_read_then_apply_exact_replacement":
                 continue

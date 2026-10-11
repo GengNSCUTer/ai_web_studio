@@ -11,6 +11,22 @@ class ExternalContextAssembler:
         if not sources:
             return None
 
+        # 每次重新组装都重置来源状态，避免小预算下沿用上一轮的注入标记。
+        for index, source in enumerate(sources, start=1):
+            previous_label = source.citation_label
+            if previous_label and previous_label != f"[T{index}]":
+                source.metadata.setdefault("provider_citation_label", previous_label)
+            source.citation_label = f"[T{index}]"
+            source.used_in_prompt = False
+
+        # 库候选用于 Planner 定位文档。已有同 Provider 的正文后，简介不再
+        # 竞争最终证据预算；完整候选仍留在 Trace，引用标签也不重新挪用。
+        document_providers = {source.provider for source in sources if source.source_type == "documentation"}
+        answer_sources = [
+            source for source in sources
+            if not (source.source_type == "documentation_library" and source.provider in document_providers)
+        ]
+
         intro = (
             "以下是本轮按用户授权调用外部信息工具得到的结果。"
             "涉及实时信息时请优先参考这些来源；引用网页或工具结果时请使用来源编号。\n\n"
@@ -20,15 +36,8 @@ class ExternalContextAssembler:
 
         parts: list[str] = []
         used_chars = 0
-        for index, source in enumerate(sources, start=1):
-            previous_label = source.citation_label
-            if previous_label and previous_label != f"[T{index}]":
-                source.metadata.setdefault("provider_citation_label", previous_label)
-            # Provider-local labels restart from 1 on every call. Re-number after
-            # aggregation so parallel tools cannot both claim [W1]/[1].
-            label = f"[T{index}]"
-            source.citation_label = label
-            source.used_in_prompt = False
+        for index, source in enumerate(answer_sources, start=1):
+            label = source.citation_label
             url_line = f"\nURL: {source.url}" if source.url else ""
             text = (
                 f"{label} 类型：{source.source_type}\n"
@@ -36,22 +45,15 @@ class ExternalContextAssembler:
                 f"标题：{source.title}{url_line}\n"
                 f"内容：{source.display_text.strip()}"
             ).strip()
-            # A long first web page must not starve later, independent results.
-            # Reserve an equal share of the remaining evidence budget for every
-            # source still to be formatted. This is prompt compaction only: the
-            # complete structured source remains available in trace persistence.
-            # `max_chars` has historically budgeted source evidence rather than
-            # the fixed instruction header. Preserve that contract for callers
-            # with very small test/runtime budgets.
+            # 按剩余来源公平分配证据预算，避免第一篇长文挤掉其他结果。
+            # max_chars 沿用现有语义，只预算来源块，不包含固定说明头。
             remaining = max_chars - used_chars
             if remaining <= 0:
                 break
-            remaining_sources = len(sources) - index + 1
+            remaining_sources = len(answer_sources) - index + 1
             equal_share = remaining // remaining_sources
             if remaining_sources > 1 and equal_share < ExternalContextAssembler.MIN_COMPACT_SOURCE_CHARS:
-                # A few characters of a second source usually contain only the
-                # formatter header, not usable evidence. Keep one useful source
-                # instead of marking a misleadingly partial second one as used.
+                # 极小的份额只有标题而没有正文，优先保留一个可用来源。
                 source_budget = remaining
             else:
                 source_budget = max(1, equal_share)

@@ -410,12 +410,14 @@ class SkillCatalog:
                 return False
             if not resolver.is_tool_enabled_for_workspace(project_id=project_id, tool_key=tool_key):
                 return False
-            if not definition.credential_required:
+            if not definition.credential_required and not definition.credential_optional:
                 return True
             credential = resolver.resolve(
                 user_id=user_id,
                 provider_key=definition.credential_provider,
             )
+            if definition.credential_optional:
+                return credential.is_enabled or credential.source in {"missing", "env_fallback_disabled"}
             return bool(credential.is_enabled and credential.api_key)
 
         result: dict[str, dict[str, list[str]]] = {}
@@ -582,6 +584,7 @@ class SkillCatalog:
         allowed = {
             "workspace_file_read",
             "workspace_file_read_then_apply_exact_replacement",
+            "required_tools",
         }
         if strategy not in allowed:
             raise SkillCatalogError("completion_contract.completion_strategy 不受支持。")

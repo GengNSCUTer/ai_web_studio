@@ -1,5 +1,70 @@
 [
   {
+    "tool_key": "web.exa.search", "provider": "exa", "category": "web_search",
+    "display_name": "Exa 语义网页搜索",
+    "description": "搜索公开网页，返回带来源 URL 的正文摘录。query 描述问题，objective 明确本轮要查证的事实和来源要求；免费服务可能限流。",
+    "when_to_use": ["调研公开资料、比较来源，或需要搜索后读取指定网页时使用。"],
+    "when_not_to_use": ["不得发送凭据、私有文档全文或个人敏感信息；不得把搜索摘录说成完整网页。"],
+    "input_schema": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "query": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "objective": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "numResults": {"type": "integer", "minimum": 1, "maximum": 5, "default": 3}
+      }, "required": ["query", "objective"]
+    },
+    "output_schema": {}, "adapter_type": "mcp_http",
+    "adapter": {"type": "mcp_http", "auth_type": "none", "optional_auth_type": "api_key_header", "endpoint_template": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa", "mcp_tool_name": "web_search_exa", "result_mapper": "public_web_pages", "public_lookup": true, "default_arguments": {"numResults": 3}},
+    "source_type": "mcp", "risk_level": "low", "read_only": true, "enabled_by_default": true,
+    "quality_contract": {"min_sources": 1, "semantic_profile": "web_search", "profile_mapping": {"evidence_paths": ["/sources/*/display_text"], "identity_paths": ["/sources/*/url"], "collection_paths": ["/sources"], "item_evidence_paths": ["/display_text"], "item_identity_paths": ["/url"]}},
+    "evidence_projection": {"version": "evidence_projection_v1", "mode": "bounded_excerpt", "allowed_source_types": ["web"], "fact_paths": {"title": "/metadata/raw/title", "url": "/metadata/raw/url"}, "content_paths": ["/metadata/raw/content"], "max_sources": 3, "max_chars_per_source": 1600, "max_total_chars": 4800}
+  },
+  {
+    "tool_key": "web.exa.fetch", "provider": "exa", "category": "web_fetch",
+    "display_name": "Exa 网页正文读取",
+    "description": "读取用户提供或搜索确认的公开 URL，获取限长正文摘录；urls 为 1 至 3 个 URL，maxCharacters 是每页请求字符上限。仅接受与请求 URL 对应的来源，不访问私网或带凭据的地址。",
+    "when_to_use": ["阅读链接内容、核对搜索摘录之外的正文，或比较多个已知网页。"],
+    "when_not_to_use": ["不能读取本机、私网、登录页或携带凭据的 URL；读取有字符上限，不保证完整网页。"],
+    "input_schema": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "urls": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+        "maxCharacters": {"type": "integer", "minimum": 1000, "maximum": 12000, "default": 8000}
+      }, "required": ["urls"]
+    },
+    "output_schema": {}, "adapter_type": "mcp_http",
+    "adapter": {"type": "mcp_http", "auth_type": "none", "optional_auth_type": "api_key_header", "endpoint_template": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa", "mcp_tool_name": "web_fetch_exa", "result_mapper": "public_fetched_pages", "public_lookup": true, "public_url_arguments": ["urls"], "default_arguments": {"maxCharacters": 8000}},
+    "source_type": "mcp", "risk_level": "low", "read_only": true, "enabled_by_default": true,
+    "quality_contract": {"min_sources": 1, "semantic_profile": "web_search", "profile_mapping": {"evidence_paths": ["/sources/*/display_text"], "identity_paths": ["/sources/*/url"], "collection_paths": ["/sources"], "item_evidence_paths": ["/display_text"], "item_identity_paths": ["/url"]}},
+    "evidence_projection": {"version": "evidence_projection_v1", "mode": "bounded_excerpt", "allowed_source_types": ["web"], "fact_paths": {"title": "/metadata/raw/title", "url": "/metadata/raw/url"}, "content_paths": ["/metadata/raw/content"], "max_sources": 3, "max_chars_per_source": 1600, "max_total_chars": 4800}
+  },
+  {
+    "tool_key": "docs.context7.resolve", "provider": "context7", "category": "documentation",
+    "display_name": "Context7 技术库定位",
+    "description": "根据 libraryName 和公开 query 定位技术库，返回可用于后续文档查询的 library_id。库候选说明不是问题的技术答案，应继续查询对应文档。",
+    "when_to_use": ["查询官方技术文档前定位准确库 ID 和可用版本。"],
+    "when_not_to_use": ["不得提交凭据、私有代码或用户私有资料；不得虚构库 ID。"],
+    "input_schema": {"type": "object", "additionalProperties": false, "properties": {"libraryName": {"type": "string", "minLength": 1, "maxLength": 128}, "query": {"type": "string", "minLength": 1, "maxLength": 2000}}, "required": ["libraryName", "query"]},
+    "output_schema": {}, "adapter_type": "mcp_http",
+    "adapter": {"type": "mcp_http", "auth_type": "none", "optional_auth_type": "bearer", "endpoint_template": "https://mcp.context7.com/mcp", "mcp_tool_name": "resolve-library-id", "result_mapper": "library_catalog_text", "public_lookup": true},
+    "source_type": "mcp", "risk_level": "low", "read_only": true, "enabled_by_default": true,
+    "quality_contract": {"min_sources": 1, "semantic_profile": "web_search", "profile_mapping": {"evidence_paths": ["/sources/*/display_text"], "identity_paths": ["/sources/*/metadata/raw/library_id"], "collection_paths": ["/sources"], "item_evidence_paths": ["/display_text"], "item_identity_paths": ["/metadata/raw/library_id"]}},
+    "evidence_projection": {"version": "evidence_projection_v1", "mode": "bounded_excerpt", "allowed_source_types": ["documentation_library"], "fact_paths": {"library_id": "/metadata/raw/library_id", "title": "/metadata/raw/title"}, "content_paths": ["/metadata/raw/content"], "max_sources": 5, "max_chars_per_source": 1200, "max_total_chars": 6000}
+  },
+  {
+    "tool_key": "docs.context7.query", "provider": "context7", "category": "documentation",
+    "display_name": "Context7 技术文档查询",
+    "description": "在指定 libraryId 的文档中查证单一技术概念，返回带来源 URL 的说明和示例。libraryId 必须来自本轮定位结果或用户明确提供；不能仅凭库候选简介回答具体技术问题。",
+    "when_to_use": ["定位库后查证 API 用法、版本差异和技术细节。"],
+    "when_not_to_use": ["不传私有代码、凭据或个人资料；不能混用不同版本并声称已核实。"],
+    "input_schema": {"type": "object", "additionalProperties": false, "properties": {"libraryId": {"type": "string", "pattern": "^/[A-Za-z0-9_][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)?$", "maxLength": 256}, "query": {"type": "string", "minLength": 1, "maxLength": 2000}, "language": {"type": "string", "maxLength": 32}}, "required": ["libraryId", "query"]},
+    "output_schema": {}, "adapter_type": "mcp_http",
+    "adapter": {"type": "mcp_http", "auth_type": "none", "optional_auth_type": "bearer", "endpoint_template": "https://mcp.context7.com/mcp", "mcp_tool_name": "query-docs", "result_mapper": "documentation_text", "public_lookup": true},
+    "source_type": "mcp", "risk_level": "low", "read_only": true, "enabled_by_default": true,
+    "quality_contract": {"min_sources": 1, "non_empty_paths": ["/sources/0/metadata/raw/library_id"], "semantic_profile": "web_search", "profile_mapping": {"evidence_paths": ["/sources/*/display_text"], "identity_paths": ["/sources/*/url"], "collection_paths": ["/sources"], "item_evidence_paths": ["/display_text"], "item_identity_paths": ["/url"]}},
+    "evidence_projection": {"version": "evidence_projection_v1", "mode": "bounded_excerpt", "allowed_source_types": ["documentation"], "fact_paths": {"library_id": "/metadata/raw/library_id", "title": "/metadata/raw/title", "url": "/metadata/raw/url"}, "content_paths": ["/metadata/raw/content"], "max_sources": 3, "max_chars_per_source": 1600, "max_total_chars": 4800}
+  },
+  {
     "tool_key": "web.tavily.search",
     "provider": "tavily",
     "category": "web_search",

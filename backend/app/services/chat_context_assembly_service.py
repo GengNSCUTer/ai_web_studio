@@ -178,6 +178,7 @@ class ChatContextAssemblyService:
             query=query,
             sources=external_context_result.sources,
             skill_key=skill_context.skill_key if skill_context else None,
+            completion_contract=skill_context.completion_contract if skill_context else None,
         )
         # 知识库上下文来自用户显式选择的知识库；检索日志会在后面绑定到本轮 user/assistant message。
         knowledge_context_result = await KnowledgeContextService(

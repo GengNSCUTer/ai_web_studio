@@ -976,6 +976,7 @@ class ToolPlannerTest(unittest.TestCase):
             self.assertIn("tool_planner_end", event_types)
             fallback_events = [event for event in plan.trace_events if event["type"] == "tool_fallback"]
             self.assertIn("LLM 工具规划失败", fallback_events[0]["reason"])
+            self.assertEqual(fallback_events[0]["failure_category"], "invalid_json")
 
     def test_llm_planner_does_not_expose_provider_exception_text_in_fallback_trace(self) -> None:
         class FailingProvider:
@@ -999,6 +1000,8 @@ class ToolPlannerTest(unittest.TestCase):
             self.assertIn("LLM 工具规划失败", fallback_events[0]["reason"])
             self.assertNotIn("provider.internal", fallback_events[0]["reason"])
             self.assertNotIn("secret-value", fallback_events[0]["reason"])
+            self.assertEqual(fallback_events[0]["failure_category"], "provider_error")
+            self.assertEqual(fallback_events[0]["failure_stage"], "provider")
 
         asyncio.run(run_test())
 

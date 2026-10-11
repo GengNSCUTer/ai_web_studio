@@ -150,6 +150,14 @@ class ToolDefinition:
         endpoint_template = str(self.adapter.get("endpoint_template") or "")
         return auth_type != "none" or "{api_key}" in endpoint_template
 
+    @property
+    def credential_optional(self) -> bool:
+        """公开 MCP 可匿名使用，也可使用账号保存的可选 Header 凭据。"""
+        return (
+            not self.credential_required
+            and self.adapter.get("optional_auth_type") in {"bearer", "api_key_header"}
+        )
+
     def to_public_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -179,6 +187,9 @@ def tool_execution_snapshot(definition: ToolDefinition) -> dict[str, Any]:
             json.dumps(adapter.get("fixed_arguments") or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest(),
     }
+    # 只有声明了可选认证的新工具才加入该字段，不改变既有工具指纹。
+    if definition.credential_optional:
+        adapter_identity["optional_auth_type"] = adapter["optional_auth_type"]
     canonical = {
         "tool_key": definition.tool_key,
         "provider": definition.provider,
