@@ -1,0 +1,77 @@
+{
+  "passed": 3,
+  "browser_errors": 0,
+  "model": "deepseek-ai/DeepSeek-V3.2",
+  "cases": [
+    {
+      "scenario": "semantic_weather",
+      "answer_status": "done",
+      "tool_keys": [
+        "amap.maps.weather"
+      ],
+      "source_checked": true,
+      "elapsed_ms": 16014,
+      "selector": "tool_candidate_selector_v3",
+      "retrieval": {
+        "mode": "hybrid",
+        "fallback_reason": null,
+        "cache_hits": 13,
+        "embedded_tools": 0,
+        "elapsed_ms": 286.2,
+        "model": "BAAI/bge-m3"
+      },
+      "candidates": [
+        "amap.maps.weather",
+        "workspace.files.search",
+        "workspace.files.read",
+        "amap.maps.geo",
+        "amap.maps.distance",
+        "workspace.files.list"
+      ],
+      "weather_answer": "根据您提供的工具结果，我无法回答深圳当前是否正在下雨，也无法提供实时的温度和天气状况。\n\n**原因如下：**\n您调用的高德天气工具返回的是未来几天的**天气预报**（预测信息），而非实时实况数据。所有返回的信息都明确标注为“非实时实况” [T1, T2, T3, T4]。\n\n*   资料中显示的是2026年10月11日至14日的**预报**，内容是“晴”或“多云” [T1, T2, T3, T4]。\n*   这些预报的气温范围（如32～24摄氏度）同样是对未来天气的预测 [T1]。\n\n**结论：**\n由于缺乏当前时刻的实况天气数据，我无法判断深圳此刻是否在下雨，也无法提供当前的准确温度。\n\n**建议：**\n要获取实时天气信息，您可以：\n1.  授权我使用能够查询**实时天气实况**的工具进行检索。\n2.  或直接访问提供实时天气服务的网站或应用。\n\n如果您需要，我可以尝试为您寻找并调用合适的实时天气数据源。"
+    },
+    {
+      "scenario": "semantic_attachment",
+      "answer_status": "done",
+      "tool_keys": [
+        "workspace.files.search"
+      ],
+      "source_checked": true,
+      "elapsed_ms": 14027,
+      "selector": "tool_candidate_selector_v3",
+      "retrieval": {
+        "mode": "hybrid",
+        "fallback_reason": null,
+        "cache_hits": 13,
+        "embedded_tools": 0,
+        "elapsed_ms": 296.9,
+        "model": "BAAI/bge-m3"
+      },
+      "candidates": [
+        "agent.artifacts.read",
+        "workspace.files.search",
+        "agent.artifacts.list",
+        "workspace.files.read",
+        "workspace.files.list",
+        "amap.maps.around_search"
+      ],
+      "weather_answer": null
+    },
+    {
+      "scenario": "explicit_no_tools",
+      "answer_status": "done",
+      "tool_keys": [],
+      "source_checked": true,
+      "elapsed_ms": 16166,
+      "selector": "tool_candidate_selector_v2",
+      "retrieval": {
+        "mode": "rules",
+        "fallback_reason": "semantic_not_configured",
+        "elapsed_ms": 0
+      },
+      "candidates": [],
+      "weather_answer": null
+    }
+  ],
+  "temporary_data_cleaned": true
+}

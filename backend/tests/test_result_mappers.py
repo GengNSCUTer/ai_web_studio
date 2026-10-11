@@ -10,6 +10,18 @@ from app.services.tools.result_mappers import extract_mcp_payload, map_mcp_resul
 
 
 class ProviderResultMapperTest(unittest.TestCase):
+    def test_weather_forecast_is_not_presented_as_live_observation(self):
+        forecast = map_mcp_result(mapper='amap_weather', provider='amap', display_name='天气', category='weather', query='深圳天气',
+            raw={'result':{'structuredContent':{'city':'深圳市','forecasts':[{'date':'2026-10-11','dayweather':'晴','nightweather':'晴',
+                                                'daytemp':'32','nighttemp':'24'}]}}})
+        self.assertEqual(forecast[0].metadata['raw']['weather_data_type'], 'forecast')
+        self.assertIn('天气预报（非实时实况）', forecast[0].display_text)
+        self.assertEqual(forecast[0].metadata['raw']['temperature'], '32～24')
+        live = map_mcp_result(mapper='amap_weather', provider='amap', display_name='天气', category='weather', query='深圳天气',
+            raw={'result':{'structuredContent':{'lives':[{'city':'深圳市','weather':'晴','temperature':'31','reporttime':'2026-10-11 12:00'}]}}})
+        self.assertEqual(live[0].metadata['raw']['weather_data_type'], 'live')
+        self.assertIn('当前天气', live[0].display_text)
+
     def test_amap_argument_normalizer_reads_structured_content(self) -> None:
         class FakeClient:
             async def call_tool(self, *, tool_name, arguments, output_schema=None):

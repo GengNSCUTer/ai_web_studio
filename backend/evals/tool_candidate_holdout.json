@@ -1,0 +1,19 @@
+{
+  "version":"candidate-holdout-v1-20261011",
+  "baseline_commit":"574f4574c8b63b442a34e51795d360d407dfd05f",
+  "annotation":"主开发集调试完成后另行标注，冻结后单次验证；同一维护者标注，不是第三方盲测。",
+  "cases":[
+    {"id":"h01","group":"paraphrase","query":"南京下午会不会淋雨？我准备出去跑步。","required":[["amap.maps.weather"]]},
+    {"id":"h02","group":"english","query":"Is Chengdu warm enough to go outside without a coat? Check the current conditions.","required":[["amap.maps.weather"]]},
+    {"id":"h03","group":"paraphrase","query":"我想看看 analysis.md 里面提出了哪些限制。","required":[["workspace.files.read"]]},
+    {"id":"h04","group":"english","query":"Find the uploaded notes mentioning backup retention.","required":[["workspace.files.search"]]},
+    {"id":"h05","group":"english","query":"Check the official library documentation for httpx timeouts.","required":[["docs.context7.resolve"],["docs.context7.query"]]},
+    {"id":"h06","group":"literal","query":"打开 https://example.net/manual 并读取页面内容","required":[["web.exa.fetch"]]},
+    {"id":"h07","group":"english","query":"Find a walking route from the railway station to the museum.","required":[["amap.maps.direction.walking"]]},
+    {"id":"h08","group":"multi_intent","query":"查武汉气温，然后帮我读一下 report.md","required":[["amap.maps.weather"],["workspace.files.read"]]},
+    {"id":"h09","group":"negative","query":"不用使用任何工具，就说好的","required":[],"empty":true},
+    {"id":"h10","group":"scope","query":"Find a file and search the internet","allowed":["workspace.files.search"],"required":[["workspace.files.search"]]},
+    {"id":"h11","group":"negative","query":"Read checklist.md. Don't search the web.","required":[["workspace.files.read"]],"forbidden_categories":["web_search","web_fetch","documentation"]},
+    {"id":"h12","group":"new_tool","query":"How long would it take to read this passage aloud?","custom_tool":{"tool_key":"mcp.text.duration","category":"speech_estimation","display_name":"朗读耗时估计","description":"Estimate spoken reading duration from a passage of text and a reading speed."},"required":[["mcp.text.duration"]]}
+  ]
+}

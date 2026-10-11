@@ -98,7 +98,7 @@
     chat:{title:'从问题到最终回答',intro:'按编号阅读。模型负责选工具和生成回答；真正的请求、校验与状态记录由代码完成。',
       nodes:[
         node('user','提出问题与选择范围','可选择模式、Skill、知识库','用户控制是否联网、使用哪个项目及 Skill。后端创建用户消息和 assistant 占位，后续工具来源与轨迹挂到这条回答上。','api/routes/chat.py · chat_turn_bootstrapper.py'),
-        node('code','筛选候选工具','从允许使用的工具中初筛','根据问题、近期用户话题、工具说明和显式 Skill 范围筛选少量候选。候选只减少选择难度，不能充当安全边界；禁用工具和禁止联网也要落实。','services/tools/selector.py'),
+        node('code','规则＋语义筛选候选','先过滤范围，再融合两路排名','代码先排除禁用工具、Skill 范围外工具及用户禁止项。Embedding 模型比较问题与工具说明的语义，代码融合规则/语义排名，最多返回 6 个候选；模型调用失败则退回规则。工具向量按账号、模型、元数据缓存，不缓存问题。候选只是推荐，执行仍由 Executor 授权检查。46 个开发案例召回 46/47 工具组，另 12 个补充案例 13/13；有限数据不是通用准确率。','services/tools/selector.py · semantic_retrieval.py'),
         node('model','Planner 输出计划','工具名、参数、依赖、结果绑定','LLM 只输出结构化 JSON。比如 A 搜索，B 读取，B 的 file_id 来自 A。模型可以建议后台执行，但不能自行创建 Run 或扩大权限。','services/tools/planner.py'),
         node('code','执行前检查','参数、权限、范围、凭据、风险','Executor 再次校验 Schema、用户/项目权限、工具启用状态和凭据。公开 URL 检查语法及 DNS；需要修改时转入工作区权限流程。合法 JSON 并不等于允许执行。','services/tools/executor.py · adapters.py'),
         node('code','按依赖执行工具','独立任务并发，依赖任务等待','Workflow 调度 DAG。B 依赖 A 时等待 A 成功且结果可用，再由代码把已返回字段绑定到 B 的参数。HTTP/MCP 调用由 Adapter 发出，模型不直接发请求。','services/tools/workflow.py · bindings.py · adapters.py'),

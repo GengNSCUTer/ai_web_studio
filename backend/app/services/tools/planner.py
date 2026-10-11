@@ -56,7 +56,7 @@ class LLMToolPlanner:
         skill_context: SkillExecutionContext | None = None,
     ) -> ToolPlan:
         skill_allowed_tool_keys = set(skill_context.allowed_tool_keys) if skill_context else None
-        candidate_tools, candidate_trace = self.candidate_selector.select(
+        candidate_tools, candidate_trace = await self.candidate_selector.select_async(
             query=query,
             enabled=enabled,
             allowed_tool_keys=skill_allowed_tool_keys,

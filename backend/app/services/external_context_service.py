@@ -27,6 +27,8 @@ from app.services.tools.workflow import (
 )
 from app.services.tools.observation_projection import PlannerObservationProjection
 from app.services.tools.completion_contract import needs_followup
+from app.services.tools.selector import ToolCandidateSelector
+from app.services.tools.semantic_retrieval import ToolSemanticRetriever
 
 
 class ExternalContextService:
@@ -64,6 +66,8 @@ class ExternalContextService:
         self.planner = planner or LLMToolPlanner(
             catalog=self.registry,
             fallback_planner=deterministic,
+            candidate_selector=ToolCandidateSelector(self.registry,
+                semantic_retriever=ToolSemanticRetriever(user_id=user_id) if user_id else None),
         )
         self.planner_runtime = planner_runtime
         self.executor = executor or ToolExecutor(

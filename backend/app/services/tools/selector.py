@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+import time
 
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import ToolDefinition
+from app.services.tools.semantic_retrieval import ToolSemanticRetriever
 
 
 @dataclass(frozen=True)
@@ -26,14 +28,17 @@ class ToolCandidateSelector:
     )
     FILE_ORAL_PATTERN = re.compile(r"(?:上传|附件|读一下|读一读|翻一翻)")
     FILE_LIST_PATTERN = re.compile(r"(?:列出|列一下|有哪些|都有什么).{0,16}(?:文件|文档|附件)")
-    FILE_EDIT_PATTERN = re.compile(r"(?:修改|编辑|替换|重构|diff|补丁|写入|改成|更改)", re.I)
-    FOLLOWUP_PATTERN = re.compile(r"(?:它|这份|那份|这个|那个|里面|其中|继续|上面|刚才|上述|这篇|那篇)")
+    FILE_EDIT_PATTERN = re.compile(r"(?:修改|编辑|替换|重构|diff|补丁|写入|改成|更改)|\b(?:edit|modify|replace|rewrite|patch|write)\b", re.I)
+    FOLLOWUP_PATTERN = re.compile(r"(?:它|这份|那份|这个|那个|里面|其中|继续|上面|刚才|上述|这篇|那篇)|\b(?:it|that|previous|above)\b", re.I)
     FILE_EXCLUSION_PATTERN = re.compile(
         r"(?:不要|不用|别|无需|不)(?:使用|用|读取|读|查看|搜索|访问|检查)?(?:本地|工作区|项目)?(?:文件|文档)"
         r"|(?:只|仅).{0,5}(?:联网|网上|网页|官网)"
+        r"|\b(?:do not|don't|never|no)\s+(?:(?:access|read|use|search)\s+)?(?:local|workspace)\s+files\b", re.I
     )
-    WEB_EXCLUSION_PATTERN = re.compile(r"(?:不要|不用|别|无需|不)(?:使用|用|进行)?(?:联网|上网|网页搜索|网络搜索)")
-    NO_TOOL_PATTERN = re.compile(r"(?:不要|不用|别|无需)(?:再|去)?(?:调用|使用)(?:任何|所有|外部)?工具")
+    WEB_EXCLUSION_PATTERN = re.compile(r"(?:不要|不用|别|无需|不)(?:使用|用|进行)?(?:联网|上网|网页搜索|网络搜索)|\b(?:do not|don't|never|no)\s+(?:(?:use|search|browse|access)\s+)?(?:the\s+)?(?:web|internet|online)\b", re.I)
+    NO_TOOL_PATTERN = re.compile(r"(?:不要|不用|别|无需)(?:再|去)?(?:调用|使用)(?:任何|所有|外部)?工具|\b(?:do not|don't|never)\s+(?:use|call)\s+(?:(?:any|external)\s+)?tools\b", re.I)
+    SMALLTALK_PATTERN = re.compile(r"\s*(?:谢谢(?:你)?|好的|收到|thanks(?:,? that is all)?|thank you|ok)[！!。.\s]*", re.I)
+    SEMANTIC_MIN = 0.35
 
     CATEGORY_PATTERNS: dict[str, re.Pattern[str]] = {
         "web_search": re.compile(r"(最新|今天|现在|新闻|官网|搜索|查询|资料|总统|版本|政策|价格|实时)"),
@@ -47,12 +52,100 @@ class ToolCandidateSelector:
         "workspace_file": re.compile(r"(工作区|项目文件|文件|文档|资料|附件|报告|代码|读取|查找|修改|编辑|替换|重构|diff)"),
     }
 
-    def __init__(self, catalog: ToolCatalog | None = None, *, max_candidates: int | None = None) -> None:
+    def __init__(self, catalog: ToolCatalog | None = None, *, max_candidates: int | None = None,
+                 semantic_retriever: ToolSemanticRetriever | None = None) -> None:
         self.catalog = catalog or ToolCatalog()
+        self.semantic_retriever = semantic_retriever
         if max_candidates is not None:
             if isinstance(max_candidates, bool) or not isinstance(max_candidates, int) or max_candidates < 1:
                 raise ValueError("候选工具数量必须是正整数。")
             self.max_candidates = max_candidates
+
+    @classmethod
+    def _edit_intent(cls, query: str) -> bool:
+        text = re.sub(r"(?:不要|不用|别|无需|不)(?:修改|编辑|替换|写入)", "", query)
+        text = re.sub(r"\b(?:do not|don't|never)\s+(?:edit|modify|replace|rewrite|write)(?:\s+files)?\b", "", text, flags=re.I)
+        return bool(cls.FILE_EDIT_PATTERN.search(text))
+
+    def _eligible(self, query: str, allowed_tool_keys: set[str] | None) -> list[ToolDefinition]:
+        """两路召回共用前置范围，语义排名不能复活被排除的工具。"""
+        return [tool for tool in self.catalog.list_definitions()
+            if tool.enabled_by_default and (allowed_tool_keys is None or tool.tool_key in allowed_tool_keys)
+            and not (tool.category in {'web_search', 'web_fetch', 'documentation'} and self.WEB_EXCLUSION_PATTERN.search(query))
+            and not (tool.category == 'workspace_file' and self.FILE_EXCLUSION_PATTERN.search(query))
+            and not ((not tool.read_only or tool.quality_contract.get('semantic_profile') in {'approval_draft', 'file_revision'})
+                     and not self._edit_intent(query))]
+
+    async def select_async(self, *, query: str, enabled: bool,
+                           allowed_tool_keys: set[str] | None = None,
+                           recent_messages: list[object] | None = None) -> tuple[list[ToolDefinition], dict]:
+        """代码融合规则排名与模型语义排名，返回候选而不是执行请求。"""
+        start = time.perf_counter()
+        rules, trace = self.select(query=query, enabled=enabled, allowed_tool_keys=allowed_tool_keys,
+                                   recent_messages=recent_messages)
+        if not rules:
+            trace['retrieval'] = dict(mode='skipped', fallback_reason=trace['reason'], elapsed_ms=0)
+            return rules, trace
+        if self.semantic_retriever is None:
+            trace['retrieval'] = dict(mode='rules', fallback_reason='semantic_not_configured', elapsed_ms=0)
+            return rules, trace
+        definitions = self._eligible(query, allowed_tool_keys)
+        file_hint = self._file_hint(query=query, recent_messages=recent_messages or [])
+        semantic_query = query
+        if file_hint == 'recent_user_file_followup':
+            for message in reversed((recent_messages or [])[-8:]):
+                role = message.get('role') if isinstance(message, dict) else getattr(message, 'role', None)
+                content = message.get('content') if isinstance(message, dict) else getattr(message, 'content', '')
+                if role == 'user' and str(content).strip() != query.strip():
+                    semantic_query = f'{str(content)[:600]}\n{query}'
+                    break
+        semantic, diagnostics = await self.semantic_retriever.scores(query=semantic_query, definitions=definitions)
+        if not semantic:
+            trace['retrieval'] = diagnostics
+            return rules, trace
+        scored = [self._score_tool(tool=tool, query=query, file_hint=file_hint,
+                                  skill_scope=allowed_tool_keys is not None) for tool in definitions]
+        lexical = sorted((c for c in scored if c.score > 0), key=lambda c: (-c.score, c.definition.tool_key))
+        rule_ranks = {c.definition.tool_key: rank for rank, c in enumerate(lexical, 1)}
+        semantic_order = sorted((key for key, value in semantic.items() if value >= self.SEMANTIC_MIN),
+                                key=lambda key: (-semantic[key], key))
+        semantic_ranks = {key: rank for rank, key in enumerate(semantic_order, 1)}
+        fused = []
+        for candidate in scored:
+            key = candidate.definition.tool_key
+            # 文件名、明确类别和 Skill 是强规则；零散词命中不能压过真正语义命中。
+            rule_weight = 2.0 if candidate.score >= 1.4 else 0.35
+            score = (rule_weight/(60+rule_ranks[key]) if key in rule_ranks else 0)
+            score += 1/(60+semantic_ranks[key]) if key in semantic_ranks else 0
+            if score:
+                fused.append(ToolCandidate(candidate.definition, score,
+                    candidate.reasons + ([f'semantic_rank:{semantic_ranks[key]}'] if key in semantic_ranks else [])))
+        fused.sort(key=lambda c: (-c.score, c.definition.tool_key))
+        web = next((tool for tool in definitions if tool.tool_key == 'web.tavily.search'), None)
+        capacity = self.max_candidates - int(web is not None)
+        selected = []
+        # 不为类别多样性强塞无关工具：搜索→读取、库定位→查正文可以同类共存。
+        for candidate in fused:
+            tool = candidate.definition
+            if len(selected) >= capacity:
+                break
+            if tool.tool_key == 'web.tavily.search' or (
+                web and allowed_tool_keys is None and tool.category == 'web_search'
+            ):
+                continue
+            selected.append(candidate)
+        if web:
+            selected.append(ToolCandidate(web, 0.0, ['web_search_fallback']))
+        if not selected:
+            trace['retrieval'] = {**diagnostics, 'fallback_reason': 'semantic_below_threshold'}
+            return rules, trace
+        result_trace = self._trace(query=query, candidates=selected, reason='ranked_by_rule_and_semantic_rrf',
+                                   allowed_tool_keys=allowed_tool_keys)
+        result_trace.update(selector='tool_candidate_selector_v3', retrieval=diagnostics,
+                            elapsed_ms=round((time.perf_counter()-start)*1000, 1))
+        for item in result_trace['candidates']:
+            item['semantic_score'] = round(semantic.get(item['tool_key'], 0), 4)
+        return [candidate.definition for candidate in selected], result_trace
 
     def select(
         self,
@@ -62,13 +155,7 @@ class ToolCandidateSelector:
         allowed_tool_keys: set[str] | None = None,
         recent_messages: list[object] | None = None,
     ) -> tuple[list[ToolDefinition], dict]:
-        definitions = [
-            tool
-            for tool in self.catalog.list_definitions()
-            if tool.enabled_by_default
-            and (allowed_tool_keys is None or tool.tool_key in allowed_tool_keys)
-            and not (tool.category in {"web_search", "web_fetch", "documentation"} and self.WEB_EXCLUSION_PATTERN.search(query))
-        ]
+        definitions = self._eligible(query, allowed_tool_keys)
         if not enabled:
             return [], self._trace(
                 query=query,
@@ -76,7 +163,7 @@ class ToolCandidateSelector:
                 reason="external_tools_disabled",
                 allowed_tool_keys=allowed_tool_keys,
             )
-        if self.NO_TOOL_PATTERN.search(query):
+        if self.NO_TOOL_PATTERN.search(query) or self.SMALLTALK_PATTERN.fullmatch(query):
             return [], self._trace(query=query, candidates=[], reason="user_requested_no_tools",
                                    allowed_tool_keys=allowed_tool_keys)
         if not definitions:
@@ -213,9 +300,8 @@ class ToolCandidateSelector:
         reasons: list[str] = []
         # 编辑预览虽不落正文、标为 read_only，也不应被普通文件追问一并召回。
         # 使用已有结果合同类型判断，避免只对某个工具名称写特例。
-        edit_query = re.sub(r"(?:不要|不用|别|无需|不)(?:修改|编辑|替换|写入)", "", query)
         if tool.category == "workspace_file" and tool.quality_contract.get("semantic_profile") in {"approval_draft", "file_revision"} \
-                and not self.FILE_EDIT_PATTERN.search(edit_query):
+                and not self._edit_intent(query):
             return ToolCandidate(definition=tool, score=0.0, reasons=["file_edit_intent_absent"])
 
         category_pattern = self.CATEGORY_PATTERNS.get(tool.category)
@@ -249,18 +335,17 @@ class ToolCandidateSelector:
                 tool.display_name,
                 tool.description,
                 " ".join(tool.when_to_use),
-                " ".join(tool.when_not_to_use),
             ]
         ).lower()
         query_terms = [term for term in re.split(r"\s+|，|,|。|；|;|\?|？", query.lower()) if len(term) >= 2]
-        metadata_hits = sum(1 for term in query_terms if term in haystack)
+        stopwords = {'in', 'it', 'is', 'to', 'of', 'the', 'and', 'or', 'do', 'me', 'a', 'an', 'this', 'that', 'will', 'how', 'from'}
+        metadata_hits = sum(1 for term in set(query_terms) if term not in stopwords and (
+            bool(re.search(r'\b'+re.escape(term)+r'\b', haystack)) if re.fullmatch(r'[a-z]+', term) else term in haystack))
         if metadata_hits:
             score += min(metadata_hits * 0.25, 1.0)
             reasons.append(f"metadata_hits:{metadata_hits}")
 
-        if tool.source_type == "mcp_server":
-            score += 0.15
-            reasons.append("user_enabled_mcp_tool")
+        # 工具来自 MCP 或已启用，只证明可用，不给语义相关性加分。
         if tool.tool_key == "amap.maps.text_search" and re.search(r"(服务区|地点|地址|哪里|在哪|路上)", query):
             score += 0.25
             reasons.append("text_search_preferred_for_keyword_poi")

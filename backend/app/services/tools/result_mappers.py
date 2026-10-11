@@ -375,6 +375,7 @@ def _map_amap_live_weather(
                         "weather": weather,
                         "temperature": temperature,
                         "reporttime": report_time,
+                        "weather_data_type": "live",
                     }
                 ),
             )
@@ -405,7 +406,7 @@ def _map_amap_forecast_weather(
             continue
         day_temp = _text(item.get("daytemp"))
         night_temp = _text(item.get("nighttemp"))
-        display = f"{city}{date or '近期'}天气：{weather}"
+        display = f"{city}{date or '近期'}天气预报（非实时实况）：{weather}"
         if day_temp or night_temp:
             display += f"，气温 {day_temp or '未知'}～{night_temp or '未知'} 摄氏度"
         sources.append(
@@ -423,6 +424,7 @@ def _map_amap_forecast_weather(
                         "weather": weather,
                         "temperature": "～".join(part for part in (day_temp, night_temp) if part),
                         "reporttime": date,
+                        "weather_data_type": "forecast",
                     }
                 ),
             )
