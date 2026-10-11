@@ -100,6 +100,12 @@ def collect(project_id: str, skill_key: str, expected_tools: set[str], answer_te
                  if event.get("type") == "tool_result_quality" and event.get("status") == "valid"}
         if not expected_tools.issubset(valid):
             raise AssertionError("业务证据未通过持久化质量检查。")
+        credential_sources = {str(event.get("credential_source")) for event in events if event.get("credential_source")}
+        if os.getenv("AIWS_E2E_REQUIRE_USER_CREDENTIALS") == "1":
+            public_tools = {key for key in expected_tools if key.startswith(("web.exa.", "docs.context7."))}
+            authenticated_tools = {event.get("tool_key") for event in events if event.get("credential_source") == "user"}
+            if not public_tools.issubset(authenticated_tools):
+                raise AssertionError("公开 MCP 浏览器场景未确认使用账号 Key。")
         allowed = set(SkillCatalog()._definitions[skill_key]["required_tool_keys"] + SkillCatalog()._definitions[skill_key]["optional_tool_keys"])
         if any(call.tool_key not in allowed for call in calls):
             raise AssertionError("执行了 Skill 范围外的工具。")
@@ -141,7 +147,7 @@ def collect(project_id: str, skill_key: str, expected_tools: set[str], answer_te
                 "assistant_status": answer.status, "tool_keys": sorted(successful),
                 "sources": len(sources), "answer_chars": len(answer.content),
                 "elapsed_ms": route.elapsed_ms, "answer_checked": True, "quality_checked": True,
-                "planner_strategies": sorted(strategies), "factual_checks": facts}
+                "planner_strategies": sorted(strategies), "credential_sources": sorted(credential_sources), "factual_checks": facts}
 
 
 def run() -> None:
@@ -195,7 +201,9 @@ def run() -> None:
                     ("knowledge.technical-docs", "guided_research", "查询 FastAPI 官方文档，解释 Depends 和 async def：Depends 是负责注入依赖还是自动把同步函数变成异步？async def 中直接调用 time.sleep 是否会阻塞事件循环？请根据文档回答，200 字以内并给来源。", {"docs.context7.resolve", "docs.context7.query"}, ("Depends", "time.sleep")),
                     ("workspace.doc-coauthoring", "workspace_review", "搜索并读取 brief-source.md，起草一份给新人看的资料归档说明，包含复核周期和负责人代号，并指出一项读者仍需确认的问题。只在聊天给草稿，不修改文件，也不要联网。", {"workspace.files.search", "workspace.files.read"}, ("13", "AmberKite")),
                 ]
-                if os.getenv("AIWS_E2E_CASE_INDEX"):
+                if os.getenv("AIWS_E2E_CASE_INDICES"):
+                    cases = [cases[int(index)] for index in os.environ["AIWS_E2E_CASE_INDICES"].split(",")]
+                elif os.getenv("AIWS_E2E_CASE_INDEX"):
                     cases = [cases[int(os.environ["AIWS_E2E_CASE_INDEX"])]]
                 for skill, mode, query, expected_tools, answer_terms in cases:
                     page.get_by_role("button", name="新对话").click()

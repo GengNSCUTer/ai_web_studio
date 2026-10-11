@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>工具调用全景 · AI Web Studio</title>
+  <style>
+    :root { color-scheme: light; --ink:#17283e; --muted:#56677d; --line:#d9e2ef; --code:#1759ab; --model:#773cb1; --user:#a06012; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f1f5fa; color:var(--ink); font:16px/1.65 system-ui,"Microsoft YaHei",sans-serif; }
+    main { max-width:1200px; margin:auto; padding:32px 24px 48px; }
+    h1 { margin:0 0 10px; font-size:clamp(27px,4vw,38px); line-height:1.3; }
+    h2 { margin:0 0 12px; font-size:22px; } h3 { font-size:17px; margin:0 0 6px; }
+    p { margin:0 0 12px; } code { overflow-wrap:anywhere; font-size:13px; }
+    .intro { max-width:900px; color:var(--muted); }
+    .stats,.legend,.tabs { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0; }
+    .stats span { background:white; border:1px solid var(--line); border-radius:10px; padding:8px 14px; }
+    .panel { background:white; border:1px solid var(--line); border-radius:16px; padding:22px; margin:18px 0; }
+    button,select { font:inherit; cursor:pointer; } button:focus-visible,select:focus-visible { outline:3px solid #1173d4; outline-offset:3px; }
+    .tab { border:1px solid var(--line); background:white; color:var(--ink); border-radius:10px; padding:10px 17px; }
+    .tab[aria-selected="true"] { background:#203e61; border-color:#203e61; color:white; }
+    .legend span { font-size:14px; padding:3px 10px; border-radius:6px; }
+    .code { color:var(--code); background:#edf5ff; } .model { color:var(--model); background:#f5edff; } .user { color:var(--user); background:#fff5e3; }
+    .layout { display:grid; grid-template-columns:1.65fr 1fr; gap:22px; align-items:start; }
+    .flow { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 24px; }
+    .node { position:relative; text-align:left; border:1px solid var(--line); border-radius:12px; padding:14px; min-height:120px; color:var(--ink); }
+    .node[data-owner="code"] { background:#edf5ff; border-color:#b9d5fa; }
+    .node[data-owner="model"] { background:#f5edff; border-color:#d9baf2; }
+    .node[data-owner="user"] { background:#fff5e3; border-color:#e9c990; }
+    .node.selected { box-shadow:0 0 0 2px #203e61; }
+    .node .number { font-weight:700; font-size:13px; color:var(--muted); display:block; }
+    .node strong { display:block; font-size:17px; margin:3px 0; }
+    .node small { font-size:13px; display:block; color:var(--muted); }
+    .node:nth-child(odd):not(:last-child)::after { content:"→"; position:absolute; right:-22px; top:42px; color:#6c8098; font-size:22px; }
+    .note { font-size:14px; color:var(--muted); }
+    #detail { background:#f7f9fd; border:1px solid var(--line); border-radius:12px; padding:20px; }
+    #detail .tag { display:inline-block; border-radius:5px; font-size:13px; padding:2px 8px; margin-bottom:9px; }
+    #detail code { display:block; border-top:1px solid var(--line); padding-top:12px; margin-top:14px; color:var(--muted); }
+    .branch { margin-top:18px; padding:14px; border:1px dashed #9eb4d1; border-radius:10px; background:#fafcff; }
+    .example { padding:14px; background:#f7faf6; border-left:3px solid #7aa17a; border-radius:6px; margin-top:18px; }
+    .capabilities { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+    .capabilities article { border:1px solid var(--line); border-radius:10px; padding:15px; }
+    table { border-collapse:collapse; width:100%; font-size:15px; } th,td { border-bottom:1px solid var(--line); text-align:left; padding:10px 12px; }
+    th { background:#f5f8fc; white-space:nowrap; } .scroll { overflow-x:auto; }
+    .control { margin:12px 0 18px; } select { background:white; border:1px solid #a9bad0; border-radius:7px; padding:7px 10px; }
+    [hidden] { display:none!important; }
+    footer { color:var(--muted); font-size:14px; margin-top:20px; }
+    @media(max-width:850px) { .layout { grid-template-columns:1fr; } .capabilities { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media(max-width:520px) { main { padding:22px 14px; } .panel { padding:16px; } .flow,.capabilities { grid-template-columns:1fr; } .node:nth-child(odd):not(:last-child)::after { display:none; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>工具调用：模型提出计划，代码控制执行</h1>
+  <p class="intro">这是面向个人与小团队的知识工作台。工具负责取得资料或执行受控修改，Skill 组织任务步骤，MCP 连接外部服务。点击流程节点查看分工与对应代码。</p>
+  <div class="stats"><span>20 个内置工具</span><span>8 个审核 Skill</span><span>4 种同步预算模式</span><span>只读后台任务最多 12 步</span></div>
+  <div class="legend" aria-label="颜色说明"><span class="code">蓝色：代码 / Worker</span><span class="model">紫色：大模型</span><span class="user">黄色：用户 / 界面</span></div>
+  <div class="tabs" role="tablist" aria-label="查看执行链">
+    <button class="tab" id="tab-chat" role="tab" aria-selected="true" aria-controls="workflow" data-view="chat">① 一次聊天</button>
+    <button class="tab" id="tab-edit" role="tab" aria-selected="false" aria-controls="workflow" data-view="edit">② 文件修改</button>
+    <button class="tab" id="tab-durable" role="tab" aria-selected="false" aria-controls="workflow" data-view="durable">③ 可恢复后台任务</button>
+  </div>
+  <section class="panel" id="workflow" role="tabpanel" aria-labelledby="tab-chat">
+    <h2 id="view-title"></h2><p id="view-intro" class="note"></p>
+    <div id="permission-control" class="control" hidden><label for="permission">工作区权限：</label><select id="permission"><option value="ask">询问确认（默认）</option><option value="read_only">只读</option><option value="full_workspace">完全访问当前工作区</option></select></div>
+    <div class="layout"><div><div id="flow" class="flow" aria-label="按编号顺序执行"></div><div id="branch" class="branch"></div></div><aside id="detail" aria-live="polite"></aside></div>
+    <div id="example" class="example"></div>
+  </section>
+  <section class="panel">
+    <h2>现在能完成哪些任务？</h2>
+    <div class="capabilities">
+      <article><h3>公开资料研究</h3><p>用 Tavily / Exa 搜索，Exa 读公开网页，再整理带来源的简报。只取得摘录时说明读取范围。</p></article>
+      <article><h3>技术文档查证</h3><p>Context7 定位真实库 ID，再查询文档正文。库简介不能替代 API 行为的证据。</p></article>
+      <article><h3>项目文档工作</h3><p>列文件、定向/分页搜索、分段读取、起草。现有文本修改受项目权限与版本保护。</p></article>
+      <article><h3>地图与出行查询</h3><p>地理编码、天气、距离、驾车/步行/公交路线、关键词与周边地点查询。</p></article>
+      <article><h3>后台结果与审计</h3><p>查看 Run、步骤和产物，按需读取产物，下载脱敏 JSONL；失败任务受控重放。</p></article>
+      <article><h3>扩展 MCP / Skill</h3><p>新工具通过输入、结果映射、质量规则和样例审核后接入；Skill 推荐需用户激活，不能静默扩权。</p></article>
+    </div>
+    <p class="note" style="margin-top:14px">知识库问答走独立 RAG 检索链，为同一回答补充证据；当前 20 个 Tool 中没有单独的“RAG 检索工具”。文档起草使用现有文件工具，不代表已开放新建/删除任意文件。</p>
+  </section>
+  <section class="panel">
+    <h2>轮数已按任务区分，同时控制调用数与时间</h2>
+    <div class="scroll"><table><thead><tr><th>同步模式</th><th>最多规划轮次</th><th>总调用数</th><th>最多并发</th><th>工具链总时限</th></tr></thead><tbody>
+      <tr><td>快速对话</td><td>5</td><td>10</td><td>2</td><td>35 秒</td></tr>
+      <tr><td>研究模式</td><td>8</td><td>16</td><td>3</td><td>75 秒</td></tr>
+      <tr><td>工作区审阅</td><td>6</td><td>12</td><td>2</td><td>50 秒</td></tr>
+      <tr><td>编辑提案</td><td>4</td><td>6</td><td>1</td><td>35 秒</td></tr>
+    </tbody></table></div>
+    <p class="note" style="margin-top:12px">一轮是“规划 → 执行 → 观察”，不是一次 HTTP 请求。单次 Planner 最多 25 秒，仍服从剩余总时限；最终答案生成另有流式超时。Durable 实际冻结计划最多 12 步，不沿用同步 Chat 轮数。</p>
+  </section>
+  <footer>核对日期：2026-10-11。图解只展示已实现机制，不向后端发送请求。普通 Chat 不能从中断 Token 续流；后台能恢复的是经确认的只读工具计划，完整 LLM 自主规划循环尚未持久化。不开放 Shell、SQL、删除文件或任意本机路径写入。</footer>
+</main>
+<script>
+  // 图解数据来自当前代码；交互只切换说明，不执行工具或网络请求。
+  const owners={code:'代码 / Worker',model:'大模型',user:'用户 / 界面'};
+  const node=(owner,title,brief,detail,file)=>({owner,title,brief,detail,file});
+  const views={
+    chat:{title:'从问题到最终回答',intro:'按编号阅读。模型负责选工具和生成回答；真正的请求、校验与状态记录由代码完成。',
+      nodes:[
+        node('user','提出问题与选择范围','可选择模式、Skill、知识库','用户控制是否联网、使用哪个项目及 Skill。后端创建用户消息和 assistant 占位，后续工具来源与轨迹挂到这条回答上。','api/routes/chat.py · chat_turn_bootstrapper.py'),
+        node('code','筛选候选工具','从允许使用的工具中初筛','根据问题、近期用户话题、工具说明和显式 Skill 范围筛选少量候选。候选只减少选择难度，不能充当安全边界；禁用工具和禁止联网也要落实。','services/tools/selector.py'),
+        node('model','Planner 输出计划','工具名、参数、依赖、结果绑定','LLM 只输出结构化 JSON。比如 A 搜索，B 读取，B 的 file_id 来自 A。模型可以建议后台执行，但不能自行创建 Run 或扩大权限。','services/tools/planner.py'),
+        node('code','执行前检查','参数、权限、范围、凭据、风险','Executor 再次校验 Schema、用户/项目权限、工具启用状态和凭据。公开 URL 检查语法及 DNS；需要修改时转入工作区权限流程。合法 JSON 并不等于允许执行。','services/tools/executor.py · adapters.py'),
+        node('code','按依赖执行工具','独立任务并发，依赖任务等待','Workflow 调度 DAG。B 依赖 A 时等待 A 成功且结果可用，再由代码把已返回字段绑定到 B 的参数。HTTP/MCP 调用由 Adapter 发出，模型不直接发请求。','services/tools/workflow.py · bindings.py · adapters.py'),
+        node('code','判断结果能否使用','成功、空结果、无效、部分失败','检查结果字段、业务有效性与有限请求一致性。HTTP 200 不表示找到文件。独立成功分支保留；依赖缺失则阻止下游，并按策略澄清、换参数规划或停止。结构检查不等于自动证明所有事实正确。','services/tools/quality.py · workflow.py'),
+        node('code','组装最终证据','正文、来源、上下文预算','结果进入下一轮 Planner 前只提供受限事实与摘录；给回答模型时经过预算治理。外部事实可以参考，外部指令不能改变规则。已取得文档正文时库简介不竞争回答预算。','observation_projection.py · formatter.py · chat_context_assembly_service.py'),
+        node('model','生成并流式返回回答','引用有效来源，说明未完成部分','模型综合问题、历史、记忆、可选 RAG 和工具证据回答。代码发送 NDJSON，保存消息及来源，并按生成版本收口为 done / failed / cancelled。','chat_provider_service.py · chat_persistence_service.py')
+      ],branch:'↶ 证据不足时，在剩余轮数、调用数和时间内回到 Planner；权限不允许或预算耗尽时停止。工具部分失败不自动把整个 Chat 判失败。',
+      example:'示例：查询天气和路线可以并发。若天气成功、路线超时，模型保留天气事实，并说明路线未核实。文件搜索未命中时不能编造 file_id 去读取。'},
+    edit:{title:'文件修改：权限决定是否逐次确认',intro:'默认 ask 模式展示 Diff 并等待确认。完全访问是用户对当前工作区的授权，不是任意本机权限。',
+      nodes:[
+        node('code','定位并读取现有文件','取得 file_id 与当前版本','先搜索/列表定位，再读取正文；准确文件名可以定向查找，分页结果说明是否查完。','providers/workspace_files.py'),
+        node('model','提出修改参数','指定旧文本与新文本','Planner 生成受控修改请求。只起草时给聊天草稿；实际修改必须有明确请求，不能把建议当作已写入。','planner.py · skill_manifests/default_skills.json'),
+        node('code','生成 Diff 和修改记录','绑定文件、内容、版本','代码验证替换目标、项目范围与版本，形成 PatchDraft / Approval。模型不能随意改确认后的内容。','agent_runtime_service.py'),
+        node('user','确认这次修改','默认 ask：查看 Diff 后确认','通过服务端的一次性确认令牌批准，也可以拒绝；只读模式阻止写入。','api/routes/agent_runtime.py · agent_runtime_service.py'),
+        node('code','CAS 检查后写入','当前版本必须仍与提案一致','版本已变则拒绝覆盖。成功保存文件文本版本及审计记录；操作对象是平台项目文件，不是任意磁盘路径，也不自动重写原始 PDF。','agent_runtime_service.py · models/agent_runtime.py'),
+        node('model','按实际状态说明结果','草稿 / 待确认 / 已更新','模型根据代码返回的实际状态回答，不能在待确认时声称修改完成。','tools/executor.py · chat_provider_service.py')
+      ],branch:'只读：阻止写入。询问确认：Diff → 用户批准 → 版本检查。工作区完全访问：由明确授权策略放行受控修改，仍检查范围/版本并保存审计。',
+      example:'示例：把某份说明中的“复核周期 13 天”改成“14 天”。ask 模式先看 Diff；确认前若其他操作更新过文件，版本检查会拒绝旧提案覆盖。'},
+    durable:{title:'把只读工具计划交给独立 Worker',intro:'当前入口来自 Tool Trace / 任务页。Chat 仍先同步执行，用户确认后后台独立重做那组只读查询；不会自动迁移已执行结果。',
+      nodes:[
+        node('code','预览冻结计划','检查低风险、只读、依赖与版本','生成短时签名令牌；预览不创建 Run、Step 或 Outbox。文件写入不允许加入这条恢复链。','durable_handoff_service.py'),
+        node('user','确认后台执行','只提交冻结令牌','前端不能在确认时换一组参数；服务端重新验证权限、范围、工具和 Skill 版本。','api/routes/agent_runtime.py'),
+        node('code','持久化任务','Run / Step / Outbox / Checkpoint','在数据库事务中保存任务和待执行事件，最多 12 步。同一确认去重，不靠浏览器连接维持执行。当前 Durable Worker 认领数据库 Outbox；Redis Stream 主要用于知识库索引链。','durable_tool_runtime.py'),
+        node('code','Worker 领取可执行步骤','心跳、租约与版本保护','独立 Worker 领取到期/待处理事件；租约续期和 Fencing 阻止失去所有权的旧 Worker 覆盖新进度。','durable_worker_registry.py · durable_tool_runtime.py'),
+        node('code','只读执行与有限重试','依赖、结果绑定、质量门','继续使用统一 Executor。临时网络故障有限重试，权限和合同错误不能无限重做；耗尽时进入失败/DLQ，并阻断依赖步骤。','durable_tool_runtime.py · tools/executor.py'),
+        node('code','提交步骤结果与检查点','已成功提交步骤可复用','保存 Step、Artifact 和 Checkpoint。崩溃恢复后复用成功产物，从未完成步骤重新尝试；步骤内部 HTTP 字节不可续传。至少一次尝试不等于 exactly-once。','durable_tool_runtime.py'),
+        node('code','回传原会话与审计','一次终态消息、任务页、JSONL','成功或失败后由代码生成状态/产物摘要，幂等绑定回原会话，不是再调用 LLM 回答。用户可查看步骤、受控重放失败项和导出脱敏记录。','durable_tool_runtime.py · durable_audit_service.py')
+      ],branch:'↶ Worker 宕机后按持久状态、租约及重试预算恢复。重放再次检查权限和版本；不能从中断 Token 接着生成，也未持久化完整“LLM 观察→重新规划”循环。',
+      example:'示例：A 搜索已成功提交，B 读取时 Worker 退出。恢复后可复用 A，重新尝试 B。浏览器关闭不取消已确认 Run；最终结果会回到原会话。'}
+  };
+  let active='chat', selected=0;
+  const flow=document.getElementById('flow'), detail=document.getElementById('detail');
+  function showDetail(index){
+    selected=index; const item=views[active].nodes[index];
+    detail.innerHTML=`<span class="tag ${item.owner}">${owners[item.owner]}</span><h3>${index+1}. ${item.title}</h3><p>${item.detail}</p><code>主要实现：backend/app/${item.file}</code>`;
+    [...flow.children].forEach((button,i)=>button.classList.toggle('selected',i===index));
+  }
+  function render(view){
+    active=view; const data=views[view];
+    document.querySelectorAll('.tab').forEach(button=>button.setAttribute('aria-selected',String(button.dataset.view===view)));
+    document.getElementById('workflow').setAttribute('aria-labelledby','tab-'+view);
+    document.getElementById('view-title').textContent=data.title;
+    document.getElementById('view-intro').textContent=data.intro;
+    document.getElementById('permission-control').hidden=view!=='edit';
+    document.getElementById('branch').textContent=data.branch;
+    document.getElementById('example').textContent=data.example;
+    flow.replaceChildren();
+    data.nodes.forEach((item,index)=>{
+      const button=document.createElement('button'); button.className='node'; button.dataset.owner=item.owner;
+      button.innerHTML=`<span class="number">${index+1} · ${owners[item.owner]}</span><strong>${item.title}</strong><small>${item.brief}</small>`;
+      button.addEventListener('click',()=>showDetail(index)); flow.append(button);
+    });
+    showDetail(0);
+  }
+  document.querySelectorAll('.tab').forEach(button=>button.addEventListener('click',()=>render(button.dataset.view)));
+  document.getElementById('permission').addEventListener('change',event=>{
+    const mode=event.target.value, step=views.edit.nodes[3];
+    if(mode==='ask'){step.owner='user';step.title='确认这次修改';step.brief='查看 Diff 后明确批准';step.detail='服务端一次性确认令牌绑定修改内容和版本。用户可以拒绝；未批准就不写入。';}
+    if(mode==='read_only'){step.owner='code';step.title='阻止实际写入';step.brief='只读模式下，写入链在此停止';step.detail='读取和草稿仍可使用；Executor 拒绝非只读调用，后续写入步骤不会执行。图中后续节点展示允许写入时的流程。';}
+    if(mode==='full_workspace'){step.owner='code';step.title='按工作区授权放行';step.brief='省去逐次确认，仍检查版本和范围';step.detail='明确选择完全访问后，代码按当前工作区策略应用受控文件修改。仍形成修改/审批记录，标注策略授权，并做 ACL、CAS 与审计；不扩展到 Shell 或任意磁盘路径。';}
+    render('edit'); showDetail(3);
+  });
+  render('chat');
+</script>
+</body>
+</html>

@@ -102,6 +102,9 @@ class Settings:
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
     # 高德地图API密钥
     amap_api_key: str = os.getenv("AMAP_API_KEY", "")
+    # 公开资料 MCP 的可选服务端凭据；是否共享仍由环境 fallback 开关决定。
+    exa_api_key: str = os.getenv("EXA_API_KEY", "")
+    context7_api_key: str = os.getenv("CONTEXT7_API_KEY", "")
     # MinerU PDF解析服务token
     mineru_api_token: str = os.getenv("MINERU_API_TOKEN", "")
     # 是否允许用户未配置凭据时回退使用服务端.env里的工具凭据；多用户生产环境建议关闭

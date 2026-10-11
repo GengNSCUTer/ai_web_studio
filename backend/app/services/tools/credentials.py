@@ -81,6 +81,10 @@ class ToolCredentialResolver:
             return settings.tavily_api_key.strip() or None
         if provider_key == "amap":
             return settings.amap_api_key.strip() or None
+        if provider_key == "exa":
+            return settings.exa_api_key.strip() or None
+        if provider_key == "context7":
+            return settings.context7_api_key.strip() or None
         if provider_key == "mineru":
             return settings.mineru_api_token.strip() or None
         return None

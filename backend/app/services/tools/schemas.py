@@ -282,7 +282,15 @@ class ToolTraceEvent:
 
     def to_public_dict(self) -> dict[str, Any]:
         # 所有 Trace 都是外部上下文的一部分，不能依赖每个调用方都记得手动脱敏。
-        return {"type": self.type, **redact_sensitive_arguments(self.payload)}
+        public = {"type": self.type, **redact_sensitive_arguments(self.payload)}
+        # 执行器生成的凭据来源是固定状态，不是凭据本身。仅恢复已知事件中的
+        # 白名单值，保持通用参数脱敏严格，避免外部内容借同名字段暴露秘密。
+        source = self.payload.get("credential_source")
+        if self.type in {"tool_policy_check", "tool_call_start"} and isinstance(source, str) and source in {
+            "user", "env", "missing", "env_fallback_disabled", "user_disabled", "not_required",
+        }:
+            public["credential_source"] = source
+        return public
 
 
 @dataclass

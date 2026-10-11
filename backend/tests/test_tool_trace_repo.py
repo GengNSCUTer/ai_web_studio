@@ -8,6 +8,29 @@ from app.services.tools.schemas import ExternalContextResult, ToolPlan, ToolTrac
 
 
 class ToolTraceRepositoryTest(unittest.TestCase):
+    def test_public_trace_preserves_only_known_credential_source_states(self) -> None:
+        for event_type in ("tool_policy_check", "tool_call_start"):
+            with self.subTest(event_type=event_type):
+                public = ToolTraceEvent(type=event_type, payload={
+                    "credential_source": "user", "api_key": "private-test-key",
+                    "arguments": {"Authorization": "Bearer private-test-key", "credential_source": "private-test-key"},
+                }).to_public_dict()
+                self.assertEqual(public["credential_source"], "user")
+                self.assertEqual(public["api_key"], "***")
+                self.assertEqual(public["arguments"]["Authorization"], "***")
+                self.assertEqual(public["arguments"]["credential_source"], "***")
+                self.assertNotIn("private-test-key", str(public))
+
+    def test_public_trace_masks_unknown_source_values_and_remote_event_fields(self) -> None:
+        for event_type, source in (
+            ("tool_call_start", "private-test-key"),
+            ("tool_policy_check", {"api_key": "private-test-key"}),
+            ("remote_result", "user"),
+        ):
+            with self.subTest(event_type=event_type, source=source):
+                public = ToolTraceEvent(type=event_type, payload={"credential_source": source}).to_public_dict()
+                self.assertEqual(public["credential_source"], "***")
+
     def test_call_status_and_sources_are_bound_by_call_id(self) -> None:
         events = [
             {
