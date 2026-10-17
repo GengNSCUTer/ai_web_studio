@@ -58,6 +58,58 @@ class DurableHandoffService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
+    def _validate_reuse_scope(self, *, user_id: str, payload: dict[str, Any]) -> None:
+        """复用旧结果前重新确认当前作用域和只读边界。
+
+        复用成功 Artifact 不会再次执行工具，但项目、Skill 或工具权限可能
+        在预览与确认之间发生变化，因此不能仅凭稳定幂等键直接返回。
+        """
+
+        runtime = DurableToolRunService(self.db)
+        try:
+            runtime._validate_scope(
+                user_id=user_id,
+                project_id=payload.get("project_id"),
+                conversation_id=payload.get("conversation_id"),
+                assistant_message_id=payload.get("assistant_message_id"),
+            )
+        except DurableToolRuntimeError as exc:
+            raise DurableHandoffError(exc.code, str(exc)) from exc
+
+        skill_key = str(payload.get("skill_key") or "").strip()
+        allowed_tool_keys: set[str] | None = None
+        if skill_key:
+            try:
+                skill = SkillCatalog().resolve_for_execution(
+                    db=self.db,
+                    user_id=user_id,
+                    project_id=payload.get("project_id"),
+                    skill_key=skill_key,
+                )
+            except SkillCatalogError as exc:
+                raise DurableHandoffError("skill_not_ready", str(exc)) from exc
+            if not skill.durable_eligible:
+                raise DurableHandoffError("skill_not_durable", "该 Skill 不允许进入可恢复只读工作流。")
+            allowed_tool_keys = set(skill.allowed_tool_keys)
+
+        catalog = ToolCatalog(
+            db=self.db,
+            user_id=user_id,
+            project_id=payload.get("project_id"),
+        )
+        for raw in payload.get("calls") or []:
+            tool_key = str(raw.get("tool_key") or "").strip() if isinstance(raw, dict) else ""
+            definition = catalog.get_or_none(tool_key)
+            if not definition:
+                raise DurableHandoffError("unknown_tool", f"未找到工具：{tool_key or 'unknown'}")
+            if not definition.read_only or definition.risk_level != "low":
+                raise DurableHandoffError(
+                    "unsafe_tool_not_supported",
+                    f"{tool_key} 不是低风险只读工具，不能复用其 Durable 结果。",
+                )
+            if allowed_tool_keys is not None and tool_key not in allowed_tool_keys:
+                raise DurableHandoffError("skill_scope_violation", f"{tool_key} 不在当前 Skill 的允许范围内。")
+
     @staticmethod
     def _canonical(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -300,6 +352,7 @@ class DurableHandoffService:
         payload = self._verify(handoff_token)
         if not hmac.compare_digest(str(payload.get("user_id") or ""), str(user_id)):
             raise DurableHandoffError("handoff_scope_violation", "该任务确认不属于当前用户。")
+        self._validate_reuse_scope(user_id=user_id, payload=payload)
         plan_key = str(payload.get("plan_key") or "").strip()
         stable_key = f"durable-tool:{user_id}:{plan_key}"[:192] if plan_key else ""
         existing = None

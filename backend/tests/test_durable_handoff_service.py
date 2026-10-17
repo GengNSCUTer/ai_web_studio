@@ -172,6 +172,29 @@ class DurableHandoffServiceTest(unittest.TestCase):
             self.assertEqual(latest_preview.existing_run_status, "succeeded")
             self.assertEqual(service.confirm(user_id=self.user_id, handoff_token=latest_preview.handoff_token).id, retry.id)
 
+    def test_reuse_rechecks_project_scope_before_returning_existing_run(self) -> None:
+        with self.SessionLocal() as db:
+            self._install_review_skill(db)
+            service = DurableHandoffService(db)
+            preview = service.preview(
+                user_id=self.user_id,
+                project_id=self.project_id,
+                conversation_id=None,
+                assistant_message_id=None,
+                calls=self._calls(),
+                skill_key="workspace.document-review",
+                max_attempts=3,
+            )
+            run = service.confirm(user_id=self.user_id, handoff_token=preview.handoff_token)
+            run.status = "succeeded"
+            other = User(username="handoff-other", email="handoff-other@example.test")
+            db.add(other)
+            db.flush()
+            db.get(Project, self.project_id).user_id = other.id
+            db.commit()
+            with self.assertRaisesRegex(DurableHandoffError, "项目不存在"):
+                service.confirm(user_id=self.user_id, handoff_token=preview.handoff_token)
+
     def test_preview_rejects_write_tool_and_non_durable_skill(self) -> None:
         with self.SessionLocal() as db:
             self._install_review_skill(db)
