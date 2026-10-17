@@ -82,6 +82,12 @@ class Settings:
 
     # 文件上传存储根目录
     upload_dir: str = os.getenv("UPLOAD_DIR", str(ROOT_DIR / "uploads"))
+    # 所有 Web 实例共享数据库租约；限额不是单进程内的 Semaphore。
+    user_chat_concurrency: int = int(os.getenv("USER_CHAT_CONCURRENCY", "2"))
+    user_upload_concurrency: int = int(os.getenv("USER_UPLOAD_CONCURRENCY", "2"))
+    user_pending_knowledge_jobs: int = int(os.getenv("USER_PENDING_KNOWLEDGE_JOBS", "20"))
+    user_upload_storage_bytes: int = int(os.getenv("USER_UPLOAD_STORAGE_BYTES", str(1024 * 1024 * 1024)))
+    resource_lease_seconds: int = int(os.getenv("RESOURCE_LEASE_SECONDS", "120"))
     # 知识库向量索引文件存放目录
     knowledge_index_dir: str = os.getenv("KNOWLEDGE_INDEX_DIR", str(ROOT_DIR / "uploads" / "knowledge_indexes"))
     # 单份文档解析最大字符上限
@@ -140,10 +146,15 @@ settings = Settings()
 
 
 def validate_runtime_security_settings(config: Settings = settings) -> None:
-    """Fail fast instead of starting production with a known JWT signing key."""
+    """在启动时拒绝不安全的生产配置，避免等到首次使用凭据才发现问题。"""
 
     if config.app_env != "production":
         return
     secret = config.auth_secret_key.strip()
     if secret in {"", DEFAULT_AUTH_SECRET_KEY, "change-this-to-a-long-random-string"} or len(secret) < 32:
         raise RuntimeError("生产环境必须配置至少 32 个字符的独立 AUTH_SECRET_KEY")
+    encryption_key = config.secret_encryption_key.strip()
+    if len(encryption_key) < 32 or encryption_key == secret:
+        raise RuntimeError("生产环境必须配置至少 32 个字符且不同于 AUTH_SECRET_KEY 的 SECRET_ENCRYPTION_KEY")
+    if not config.cors_allowed_origins or "*" in config.cors_allowed_origins:
+        raise RuntimeError("生产环境 CORS_ALLOWED_ORIGINS 必须明确指定前端来源")

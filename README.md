@@ -20,6 +20,8 @@
 
 ## 本地运行
 
+首次安装、统一托管、生产配置和健康检查见 [部署说明](deploy/README.md)。默认使用 `backend/.venv`；以下分开启动的步骤适用于开发调试，不要与托管服务同时启动同一角色。
+
 1. 复制 `backend/.env.example` 和 `frontend/.env.local.example` 为对应本地配置文件。
 2. 启动 PostgreSQL + pgvector 与 Redis。
 3. 执行 `backend/scripts/run_dev.sh` 启动 API。

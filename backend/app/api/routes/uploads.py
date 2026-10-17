@@ -1,12 +1,16 @@
 import mimetypes
+from functools import partial
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
+import anyio
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user
+from app.api.resource_limits import upload_capacity
+from app.services.resource_quota_service import ResourceQuotaService
 from app.core.config import settings
 from app.models.user import User
 from app.services.file_parser_service import FileParserService
@@ -18,6 +22,8 @@ MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_UPLOAD_FILES = 10
 MAX_BATCH_BYTES = 50 * 1024 * 1024
 UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
+# 单独限制解析并发，不挤满普通同步路由使用的线程额度。
+UPLOAD_PARSE_LIMITER = anyio.CapacityLimiter(2)
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 SUPPORTED_TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf", ".docx"}
 SUPPORTED_TEXT_MIME_TYPES = {
@@ -67,7 +73,7 @@ def _classify_upload(*, original_name: str, mime_type: str) -> str | None:
 async def upload_files(
     files: list[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
-    _db=Depends(get_db),
+    capacity_token: str = Depends(upload_capacity, scope="request"),
 ) -> list[UploadItemResponse]:
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(
@@ -75,10 +81,6 @@ async def upload_files(
             detail=f"单次最多上传 {MAX_UPLOAD_FILES} 个文件",
         )
     user_dir = Path(settings.upload_dir) / current_user.id
-    user_dir.mkdir(parents=True, exist_ok=True)
-
-    uploaded_items: list[UploadItemResponse] = []
-    parser = FileParserService()
     pending_uploads: list[PendingUpload] = []
     batch_bytes = 0
 
@@ -115,11 +117,26 @@ async def upload_files(
             )
         )
 
+    if isinstance(capacity_token, str):
+        # 读取和校验完本批实际大小后再预留；失败不会创建目标文件。
+        await anyio.to_thread.run_sync(ResourceQuotaService().reserve_upload, capacity_token, batch_bytes)
+    return await anyio.to_thread.run_sync(
+        partial(_persist_upload_batch, pending_uploads, user_id=current_user.id),
+        limiter=UPLOAD_PARSE_LIMITER,
+    )
+
+
+def _persist_upload_batch(pending_uploads: list[PendingUpload], *, user_id: str) -> list[UploadItemResponse]:
+    """在线程中完成落盘、解析和失败清理，不在事件循环中运行同步解析器。"""
+    uploaded_items: list[UploadItemResponse] = []
+    parser = FileParserService()
     written_paths: list[Path] = []
     try:
         for item in pending_uploads:
-            item.target_path.write_bytes(item.content)
+            item.target_path.parent.mkdir(parents=True, exist_ok=True)
+            # 先登记再写，写入一半失败时也清除残留文件。
             written_paths.append(item.target_path)
+            item.target_path.write_bytes(item.content)
 
             parsed_text = parser.parse_file(item.target_path)
             if item.kind == "file" and not parsed_text:
@@ -134,7 +151,7 @@ async def upload_files(
                     mime_type=item.mime_type,
                     file_size=len(item.content),
                     kind=item.kind,
-                    storage_key=f"{current_user.id}/{item.stored_name}",
+                    storage_key=f"{user_id}/{item.stored_name}",
                     parsed_text=parsed_text,
                 )
             )

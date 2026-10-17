@@ -1,5 +1,6 @@
 # 导入FastAPI核心应用类
 from contextlib import asynccontextmanager
+import anyio
 
 from fastapi import FastAPI
 # 导入跨域中间件
@@ -32,8 +33,8 @@ from app.services.chat_persistence_service import dispose_async_engine
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """退出时释放 Chat 异步数据库连接池。"""
-
+    """启动检查版本，退出时释放 Chat 异步数据库连接池。"""
+    await anyio.to_thread.run_sync(ensure_runtime_schema)
     yield
     await dispose_async_engine()
 
@@ -45,9 +46,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 服务启动前置初始化：校验并创建运行所需数据库结构
+# 导入时仅检查配置；数据库版本检查在 lifespan 中执行。
 validate_runtime_security_settings()
-ensure_runtime_schema()
 
 # 注册跨域CORS中间件，解决前后端本地联调跨域问题
 app.add_middleware(

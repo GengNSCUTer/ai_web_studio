@@ -22,6 +22,7 @@ htmlcov/
 # ---------- Backend runtime ----------
 backend/uploads/
 backend/.venv/
+.runtime/
 backend/*.db
 backend/*.sqlite
 backend/*.sqlite3

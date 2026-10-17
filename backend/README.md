@@ -48,7 +48,7 @@
 
 推荐 Python 环境：
 
-- `/disk2/gengnan/conda_envs/ai_web_studio`
+- 仓库内 `backend/.venv`，通过根目录 [部署说明](../deploy/README.md) 创建；已有环境也可用 `AIWS_PYTHON` 显式选择，不再硬编码个人 Conda 路径。
 
 PostgreSQL：
 
@@ -63,11 +63,11 @@ PostgreSQL：
 ## 启动
 
 ```bash
-cd /disk2/gengnan/ai_web_studio/backend
-source /disk2/gengnan/miniconda3/etc/profile.d/conda.sh
-conda activate ai_web_studio
+cd backend
 ./scripts/run_dev.sh
 ```
+
+`/health` 与 `/health/live` 只表示进程存活；`/health/ready` 检查数据库和 Redis。需后台任务时，请启动对应独立 Worker，或使用根目录 `deploy/run_services.sh` 统一托管。
 
 需要后台任务时另开终端：
 

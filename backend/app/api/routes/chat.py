@@ -29,7 +29,9 @@ from app.services.chat_provider_service import ChatProviderService
 from app.services.chat_persistence_service import ChatPersistenceSnapshot, persist_stream_result
 from app.services.message_service import MessageService
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+from app.api.resource_limits import chat_capacity
+
+router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(chat_capacity, scope="request")])
 logger = logging.getLogger(__name__)
 
 

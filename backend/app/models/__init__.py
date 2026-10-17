@@ -41,6 +41,7 @@ from app.models.tool_config import (
 )
 from app.models.tool_trace import ToolCallRun, ToolRouteRun
 from app.models.user import User
+from app.models.resource_lease import ResourceLease
 from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.models.user_setting import UserSetting
 

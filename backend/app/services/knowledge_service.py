@@ -44,6 +44,7 @@ from app.services.knowledge_parser_service import KnowledgeParserService
 from app.services.knowledge_model_metadata import infer_embedding_dimensions
 from app.services.secret_service import SecretService
 from app.services.setting_service import SettingService
+from app.services.resource_quota_service import check_pending_knowledge_jobs
 from app.services.tools.credentials import ToolCredentialResolver
 
 
@@ -308,6 +309,7 @@ class KnowledgeDocumentService:
         )
         db = self.document_repo.db
         try:
+            check_pending_knowledge_jobs(db, user_id)
             db.add(document)
             db.flush()
             job = KnowledgeJob(
@@ -374,6 +376,7 @@ class KnowledgeDocumentService:
         document.error_message = None
         db = self.document_repo.db
         try:
+            check_pending_knowledge_jobs(db, document.user_id, exclude_job_id=job.id)
             db.add_all([document, job])
             db.flush()
             if not self._has_delivery(job.id):

@@ -20,8 +20,26 @@ class RuntimeSecuritySettingsTest(unittest.TestCase):
 
     def test_production_accepts_independent_long_auth_secret(self) -> None:
         validate_runtime_security_settings(
-            replace(settings, app_env="production", auth_secret_key="independent-production-secret-value-123456")
+            replace(settings, app_env="production", auth_secret_key="independent-production-secret-value-123456",
+                    secret_encryption_key="another-independent-encryption-secret-123456",
+                    cors_allowed_origins=("https://example.test",))
         )
+
+    def test_production_requires_independent_encryption_secret(self) -> None:
+        for encryption in ("", "short", "independent-production-secret-value-123456"):
+            with self.subTest(encryption=encryption), self.assertRaisesRegex(RuntimeError, "SECRET_ENCRYPTION_KEY"):
+                validate_runtime_security_settings(replace(
+                    settings, app_env="production", auth_secret_key="independent-production-secret-value-123456",
+                    secret_encryption_key=encryption,
+                ))
+
+    def test_production_rejects_wildcard_or_empty_cors(self) -> None:
+        for origins in ((), ("*",)):
+            with self.subTest(origins=origins), self.assertRaisesRegex(RuntimeError, "CORS_ALLOWED_ORIGINS"):
+                validate_runtime_security_settings(replace(
+                    settings, app_env="production", auth_secret_key="independent-production-secret-value-123456",
+                    secret_encryption_key="another-independent-encryption-secret-123456", cors_allowed_origins=origins,
+                ))
 
 
 if __name__ == "__main__":

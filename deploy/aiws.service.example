@@ -1,0 +1,18 @@
+# 复制到 ~/.config/systemd/user/aiws.service，修改路径和 Node 所在 PATH。
+[Unit]
+Description=AI Web Studio services
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ai_web_studio
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/bin/bash %h/ai_web_studio/deploy/run_services.sh
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=420
+
+[Install]
+WantedBy=default.target

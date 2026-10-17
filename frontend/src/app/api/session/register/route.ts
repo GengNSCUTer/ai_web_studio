@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { AUTH_COOKIE_NAME } from "@/lib/auth";
+import { authCookieOptions } from "@/lib/auth-cookie";
 import { fetchBackend } from "@/lib/backend";
 
 export const runtime = "nodejs";
@@ -31,12 +32,6 @@ export async function POST(request: NextRequest) {
   };
 
   const response = NextResponse.json({ user: payload.user });
-  response.cookies.set(AUTH_COOKIE_NAME, payload.access_token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: false,
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
+  response.cookies.set(AUTH_COOKIE_NAME, payload.access_token, authCookieOptions());
   return response;
 }
