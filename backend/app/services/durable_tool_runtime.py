@@ -113,6 +113,7 @@ class DurableToolRunService:
         idempotency_key: str | None = None,
         skill_key: str | None = None,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        handoff_plan_fingerprint: str | None = None,
     ) -> AgentRun:
         if not calls or len(calls) > self.MAX_STEPS:
             raise DurableToolRuntimeError("invalid_step_count", f"Tool Run 需包含 1 到 {self.MAX_STEPS} 个 Step。")
@@ -282,6 +283,7 @@ class DurableToolRunService:
                     "mode": "read_only_durable",
                     "call_ids": [item["call_id"] for item in normalized_calls],
                     "request_hash": request_hash,
+                    "handoff_plan_fingerprint": handoff_plan_fingerprint,
                     "skill": skill_context.to_public_dict() if skill_context else None,
                     "tool_snapshots": tool_snapshots,
                 }

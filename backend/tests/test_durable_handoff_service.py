@@ -91,6 +91,87 @@ class DurableHandoffServiceTest(unittest.TestCase):
             self.assertEqual(db.query(AgentStep).filter_by(run_id=first.id).count(), 1)
             self.assertEqual(db.query(AgentOutboxEvent).filter_by(run_id=first.id).count(), 1)
 
+    def test_same_plan_preview_exposes_existing_run_and_confirm_reuses_it(self) -> None:
+        """相同计划跨新令牌确认时不应再次调用只读工具。"""
+        with self.SessionLocal() as db:
+            self._install_review_skill(db)
+            service = DurableHandoffService(db)
+            first_preview = service.preview(
+                user_id=self.user_id,
+                project_id=self.project_id,
+                conversation_id=None,
+                assistant_message_id=None,
+                calls=self._calls(),
+                skill_key="workspace.document-review",
+                max_attempts=3,
+            )
+            first = service.confirm(user_id=self.user_id, handoff_token=first_preview.handoff_token)
+            first.status = "succeeded"
+            db.commit()
+
+            second_preview = service.preview(
+                user_id=self.user_id,
+                project_id=self.project_id,
+                conversation_id=None,
+                assistant_message_id=None,
+                calls=self._calls(),
+                skill_key="workspace.document-review",
+                max_attempts=3,
+            )
+            self.assertEqual(second_preview.existing_run_id, first.id)
+            self.assertEqual(second_preview.existing_run_status, "succeeded")
+            reused = service.confirm(user_id=self.user_id, handoff_token=second_preview.handoff_token)
+            self.assertEqual(reused.id, first.id)
+            self.assertEqual(db.query(AgentRun).count(), 1)
+
+    def test_failed_existing_plan_requires_a_new_explicit_retry(self) -> None:
+        """失败任务不静默复用；用户再次确认才会为本次令牌创建一次重试。"""
+        with self.SessionLocal() as db:
+            self._install_review_skill(db)
+            service = DurableHandoffService(db)
+            preview = service.preview(
+                user_id=self.user_id,
+                project_id=self.project_id,
+                conversation_id=None,
+                assistant_message_id=None,
+                calls=self._calls(),
+                skill_key="workspace.document-review",
+                max_attempts=3,
+            )
+            first = service.confirm(user_id=self.user_id, handoff_token=preview.handoff_token)
+            first.status = "failed"
+            db.commit()
+
+            retry_preview = service.preview(
+                user_id=self.user_id,
+                project_id=self.project_id,
+                conversation_id=None,
+                assistant_message_id=None,
+                calls=self._calls(),
+                skill_key="workspace.document-review",
+                max_attempts=3,
+            )
+            self.assertEqual(retry_preview.existing_run_id, first.id)
+            self.assertEqual(retry_preview.existing_run_status, "failed")
+            retry = service.confirm(user_id=self.user_id, handoff_token=retry_preview.handoff_token)
+            self.assertNotEqual(retry.id, first.id)
+            self.assertEqual(service.confirm(user_id=self.user_id, handoff_token=retry_preview.handoff_token).id, retry.id)
+            self.assertEqual(db.query(AgentRun).count(), 2)
+            retry.status = "succeeded"
+            db.commit()
+            latest_preview = service.preview(
+                user_id=self.user_id,
+                project_id=self.project_id,
+                conversation_id=None,
+                assistant_message_id=None,
+                calls=self._calls(),
+                skill_key="workspace.document-review",
+                max_attempts=3,
+            )
+            self.assertEqual(latest_preview.existing_run_id, retry.id)
+            self.assertEqual(latest_preview.existing_run_status, "succeeded")
+            self.assertEqual(service.confirm(user_id=self.user_id, handoff_token=latest_preview.handoff_token).id, retry.id)
+
     def test_preview_rejects_write_tool_and_non_durable_skill(self) -> None:
         with self.SessionLocal() as db:
             self._install_review_skill(db)

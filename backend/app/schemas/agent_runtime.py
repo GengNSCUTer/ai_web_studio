@@ -187,6 +187,9 @@ class DurableHandoffPreviewResponse(BaseModel):
     max_attempts: int
     confirmation_required: bool = True
     safety_notice: str
+    existing_run_id: str | None = None
+    existing_run_status: str | None = None
+    existing_artifact_count: int = 0
 
 
 class DurableHandoffConfirmRequest(BaseModel):

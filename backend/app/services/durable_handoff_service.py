@@ -16,9 +16,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.models.agent_runtime import AgentArtifact, AgentRun
 from app.services.durable_tool_runtime import DurableToolRunService, DurableToolRuntimeError
 from app.services.skill_catalog import SkillCatalog, SkillCatalogError
 from app.services.tools.catalog import ToolCatalog
@@ -42,6 +44,9 @@ class DurableHandoffPreview:
     skill_display_name: str | None
     tool_calls: list[dict[str, Any]]
     max_attempts: int
+    existing_run_id: str | None = None
+    existing_run_status: str | None = None
+    existing_artifact_count: int = 0
 
 
 class DurableHandoffService:
@@ -56,6 +61,35 @@ class DurableHandoffService:
     @staticmethod
     def _canonical(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    @classmethod
+    def _plan_fingerprint(
+        cls,
+        *,
+        project_id: str | None,
+        conversation_id: str | None,
+        assistant_message_id: str | None,
+        skill_key: str | None,
+        max_attempts: int,
+        calls: list[dict[str, Any]],
+    ) -> str:
+        """生成只读计划指纹，用于跨预览请求发现同一份计划。
+
+        指纹只参与幂等和结果复用，不授予额外权限；真正入队时仍会重新执行
+        Tool Schema、Skill 快照、范围和 DAG 校验。
+        """
+
+        material = cls._canonical(
+            {
+                "project_id": project_id,
+                "conversation_id": conversation_id,
+                "assistant_message_id": assistant_message_id,
+                "skill_key": skill_key,
+                "max_attempts": max_attempts,
+                "calls": calls,
+            }
+        )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _encode(value: bytes) -> str:
@@ -190,6 +224,46 @@ class DurableHandoffService:
             raise DurableHandoffError("cyclic_dependencies", "可恢复任务不能包含循环依赖。")
 
         expires_at = utcnow() + timedelta(seconds=self.TOKEN_TTL_SECONDS)
+        plan_fingerprint = self._plan_fingerprint(
+            project_id=project_id,
+            conversation_id=conversation_id,
+            assistant_message_id=assistant_message_id,
+            skill_key=skill_key,
+            max_attempts=max(1, min(int(max_attempts), 5)),
+            calls=calls,
+        )
+        # 使用用户作用域的稳定幂等键跨令牌发现相同计划。预览只读这个
+        # 索引，不创建新 Run，也不改变既有任务状态。
+        stable_key = f"durable-tool:{user_id}:handoff-plan:{plan_fingerprint}"[:192]
+        existing = self.db.scalars(
+            select(AgentRun).where(AgentRun.idempotency_key == stable_key).limit(1)
+        ).first()
+        if not existing or existing.status not in {"queued", "running", "succeeded"}:
+            # 失败任务的显式重试使用 handoff_id 幂等键；如果某次重试已经
+            # 成功，优先找到它，避免后续预览又把旧失败 Run 当成最新结果。
+            retry = self.db.scalars(
+                select(AgentRun)
+                .where(
+                    AgentRun.user_id == user_id,
+                    AgentRun.runtime_kind == "durable_tool_workflow",
+                    AgentRun.planner_state_json.contains(
+                        f'"handoff_plan_fingerprint":"{plan_fingerprint}"'
+                    ),
+                    AgentRun.status.in_(["queued", "running", "succeeded"]),
+                )
+                .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+                .limit(1)
+            ).first()
+            if retry:
+                existing = retry
+        existing_artifact_count = 0
+        if existing:
+            existing_artifact_count = int(
+                self.db.scalar(
+                    select(func.count(AgentArtifact.id)).where(AgentArtifact.run_id == existing.id)
+                )
+                or 0
+            )
         payload = {
             "version": self.TOKEN_VERSION,
             "handoff_id": secrets.token_urlsafe(18),
@@ -199,6 +273,8 @@ class DurableHandoffService:
             "assistant_message_id": assistant_message_id,
             "skill_key": skill_key,
             "max_attempts": max(1, min(int(max_attempts), 5)),
+            "plan_fingerprint": plan_fingerprint,
+            "plan_key": f"handoff-plan:{plan_fingerprint}",
             # 冻结的是原始调用声明；确认时 Durable Runtime 再执行完整 schema/DAG 校验。
             "calls": calls,
             "expires_at": int(expires_at.timestamp()),
@@ -213,6 +289,9 @@ class DurableHandoffService:
             skill_display_name=skill_display_name,
             tool_calls=summaries,
             max_attempts=payload["max_attempts"],
+            existing_run_id=existing.id if existing else None,
+            existing_run_status=existing.status if existing else None,
+            existing_artifact_count=existing_artifact_count,
         )
 
     def confirm(self, *, user_id: str, handoff_token: str):
@@ -221,6 +300,40 @@ class DurableHandoffService:
         payload = self._verify(handoff_token)
         if not hmac.compare_digest(str(payload.get("user_id") or ""), str(user_id)):
             raise DurableHandoffError("handoff_scope_violation", "该任务确认不属于当前用户。")
+        plan_key = str(payload.get("plan_key") or "").strip()
+        stable_key = f"durable-tool:{user_id}:{plan_key}"[:192] if plan_key else ""
+        existing = None
+        if stable_key:
+            existing = self.db.scalars(
+                select(AgentRun).where(AgentRun.idempotency_key == stable_key).limit(1)
+            ).first()
+        plan_fingerprint = str(payload.get("plan_fingerprint") or "").strip()
+        if (not existing or existing.status not in {"queued", "running", "succeeded"}) and plan_fingerprint:
+            retry = self.db.scalars(
+                select(AgentRun)
+                .where(
+                    AgentRun.user_id == user_id,
+                    AgentRun.runtime_kind == "durable_tool_workflow",
+                    AgentRun.planner_state_json.contains(
+                        f'"handoff_plan_fingerprint":"{plan_fingerprint}"'
+                    ),
+                    AgentRun.status.in_(["queued", "running", "succeeded"]),
+                )
+                .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+                .limit(1)
+            ).first()
+            if retry:
+                existing = retry
+        # 成功、排队和执行中的同一计划可以安全复用。失败、死信或取消的
+        # 计划必须经过新的用户确认；同一个令牌的重试使用 handoff_id 维持
+        # 自身幂等，不会因重复点击创建多个重试 Run。
+        if existing and existing.status in {"queued", "running", "succeeded"}:
+            return existing
+        idempotency_key = (
+            f"handoff:{payload.get('handoff_id')}"
+            if existing
+            else (plan_key or f"handoff:{payload.get('handoff_id')}")
+        )
         try:
             return DurableToolRunService(self.db).enqueue(
                 user_id=user_id,
@@ -228,9 +341,10 @@ class DurableHandoffService:
                 conversation_id=payload.get("conversation_id"),
                 assistant_message_id=payload.get("assistant_message_id"),
                 calls=payload.get("calls") or [],
-                idempotency_key=f"handoff:{payload.get('handoff_id')}",
+                idempotency_key=idempotency_key,
                 skill_key=payload.get("skill_key"),
                 max_attempts=int(payload.get("max_attempts") or 3),
+                handoff_plan_fingerprint=str(payload.get("plan_fingerprint") or "") or None,
             )
         except DurableToolRuntimeError as exc:
             raise DurableHandoffError(exc.code, str(exc)) from exc

@@ -59,9 +59,9 @@ tags: [infrastructure, deployment, reliability, security]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-011 | 审查 durable_handoff_service.py 与 Tool Trace 入口，提供执行前后台建议或安全复用已完成只读产物，避免默认重复执行；仍保留用户确认。 | 否 | |
-| TASK-012 | 固定三个业务验收：带来源研究回答、Diff/Approval 文件修改、后台审阅重启后回传结果；覆盖部分失败和撤销。 | 否 | |
-| TASK-013 | 分别进行 5/10/20 并发探测并记录完成率、首事件延迟、总时长、错误和依赖压力；不预先承诺容量。 | 否 | |
+| TASK-011 | 审查 durable_handoff_service.py 与 Tool Trace 入口，提供执行前后台建议或安全复用已完成只读产物，避免默认重复执行；仍保留用户确认。 | 是 | 2026-10-17 |
+| TASK-012 | 固定三个业务验收：带来源研究回答、Diff/Approval 文件修改、后台审阅重启后回传结果；覆盖部分失败和撤销。 | 是 | 2026-10-17 |
+| TASK-013 | 分别进行 5/10/20 并发探测并记录完成率、首事件延迟、总时长、错误和依赖压力；不预先承诺容量。 | 是 | 2026-10-17 |
 | TASK-014 | 邀请少量真实用户完成任务，记录问题和修复；用结果更新产品定位、部署说明和简历，停止无需求扩展工具。 | 否 | |
 
 ## 3. Alternatives
@@ -84,6 +84,8 @@ tags: [infrastructure, deployment, reliability, security]
 - **FILE-006**: backend/migrations/、backend/app/core/migrations.py、backend/scripts/migrate_database.py：显式版本化迁移与历史库收编。
 - **FILE-007**: deploy/data_backup.py：PostgreSQL、上传目录和 BM25 索引的成套备份/隔离恢复。
 - **FILE-008**: .github/workflows/ci.yml、backend/tests/test_resource_quotas.py、backend/tests/test_migrations_postgres.py、backend/tests/test_backup_layout.py：自动化验证。
+- **FILE-009**: backend/app/services/durable_handoff_service.py、backend/app/schemas/agent_runtime.py、backend/app/api/routes/agent_runtime.py、frontend/src/components/tool-trace-panel.tsx：相同 Durable 计划指纹、结果复用提示和失败重试确认。
+- **FILE-010**: scripts/third_batch_acceptance.py、scripts/third_batch_capacity_probe.py：固定业务验收和受控容量探测入口。
 
 ## 6. Testing
 
@@ -96,12 +98,15 @@ tags: [infrastructure, deployment, reliability, security]
 - **TEST-007**: 空库升级、现有库备份后收编、目标表冲突失败回滚，以及重复升级保留业务行。
 - **TEST-008**: 当前数据库备份到 `aiws-backups/20261017-batch2-current`；恢复到独立库后，用户数 13、知识库 Chunk 1739、上传文件 521、索引文件 3，并可执行数据库查询。
 - **TEST-009**: CI 固定执行后端 PostgreSQL/Redis 集成、编译、前端 lint/build/Node 测试；本机最终回归 707 tests OK；Tavily、高德、在线模型等收费 API 不在 CI 自动调用。
+- **TEST-010**: 第三批固定业务验收 5/5 通过：本地 MCP 带来源研究链、独立分支部分失败、Diff/Approval + Revision CAS、Durable 成功回写和 Durable 失败回写；命令为 `PYTHONPATH=backend backend/.venv/bin/python scripts/third_batch_acceptance.py`。
+- **TEST-011**: `/health/ready` 受控并发探测 5/10/20 均完成 100%；首响应 p50 分别为 37.67ms、63.70ms、108.86ms，依赖检查 PostgreSQL/Redis 全部 `ok`。该结果只反映当前本机就绪接口，不是 Chat 吞吐 SLA。
 
 ## 7. Risks & Assumptions
 
 - **RISK-001**: 线程隔离解决事件循环阻塞，但不能强行终止正在运行的 Python 解析器，也不替代第二批用户级限额；不宣称完全隔离恶意文件 CPU 消耗。
 - **RISK-002**: Supervisor 负责子进程重启，不等于主机重启自动恢复；正式部署需要外层 systemd 和 HTTPS 入口，实际启用情况须单独记录。
 - **ASSUMPTION-001**: 只验收已经运行的本地服务，不把部署示例当作公网生产上线证明。
+- **RISK-003**: 第三批容量探测不调用模型，不能推出在线 Chat、RAG 或 Tool DAG 的实际容量；TASK-014 的真实外部用户试用尚未完成，不用固定测试账号冒充用户证据。
 
 ## 8. Related Specifications / Further Reading
 

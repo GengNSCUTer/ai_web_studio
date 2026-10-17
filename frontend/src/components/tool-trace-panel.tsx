@@ -240,6 +240,9 @@ function DurableHandoffActions({
     token: string;
     tools: Array<{ display_name: string; tool_key: string; depends_on: string[] }>;
     expires_at: string;
+    existing_run_id?: string | null;
+    existing_run_status?: string | null;
+    existing_artifact_count?: number;
   } | null>(null);
   const [run, setRun] = useState<{
     id: string;
@@ -291,6 +294,9 @@ function DurableHandoffActions({
         token: payload.handoff_token,
         tools: payload.tool_calls || [],
         expires_at: payload.expires_at,
+        existing_run_id: payload.existing_run_id,
+        existing_run_status: payload.existing_run_status,
+        existing_artifact_count: payload.existing_artifact_count || 0,
       });
       setState("idle");
     } catch (error) {
@@ -309,9 +315,25 @@ function DurableHandoffActions({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ handoff_token: preview.token }),
       });
-      setRun(payload);
+      // confirm 返回运行摘要；紧接着读取快照，复用已有 Run 时也能立即
+      // 展示 Artifact 和每个 Step，而不是要求用户再手动刷新一次。
+      const snapshot = await requestJson(`/api/backend/agent-runtime/runs/${encodeURIComponent(payload.id)}`, {
+        method: "GET",
+      });
+      setRun({
+        ...snapshot.run,
+        steps: snapshot.steps || [],
+        artifacts: snapshot.artifacts || [],
+      });
       setState("queued");
       setPreview(null);
+      if (
+        onConversationMessagesChanged &&
+        conversationId &&
+        ["succeeded", "failed", "dead_letter", "cancelled"].includes(snapshot.run?.status)
+      ) {
+        await onConversationMessagesChanged(conversationId);
+      }
     } catch (error) {
       setState("error");
       setMessage(error instanceof Error ? error.message : "无法确认可恢复任务");
@@ -351,8 +373,8 @@ function DurableHandoffActions({
       ) : null}
       <p className="mb-2 text-[10px] leading-4 text-[var(--ink-soft)]">
         {uiLanguage === "zh-CN"
-          ? "当前 Chat 按同步流程处理。后台预览只接受低风险只读步骤；确认后会独立执行，可能重复本轮查询。"
-          : "This chat follows the synchronous flow. Preview only accepts low-risk read-only steps; confirmation runs them separately and may repeat queries."}
+          ? "当前 Chat 按同步流程处理。后台预览只接受低风险只读步骤；已有成功任务会复用结果，失败任务只有再次确认才会重试查询。"
+          : "This chat follows the synchronous flow. Preview only accepts low-risk read-only steps; successful plans reuse results, while failed plans need a new confirmation to retry."}
       </p>
       {!preview && !run && state !== "error" ? (
         <button
@@ -370,6 +392,13 @@ function DurableHandoffActions({
           <div className="text-[10px] leading-4 text-[var(--ink-soft)]">
             {preview.tools.map((tool) => tool.display_name || tool.tool_key).join("、")}
           </div>
+          {preview.existing_run_id ? (
+            <div className="rounded-md border border-[var(--hairline)] bg-[var(--control-bg)] p-2 text-[10px] leading-4 text-[var(--ink-soft)]">
+              {preview.existing_run_status === "succeeded"
+                ? `发现同一计划已完成（Run ${preview.existing_run_id}，已有 ${preview.existing_artifact_count || 0} 个结果）。确认后只复用已有结果，不会重复调用工具。`
+                : `发现同一计划已有 Run（${preview.existing_run_status || "unknown"}）。排队或运行中的任务会复用；失败任务需要再次确认才会重试。`}
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -377,7 +406,13 @@ function DurableHandoffActions({
               disabled={state === "confirming"}
               className="rounded-full bg-[var(--accent-strong)] px-3 py-1 text-[10px] text-white disabled:opacity-50"
             >
-              {state === "confirming" ? "正在确认…" : "确认并后台执行"}
+              {state === "confirming"
+                ? "正在确认…"
+                : preview.existing_run_status === "succeeded"
+                  ? "查看已有结果"
+                  : preview.existing_run_id
+                    ? "确认复用 / 重试"
+                    : "确认并后台执行"}
             </button>
             <button type="button" onClick={() => setPreview(null)} className="rounded-full border px-3 py-1 text-[10px]">
               取消

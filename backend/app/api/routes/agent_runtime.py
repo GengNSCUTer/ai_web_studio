@@ -202,6 +202,9 @@ def preview_durable_handoff(
         skill_display_name=preview.skill_display_name,
         tool_calls=preview.tool_calls,
         max_attempts=preview.max_attempts,
+        existing_run_id=preview.existing_run_id,
+        existing_run_status=preview.existing_run_status,
+        existing_artifact_count=preview.existing_artifact_count,
         safety_notice="仅低风险只读工具可进入可恢复任务；确认后才会创建 Agent Run，普通 Chat 不会自动后台化。",
     )
 
