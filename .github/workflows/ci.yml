@@ -41,6 +41,14 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         run: PYTHONPATH=backend python -m scripts.migrate_database upgrade
+      - name: Verify migrated schema before tests
+        env:
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: ai_web_studio
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        run: PYTHONPATH=backend python -m scripts.migrate_database check
       - name: Run backend tests with PostgreSQL and Redis
         env:
           APP_ENV: test
@@ -57,7 +65,6 @@ jobs:
       - name: Check migration files and shell scripts
         run: |
           set -euo pipefail
-          PYTHONPATH=backend python -m scripts.migrate_database check
           while IFS= read -r script; do
             echo "Checking shell syntax: ${script}"
             bash -n "${script}"
