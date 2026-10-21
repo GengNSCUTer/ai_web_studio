@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from contextlib import aclosing, asynccontextmanager
 import base64
 from dataclasses import dataclass
 import hashlib
@@ -7,10 +8,12 @@ import json
 from typing import Any
 
 import httpx
+import anyio
 from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.services.provider_capabilities import resolve_provider_capabilities
+from app.services.provider_client_pool import ProviderClientPool, get_provider_client_pool
 
 
 OPENAI_COMPATIBLE_PROVIDER_TYPES = frozenset({"openai-compatible", "vllm"})
@@ -36,6 +39,34 @@ class ChatProviderService:
     它不应该知道用户权限、会话归属、RAG、工具调用或上下文预算。
     """
 
+    def __init__(self, *, client_pool: ProviderClientPool | None = None) -> None:
+        self._client_pool = client_pool
+
+    @asynccontextmanager
+    async def _openai_client(self, *, provider_type: str, base_url: str, api_key: str | None):
+        # 在调用时查当前 Web 事件循环的池；独立 Worker 的 asyncio.run 仍用短生命周期客户端。
+        pool = self._client_pool or get_provider_client_pool()
+        if pool is not None:
+            async with pool.acquire_openai(provider_type=provider_type, base_url=base_url, api_key=api_key) as client:
+                yield client
+        else:
+            client = AsyncOpenAI(api_key=api_key or "sk-placeholder", base_url=base_url)
+            try:
+                yield client
+            finally:
+                with anyio.CancelScope(shield=True):
+                    await client.close()
+
+    @asynccontextmanager
+    async def _http_client(self, *, base_url: str, api_key: str | None):
+        pool = self._client_pool or get_provider_client_pool()
+        if pool is not None:
+            async with pool.acquire_http(provider_type="anthropic", base_url=base_url, api_key=api_key) as client:
+                yield client
+        else:
+            async with httpx.AsyncClient(timeout=None) as client:
+                yield client
+
     async def list_models(
         self,
         *,
@@ -47,17 +78,15 @@ class ChatProviderService:
         if provider_type == "ollama":
             from app.services.ollama_service import OllamaService
 
-            return await OllamaService(base_url=base_url).list_models()
+            return await OllamaService(base_url=base_url, client_pool=self._client_pool).list_models()
 
         if provider_type in OPENAI_COMPATIBLE_PROVIDER_TYPES:
-            client = AsyncOpenAI(
-                api_key=api_key or "sk-placeholder",
+            async with self._openai_client(
+                provider_type=provider_type,
                 base_url=base_url,
-            )
-            try:
+                api_key=api_key,
+            ) as client:
                 response = await client.models.list()
-            finally:
-                await client.close()
             return [item.id for item in response.data]
 
         if provider_type == "anthropic":
@@ -86,7 +115,7 @@ class ChatProviderService:
         prompt_cache_breakpoint: int | None = None,
     ) -> AsyncGenerator[str, None]:
         # 兼容旧的纯文本流入口：只把 answer_delta 文本吐出去，忽略 reasoning_delta。
-        async for event in self.stream_chat_events(
+        async with aclosing(self.stream_chat_events(
             provider_type=provider_type,
             base_url=base_url,
             api_key=api_key,
@@ -99,9 +128,10 @@ class ChatProviderService:
             thinking_budget=None,
             prompt_cache_key=prompt_cache_key,
             prompt_cache_breakpoint=prompt_cache_breakpoint,
-        ):
-            if event.type == "answer_delta":
-                yield event.text
+        )) as events:
+            async for event in events:
+                if event.type == "answer_delta":
+                    yield event.text
 
     async def stream_chat_events(
         self,
@@ -123,16 +153,20 @@ class ChatProviderService:
         if provider_type == "ollama":
             from app.services.ollama_service import OllamaService
 
-            async for event in OllamaService(base_url=base_url).stream_chat_events(
+            async with aclosing(OllamaService(
+                base_url=base_url,
+                client_pool=self._client_pool,
+            ).stream_chat_events(
                 model_name=model_name,
                 messages=messages,
                 thinking_enabled=thinking_enabled,
-            ):
-                yield ChatStreamEvent(type=event.type, text=event.text)
+            )) as events:
+                async for event in events:
+                    yield ChatStreamEvent(type=event.type, text=event.text)
             return
 
         if provider_type == "anthropic":
-            async for event in self._stream_anthropic(
+            async with aclosing(self._stream_anthropic(
                 base_url=base_url,
                 api_key=api_key,
                 model_name=model_name,
@@ -143,18 +177,19 @@ class ChatProviderService:
                 thinking_enabled=thinking_enabled,
                 thinking_budget=thinking_budget,
                 prompt_cache_breakpoint=prompt_cache_breakpoint,
-            ):
-                yield event
+            )) as events:
+                async for event in events:
+                    yield event
             return
 
         if provider_type not in OPENAI_COMPATIBLE_PROVIDER_TYPES:
             raise ValueError(f"Unsupported provider_type: {provider_type}")
 
-        client = AsyncOpenAI(
-            api_key=api_key or "sk-placeholder",
+        async with self._openai_client(
+            provider_type=provider_type,
             base_url=base_url,
-        )
-        try:
+            api_key=api_key,
+        ) as client:
             capabilities = resolve_provider_capabilities(
                 provider_type=provider_type,
                 base_url=base_url,
@@ -186,42 +221,48 @@ class ChatProviderService:
                 else:
                     create_kwargs[capabilities.request_cache_key_field] = request_cache_key
                 cache_key_sent = True
-            stream = await client.chat.completions.create(
-                **create_kwargs,
-            )
+            try:
+                stream = await client.chat.completions.create(
+                    **create_kwargs,
+                )
+            except httpx.TimeoutException as exc:
+                raise RuntimeError("模型服务响应超时，请稍后重试") from exc
 
-            async for chunk in stream:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                # 兼容硅基流动/Qwen/DeepSeek-R1 等 OpenAI-compatible 扩展字段。
-                reasoning = self._extract_delta_attr(delta, "reasoning_content")
-                if reasoning:
-                    yield ChatStreamEvent(type="reasoning_delta", text=reasoning)
-                content = delta.content if delta else None
-                if content:
-                    yield ChatStreamEvent(type="answer_delta", text=content)
-                usage = getattr(chunk, "usage", None)
-                if usage is not None:
-                    details = getattr(usage, "prompt_tokens_details", None)
-                    cached_tokens = self._optional_int_attr(details, "cached_tokens")
-                    if cached_tokens is None:
-                        cached_tokens = self._optional_int_attr(usage, "prompt_cache_hit_tokens")
-                    yield ChatStreamEvent(
-                        type="provider_usage",
-                        data={
-                            "provider": capabilities.family,
-                            "input_tokens": int(self._optional_int_attr(usage, "prompt_tokens") or 0),
-                            "output_tokens": int(self._optional_int_attr(usage, "completion_tokens") or 0),
-                            "cached_input_tokens": int(cached_tokens or 0),
-                            "prompt_cache_mode": capabilities.prompt_cache_mode,
-                            "prompt_cache_request_key_sent": cache_key_sent,
-                            "prompt_cache_usage_available": cached_tokens is not None,
-                            "prompt_cache_usage_support": capabilities.cache_usage_support,
-                        },
-                    )
-        except httpx.TimeoutException as exc:
-            raise RuntimeError("模型服务响应超时，请稍后重试") from exc
-        finally:
-            await client.close()
+            try:
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    # 兼容硅基流动/Qwen/DeepSeek-R1 等 OpenAI-compatible 扩展字段。
+                    reasoning = self._extract_delta_attr(delta, "reasoning_content")
+                    if reasoning:
+                        yield ChatStreamEvent(type="reasoning_delta", text=reasoning)
+                    content = delta.content if delta else None
+                    if content:
+                        yield ChatStreamEvent(type="answer_delta", text=content)
+                    usage = getattr(chunk, "usage", None)
+                    if usage is not None:
+                        details = getattr(usage, "prompt_tokens_details", None)
+                        cached_tokens = self._optional_int_attr(details, "cached_tokens")
+                        if cached_tokens is None:
+                            cached_tokens = self._optional_int_attr(usage, "prompt_cache_hit_tokens")
+                        yield ChatStreamEvent(
+                            type="provider_usage",
+                            data={
+                                "provider": capabilities.family,
+                                "input_tokens": int(self._optional_int_attr(usage, "prompt_tokens") or 0),
+                                "output_tokens": int(self._optional_int_attr(usage, "completion_tokens") or 0),
+                                "cached_input_tokens": int(cached_tokens or 0),
+                                "prompt_cache_mode": capabilities.prompt_cache_mode,
+                                "prompt_cache_request_key_sent": cache_key_sent,
+                                "prompt_cache_usage_available": cached_tokens is not None,
+                                "prompt_cache_usage_support": capabilities.cache_usage_support,
+                            },
+                        )
+            except httpx.TimeoutException as exc:
+                raise RuntimeError("模型服务响应超时，请稍后重试") from exc
+            finally:
+                # 归还当前响应连接；共享 SDK 客户端留在池中供后续请求复用。
+                with anyio.CancelScope(shield=True):
+                    await stream.close()
 
     async def complete_chat(
         self,
@@ -240,7 +281,10 @@ class ChatProviderService:
         if provider_type == "ollama":
             from app.services.ollama_service import OllamaService
 
-            return await OllamaService(base_url=base_url).complete_chat(
+            return await OllamaService(
+                base_url=base_url,
+                client_pool=self._client_pool,
+            ).complete_chat(
                 model_name=model_name,
                 messages=messages,
                 temperature=temperature,
@@ -276,30 +320,29 @@ class ChatProviderService:
         if provider_type not in OPENAI_COMPATIBLE_PROVIDER_TYPES:
             raise ValueError(f"Unsupported provider_type: {provider_type}")
 
-        client = AsyncOpenAI(
-            api_key=api_key or "sk-placeholder",
+        async with self._openai_client(
+            provider_type=provider_type,
             base_url=base_url,
-        )
-        try:
+            api_key=api_key,
+        ) as client:
             extra_body = self._build_openai_extra_body(
                 base_url=base_url,
                 model_name=model_name,
                 thinking_enabled=False,
                 thinking_budget=None,
             )
-            response = await client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=temperature,
-                top_p=top_p,
-                max_tokens=max_tokens,
-                stream=False,
-                extra_body=extra_body,
-            )
-        except httpx.TimeoutException as exc:
-            raise RuntimeError("模型服务响应超时，请稍后重试") from exc
-        finally:
-            await client.close()
+            try:
+                response = await client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
+                    stream=False,
+                    extra_body=extra_body,
+                )
+            except httpx.TimeoutException as exc:
+                raise RuntimeError("模型服务响应超时，请稍后重试") from exc
 
         if not response.choices:
             return ""
@@ -395,12 +438,16 @@ class ChatProviderService:
         json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with self._http_client(
+                base_url=base_url,
+                api_key=api_key,
+            ) as client:
                 response = await client.request(
                     method,
                     self._anthropic_endpoint(base_url, path),
                     headers=self._anthropic_headers(api_key),
                     json=json_body,
+                    timeout=30.0,
                 )
                 response.raise_for_status()
                 payload = response.json()
@@ -509,12 +556,16 @@ class ChatProviderService:
         usage = {"provider": "anthropic", "input_tokens": 0, "output_tokens": 0,
                  "cache_creation_input_tokens": 0, "cached_input_tokens": 0}
         try:
-            async with httpx.AsyncClient(timeout=None) as client:
+            async with self._http_client(
+                base_url=kwargs["base_url"],
+                api_key=kwargs["api_key"],
+            ) as client:
                 async with client.stream(
                     "POST",
                     self._anthropic_endpoint(kwargs["base_url"], "messages"),
                     headers=self._anthropic_headers(kwargs["api_key"]),
                     json=payload,
+                    timeout=None,
                 ) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():

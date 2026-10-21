@@ -29,14 +29,21 @@ from app.core.config import settings as app_settings, validate_runtime_security_
 # 导入初始化函数：确保运行时数据库表/结构存在
 from app.core.startup import ensure_runtime_schema
 from app.services.chat_persistence_service import dispose_async_engine
+from app.services.provider_client_pool import start_provider_client_pool, close_provider_client_pool
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """启动检查版本，退出时释放 Chat 异步数据库连接池。"""
+    """启动检查版本，退出时释放 Provider 和 Chat 异步数据库连接池。"""
     await anyio.to_thread.run_sync(ensure_runtime_schema)
-    yield
-    await dispose_async_engine()
+    start_provider_client_pool()
+    try:
+        yield
+    finally:
+        try:
+            await close_provider_client_pool()
+        finally:
+            await dispose_async_engine()
 
 
 # 实例化FastAPI主应用

@@ -67,6 +67,12 @@ class Settings:
     chat_first_token_timeout_seconds: float = float(os.getenv("CHAT_FIRST_TOKEN_TIMEOUT_SECONDS", "120"))
     chat_stream_idle_timeout_seconds: float = float(os.getenv("CHAT_STREAM_IDLE_TIMEOUT_SECONDS", "120"))
     chat_stream_total_timeout_seconds: float = float(os.getenv("CHAT_STREAM_TOTAL_TIMEOUT_SECONDS", "900"))
+    # Web 事件循环内的 Provider 客户端数量与每个客户端的 HTTP 连接上限。
+    provider_client_pool_max_size: int = int(os.getenv("PROVIDER_CLIENT_POOL_MAX_SIZE", "32"))
+    provider_client_pool_wait_seconds: float = float(os.getenv("PROVIDER_CLIENT_POOL_WAIT_SECONDS", "10"))
+    provider_client_idle_seconds: float = float(os.getenv("PROVIDER_CLIENT_IDLE_SECONDS", "300"))
+    provider_http_max_connections: int = int(os.getenv("PROVIDER_HTTP_MAX_CONNECTIONS", "20"))
+    provider_http_max_keepalive_connections: int = int(os.getenv("PROVIDER_HTTP_MAX_KEEPALIVE_CONNECTIONS", "10"))
 
     # JWT鉴权加密密钥，生产环境必须替换
     auth_secret_key: str = os.getenv(

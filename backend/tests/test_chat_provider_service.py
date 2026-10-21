@@ -8,6 +8,21 @@ from unittest.mock import AsyncMock, Mock, patch
 from app.services.chat_provider_service import ChatProviderService
 
 
+class FakeSDKStream:
+    """模拟 SDK 的异步流及 close 接口，验证响应释放。"""
+
+    def __init__(self, generator):
+        self.generator = generator
+        self.closed = False
+
+    def __aiter__(self):
+        return self.generator.__aiter__()
+
+    async def close(self):
+        self.closed = True
+        await self.generator.aclose()
+
+
 class ChatProviderServiceTest(unittest.TestCase):
     def test_list_models_closes_openai_client(self) -> None:
         client = Mock()
@@ -99,8 +114,9 @@ class ChatProviderServiceTest(unittest.TestCase):
             )
 
         client = Mock()
+        stream = FakeSDKStream(fake_stream())
         client.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=AsyncMock(return_value=fake_stream()))
+            completions=SimpleNamespace(create=AsyncMock(return_value=stream))
         )
         client.close = AsyncMock()
 
@@ -123,6 +139,7 @@ class ChatProviderServiceTest(unittest.TestCase):
             text = asyncio.run(consume_one_event())
 
         self.assertEqual(text, "partial")
+        self.assertTrue(stream.closed)
         client.close.assert_awaited_once()
 
     def test_official_openai_enables_prompt_cache_key_and_stream_usage(self) -> None:
@@ -136,7 +153,7 @@ class ChatProviderServiceTest(unittest.TestCase):
                 ),
             )
 
-        create = AsyncMock(return_value=fake_stream())
+        create = AsyncMock(return_value=FakeSDKStream(fake_stream()))
         client = Mock(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
         client.close = AsyncMock()
 
@@ -175,7 +192,7 @@ class ChatProviderServiceTest(unittest.TestCase):
                 ),
             )
 
-        create = AsyncMock(return_value=fake_stream())
+        create = AsyncMock(return_value=FakeSDKStream(fake_stream()))
         client = Mock(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
         client.close = AsyncMock()
 
@@ -218,7 +235,7 @@ class ChatProviderServiceTest(unittest.TestCase):
                 ),
             )
 
-        create = AsyncMock(return_value=fake_stream())
+        create = AsyncMock(return_value=FakeSDKStream(fake_stream()))
         client = Mock(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
         client.close = AsyncMock()
 
@@ -253,7 +270,7 @@ class ChatProviderServiceTest(unittest.TestCase):
             if False:
                 yield None
 
-        create = AsyncMock(return_value=fake_stream())
+        create = AsyncMock(return_value=FakeSDKStream(fake_stream()))
         client = Mock(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
         client.close = AsyncMock()
 

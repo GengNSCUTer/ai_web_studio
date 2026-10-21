@@ -1,10 +1,12 @@
 import json
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import httpx
 
 from app.core.config import settings
+from app.services.provider_client_pool import ProviderClientPool, get_provider_client_pool
 
 
 @dataclass(frozen=True)
@@ -14,12 +16,28 @@ class OllamaChatEvent:
 
 
 class OllamaService:
-    def __init__(self, base_url: str | None = None):
+    def __init__(
+        self,
+        base_url: str | None = None,
+        *,
+        client_pool: ProviderClientPool | None = None,
+    ):
         self.base_url = (base_url or settings.ollama_base_url).rstrip("/")
+        self._client_pool = client_pool
+
+    @asynccontextmanager
+    async def _http_client(self):
+        pool = self._client_pool or get_provider_client_pool()
+        if pool is not None:
+            async with pool.acquire_http(provider_type="ollama", base_url=self.base_url, api_key=None) as client:
+                yield client
+        else:
+            async with httpx.AsyncClient(timeout=None) as client:
+                yield client
 
     async def list_models(self) -> list[str]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(f"{self.base_url}/api/tags")
+        async with self._http_client() as client:
+            response = await client.get(f"{self.base_url}/api/tags", timeout=30.0)
             response.raise_for_status()
             payload = response.json()
         return [item["name"] for item in payload.get("models", [])]
@@ -53,12 +71,13 @@ class OllamaService:
             "keep_alive": settings.ollama_keep_alive,
         }
 
-        async with httpx.AsyncClient(timeout=settings.ollama_request_timeout_seconds) as client:
+        async with self._http_client() as client:
             try:
                 async with client.stream(
                     "POST",
                     f"{self.base_url}/api/chat",
                     json=payload,
+                    timeout=settings.ollama_request_timeout_seconds,
                 ) as response:
                     try:
                         response.raise_for_status()
@@ -115,11 +134,12 @@ class OllamaService:
         if options:
             payload["options"] = options
 
-        async with httpx.AsyncClient(timeout=settings.ollama_request_timeout_seconds) as client:
+        async with self._http_client() as client:
             try:
                 response = await client.post(
                     f"{self.base_url}/api/chat",
                     json=payload,
+                    timeout=settings.ollama_request_timeout_seconds,
                 )
                 try:
                     response.raise_for_status()
