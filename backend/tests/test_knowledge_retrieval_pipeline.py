@@ -9,7 +9,7 @@ from app.services.knowledge_error import KnowledgeRetrievalUnavailableError
 from app.schemas.knowledge import KnowledgeEvalRunRequest
 from app.services.knowledge_evaluation_service import KnowledgeEvalOutcome, KnowledgeEvaluationService
 from app.services.knowledge_index_service import RetrievalResult
-from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
+from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalFilter, KnowledgeRetrievalPipeline
 
 
 def _knowledge_base(**overrides: object) -> SimpleNamespace:
@@ -181,6 +181,65 @@ class KnowledgeEvaluationMatrixTest(unittest.TestCase):
                 ("hybrid", True, 5),
             ],
         )
+
+
+class KnowledgeRerankCandidatePoolTest(unittest.TestCase):
+    def pipeline(self):
+        reranker=Mock()
+        async def rerank(**kwargs):
+            # 选取原融合截断之外的证据，验证它确实到达精排模型。
+            index=len(kwargs["documents"])-1
+            return [(index,.95)]
+        reranker.rerank=AsyncMock(side_effect=rerank)
+        pipeline=KnowledgeRetrievalPipeline(chunk_repo=Mock(),setting_service=Mock(),rerank_service=reranker)
+        pipeline._retrieve_vector_results=AsyncMock(return_value=[_result(f"v{i}") for i in range(4)])
+        pipeline._retrieve_lexical_results=Mock(return_value=[_result(f"l{i}",source="lexical") for i in range(4)])
+        return pipeline,reranker
+
+    def test_reranker_sees_both_channel_candidates_before_final_cutoff(self):
+        pipeline,reranker=self.pipeline()
+        results=asyncio.run(pipeline.retrieve_async(user_id="user-1",knowledge_base=_knowledge_base(rerank_enabled=True),query="query",top_k=2))
+        self.assertEqual(pipeline._retrieve_vector_results.call_args.kwargs["top_k"],4)
+        self.assertEqual(pipeline._retrieve_lexical_results.call_args.kwargs["top_k"],4)
+        self.assertEqual(len(reranker.rerank.call_args.kwargs["documents"]),8)
+        self.assertEqual(results[0].chunk.id,"l3")
+        self.assertEqual(results[0].metadata["rerank_candidate_count"],8)
+        self.assertEqual(reranker.rerank.call_args.kwargs["top_n"],2)
+
+    def test_rerank_timeout_does_not_return_expanded_pool(self):
+        pipeline,reranker=self.pipeline()
+        reranker.rerank.side_effect=TimeoutError("private provider details")
+        results=asyncio.run(pipeline.retrieve_async(user_id="user-1",knowledge_base=_knowledge_base(rerank_enabled=True),query="query",top_k=2))
+        self.assertEqual(len(results),2)
+        self.assertTrue(all(r.metadata.get("rerank_fallback") for r in results))
+        self.assertNotIn("private provider",str([r.metadata for r in results]))
+
+    def test_disabled_rerank_keeps_requested_channel_budget(self):
+        pipeline,reranker=self.pipeline()
+        results=asyncio.run(pipeline.retrieve_async(user_id="user-1",knowledge_base=_knowledge_base(),query="query",top_k=2))
+        self.assertEqual(pipeline._retrieve_vector_results.call_args.kwargs["top_k"],2)
+        self.assertEqual(len(results),2)
+        reranker.rerank.assert_not_awaited()
+
+    def test_small_result_limit_is_respected_after_expansion(self):
+        pipeline,reranker=self.pipeline()
+        asyncio.run(pipeline.retrieve_async(user_id="user-1",knowledge_base=_knowledge_base(rerank_enabled=True,rerank_top_n=6),query="query",top_k=1))
+        self.assertEqual(reranker.rerank.call_args.kwargs["top_n"],1)
+
+    def test_hybrid_candidate_budget_is_bounded(self):
+        pipeline,reranker=self.pipeline()
+        pipeline._retrieve_vector_results.return_value=[_result(f"v{i}") for i in range(100)]
+        pipeline._retrieve_lexical_results.return_value=[_result(f"l{i}",source="lexical") for i in range(100)]
+        asyncio.run(pipeline.retrieve_async(user_id="user-1",knowledge_base=_knowledge_base(rerank_enabled=True),query="query",top_k=50))
+        self.assertEqual(pipeline._retrieve_vector_results.call_args.kwargs["top_k"],50)
+        self.assertEqual(len(reranker.rerank.call_args.kwargs["documents"]),100)
+
+    def test_metadata_filter_keeps_existing_overfetch_without_rerank(self):
+        pipeline,_=self.pipeline()
+        filters=KnowledgeRetrievalFilter(document_ids=["doc-v1"])
+        asyncio.run(pipeline.retrieve_async(user_id="user-1",knowledge_base=_knowledge_base(),query="query",top_k=20,filters=filters))
+        self.assertEqual(pipeline._retrieve_vector_results.call_args.kwargs["top_k"],100)
+        self.assertIs(pipeline._retrieve_vector_results.call_args.kwargs["filters"],filters)
 
 
 if __name__ == "__main__":

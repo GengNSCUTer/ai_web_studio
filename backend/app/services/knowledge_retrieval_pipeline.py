@@ -63,6 +63,8 @@ class KnowledgeRetrievalPipeline:
     """
 
     RRF_K = 60
+    # 扩大的是精排输入，不增加最终注入段落；限制两路并集，避免请求成本无界增长。
+    MAX_RERANK_CANDIDATES = 100
 
     def __init__(
         self,
@@ -111,12 +113,16 @@ class KnowledgeRetrievalPipeline:
     ) -> list[RetrievalResult]:
         filters = filters or KnowledgeRetrievalFilter()
         retrieval_mode = (knowledge_base.retrieval_mode or "vector").strip().lower()
+        rerank_active = bool(knowledge_base.rerank_enabled and knowledge_base.rerank_top_n > 0)
+        channel_top_k = top_k
+        if rerank_active:
+            channel_top_k = min(top_k * 2, self.MAX_RERANK_CANDIDATES // 2)
         if retrieval_mode == "lexical":
             results = self._retrieve_lexical_results(
                 user_id=user_id,
                 knowledge_base=knowledge_base,
                 query=query,
-                top_k=top_k,
+                top_k=channel_top_k,
                 filters=filters,
             )
             return await self._rerank_if_needed(
@@ -124,6 +130,7 @@ class KnowledgeRetrievalPipeline:
                 knowledge_base=knowledge_base,
                 query=query,
                 results=results,
+                result_limit=top_k,
             )
         if retrieval_mode == "hybrid":
             try:
@@ -131,7 +138,7 @@ class KnowledgeRetrievalPipeline:
                     user_id=user_id,
                     knowledge_base=knowledge_base,
                     query=query,
-                    top_k=self._candidate_top_k(top_k=top_k, filters=filters),
+                    top_k=self._candidate_top_k(top_k=channel_top_k, filters=filters),
                     filters=filters,
                 )
                 vector_error_code = None
@@ -143,7 +150,7 @@ class KnowledgeRetrievalPipeline:
                     user_id=user_id,
                     knowledge_base=knowledge_base,
                     query=query,
-                    top_k=self._candidate_top_k(top_k=top_k, filters=filters),
+                    top_k=self._candidate_top_k(top_k=channel_top_k, filters=filters),
                     filters=filters,
                 )
                 lexical_error_code = None
@@ -155,7 +162,7 @@ class KnowledgeRetrievalPipeline:
             results = self._fuse_rrf(
                 vector_results=vector_results,
                 lexical_results=lexical_results,
-                top_k=top_k,
+                top_k=self.MAX_RERANK_CANDIDATES if rerank_active else top_k,
                 vector_error_code=vector_error_code,
                 lexical_error_code=lexical_error_code,
             )
@@ -169,12 +176,13 @@ class KnowledgeRetrievalPipeline:
                 knowledge_base=knowledge_base,
                 query=query,
                 results=results,
+                result_limit=top_k,
             )
         results = await self._retrieve_vector_results(
             user_id=user_id,
             knowledge_base=knowledge_base,
             query=query,
-            top_k=top_k,
+            top_k=channel_top_k,
             filters=filters,
         )
         return await self._rerank_if_needed(
@@ -182,6 +190,7 @@ class KnowledgeRetrievalPipeline:
             knowledge_base=knowledge_base,
             query=query,
             results=results,
+            result_limit=top_k,
         )
 
     async def _retrieve_vector_results(
@@ -231,15 +240,20 @@ class KnowledgeRetrievalPipeline:
         knowledge_base: KnowledgeBase,
         query: str,
         results: list[RetrievalResult],
+        result_limit: int | None = None,
     ) -> list[RetrievalResult]:
         if not results:
             return []
+        # 精排不可用时只返回调用者原本申请的数量，不将扩大后的候选池泄漏到上下文。
+        fallback_results = results[:result_limit] if result_limit is not None else results
         if not knowledge_base.rerank_enabled or len(results) <= 1:
-            return self._apply_score_threshold(results, knowledge_base.score_threshold)
+            return self._apply_score_threshold(fallback_results, knowledge_base.score_threshold)
         if knowledge_base.rerank_top_n <= 0:
-            return self._apply_score_threshold(results, knowledge_base.score_threshold)
+            return self._apply_score_threshold(fallback_results, knowledge_base.score_threshold)
 
         rerank_top_n = min(knowledge_base.rerank_top_n, len(results))
+        if result_limit is not None:
+            rerank_top_n = min(rerank_top_n, result_limit)
         try:
             reranked = await self.rerank_service.rerank(
                 user_id=user_id,
@@ -250,12 +264,12 @@ class KnowledgeRetrievalPipeline:
             )
         except Exception as exc:
             return self._apply_score_threshold(
-                self._mark_rerank_fallback(results, classify_knowledge_error(exc)),
+                self._mark_rerank_fallback(fallback_results, classify_knowledge_error(exc)),
                 knowledge_base.score_threshold,
             )
         if not reranked:
             return self._apply_score_threshold(
-                self._mark_rerank_fallback(results, "empty_response"),
+                self._mark_rerank_fallback(fallback_results, "empty_response"),
                 knowledge_base.score_threshold,
             )
 
@@ -269,6 +283,8 @@ class KnowledgeRetrievalPipeline:
                 **result.metadata,
                 "rerank_model": knowledge_base.rerank_model,
                 "pre_rerank_score": result.score,
+                "rerank_candidate_count": len(results),
+                "rerank_output_limit": rerank_top_n,
             }
             if "vector_score" not in metadata and result.rank_source in {"vector", "vector_fallback"}:
                 metadata["vector_score"] = result.score

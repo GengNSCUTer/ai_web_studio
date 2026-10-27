@@ -1,0 +1,10 @@
+{
+  "paper_expanded_01_2": "摘录讲无检索基线的局限，不能据此断言AT-RAG自身局限。",
+  "paper_expanded_02_2": "摘录主要讨论相关工作，不足以归因于Adaptive-RAG。",
+  "paper_expanded_03_2": "基线RAG的困难和DF-RAG实验范围不足以支持当前问题的限制断言。",
+  "paper_expanded_07_2": "摘录讨论一次检索与长文本需求，没有直接说明FLARE不适用场景。",
+  "paper_expanded_11_2": "Adaptive-RAG相关工作和MBA-RAG数据集列表不足以说明MBA-RAG不适用场景。",
+  "paper_expanded_15_2": "摘录讨论先前NAS及耦合GNN的局限，不能当成PSO-DGNN自身限制。",
+  "paper_expanded_25_2": "摘录讨论其他方法对奖励或知识的依赖，不是TF-TTCL自身部署限制。",
+  "paper_expanded_26_2": "摘录主要介绍相关工作，不能支持SELF-RAG自身的限制问题。"
+}

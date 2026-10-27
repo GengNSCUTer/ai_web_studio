@@ -28,6 +28,7 @@ from app.models.project_file import ProjectFile  # noqa: E402
 from app.models.tool_trace import ToolCallRun, ToolRouteRun  # noqa: E402
 from app.models.user import User  # noqa: E402
 from app.models.user_setting import UserSetting  # noqa: E402
+from app.models.knowledge import KnowledgeRetrievalLog  # noqa: E402
 from app.repositories.user_repo import UserRepository  # noqa: E402
 from app.services.auth_service import AuthService  # noqa: E402
 
@@ -169,6 +170,11 @@ def cleanup(*, user_id: str, project_id: str) -> None:
         )
         conversation_ids = [item.id for item in conversations]
         if conversation_ids:
+            # 同一临时会话可能启用RAG；先清理本轮检索日志，避免消息外键阻止夹具删除。
+            db.execute(delete(KnowledgeRetrievalLog).where(
+                KnowledgeRetrievalLog.user_id == user_id,
+                KnowledgeRetrievalLog.conversation_id.in_(conversation_ids),
+            ))
             route_ids = list(
                 db.scalars(select(ToolRouteRun.id).where(ToolRouteRun.conversation_id.in_(conversation_ids))).all()
             )

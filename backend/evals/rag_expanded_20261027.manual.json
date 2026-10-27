@@ -1,0 +1,22 @@
+{
+  "DeepSeek_OCR_paper.pdf": [
+    {
+      "query": "DeepSeek-OCR 为什么把 OCR 当作验证长文本视觉压缩的试验任务，而不是直接在语言模型里压缩文本？",
+      "difficulty": "medium",
+      "expected_answer_keywords": ["optical", "compression", "OCR"],
+      "evidence": [{"chunk_index": 8, "reason": "语言长上下文的计算成本与视觉压缩动机"}, {"chunk_index": 9, "reason": "视觉到文本的压缩解压映射及可量化评估"}]
+    },
+    {
+      "query": "DeepEncoder 如何串联局部注意力与全局注意力，在处理高分辨率文档时控制视觉 Token 数量和激活内存？",
+      "difficulty": "hard",
+      "expected_answer_keywords": ["SAM", "CLIP", "downsampling"],
+      "evidence": [{"chunk_index": 20, "reason": "SAM/CLIP串联以及卷积压缩模块"}, {"chunk_index": 22, "reason": "4096个Token压缩至256并控制激活内存"}]
+    },
+    {
+      "query": "DeepSeek-OCR 对视觉编码器有哪些要求，多分辨率模式如何帮助研究压缩比例与文本解码能力之间的关系？",
+      "difficulty": "hard",
+      "expected_answer_keywords": ["resolution", "tokens", "DeepEncoder"],
+      "evidence": [{"chunk_index": 19, "reason": "高分辨率、低激活、少Token等编码器目标"}, {"chunk_index": 23, "reason": "通过分辨率模式改变Token数量以测试解码能力"}]
+    }
+  ]
+}
