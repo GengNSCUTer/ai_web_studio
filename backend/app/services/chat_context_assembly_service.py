@@ -4,9 +4,12 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
+from types import SimpleNamespace
+from fastapi import HTTPException
 from sqlalchemy.orm import sessionmaker
 
 from app.repositories.conversation_repo import ConversationRepository
+from app.repositories.message_repo import MessageRepository
 from app.repositories.tool_trace_repo import ToolTraceRepository
 from app.repositories.knowledge_repo import KnowledgeRetrievalLogRepository
 from app.services.attachment_context_service import AttachmentContextService
@@ -147,6 +150,24 @@ class ChatContextAssemblyService:
         # Prepare 过程中会有外部调用和多次 commit；必须固定本次 generation 的 token，
         # 避免 ORM 刷新后读到后来 generation 的新 token，削弱流式收口的 CAS 保护。
         assistant_generation_id = getattr(assistant_message, "generation_id", None)
+        assistant_id = assistant_message.id
+        # 重生成入口也可能传入当前空占位；它不属于可摘要、可发送的历史。
+        history_rows = [row for row in history_rows if row.id != assistant_id]
+        # 必须在任何 await/commit 之前固定原文，ORM 对象可能在后续提交后被刷新。
+        history_snapshot = [
+            (row.id, row.role, row.content, row.generation_id) for row in history_rows
+        ]
+        # 后续检索和 Prompt 也只读值副本，避免等待期间被删除的 ORM 对象触发懒加载异常。
+        history_rows = [
+            SimpleNamespace(
+                id=row.id, role=row.role, content=row.content, generation_id=row.generation_id,
+                status=row.status,
+                attachments=[SimpleNamespace(
+                    kind=attachment.kind, storage_path=attachment.storage_path, mime_type=attachment.mime_type,
+                ) for attachment in row.attachments],
+            )
+            for row in history_rows
+        ]
         memory_bundle = await self.build_memory_context(
             runtime.settings,
             query=query,
@@ -227,8 +248,10 @@ class ChatContextAssemblyService:
                 )
         summary_bundle = await self._refresh_context_summary(
             conversation=conversation,
-            history_rows=history_rows,
             runtime=runtime,
+            expected_history=history_snapshot,
+            assistant_id=assistant_id,
+            generation_id=assistant_generation_id,
         )
 
         # PromptBuilder 负责把各层上下文转成 provider chat messages；Governance 再按预算做截断。
@@ -462,9 +485,38 @@ class ChatContextAssemblyService:
         self,
         *,
         conversation: object,
-        history_rows: list[object],
         runtime: ChatRuntimeConfig,
+        expected_history: list[tuple[str, str, str, str | None]],
+        assistant_id: str,
+        generation_id: str | None,
     ) -> SummaryRefreshBundle:
+        repo = MessageRepository(self.db)
+        conversation_id = conversation.id
+
+        def lock_and_check_history() -> object:
+            locked = repo.lock_conversation(conversation_id)
+            assistant = repo.lock_message(assistant_id, conversation_id)
+            if (
+                locked is None
+                or assistant is None
+                or assistant.generation_id != generation_id
+                or assistant.status != "streaming"
+                or repo.history_snapshot(conversation_id, exclude_message_id=assistant_id) != expected_history
+            ):
+                self.db.rollback()
+                raise HTTPException(status_code=409, detail="会话历史已变化，请重试本轮回答。")
+            return locked
+
+        conversation = lock_and_check_history()
+        previous_state = (conversation.context_summary, conversation.context_summary_boundary_message_id)
+        # 网络等待期间释放短事务和行锁；纯值副本不会隐式触发 ORM 懒加载。
+        summary_rows = [
+            SimpleNamespace(id=mid, role=role, content=content, generation_id=gid)
+            for mid, role, content, gid in expected_history
+        ]
+        existing_summary = clean_optional_str(previous_state[0])
+        existing_boundary = clean_optional_str(previous_state[1])
+        self.db.commit()
         # 滚动摘要只在上下文治理判断需要时刷新；刷新失败时治理层会走 fallback，不应阻断普通聊天。
         async def summarize_with_model(
             *,
@@ -492,13 +544,15 @@ class ChatContextAssemblyService:
             return summary[:max_summary_chars].strip() if summary else None
 
         next_summary, boundary_message_id, stats = await runtime.governance_service.build_incremental_summary(
-            existing_summary=clean_optional_str(getattr(conversation, "context_summary", None)),
-            summary_boundary_message_id=clean_optional_str(
-                getattr(conversation, "context_summary_boundary_message_id", None)
-            ),
-            conversation_messages=history_rows,
+            existing_summary=existing_summary,
+            summary_boundary_message_id=existing_boundary,
+            conversation_messages=summary_rows,
             summarizer=summarize_with_model,
         )
+        conversation = lock_and_check_history()
+        if (conversation.context_summary, conversation.context_summary_boundary_message_id) != previous_state:
+            self.db.rollback()
+            raise HTTPException(status_code=409, detail="会话摘要已更新，请重试本轮回答。")
         if stats["summary_boundary_reset"]:
             # boundary 消失意味着旧摘要覆盖范围不可验证；没有足够旧消息生成新摘要时也必须清空旧状态。
             conversation.context_summary = next_summary

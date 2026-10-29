@@ -26,10 +26,16 @@ class ExternalContextAssembler:
             source for source in sources
             if not (source.source_type == "documentation_library" and source.provider in document_providers)
         ]
+        # 正文在前，未命中查询在后；保留后者的范围事实，不能因读取了另一文件而删掉真正的缺失证据。
+        answer_sources.sort(key=lambda source: source.source_type == "workspace_file_search"
+                            and source.metadata.get("empty_reason") == "no_matching_files")
 
         intro = (
             "以下是本轮按用户授权调用外部信息工具得到的结果。"
             "引用网页或工具结果时请使用来源编号，并保留来源的时间与证据性质。"
+            "用户要求来源链接时，同时给出资料中已有的完整URL，不得仅给编号或编造网址。"
+            "documentation_library只是库简介，不支持具体API参数或代码示例；没有正文时应说明尚未查到。"
+            "文件搜索未命中只针对该次关键词和检查范围；若后续已经读到正文，应依正文回答，不能仍称文件不存在。"
             "预报、估计或历史记录不能当作当前实况；不足以判断当前状态时明确说明限制。\n\n"
         )
         if max_chars <= 0:

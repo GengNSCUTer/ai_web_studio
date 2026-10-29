@@ -67,8 +67,9 @@ systemctl --user status aiws.service
 
 - `GET /health`、`GET /health/live`：仅判断 API 进程可以响应；返回 200 不代表数据库和队列可用。
 - `GET /health/ready`：并发执行 PostgreSQL `SELECT 1` 和 Redis `PING`，单项有网络/查询等待上限；全部正常返回 200，否则 503。结果不暴露内部地址、密码或异常正文。
-- `deploy/check_services.py`：再加上前端页面、Next.js `/api/health/ready` 到后端的真实转发链路，以及五个应用进程 RUNNING 状态；全部正常退出码 0，否则 1。可接外部定时监控，但当前未实现通知渠道。
-- Durable Worker 的业务心跳、陈旧 Worker 与排队告警继续查看现有运行面板；RUNNING 只是进程存在，不证明 Worker 未卡死或业务任务成功。
+- `GET /health/workers`：独立检查 Durable Worker 心跳，至少一个 `idle/running` 实例在 90 秒内报活返回 200，缺失、全部停止/过期或数据库查询失败返回 503；即使没有待执行任务也检查。只返回状态与检查耗时，不公开 Worker 标识、任务或连接信息。异常强杀可能在旧心跳超过 90 秒后才被识别，不能承诺瞬时发现。
+- `deploy/check_services.py`：再加上 `/health/workers`、前端页面、Next.js `/api/health/ready` 到后端的真实转发链路，以及五个应用进程 RUNNING 状态；全部正常退出码 0，否则 1。可接外部定时监控，但当前未实现通知渠道。
+- Web ready 与后台能力分开：Worker 故障不使仍可用的普通 Chat 被摘流。知识库/记忆 Worker 目前只覆盖受管进程状态；Durable 的陈旧 Worker、排队/租约告警继续查看运行面板。近期有心跳不证明工具凭据有效或端到端任务成功，探针不执行收费模型或外部工具请求。
 
 建议就绪检查间隔 15—30 秒，不在每个业务请求前额外调用，也不调用收费模型 API 作为健康探针。
 

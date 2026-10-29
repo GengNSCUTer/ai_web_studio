@@ -21,6 +21,7 @@ export function MemoryActivityPanel({ conversationId, refreshKey, uiLanguage }: 
   const [error, setError] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const mutationEpoch = useRef(0);
   const zh = uiLanguage === "zh-CN";
 
@@ -104,25 +105,55 @@ export function MemoryActivityPanel({ conversationId, refreshKey, uiLanguage }: 
   };
   return (
     <section aria-label={zh ? "后台记忆通知" : "Background memory updates"} aria-live="polite"
-      className="mx-auto mb-2.5 max-h-44 w-full max-w-[74rem] overflow-y-auto rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-4 py-2 text-xs text-[var(--ink-soft)]">
+      className="mx-auto mb-2.5 w-full max-w-[74rem] rounded-2xl border border-[var(--hairline)] bg-[var(--control-bg)] px-4 py-2 text-xs text-[var(--ink-soft)]">
       <div className="flex items-center justify-between gap-3">
-        <span>{zh ? "后台记忆" : "Background memory"}</span>
-        <a className="underline" href="/settings">{zh ? "管理记忆" : "Manage memory"}</a>
-      </div>
-      {activity?.has_pending_jobs ? <p className="mt-1">{zh ? "正在后台整理记忆，完成后会在这里通知。" : "Organizing memories in the background. Updates will appear here."}</p> : null}
-      {activity?.items.slice(0, 8).map((item) => (
-        <div key={item.event_id} data-testid={`memory-notice-${item.memory_id}`} className="mt-2 border-t border-[var(--hairline)] pt-2">
-          <div className="flex items-center justify-between gap-3">
-            <span>{labels[item.status] ?? item.status}：{item.title}</span>
-            {item.status === "active" ? <button type="button" disabled={revokingId !== null}
-              className="shrink-0 underline disabled:opacity-50" onClick={() => void revoke(item)}>
-              {revokingId === item.memory_id ? (zh ? "正在撤销…" : "Revoking…") : (zh ? "撤销记忆" : "Revoke memory")}
-            </button> : null}
-          </div>
-          {item.content ? <p className="mt-1 whitespace-pre-wrap break-words">{item.content}</p> : null}
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            aria-expanded={!isCollapsed}
+            aria-controls="memory-activity-details"
+            onClick={() => setIsCollapsed((current) => !current)}
+            className="inline-flex min-w-0 items-center gap-1.5 rounded-lg px-1 py-1 font-medium text-[var(--ink-soft)] transition hover:bg-[var(--soft-bg)]"
+          >
+            <span aria-hidden="true" className="text-[10px]">{isCollapsed ? "▸" : "▾"}</span>
+            <span>{zh ? "后台记忆" : "Background memory"}</span>
+            {activity?.items.length ? <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--accent-strong)]">{activity.items.length}</span> : null}
+          </button>
+          {activity?.has_pending_jobs ? <span className="truncate text-[var(--ink-muted)]">{zh ? "正在整理" : "Processing"}</span> : null}
         </div>
-      ))}
-      {error ? <p role="status" className="mt-1">{zh ? "记忆通知更新或操作失败，正在重试；请勿据此认为记忆已保存或撤销。" : "Memory updates or action failed. Retrying; saved or revoked status is not confirmed."}</p> : null}
+        <div className="flex shrink-0 items-center gap-3">
+          <a className="underline" href="/settings?tab=memory">
+            {zh ? "管理记忆" : "Manage memory"}
+          </a>
+          <button
+            type="button"
+            aria-label={isCollapsed ? (zh ? "展开记忆通知" : "Expand memory updates") : (zh ? "收起记忆通知" : "Collapse memory updates")}
+            aria-expanded={!isCollapsed}
+            onClick={() => setIsCollapsed((current) => !current)}
+            className="rounded-lg px-1.5 py-1 text-[var(--ink-muted)] transition hover:bg-[var(--soft-bg)] hover:text-[var(--ink-strong)]"
+          >
+            {isCollapsed ? "＋" : "－"}
+          </button>
+        </div>
+      </div>
+      {!isCollapsed ? (
+        <div id="memory-activity-details" className="max-h-44 overflow-y-auto pr-1">
+          {activity?.has_pending_jobs ? <p className="mt-1">{zh ? "正在后台整理记忆，完成后会在这里通知。" : "Organizing memories in the background. Updates will appear here."}</p> : null}
+          {activity?.items.slice(0, 8).map((item) => (
+            <div key={item.event_id} data-testid={`memory-notice-${item.memory_id}`} className="mt-2 border-t border-[var(--hairline)] pt-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="min-w-0 break-words">{labels[item.status] ?? item.status}：{item.title}</span>
+                {item.status === "active" ? <button type="button" disabled={revokingId !== null}
+                  className="shrink-0 underline disabled:opacity-50" onClick={() => void revoke(item)}>
+                  {revokingId === item.memory_id ? (zh ? "正在撤销…" : "Revoking…") : (zh ? "撤销记忆" : "Revoke memory")}
+                </button> : null}
+              </div>
+              {item.content ? <p className="mt-1 whitespace-pre-wrap break-words">{item.content}</p> : null}
+            </div>
+          ))}
+          {error ? <p role="status" className="mt-1">{zh ? "记忆通知更新或操作失败，正在重试；请勿据此认为记忆已保存或撤销。" : "Memory updates or action failed. Retrying; saved or revoked status is not confirmed."}</p> : null}
+        </div>
+      ) : null}
     </section>
   );
 }

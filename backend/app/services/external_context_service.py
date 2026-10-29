@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import hashlib
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -26,7 +27,7 @@ from app.services.tools.workflow import (
     ToolWorkflowService,
 )
 from app.services.tools.observation_projection import PlannerObservationProjection
-from app.services.tools.completion_contract import needs_followup
+from app.services.tools.completion_contract import infer_read_completion, needs_followup, required_tool_keys
 from app.services.tools.selector import ToolCandidateSelector
 from app.services.tools.semantic_retrieval import ToolSemanticRetriever
 
@@ -84,6 +85,42 @@ class ExternalContextService:
         self.workflow = workflow or ToolWorkflowService(executor=self.executor, registry=self.registry)
         self.run_policy = run_policy or resolve_tool_run_policy()
 
+    @staticmethod
+    def _scope_plan_call_ids(plan, round_index, used_call_ids=None):
+        """模型call_id只在单计划内唯一；按轮次隔离，避免审计和来源被后轮覆盖。"""
+        plan = deepcopy(plan)
+        used_call_ids = used_call_ids if used_call_ids is not None else set()
+        original_ids = [call.call_id for call in plan.calls]
+        mapping = {}
+        for index,original_id in enumerate(original_ids,1):
+            if original_id in mapping:
+                continue
+            scoped_id = original_id
+            if original_id in used_call_ids:
+                scoped_id = f"round_{round_index}_{index}"
+                while scoped_id in used_call_ids or scoped_id in original_ids or scoped_id in mapping.values():
+                    scoped_id += "_"
+            mapping[original_id] = scoped_id
+        for call, original_id in zip(plan.calls,original_ids):
+            call.call_id = mapping[original_id]
+            call.depends_on = [mapping.get(dependency,dependency) for dependency in call.depends_on]
+            for binding in call.result_bindings:
+                binding.source_call_id = mapping.get(binding.source_call_id,binding.source_call_id)
+        # 原始ID留在映射审计里，计划及执行事件统一使用运行级ID。
+        def rewrite(value):
+            if isinstance(value,list):return [rewrite(item) for item in value]
+            if not isinstance(value,dict):return value
+            return {key:(item if key in {"arguments","input_schema","output_schema"}
+                         else mapping.get(item,item) if key in {"call_id","source_call_id"} and isinstance(item,str)
+                         else [mapping.get(v,v) for v in item] if key=="depends_on" and isinstance(item,list)
+                         else rewrite(item)) for key,item in value.items()}
+        plan.trace_events = rewrite(plan.trace_events)
+        used_call_ids.update(mapping.values())
+        if any(k!=v for k,v in mapping.items()):
+            plan.trace_events.append({"type":"tool_call_identity_scope","round":round_index,
+                                      "original_to_execution":mapping})
+        return plan
+
     async def build_context(
         self,
         *,
@@ -130,6 +167,7 @@ class ExternalContextService:
         rewrite = self.query_rewriter.rewrite(query=query, recent_messages=recent_messages)
         routed_query = rewrite.rewritten_query
         observations: list[dict] = []
+        used_call_ids: set[str] = set()
         events: list[ToolTraceEvent] = []
         if skill_context:
             events.append(
@@ -250,6 +288,7 @@ class ExternalContextService:
             if time.perf_counter() >= budget.deadline:
                 record_budget_timeout(round_index=round_index, stage="planner")
                 break
+            plan = self._scope_plan_call_ids(plan, round_index, used_call_ids)
             last_plan = plan
             plan.original_query = rewrite.original_query
             plan.rewritten_query = routed_query if rewrite.did_rewrite else None
@@ -349,6 +388,8 @@ class ExternalContextService:
                 execution_elapsed_ms += max(0, int((time.perf_counter() - execution_started) * 1000))
             budget.record_attempted_tool_calls(workflow_result.aggregate.attempted_steps)
             events.extend(workflow_result.events)
+            used_call_ids.update(event.payload["call_id"] for event in workflow_result.events
+                if isinstance(event.payload.get("call_id"),str) and event.payload["call_id"])
             raw_sources_total += len(workflow_result.sources)
             newly_added_sources, duplicate_count = self._merge_sources(sources, workflow_result.sources)
             duplicate_sources_total += duplicate_count
@@ -406,12 +447,18 @@ class ExternalContextService:
                 observation.get("next_action") == "replan"
                 for observation in quality_observations
             )
+            completion = skill_context.completion_contract if skill_context else infer_read_completion(routed_query)
             completion_replan_required = needs_followup(
                 query=routed_query,
                 observations=observations,
-                contract=skill_context.completion_contract if skill_context else None,
+                contract=completion,
             )
             if completion_replan_required:
+                # 这是代码根据用户意图生成的缺口说明，不读取外部资料中的任务指令。
+                observed = {item.get("metadata", {}).get("tool_key") for item in observations}
+                observations.append({"source_type": "task_completion_feedback", "round": round_index,
+                    "metadata": {"missing_tool_keys": [key for key in required_tool_keys(completion) if key not in observed]},
+                    "display_text": "当前只有定位/搜索结果，尚缺正文核验。依据实际返回的ID继续读取；搜索未命中时可列出授权文件后定位，不能推断文件不存在。"})
                 events.append(
                     ToolTraceEvent(
                         type="tool_agent_replan_required",

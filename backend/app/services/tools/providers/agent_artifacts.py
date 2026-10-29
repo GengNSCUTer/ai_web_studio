@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -113,8 +114,13 @@ class AgentArtifactToolProvider:
             # Do not reveal whether another user/project owns this ID.
             raise ToolExecutionFeedbackError("当前工作区中未找到该 Artifact。")
         artifact, _ = row
-        content = artifact.content_json[:max_chars]
-        truncated = len(artifact.content_json) > len(content)
+        visible = artifact.content_json
+        if artifact.artifact_type == "document_export":
+            # 二进制文档供下载；工具按需读取正文与来源，避免把 base64 当证据送给模型。
+            payload = json.loads(visible)
+            visible = json.dumps({k: v for k, v in payload.items() if k != "data_base64"}, ensure_ascii=False)
+        content = visible[:max_chars]
+        truncated = len(visible) > len(content)
         if truncated:
             content += "\n[Artifact 内容已达本次读取上限]"
         return (

@@ -11,7 +11,7 @@ from app.services.chat_provider_service import ChatProviderService
 from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.bindings import ToolResultBindingError, ToolResultBindingResolver
 from app.services.tools.catalog import ToolCatalog
-from app.services.tools.completion_contract import augment_plan
+from app.services.tools.completion_contract import augment_plan, infer_read_completion
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.schemas import PlannedToolCall, ToolPlan, ToolResultBinding, redact_sensitive_arguments
 from app.services.tools.selector import ToolCandidateSelector
@@ -94,6 +94,19 @@ class LLMToolPlanner:
             plan=deterministic_plan,
             allowed_tool_keys=candidate_keys,
         )
+        if not skill_context:
+            scoped_fallback = self._verified_read_fallback(query=query,observations=observations or [],
+                                                          candidate_keys=candidate_keys)
+            if scoped_fallback is not None:
+                deterministic_plan = scoped_fallback
+        if not deterministic_plan.calls and not skill_context:
+            read_requirement = infer_read_completion(query)
+            if read_requirement and "workspace.files.read" in read_requirement["required_tool_keys"]:
+                # 模型超时也可先列出已授权项目文件；不猜 file_id，不自行写文件。
+                discover = [tool for tool in candidate_tools if tool.tool_key == "workspace.files.list"]
+                if discover:
+                    deterministic_plan = self._candidate_fallback_plan(query=query,
+                        candidate_tools=discover, allowed_tool_keys=candidate_keys)
         if (
             skill_context
             and skill_context.requires_tool_execution
@@ -225,7 +238,7 @@ class LLMToolPlanner:
             "规则：\n"
             "1. 只使用工具列表中存在的 tool_key。\n"
             "2. arguments 必须符合对应 input_schema。\n"
-            "3. 天气优先用 amap.maps.weather。\n"
+            "3. 天气优先用 amap.maps.weather；当前/现在/实时用mode=live，明确未来预报用mode=forecast，不能用预报代替实况。\n"
             "4. 驾车路线/开车多久用 amap.maps.direction.driving；步行用 amap.maps.direction.walking；公交地铁用 amap.maps.direction.transit。\n"
             "5. 多远/相距/哪个近用 amap.maps.distance。\n"
             "6. 地址解析用 amap.maps.geo；地点/附近/周边/服务区优先用 amap.maps.text_search 或 amap.maps.around_search。\n"
@@ -245,6 +258,9 @@ class LLMToolPlanner:
             "20. 文件 list/search 是分页结果。观察 metadata.has_more=true 时尚未查完；需要继续定位目标或确认全局未命中时，保持原 query/file_name/file_id，用 next_cursor 填下一次 cursor。不要重做同一第一页，不要把部分范围未命中说成整个项目不存在。用户提供准确文件名时优先 file_name 定向查找；检索出 file_id 后 read 原文。预算不足时明确范围未穷尽。\n"
             "21. 用户要求文件正文、标题或某行原文时，search 只定位文件，必须 read 核实后结束；可以在同一计划中通过 result_bindings 连接 search 和 read，或 need_more_rounds=true 后续读取。\n"
             "22. 输出紧凑 JSON，不缩进，不附解释；reason/execution_reason 最多 20 字。不复制工具描述或 Schema，不输出空的可选字段。没有依赖时可省略 depends_on/can_parallel/result_bindings；只有需要传递上游参数时才输出 result_bindings。\n"
+            "23. 文件搜索是词法匹配，不支持跨语言语义翻译；query用短关键词，准确文件名放file_name。中文搜索英文资料未命中时，先list定位真实文件名/ID，再read核实，不把一次关键词未命中说成文件不存在。不要将唯一文件直接当作目标事实，须读取核验。\n"
+            "24. 用户明确要求Context7等提供方时优先使用其候选工具，不能悄悄换成网页搜索。Context7 resolve只返回库候选，必须根据真实library_id再query文档；need_more_rounds=true或用result_bindings，不能只看库简介生成API示例。查询应保留用户明确的库名、API和主题，不替换成无关内容。\n"
+            "25. 用户要求官方文档时，若确知官网域名可使用搜索工具的include_domains限定来源；未知时先定位官网，不把第三方教程冒充官方正文。\n"
             "示例 A：用户问“深圳和广州天气怎么样”，输出两个 amap.maps.weather 调用，分别 city=深圳、city=广州，depends_on=[]。\n"
             "示例 B：用户问“深圳到汕头路上有哪些服务区，顺便看天气和预计耗时”，输出驾车路线、深圳天气、汕头天气、服务区/地点搜索、网页搜索；路线和天气可并行，依赖路线结果再继续精查时设置 need_more_rounds=true。\n"
             "无依赖调用格式：{\"should_use_tools\":true,\"need_more_rounds\":false,\"calls\":[{\"id\":\"call_1\",\"tool_key\":\"...\",\"arguments\":{}}]}。"
@@ -324,6 +340,53 @@ class LLMToolPlanner:
                     "allowed_tool_keys": sorted(allowed_tool_keys),
                 }
             )
+
+    def _verified_read_fallback(self, *, query, observations, candidate_keys):
+        """仅延续已授权的只读查证；不把默认网页搜索当成指定来源的替代品。"""
+        requirement = infer_read_completion(query)
+        if not requirement:
+            return None
+        observed = {item.get("metadata", {}).get("tool_key") for item in observations}
+        key = requirement["required_tool_keys"][0]
+        arguments = None
+        if key == "workspace.files.read" and key not in observed:
+            for item in observations:
+                meta = item.get("metadata", {})
+                if item.get("source_type") == "workspace_file_search" and meta.get("file_id"):
+                    arguments = {"file_id": meta["file_id"]}
+                    break
+                if item.get("source_type") == "workspace_file_list" and meta.get("scanned_files") == "1" and meta.get("first_file_id"):
+                    arguments = {"file_id": meta["first_file_id"]}
+                    break
+        elif key == "docs.context7.query":
+            # 只有真正定位出的库 ID 才能查询；没有唯一对应则保留缺口，不猜 ID。
+            candidates = []
+            for item in observations:
+                meta = item.get("metadata", {})
+                if item.get("source_type") == "documentation_library" and meta.get("library_id"):
+                    name = str(meta.get("title") or "").casefold()
+                    slug = str(meta["library_id"]).rstrip("/").split("/")[-1].casefold()
+                    if (len(name)>2 and name in query.casefold()) or (len(slug)>2 and slug in query.casefold()):
+                        candidates.append(meta["library_id"])
+            if len(set(candidates)) == 1 and key not in observed:
+                arguments = {"libraryId": candidates[0], "query": query}
+            elif key not in observed:
+                match = re.search(r"context7\s*(?:查询|查|检索|查证|搜索)\s*([A-Za-z][A-Za-z0-9_.-]*)", query,re.I)
+                if match and "docs.context7.resolve" not in observed:
+                    key = "docs.context7.resolve"
+                    arguments = {"libraryName": match.group(1), "query": query}
+            # 指定提供方失败时禁止静默回退网页；空计划交给最终回答说明资料不足。
+            if arguments is None or key not in candidate_keys:
+                return ToolPlan(plan_id=str(uuid4()),router="verified_read_fallback_v1",
+                    external_context_allowed=True,should_use_tools=False,calls=[],original_query=query)
+        if arguments is None or key not in candidate_keys:
+            return None
+        definition = self.catalog.get(key)
+        return ToolPlan(plan_id=str(uuid4()),router="verified_read_fallback_v1",external_context_allowed=True,
+            should_use_tools=True,original_query=query,need_more_rounds=True,
+            calls=[PlannedToolCall(call_id=str(uuid4()),tool_key=key,provider=definition.provider,
+                category=definition.category,display_name=definition.display_name,confidence=1,
+                reason="使用已核实标识继续只读查证，仍通过执行器校验。",arguments=arguments)])
 
     def _candidate_fallback_plan(
         self,

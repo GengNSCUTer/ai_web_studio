@@ -637,6 +637,46 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_history_deleted_during_prepare_rejects_context_and_closes_placeholder(self) -> None:
+        """上下文冲突在流开始前返回 409，当前占位消息必须收口为 failed。"""
+        from fastapi import HTTPException
+        from app.services.memory_retrieval_service import MemoryRetrievalResult
+
+        async def run_test() -> None:
+            conversation = Conversation(user_id=self.user.id, title="并发删改", model_name="qwen-test")
+            self.db.add(conversation)
+            self.db.flush()
+            repo = MessageRepository(self.db)
+            old = repo.create(Message(conversation_id=conversation.id, role="user", content="过期资料"))
+            mid, cid = old.id, conversation.id
+            conversation.context_summary = "含过期资料的摘要"
+            conversation.context_summary_boundary_message_id = mid
+            self.db.commit()
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+
+            async def memory_wait(*args, **kwargs):
+                self.db.commit()
+                with self.SessionLocal() as other:
+                    MessageService(MessageRepository(other)).delete_message(mid, cid)
+                return MemoryRetrievalResult()
+
+            with patch.object(service.context_assembly_service, "build_memory_context", side_effect=memory_wait), patch(
+                "app.services.chat_context_assembly_service.ExternalContextService", FakeExternalContextService
+            ):
+                with self.assertRaises(HTTPException) as caught:
+                    await service.prepare_chat_execution(ChatStreamRequest(
+                        conversation_id=cid, content="继续分析", model_name="qwen-test", web_search_enabled=False
+                    ))
+            self.assertEqual(caught.exception.status_code, 409)
+            assistant = self.db.scalars(select(Message).where(
+                Message.conversation_id == cid, Message.role == "assistant"
+            )).one()
+            self.assertEqual(assistant.status, "failed")
+            self.db.refresh(conversation)
+            self.assertIsNone(conversation.context_summary)
+
+        asyncio.run(run_test())
+
     def test_prepare_cancellation_closes_placeholder_as_cancelled(self) -> None:
         """上游任务取消与组装异常不同，消息不能遗留 streaming 或被标成 failed。"""
 

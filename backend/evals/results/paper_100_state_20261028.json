@@ -1,0 +1,8 @@
+{
+  "base": "f48f939a-a574-45a1-8721-6e635a258209",
+  "corpus": "paper",
+  "reviewed": true,
+  "eval_set_id": "26356ac6-ce60-4a70-8062-316fb68be753",
+  "matrix_complete": true,
+  "e2e_complete": true
+}

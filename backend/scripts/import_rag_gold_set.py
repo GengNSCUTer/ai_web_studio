@@ -79,6 +79,18 @@ def _resolve_case(
     user_id: str,
     knowledge_base: Any,
 ) -> tuple[list[str], list[str]]:
+    answerable = case.get("answerable", "no-answer" not in case.get("tags", []))
+    if type(answerable) is not bool:
+        raise ValueError("answerable 必须是布尔值")
+    if not answerable:
+        target_fields = ("expected_document_ids", "expected_chunk_ids", "expected_document_files",
+                         "expected_document_file", "expected_chunk_selectors", "expected_chunk_contains",
+                         "expected_document_id", "expected_chunk_id")
+        if any(case.get(field) for field in target_fields):
+            raise ValueError(f"{case.get('case_id')}: 无答案题不能绑定正例证据")
+        return [], []
+    if "no-answer" in case.get("tags", []):
+        raise ValueError("answerable 与 no-answer 标签冲突")
     expected_document_ids = _as_list(case.get("expected_document_ids"))
     expected_chunk_ids = _as_list(case.get("expected_chunk_ids"))
     file_names = _as_list(case.get("expected_document_files"))
@@ -204,6 +216,7 @@ def main() -> int:
                 args.user_id,
                 KnowledgeEvalCaseCreate(
                     query=str(case.get("query") or "").strip(),
+                    answerable=case.get("answerable", "no-answer" not in case.get("tags", [])),
                     expected_document_ids=document_ids,
                     expected_chunk_ids=chunk_ids,
                     expected_answer_keywords=[str(item) for item in case.get("expected_answer_keywords", [])],

@@ -24,6 +24,9 @@ from app.services.knowledge_vector_search import (
     PgvectorKnowledgeVectorSearch,
 )
 from app.services.setting_service import SettingService
+from app.services.knowledge_query_expansion import KnowledgeQueryExpansionService
+from app.services.knowledge_search_text import retrieval_text
+from app.core.config import settings
 
 
 @dataclass(frozen=True)
@@ -75,13 +78,16 @@ class KnowledgeRetrievalPipeline:
         rerank_service: KnowledgeRerankService | None = None,
         vector_search: KnowledgeVectorSearch | None = None,
         lexical_store: KnowledgeLexicalStore | None = None,
+        enhancement: str | None = None,
     ) -> None:
         self.chunk_repo = chunk_repo
         self.setting_service = setting_service
         self.embedding_service = embedding_service or KnowledgeEmbeddingService(setting_service)
         self.rerank_service = rerank_service or KnowledgeRerankService(setting_service)
         self.vector_search = vector_search or PgvectorKnowledgeVectorSearch(chunk_repo)
-        self.lexical_store = lexical_store or KnowledgeLexicalStore()
+        self.enhancement = enhancement if enhancement is not None else getattr(settings, "knowledge_retrieval_enhancement", "none")
+        self.lexical_store = lexical_store or KnowledgeLexicalStore(contextual=self.enhancement in {"context", "both"})
+        self.query_expansion = KnowledgeQueryExpansionService(setting_service)
 
     def retrieve(
         self,
@@ -112,6 +118,8 @@ class KnowledgeRetrievalPipeline:
         filters: KnowledgeRetrievalFilter | None = None,
     ) -> list[RetrievalResult]:
         filters = filters or KnowledgeRetrievalFilter()
+        if self.enhancement in {"query", "both"}:
+            query, _ = await self.query_expansion.expand(user_id=user_id, query=query)
         retrieval_mode = (knowledge_base.retrieval_mode or "vector").strip().lower()
         rerank_active = bool(knowledge_base.rerank_enabled and knowledge_base.rerank_top_n > 0)
         channel_top_k = top_k
@@ -259,7 +267,9 @@ class KnowledgeRetrievalPipeline:
                 user_id=user_id,
                 knowledge_base=knowledge_base,
                 query=query,
-                documents=[result.chunk.content for result in results],
+                documents=[retrieval_text(result.chunk, result.metadata)
+                           if self.enhancement in {"context", "both"} else result.chunk.content
+                           for result in results],
                 top_n=rerank_top_n,
             )
         except Exception as exc:
@@ -285,6 +295,8 @@ class KnowledgeRetrievalPipeline:
                 "pre_rerank_score": result.score,
                 "rerank_candidate_count": len(results),
                 "rerank_output_limit": rerank_top_n,
+                "rerank_score_policy": "rank_only",
+                "retrieval_enhancement": self.enhancement,
             }
             if "vector_score" not in metadata and result.rank_source in {"vector", "vector_fallback"}:
                 metadata["vector_score"] = result.score
@@ -297,7 +309,9 @@ class KnowledgeRetrievalPipeline:
                     metadata=metadata,
                 )
             )
-        return self._apply_score_threshold(reranked_results, knowledge_base.score_threshold)
+        # 精排相关性分数不是向量余弦相似度，也不是 RRF 归一化分数。
+        # 未经专门校准不能复用召回阈值；成功精排仅按模型排名和 top_n 收口。
+        return reranked_results[:rerank_top_n]
 
     def _retrieve_lexical_results(
         self,
@@ -364,6 +378,11 @@ class KnowledgeRetrievalPipeline:
         index_generation: str,
     ) -> list[LexicalSearchHit]:
         try:
+            if self.lexical_store.contextual:
+                primary = KnowledgeLexicalStore().index_path(knowledge_base.id, generation_id=index_generation)
+                contextual = self.lexical_store.index_path(knowledge_base.id, generation_id=index_generation)
+                if primary.exists() and contextual.exists() and primary.stat().st_mtime_ns > contextual.stat().st_mtime_ns:
+                    raise RuntimeError("结构索引落后于当前发布索引，需重建")
             return self.lexical_store.search(
                 knowledge_base_id=knowledge_base.id,
                 query=query,

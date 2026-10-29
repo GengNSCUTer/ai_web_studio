@@ -1,0 +1,103 @@
+{
+  "name": "chinese_rag_gold_set_v3_reviewed",
+  "schema_version": 6,
+  "description": "原文优先、在线模型辅助标注、精确引文核验与独立审查；非专家穷尽标注",
+  "labeling_policy": {
+    "retrieval_blind": true,
+    "draft_model": "deepseek-ai/DeepSeek-V3.2",
+    "review_model": "Qwen/Qwen2.5-72B-Instruct",
+    "mode": "source_review"
+  },
+  "cases": [
+    {
+      "case_id": "redis_04",
+      "query": "Redis Hash 适合怎样存储字段型数据？",
+      "expected_chunk_selectors": [
+        {
+          "document_file": "01-Redis快速入门.pptx",
+          "chunk_index": 5,
+          "contains": "Hash类型，也叫散列，其value是一个无序字典，类似于Java中的HashMap结构。"
+        },
+        {
+          "document_file": "01-Redis快速入门.pptx",
+          "chunk_index": 5,
+          "contains": "Hash结构可以将对象中的每个字段独立存储，可以针对单个字段做CRUD："
+        },
+        {
+          "document_file": "01-Redis快速入门.pptx",
+          "chunk_index": 6,
+          "contains": "HSET key field value：添加或者修改hash类型key的field的值"
+        },
+        {
+          "document_file": "01-Redis快速入门.pptx",
+          "chunk_index": 6,
+          "contains": "HGET key field：获取一个hash类型key的field的值"
+        }
+      ],
+      "expected_answer_keywords": [
+        "field",
+        "HGET"
+      ],
+      "answerable": true,
+      "review_note": "按原文复核：正文优先，去除冗余目录证据；Redis 使用真实幻灯片顺序。",
+      "evidence_review": [
+        {
+          "document_file": "01-Redis快速入门.pptx",
+          "chunk_index": 5,
+          "quote": "Hash类型，也叫散列，其value是一个无序字典，类似于Java中的HashMap结构。",
+          "relevance": 2
+        },
+        {
+          "document_file": "01-Redis快速入门.pptx",
+          "chunk_index": 5,
+          "quote": "Hash结构可以将对象中的每个字段独立存储，可以针对单个字段做CRUD：",
+          "relevance": 2
+        },
+        {
+          "document_file": "01-Redis快速入门.pptx",
+          "chunk_index": 6,
+          "quote": "HSET key field value：添加或者修改hash类型key的field的值",
+          "relevance": 2
+        },
+        {
+          "document_file": "01-Redis快速入门.pptx",
+          "chunk_index": 6,
+          "quote": "HGET key field：获取一个hash类型key的field的值",
+          "relevance": 2
+        }
+      ],
+      "expected_answer_claims": [
+        "Redis Hash 类型适合存储字段型数据，如用户信息。",
+        "Redis Hash 类型可以将对象中的每个字段独立存储，便于针对单个字段进行操作。",
+        "Redis Hash 类型类似于Java中的HashMap结构，可以存储无序字典。",
+        "使用Redis Hash 类型可以提高对单个字段进行CRUD操作的效率。"
+      ]
+    },
+    {
+      "case_id": "negative_01",
+      "query": "这些资料是否给出了 Redis 集群在线扩容的统一 P99 延迟保证？",
+      "expected_answer_keywords": [],
+      "tags": [
+        "no-answer"
+      ],
+      "answerable": false,
+      "review_note": "全文未给出问题要求的统一保证/配置，不能绑定任意相关段落充当答案。",
+      "expected_answer_claims": [
+        "当前资料不足以支持问题要求的具体信息，应明确说明证据不足。"
+      ]
+    },
+    {
+      "case_id": "negative_02",
+      "query": "Python 教程是否规定了 FastAPI 生产环境的固定连接池大小？",
+      "expected_answer_keywords": [],
+      "tags": [
+        "no-answer"
+      ],
+      "answerable": false,
+      "review_note": "全文未给出问题要求的统一保证/配置，不能绑定任意相关段落充当答案。",
+      "expected_answer_claims": [
+        "当前资料不足以支持问题要求的具体信息，应明确说明证据不足。"
+      ]
+    }
+  ]
+}

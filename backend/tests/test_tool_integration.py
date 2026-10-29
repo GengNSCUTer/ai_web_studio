@@ -437,7 +437,10 @@ class ToolIntegrationTest(unittest.TestCase):
         self.assertEqual(result.diagnostics["external_tool_next_action"], "stop")
         self.assertEqual(result.diagnostics["external_agent_terminal_reason"], "max_rounds_reached")
         self.assertEqual(result.sources, [])
-        self.assertEqual(set(executor.calls), {"weather", "search"})
+        self.assertEqual(set(executor.calls[:2]), {"weather", "search"})
+        # 每轮模型可复用局部ID，但实际失败尝试仍需独立审计，不能覆盖前一轮。
+        self.assertEqual(len(executor.calls),len(set(executor.calls)))
+        self.assertLessEqual(len(executor.calls),result.diagnostics["external_tool_run_budget"]["max_total_tool_calls"])
         self.assertEqual(
             result.diagnostics["external_tool_run_budget"]["planning_rounds_used"],
             result.diagnostics["external_tool_run_budget"]["max_planning_rounds"],

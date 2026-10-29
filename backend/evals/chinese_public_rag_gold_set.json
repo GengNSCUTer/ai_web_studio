@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "name": "chinese_public_rag_v1",
+  "description": "公开 Python 官方中文文档的留出前评测集；每题绑定来源文档和证据短语，需导入后解析校验。",
+  "labeling_policy": {
+    "source_first": true,
+    "retrieval_blind": true,
+    "no_answer_cases": 2,
+    "multiple_evidence_cases": 4
+  },
+  "cases": [
+    {"case_id":"py_asyncio_01","query":"asyncio 事件循环主要负责调度哪些类型的工作？","expected_document_file":"python_asyncio.md","expected_chunk_contains":["事件循环"],"expected_answer_keywords":["回调","网络 IO","子进程"]},
+    {"case_id":"py_asyncio_02","query":"为什么协程函数调用后不会立即执行函数体？","expected_document_file":"python_coroutines.md","expected_chunk_contains":["协程对象"],"expected_answer_keywords":["await","Task"]},
+    {"case_id":"py_asyncio_03","query":"asyncio.create_task 和直接保存协程对象在调度行为上有什么区别？","expected_document_file":"python_coroutines.md","expected_chunk_contains":["create_task"],"expected_answer_keywords":["Task","并发"]},
+    {"case_id":"py_typing_01","query":"Python 的 TypeVar 用来表达什么关系？","expected_document_file":"python_typing.md","expected_chunk_contains":["TypeVar"],"expected_answer_keywords":["类型变量"]},
+    {"case_id":"py_typing_02","query":"typing.Protocol 解决哪类类型检查问题？","expected_document_file":"python_typing.md","expected_chunk_contains":["Protocol"],"expected_answer_keywords":["结构化","子类型"]},
+    {"case_id":"py_logging_01","query":"Python logging 的 logger、handler 和 formatter 分别负责什么？","expected_document_file":"python_logging.md","expected_chunk_contains":["logger"],"expected_answer_keywords":["处理器","格式"]},
+    {"case_id":"py_logging_02","query":"为什么库代码通常不应该直接配置全局 logging？","expected_document_file":"python_logging.md","expected_chunk_contains":["库"],"expected_answer_keywords":["应用程序","配置"]},
+    {"case_id":"py_http_01","query":"http.server 适合直接作为生产 Web 服务吗？文档给出的边界是什么？","expected_document_file":"python_http_server.md","expected_chunk_contains":["生产"],"expected_answer_keywords":["基本","安全"]},
+    {"case_id":"py_http_02","query":"BaseHTTPRequestHandler 中请求处理方法和响应头发送顺序有什么要求？","expected_document_file":"python_http_server.md","expected_chunk_contains":["send_header"],"expected_answer_keywords":["send_response","end_headers"]},
+    {"case_id":"py_sqlite_01","query":"sqlite3 连接对象的 commit 和 rollback 分别处理什么？","expected_document_file":"python_sqlite.md","expected_chunk_contains":["commit"],"expected_answer_keywords":["事务","回滚"]},
+    {"case_id":"py_sqlite_02","query":"sqlite3 参数化查询为什么比字符串拼接更安全？","expected_document_file":"python_sqlite.md","expected_chunk_contains":["参数替换"],"expected_answer_keywords":["SQL 注入"]},
+    {"case_id":"py_no_answer_01","query":"Python 官方 asyncio 文档是否规定 PostgreSQL 连接池的最大连接数？","expected_document_file":"python_asyncio.md","expected_chunk_contains":["asyncio"],"expected_answer_keywords":[],"tags":["no-answer"]},
+    {"case_id":"py_no_answer_02","query":"Python logging 文档是否给出了生产环境所有日志系统的统一延迟指标？","expected_document_file":"python_logging.md","expected_chunk_contains":["日志"],"expected_answer_keywords":[],"tags":["no-answer"]}
+  ]
+}

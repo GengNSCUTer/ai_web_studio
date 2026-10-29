@@ -94,6 +94,7 @@ const THREAD_TEXT = {
     noKnowledgeBase: "不使用知识库",
     skill: "Skill",
     noSkill: "不使用 Skill",
+    scrollToLatest: "回到底部",
     toolRunMode: "运行模式",
     toolRunModeQuick: "快速对话 · 最多 5 轮 / 10 次工具调用",
     toolRunModeResearch: "研究模式 · 最多 8 轮 / 16 次工具调用",
@@ -109,6 +110,7 @@ const THREAD_TEXT = {
     copyAnswer: "复制回答",
     copied: "已复制",
     regenerateAnswer: "重新生成",
+    saveAsDocument: "保存为文档",
     editLastUser: "编辑后重答",
     saveAndRetry: "保存并重答",
     removeAttachment: "移除附件",
@@ -227,6 +229,7 @@ const THREAD_TEXT = {
     noKnowledgeBase: "No knowledge base",
     skill: "Skill",
     noSkill: "No Skill",
+    scrollToLatest: "Back to latest",
     toolRunMode: "Run mode",
     toolRunModeQuick: "Quick chat · 5 rounds / 10 tool calls",
     toolRunModeResearch: "Guided research · 8 rounds / 16 tool calls",
@@ -242,6 +245,7 @@ const THREAD_TEXT = {
     copyAnswer: "Copy answer",
     copied: "Copied",
     regenerateAnswer: "Regenerate",
+    saveAsDocument: "Save as document",
     editLastUser: "Edit and retry",
     saveAndRetry: "Save and retry",
     removeAttachment: "Remove attachment",
@@ -605,6 +609,7 @@ export function ChatThread({
   const [uploadedItems, setUploadedItems] = useState<UploadItem[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [documentTaskId, setDocumentTaskId] = useState<string | null>(null);
   const [isManageMode, setIsManageMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -1049,12 +1054,6 @@ export function ChatThread({
   }, [composer, editingUserMessageId, isGenerating, projectId]);
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({
-      behavior: streamingStartedAt ? "auto" : "smooth",
-    });
-  }, [threadMessages.length, activeStreamingAssistantMessage?.content, streamingStartedAt]);
-
-  useEffect(() => {
     if (!highlightedMessageId) {
       return;
     }
@@ -1320,6 +1319,36 @@ export function ChatThread({
       }, 1800);
     } catch (copyError) {
       setLocalError(`复制失败：${requestErrorMessage(copyError)}`);
+    }
+  }
+
+  async function handleSaveAsDocument(messageId: string, content: string) {
+    if (!projectId || !content.trim()) {
+      setLocalError("当前会话没有可交付的工作区或内容。");
+      return;
+    }
+    setLocalError(null);
+    try {
+      const response = await fetch("/api/backend/document-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_name: `回答整理-${messageId.slice(0, 8)}.md`,
+          format: "markdown",
+          project_id: projectId,
+          conversation_id: activeConversationId,
+          assistant_message_id: messageId,
+          instruction: "把本次已完成回答整理为可交付文档，保留原有事实、来源与不确定性，不扩展无证据结论。",
+          idempotency_key: `chat-document-${messageId}`,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const result = (await response.json()) as { id: string };
+      setDocumentTaskId(result.id);
+    } catch (error) {
+      setLocalError(`文档交付失败：${requestErrorMessage(error)}`);
     }
   }
 
@@ -1964,6 +1993,7 @@ export function ChatThread({
         onCancelEditLastUser={cancelEditLastUser}
         onSubmitEditLastUser={handleEditLastUserSubmit}
         onCopyMessage={handleCopyMessage}
+        onSaveAsDocument={handleSaveAsDocument}
         onEnterManageMode={enterManageMode}
         onRegenerateLastAssistant={handleRegenerateLastAssistant}
         onBeginEditLastUser={beginEditLastUser}
@@ -1974,6 +2004,9 @@ export function ChatThread({
       />
 
       <footer className="composer-footer border-t px-3 py-2.5 sm:px-5">
+        {documentTaskId ? <div className="mx-auto mb-2 max-w-[74rem] rounded-xl bg-[var(--soft-bg)] p-3 text-sm">
+          文档任务已创建，完成导出后可预览下载；保存工作区仍需确认。 <a className="text-[var(--accent-strong)] underline" href={`/documents?run=${documentTaskId}`}>打开任务与产物</a>
+        </div> : null}
         {activeConversationId ? <MemoryActivityPanel
           key={activeConversationId}
           conversationId={activeConversationId}

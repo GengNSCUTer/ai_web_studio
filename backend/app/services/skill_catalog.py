@@ -137,6 +137,13 @@ class SkillCatalog:
                 installation
                 and (not installed_digest or installed_digest != skill["manifest_digest"])
             )
+            plugin_scope_ready = True
+            if installation:
+                from app.services.plugin_service import require_plugin_skill_scope
+                try:
+                    require_plugin_skill_scope(db, user_id, project_id, skill["skill_key"])
+                except SkillCatalogError:
+                    plugin_scope_ready = False
             result.append(
                 {
                     **skill,
@@ -158,10 +165,14 @@ class SkillCatalog:
                         installation
                         and installation.is_enabled
                         and not update_available
+                        and plugin_scope_ready
                         and not skill_availability["missing_required_tool_keys"]
                         and (project_id or not skill["requires_project"])
                     ),
                     "unavailable_reason": (
+                        "plugin_project_disabled"
+                        if installation and not plugin_scope_ready
+                        else
                         "version_lock_required"
                         if installation and not installed_digest
                         else "update_required"
@@ -285,6 +296,8 @@ class SkillCatalog:
             raise SkillCatalogError("Skill 尚未安装。")
         if not installation.is_enabled:
             raise SkillCatalogError("Skill 已停用。")
+        from app.services.plugin_service import require_plugin_skill_scope
+        require_plugin_skill_scope(db, user_id, project_id, skill_key)
         installed_digest = getattr(installation, "manifest_digest", None)
         if not installed_digest:
             raise SkillCatalogError("Skill 安装缺少版本锁，请先显式升级或重新安装。")

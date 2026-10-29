@@ -1497,6 +1497,44 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertEqual(len(KnowledgeEvalCaseRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)), 0)
         self.assertEqual(len(KnowledgeEvalRunRepository(self.db).list_by_eval_set(eval_set.id, self.user.id)), 0)
 
+    def test_eval_negative_cases_do_not_reduce_positive_recall(self) -> None:
+        base, document, chunk_repo, _ = self._create_indexed_markdown_knowledge_base(
+            name="负例评测", file_name="facts.md", content="adaptive rag routing evidence " * 10,
+        )
+        target = chunk_repo.list_by_knowledge_base(base.id, self.user.id, index_generation="legacy")[0]
+        pipeline = Mock()
+        pipeline.retrieve.return_value = [RetrievalResult(chunk=target, score=0.9, metadata={})]
+        service = KnowledgeEvaluationService(
+            base_repo=KnowledgeBaseRepository(self.db), chunk_repo=KnowledgeChunkRepository(self.db),
+            eval_set_repo=KnowledgeEvalSetRepository(self.db), eval_case_repo=KnowledgeEvalCaseRepository(self.db),
+            eval_run_repo=KnowledgeEvalRunRepository(self.db), eval_result_repo=KnowledgeEvalResultRepository(self.db),
+            setting_service=SettingService(UserSettingRepository(self.db)), retrieval_pipeline=pipeline,
+        )
+        es = service.create_eval_set(base.id, self.user.id, KnowledgeEvalSetCreate(name="含负例"))
+        positive = service.add_eval_case(base.id, es.id, self.user.id,
+            KnowledgeEvalCaseCreate(query="事实", expected_chunk_ids=[target.id]))
+        negative = service.add_eval_case(base.id, es.id, self.user.id,
+            KnowledgeEvalCaseCreate(query="资料没有的问题", answerable=False))
+        self.assertTrue(positive.answerable)
+        self.assertFalse(negative.answerable)
+        result = service.run_eval(base.id, es.id, self.user.id, KnowledgeEvalRunRequest(top_k=3))
+        self.assertEqual(result.run.metrics["case_count"], 2)
+        self.assertEqual(result.run.metrics["answerable_case_count"], 1)
+        self.assertEqual(result.run.metrics["negative_case_count"], 1)
+        self.assertEqual(result.run.metrics["context_recall"], 1.0)
+        self.assertEqual(result.run.metrics["negative_nonempty_rate"], 1.0)
+        self.assertIsNone(next(r for r in result.results if r.case_id == negative.id).context_recall)
+        with self.assertRaises(ValueError):
+            service.add_eval_case(base.id, es.id, self.user.id,
+                KnowledgeEvalCaseCreate(query="伪造负例证据", answerable=False, expected_chunk_ids=[target.id]))
+        only_negative = service.create_eval_set(base.id, self.user.id, KnowledgeEvalSetCreate(name="全负例"))
+        service.add_eval_case(base.id, only_negative.id, self.user.id,
+            KnowledgeEvalCaseCreate(query="不存在的统一保证", answerable=False))
+        result = service.run_eval(base.id, only_negative.id, self.user.id, KnowledgeEvalRunRequest(top_k=3))
+        self.assertIsNone(result.run.metrics["hit_at_k"])
+        self.assertIsNone(result.run.metrics["context_recall"])
+        self.assertEqual(result.run.metrics["negative_case_count"], 1)
+
     def test_eval_chunk_target_does_not_degrade_to_same_document_match(self) -> None:
         document_id = str(uuid4())
         expected_chunk_id = str(uuid4())

@@ -1,0 +1,627 @@
+{
+  "eval_set_id": "26356ac6-ce60-4a70-8062-316fb68be753",
+  "runs": [
+    {
+      "id": "caea4ee0-b716-4b34-a368-f8fb416fc957",
+      "user_id": "3844497c-59f3-4ea7-9a4b-3613f0bddc0b",
+      "knowledge_base_id": "f48f939a-a574-45a1-8721-6e635a258209",
+      "eval_set_id": "26356ac6-ce60-4a70-8062-316fb68be753",
+      "status": "succeeded",
+      "retrieval_mode": "vector",
+      "top_k": 20,
+      "rerank_enabled": false,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.8526315789473684,
+        "mrr": 0.49184973351382016,
+        "context_precision": 0.05368421052631572,
+        "context_recall": 0.7859649122807016,
+        "ndcg_at_k": 0.5367508141183928,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 281.63776986300945,
+        "total_elapsed_ms": 28163.776986300945,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "vector",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": false,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "error_message": null,
+      "started_at": "2026-10-28T18:10:44.037946+08:00",
+      "finished_at": "2026-10-28T18:11:14.089922+08:00",
+      "created_at": "2026-10-28T18:10:44.026006+08:00"
+    },
+    {
+      "id": "1fbde289-e2cf-41d1-ab57-978ef7839bfe",
+      "user_id": "3844497c-59f3-4ea7-9a4b-3613f0bddc0b",
+      "knowledge_base_id": "f48f939a-a574-45a1-8721-6e635a258209",
+      "eval_set_id": "26356ac6-ce60-4a70-8062-316fb68be753",
+      "status": "succeeded",
+      "retrieval_mode": "lexical",
+      "top_k": 20,
+      "rerank_enabled": false,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.42105263157894735,
+        "mrr": 0.08308128467408245,
+        "context_precision": 0.03687620257279699,
+        "context_recall": 0.3912280701754386,
+        "ndcg_at_k": 0.15503315139095125,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 333.4886528737843,
+        "total_elapsed_ms": 33348.86528737843,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "lexical",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": false,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "error_message": null,
+      "started_at": "2026-10-28T18:11:14.105366+08:00",
+      "finished_at": "2026-10-28T18:11:48.862994+08:00",
+      "created_at": "2026-10-28T18:11:14.098697+08:00"
+    },
+    {
+      "id": "d01e680d-9616-407a-8745-315d9b485fcf",
+      "user_id": "3844497c-59f3-4ea7-9a4b-3613f0bddc0b",
+      "knowledge_base_id": "f48f939a-a574-45a1-8721-6e635a258209",
+      "eval_set_id": "26356ac6-ce60-4a70-8062-316fb68be753",
+      "status": "succeeded",
+      "retrieval_mode": "hybrid",
+      "top_k": 20,
+      "rerank_enabled": false,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.8526315789473684,
+        "mrr": 0.37822692741871494,
+        "context_precision": 0.054210526315789404,
+        "context_recall": 0.7859649122807016,
+        "ndcg_at_k": 0.4631838225993303,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 614.2886191420257,
+        "total_elapsed_ms": 61428.86191420257,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "hybrid",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": false,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "error_message": null,
+      "started_at": "2026-10-28T18:11:48.877131+08:00",
+      "finished_at": "2026-10-28T18:12:52.282505+08:00",
+      "created_at": "2026-10-28T18:11:48.868210+08:00"
+    },
+    {
+      "id": "a5efe74a-e1ca-4854-b90e-ce9ad03293c5",
+      "user_id": "3844497c-59f3-4ea7-9a4b-3613f0bddc0b",
+      "knowledge_base_id": "f48f939a-a574-45a1-8721-6e635a258209",
+      "eval_set_id": "26356ac6-ce60-4a70-8062-316fb68be753",
+      "status": "succeeded",
+      "retrieval_mode": "vector",
+      "top_k": 20,
+      "rerank_enabled": true,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.8421052631578947,
+        "mrr": 0.5969298245614035,
+        "context_precision": 0.14140350877192984,
+        "context_recall": 0.7508771929824561,
+        "ndcg_at_k": 0.6065434392241607,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 904.728579018265,
+        "total_elapsed_ms": 90472.8579018265,
+        "failure_count": 0,
+        "fallback_count": 22,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "vector",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": true,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "error_message": null,
+      "started_at": "2026-10-28T18:12:52.297880+08:00",
+      "finished_at": "2026-10-28T18:14:24.742417+08:00",
+      "created_at": "2026-10-28T18:12:52.288939+08:00"
+    },
+    {
+      "id": "29fe46aa-38cb-4ed8-86c3-332d7a8e7020",
+      "user_id": "3844497c-59f3-4ea7-9a4b-3613f0bddc0b",
+      "knowledge_base_id": "f48f939a-a574-45a1-8721-6e635a258209",
+      "eval_set_id": "26356ac6-ce60-4a70-8062-316fb68be753",
+      "status": "succeeded",
+      "retrieval_mode": "hybrid",
+      "top_k": 20,
+      "rerank_enabled": true,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.8526315789473684,
+        "mrr": 0.46286787235540705,
+        "context_precision": 0.10035087719298241,
+        "context_recall": 0.7807017543859648,
+        "ndcg_at_k": 0.5219902099204639,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 1084.574652723968,
+        "total_elapsed_ms": 108457.4652723968,
+        "failure_count": 0,
+        "fallback_count": 62,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "hybrid",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": true,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "error_message": null,
+      "started_at": "2026-10-28T18:14:24.761502+08:00",
+      "finished_at": "2026-10-28T18:16:15.549578+08:00",
+      "created_at": "2026-10-28T18:14:24.748799+08:00"
+    }
+  ],
+  "comparison": {
+    "vector": {
+      "run_id": "caea4ee0-b716-4b34-a368-f8fb416fc957",
+      "status": "succeeded",
+      "retrieval_mode": "vector",
+      "rerank_enabled": false,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.8526315789473684,
+        "mrr": 0.49184973351382016,
+        "context_precision": 0.05368421052631572,
+        "context_recall": 0.7859649122807016,
+        "ndcg_at_k": 0.5367508141183928,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 281.63776986300945,
+        "total_elapsed_ms": 28163.776986300945,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "vector",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": false,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      }
+    },
+    "lexical": {
+      "run_id": "1fbde289-e2cf-41d1-ab57-978ef7839bfe",
+      "status": "succeeded",
+      "retrieval_mode": "lexical",
+      "rerank_enabled": false,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.42105263157894735,
+        "mrr": 0.08308128467408245,
+        "context_precision": 0.03687620257279699,
+        "context_recall": 0.3912280701754386,
+        "ndcg_at_k": 0.15503315139095125,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 333.4886528737843,
+        "total_elapsed_ms": 33348.86528737843,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "lexical",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": false,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      }
+    },
+    "hybrid": {
+      "run_id": "d01e680d-9616-407a-8745-315d9b485fcf",
+      "status": "succeeded",
+      "retrieval_mode": "hybrid",
+      "rerank_enabled": false,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.8526315789473684,
+        "mrr": 0.37822692741871494,
+        "context_precision": 0.054210526315789404,
+        "context_recall": 0.7859649122807016,
+        "ndcg_at_k": 0.4631838225993303,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 614.2886191420257,
+        "total_elapsed_ms": 61428.86191420257,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "hybrid",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": false,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      }
+    },
+    "vector_rerank": {
+      "run_id": "a5efe74a-e1ca-4854-b90e-ce9ad03293c5",
+      "status": "succeeded",
+      "retrieval_mode": "vector",
+      "rerank_enabled": true,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.8421052631578947,
+        "mrr": 0.5969298245614035,
+        "context_precision": 0.14140350877192984,
+        "context_recall": 0.7508771929824561,
+        "ndcg_at_k": 0.6065434392241607,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 904.728579018265,
+        "total_elapsed_ms": 90472.8579018265,
+        "failure_count": 0,
+        "fallback_count": 22,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "vector",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": true,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      }
+    },
+    "hybrid_rerank": {
+      "run_id": "29fe46aa-38cb-4ed8-86c3-332d7a8e7020",
+      "status": "succeeded",
+      "retrieval_mode": "hybrid",
+      "rerank_enabled": true,
+      "metrics": {
+        "case_count": 100,
+        "answerable_case_count": 95,
+        "negative_case_count": 5,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.8526315789473684,
+        "mrr": 0.46286787235540705,
+        "context_precision": 0.10035087719298241,
+        "context_recall": 0.7807017543859648,
+        "ndcg_at_k": 0.5219902099204639,
+        "expected_keyword_recall": null,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 1084.574652723968,
+        "total_elapsed_ms": 108457.4652723968,
+        "failure_count": 0,
+        "fallback_count": 62,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "hybrid",
+          "top_k": 20,
+          "score_threshold": 0.2,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": true,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 1000,
+            "overlap": 150,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      }
+    }
+  }
+}

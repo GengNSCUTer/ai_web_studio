@@ -16,6 +16,19 @@ from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import PlannedToolCall, ToolPlan
 
 
+def infer_read_completion(query: str) -> dict[str, Any] | None:
+    """普通 Chat 的明确只读查证意图也需要正文；不因此安装 Skill 或扩大工具权限。"""
+    if re.search(r"\bcontext7\b", query, re.I):
+        return {"completion_strategy": "required_tools", "required_tool_keys": ["docs.context7.query"],
+                "prerequisite_tool_keys": ["docs.context7.resolve"]}
+    file_hint = re.search(r"文件|工作区|笔记|上传|\.(?:md|txt|pdf|docx)\b|\b(?:uploaded|files?|notes?)\b", query, re.I)
+    content_intent = re.search(r"读|内容|规定|多久|周期|项目名|代号|保留|查找|找一下|什么|\b(?:read|inspect|report|retention|code|days|content)\b", query, re.I)
+    if file_hint and content_intent:
+        return {"completion_strategy": "required_tools", "required_tool_keys": ["workspace.files.read"],
+                "prerequisite_tool_keys": ["workspace.files.list", "workspace.files.search"]}
+    return None
+
+
 def contract_applies(*, query: str, contract: dict[str, Any] | None) -> bool:
     """判断当前问题是否触发声明式完成合同。"""
 

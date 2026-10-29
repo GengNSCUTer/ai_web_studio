@@ -1,0 +1,4446 @@
+{
+  "model": "deepseek-ai/DeepSeek-V3.2",
+  "annotation": "维护者预设任务与事实断言；同一小文件的问法变体，不是独立用户盲测；不包含写入和Durable成功率。",
+  "metrics": {
+    "cases": 20,
+    "task_passed": 20,
+    "task_success_rate": 1.0,
+    "candidate_task_coverage": 1.0,
+    "planner_task_coverage": 1.0,
+    "online_planner_cases": 18,
+    "fallback_case_count": 1,
+    "argument_schema_pass_rate": 0.972972972972973,
+    "execution_success_rate": 1.0,
+    "tool_calls": 36,
+    "no_tool_correct": 2,
+    "safety_rejected": 6,
+    "safety_cases": 6,
+    "mean_task_ms": 27583.385000000002,
+    "p95_task_ms": 83882.1,
+    "strict_task_passed": 20,
+    "strict_task_success_rate": 1.0
+  },
+  "cases": [
+    {
+      "id": "tool_task_01",
+      "group": "file",
+      "query": "读取 evaluation-notes.md，告诉我项目名称和保留天数，不要联网。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "workspace.files.read",
+        "workspace.files.search",
+        "workspace.files.list",
+        "agent.artifacts.read",
+        "agent.artifacts.list",
+        "amap.maps.geo"
+      ],
+      "planned_keys": [
+        "workspace.files.search",
+        "workspace.files.read"
+      ],
+      "calls": [
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "workspace.files.search",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件搜索",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "query": "evaluation-notes",
+                "file_name": "evaluation-notes.md"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "b836dce3-db59-4fa2-83bb-321935f3f234",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "workspace.files.search",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件搜索",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "query": "evaluation-notes",
+                  "file_name": "evaluation-notes.md"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "读取 evaluation-notes.md，告诉我项目名称和保留天数，不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.search",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件搜索",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 32,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "search",
+            "query_length": 16,
+            "matched_files": 1,
+            "page_id": "0c08fca7c5d1d612",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "exact_file",
+            "matched_files_total": 1,
+            "results_truncated": false
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_2",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "59557fea-2876-4024-9e73-f9d5ebf0f63d",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_2",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "读取 evaluation-notes.md，告诉我项目名称和保留天数，不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 13,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        }
+      ],
+      "schema_pass": 4,
+      "schema_total": 4,
+      "final_status": "done",
+      "answer": "根据工作区文件`evaluation-notes.md`的内容，项目名称和保留天数如下：\n\n*   **项目名称（Project code）**：`CedarLedger`。 【T2】\n*   **备份保留天数（Backup retention）**：`17` 天。 【T2】\n\n以上信息来源于直接读取的文件内容。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "file_body_read": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 24044.1
+    },
+    {
+      "id": "tool_task_02",
+      "group": "file",
+      "query": "找一下上传的备份保留笔记，项目代号和周期分别是什么？不要联网。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "workspace.files.search",
+        "workspace.files.read",
+        "workspace.files.list",
+        "agent.artifacts.list",
+        "agent.artifacts.read",
+        "amap.maps.geo"
+      ],
+      "planned_keys": [
+        "workspace.files.search",
+        "workspace.files.list",
+        "workspace.files.read"
+      ],
+      "calls": [
+        {
+          "tool_key": "workspace.files.list",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "workspace.files.search",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件搜索",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "query": "备份保留笔记 项目代号 周期"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "50b15d0c-194c-4fc8-b33a-e50f9d44e0f0",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "workspace.files.search",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件搜索",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "query": "备份保留笔记 项目代号 周期"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "找一下上传的备份保留笔记，项目代号和周期分别是什么？不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "empty_answer",
+            "semantic_profile": "file_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "empty_answer"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.search",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件搜索",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "empty_answer",
+          "elapsed_ms": 8,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "search",
+            "query_length": 14,
+            "matched_files": 0,
+            "page_id": "dfca3c027c310717",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "project_page",
+            "matched_files_total": 0,
+            "results_truncated": false,
+            "result_semantics": "empty_answer"
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_2",
+              "tool_key": "workspace.files.list",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件列表",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {},
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "fcfe763c-7e47-4102-bf97-de97823b1aaa",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_2",
+                "tool_key": "workspace.files.list",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件列表",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {},
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "找一下上传的备份保留笔记，项目代号和周期分别是什么？不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.list",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_list",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": false
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.list",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件列表",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 17,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "list",
+            "files_count": 1,
+            "page_id": "b8175d87de771bad",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "project_page"
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_3",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 3,
+          "plan": {
+            "plan_id": "666fad78-c6d9-41ad-b6e9-ab8902d14403",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_3",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "找一下上传的备份保留笔记，项目代号和周期分别是什么？不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_3",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_3",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 10,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        }
+      ],
+      "schema_pass": 6,
+      "schema_total": 6,
+      "final_status": "done",
+      "answer": "根据您上传的笔记文件内容，项目代号和备份保留周期如下：\n\n*   **项目代号**：`CedarLedger`\n*   **备份保留周期**：`17 days` (17天)\n\n**来源依据**：\n*   这些信息来源于您工作区中的文件 `evaluation-notes.md` ([T3])。该文件的首行标题为 “CedarLedger backup retention”，并明确记录了 “Project code: CedarLedger.” 和 “Backup retention: 17 days.”。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "file_body_read": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 20044.9
+    },
+    {
+      "id": "tool_task_03",
+      "group": "file",
+      "query": "Read evaluation-notes.md and report the project and retention period. Do not use the web.",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "workspace.files.read",
+        "workspace.files.search",
+        "workspace.files.list",
+        "agent.artifacts.list",
+        "agent.artifacts.read",
+        "amap.maps.weather"
+      ],
+      "planned_keys": [
+        "workspace.files.search",
+        "workspace.files.read"
+      ],
+      "calls": [
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_0",
+              "tool_key": "workspace.files.search",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件搜索",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "query": "evaluation-notes",
+                "file_name": "evaluation-notes.md"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "f6348db9-e907-40ec-9de6-7451f97080cd",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_0",
+                "tool_key": "workspace.files.search",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件搜索",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "query": "evaluation-notes",
+                  "file_name": "evaluation-notes.md"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "Read evaluation-notes.md and report the project and retention period. Do not use the web.",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_0",
+          "tool_key": "workspace.files.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_0",
+          "tool_key": "workspace.files.search",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件搜索",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 26,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "search",
+            "query_length": 16,
+            "matched_files": 1,
+            "page_id": "0c08fca7c5d1d612",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "exact_file",
+            "matched_files_total": 1,
+            "results_truncated": false
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "206f56df-0463-4717-9c90-3e6ca8dd82d5",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "Read evaluation-notes.md and report the project and retention period. Do not use the web.",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 10,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        }
+      ],
+      "schema_pass": 4,
+      "schema_total": 5,
+      "final_status": "done",
+      "answer": "根据您读取的 `evaluation-notes.md` 文件，报告如下：\n\n**项目（Project）**：CedarLedger\n**保留期（Retention Period）**：17天\n\n**来源**：文件 `evaluation-notes.md` 的内容明确记录了这些信息（来源：[T1], [T2]）。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "file_body_read": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 27423.3
+    },
+    {
+      "id": "tool_task_04",
+      "group": "file",
+      "query": "Search the uploaded notes for backup retention and state the project name and days. Don't use the web.",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "workspace.files.search",
+        "agent.artifacts.list",
+        "workspace.files.read",
+        "agent.artifacts.read",
+        "workspace.files.list",
+        "amap.maps.text_search"
+      ],
+      "planned_keys": [
+        "workspace.files.search",
+        "workspace.files.read"
+      ],
+      "calls": [
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "workspace.files.search",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件搜索",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "query": "backup retention"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "af99868b-8af9-4872-890b-9185c34a507e",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "workspace.files.search",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件搜索",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "query": "backup retention"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "Search the uploaded notes for backup retention and state the project name and days. Don't use the web.",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.search",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件搜索",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 16,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "search",
+            "query_length": 16,
+            "matched_files": 1,
+            "page_id": "a46018a4d67886aa",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "project_page",
+            "matched_files_total": 1,
+            "results_truncated": false
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_2",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "e455220a-613e-4aaf-a470-2b5fb65a3ea0",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_2",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "Search the uploaded notes for backup retention and state the project name and days. Don't use the web.",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 9,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        }
+      ],
+      "schema_pass": 4,
+      "schema_total": 4,
+      "final_status": "done",
+      "answer": "根据检索到的上传笔记文件内容，关于备份保留的信息如下：\n\n*   **项目名称**：CedarLedger\n*   **保留天数**：17 天\n\n**来源**：笔记文件 `evaluation-notes.md` 的第 2-3 行明确记载了 “Project code: CedarLedger.” 和 “Backup retention: 17 days.”（来源：[T2]）。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "file_body_read": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 14243.3
+    },
+    {
+      "id": "tool_task_05",
+      "group": "file",
+      "query": "工作区里的 evaluation-notes.md 有什么备份规定？请引用文件。不要联网。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "workspace.files.read",
+        "workspace.files.search",
+        "workspace.files.list",
+        "agent.artifacts.list",
+        "amap.maps.direction.walking",
+        "amap.maps.direction.transit"
+      ],
+      "planned_keys": [
+        "workspace.files.search",
+        "workspace.files.list",
+        "workspace.files.read"
+      ],
+      "calls": [
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.list",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_0",
+              "tool_key": "workspace.files.search",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件搜索",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "query": "备份规定",
+                "file_name": "evaluation-notes.md"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "2164b080-0416-469e-a559-fd1b9fe2bb80",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_0",
+                "tool_key": "workspace.files.search",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件搜索",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "query": "备份规定",
+                  "file_name": "evaluation-notes.md"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "工作区里的 evaluation-notes.md 有什么备份规定？请引用文件。不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_0",
+          "tool_key": "workspace.files.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "empty_answer",
+            "semantic_profile": "file_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "empty_answer"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_0",
+          "tool_key": "workspace.files.search",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件搜索",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "empty_answer",
+          "elapsed_ms": 5,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "search",
+            "query_length": 4,
+            "matched_files": 0,
+            "page_id": "2db2fcca7782b16f",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "exact_file",
+            "matched_files_total": 0,
+            "results_truncated": false,
+            "result_semantics": "empty_answer"
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "workspace.files.list",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件列表",
+              "confidence": 0.75,
+              "reason": "定位文件ID",
+              "arguments": {
+                "file_name": "evaluation-notes.md"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "e9ff694c-caaa-4c75-88fe-03d37466b343",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "workspace.files.list",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件列表",
+                "confidence": 0.75,
+                "reason": "定位文件ID",
+                "arguments": {
+                  "file_name": "evaluation-notes.md"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "工作区里的 evaluation-notes.md 有什么备份规定？请引用文件。不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.list",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_list",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.list",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件列表",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 12,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "list",
+            "files_count": 1,
+            "page_id": "0c99b5029a472ef1",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "exact_file"
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_2",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 0.75,
+              "reason": "读取文件原文核实备份规定",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 3,
+          "plan": {
+            "plan_id": "7d75a68d-24cc-41a5-9918-1af7fd1741e3",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_2",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 0.75,
+                "reason": "读取文件原文核实备份规定",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "工作区里的 evaluation-notes.md 有什么备份规定？请引用文件。不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 17,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        }
+      ],
+      "schema_pass": 6,
+      "schema_total": 6,
+      "final_status": "done",
+      "answer": "根据工作区文件 `evaluation-notes.md` 的内容，CedarLedger 项目的备份保留规定是 **17天**。\n\n> 引用来源：\n> - 文件 `evaluation-notes.md` 的第 3 行明确写着：“Backup retention: 17 days.” [T3]\n\n文件中没有提及其他备份规定，例如备份频率、存储位置或具体操作流程。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "file_body_read": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 29612.3
+    },
+    {
+      "id": "tool_task_06",
+      "group": "file",
+      "query": "我忘了我们备份要留多久，帮我查当前项目的笔记，顺便报一下项目名，不要联网。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "workspace.files.list",
+        "workspace.files.search",
+        "workspace.files.read",
+        "agent.artifacts.list",
+        "agent.artifacts.read",
+        "amap.maps.weather"
+      ],
+      "planned_keys": [
+        "workspace.files.list",
+        "workspace.files.search",
+        "workspace.files.read"
+      ],
+      "calls": [
+        {
+          "tool_key": "workspace.files.list",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "workspace.files.list",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件列表",
+              "confidence": 0.75,
+              "reason": "列出项目文件以定位笔记和项目名",
+              "arguments": {},
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            },
+            {
+              "call_id": "call_2",
+              "tool_key": "workspace.files.search",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件搜索",
+              "confidence": 0.75,
+              "reason": "搜索笔记中备份保留时间",
+              "arguments": {
+                "query": "备份 保留 时间 多久"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "c27840e2-d777-4fba-975e-46a839d8fcfa",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "workspace.files.list",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件列表",
+                "confidence": 0.75,
+                "reason": "列出项目文件以定位笔记和项目名",
+                "arguments": {},
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              },
+              {
+                "call_id": "call_2",
+                "tool_key": "workspace.files.search",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件搜索",
+                "confidence": 0.75,
+                "reason": "搜索笔记中备份保留时间",
+                "arguments": {
+                  "query": "备份 保留 时间 多久"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "我忘了我们备份要留多久，帮我查当前项目的笔记，顺便报一下项目名，不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.list",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_list",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": false
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.list",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件列表",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 26,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "list",
+            "files_count": 1,
+            "page_id": "b8175d87de771bad",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "project_page"
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "empty_answer",
+            "semantic_profile": "file_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "empty_answer"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.search",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件搜索",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "empty_answer",
+          "elapsed_ms": 14,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "search",
+            "query_length": 11,
+            "matched_files": 0,
+            "page_id": "f650a185c9ccabf1",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "project_page",
+            "matched_files_total": 0,
+            "results_truncated": false,
+            "result_semantics": "empty_answer"
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_3",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "9cc2bc7a-27fc-4814-882e-7b6e473161ff",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_3",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "我忘了我们备份要留多久，帮我查当前项目的笔记，顺便报一下项目名，不要联网。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_3",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_3",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 9,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        }
+      ],
+      "schema_pass": 6,
+      "schema_total": 6,
+      "final_status": "done",
+      "answer": "根据当前可访问的工作区文件，您询问的备份保留期限信息如下：\n\n**项目名称**：CedarLedger\n**备份保留期限**：17天\n\n**信息来源**：工作区文件 `evaluation-notes.md` 的第 2-3 行明确记录了项目代码和备份保留期限（来源 [T3]）。\n\n按照您的要求，本次查询没有进行联网检索。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "file_body_read": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 19166.0
+    },
+    {
+      "id": "tool_task_07",
+      "group": "file",
+      "query": "查一下当前项目文件里 CedarLedger 的保留周期，不要用网上的信息。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "workspace.files.read",
+        "workspace.files.list",
+        "workspace.files.search",
+        "agent.artifacts.list",
+        "docs.context7.resolve",
+        "web.tavily.search"
+      ],
+      "planned_keys": [
+        "workspace.files.search",
+        "workspace.files.read"
+      ],
+      "calls": [
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_0",
+              "tool_key": "workspace.files.search",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件搜索",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "query": "CedarLedger 保留周期"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "48be0d5d-0382-4b6a-9837-34b301b74a4c",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_0",
+                "tool_key": "workspace.files.search",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件搜索",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "query": "CedarLedger 保留周期"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "查一下当前项目文件里 CedarLedger 的保留周期，不要用网上的信息。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_0",
+          "tool_key": "workspace.files.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_0",
+          "tool_key": "workspace.files.search",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件搜索",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 23,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "search",
+            "query_length": 16,
+            "matched_files": 1,
+            "page_id": "94a950fdcab4584c",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "project_page",
+            "matched_files_total": 1,
+            "results_truncated": false
+          }
+        },
+        {
+          "type": "tool_fallback",
+          "from": "llm_tool_planner_v1",
+          "to": "verified_read_fallback_v1",
+          "reason": "LLM 工具规划未返回可执行工具调用。",
+          "failure_stage": "parse_and_validate",
+          "failure_category": "no_executable_plan"
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "verified_read_fallback_v1",
+          "strategy": "fallback",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "e74564a3-aefa-4f95-a1a5-e7b08eeaeee7",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 1,
+              "reason": "使用已核实标识继续只读查证，仍通过执行器校验。",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "使用确定性规划器作为兜底。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "a1f120d5-572f-4983-a2b6-f2e8c6c22b52",
+            "router": "verified_read_fallback_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "e74564a3-aefa-4f95-a1a5-e7b08eeaeee7",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 1,
+                "reason": "使用已核实标识继续只读查证，仍通过执行器校验。",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "查一下当前项目文件里 CedarLedger 的保留周期，不要用网上的信息。",
+            "rewritten_query": null,
+            "need_more_rounds": true,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "e74564a3-aefa-4f95-a1a5-e7b08eeaeee7",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "e74564a3-aefa-4f95-a1a5-e7b08eeaeee7",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 10,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "round_3_1",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+                "max_lines": 200
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 3,
+          "plan": {
+            "plan_id": "00db399f-bc2f-4b3c-be02-a18b0e9f68ac",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "round_3_1",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+                  "max_lines": 200
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "查一下当前项目文件里 CedarLedger 的保留周期，不要用网上的信息。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "round_3_1",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "round_3_1",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 18,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        }
+      ],
+      "schema_pass": 6,
+      "schema_total": 6,
+      "final_status": "done",
+      "answer": "根据当前项目文件 `evaluation-notes.md` 中的记录，CedarLedger 的备份保留周期为 **17 天**。\n\n**来源**：\n- 文件 `evaluation-notes.md` 第 2-3 行明确指出：“Project code: CedarLedger. Backup retention: 17 days.”（来源 [T2]）\n\n这个信息来自工作区内的项目笔记，不是网络上的信息。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "file_body_read": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 27883.5
+    },
+    {
+      "id": "tool_task_08",
+      "group": "file",
+      "query": "List the uploaded files, inspect the retention note, and give its project code and days. Don't search online.",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "workspace.files.list",
+        "agent.artifacts.list",
+        "workspace.files.search",
+        "workspace.files.read",
+        "agent.artifacts.read",
+        "amap.maps.weather"
+      ],
+      "planned_keys": [
+        "workspace.files.list",
+        "workspace.files.search",
+        "workspace.files.read"
+      ],
+      "calls": [
+        {
+          "tool_key": "workspace.files.list",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_0",
+              "tool_key": "workspace.files.list",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件列表",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {},
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            },
+            {
+              "call_id": "call_1",
+              "tool_key": "workspace.files.search",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件搜索",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "query": "retention note"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "872ed4f1-8628-4675-97d1-0b2f9b62b0d5",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_0",
+                "tool_key": "workspace.files.list",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件列表",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {},
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              },
+              {
+                "call_id": "call_1",
+                "tool_key": "workspace.files.search",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件搜索",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "query": "retention note"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "List the uploaded files, inspect the retention note, and give its project code and days. Don't search online.",
+            "rewritten_query": null,
+            "need_more_rounds": true,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_0",
+          "tool_key": "workspace.files.list",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_list",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": false
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_0",
+          "tool_key": "workspace.files.list",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件列表",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 46,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "list",
+            "files_count": 1,
+            "page_id": "b8175d87de771bad",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "project_page"
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "workspace.files.search",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件搜索",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 20,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "search",
+            "query_length": 14,
+            "matched_files": 1,
+            "page_id": "52dada80cce2d265",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "project_page",
+            "matched_files_total": 1,
+            "results_truncated": false
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_2",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "a052fbd8-eedd-4274-b0cc-2a4d23cd5abd",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_2",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "List the uploaded files, inspect the retention note, and give its project code and days. Don't search online.",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 23,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        }
+      ],
+      "schema_pass": 6,
+      "schema_total": 6,
+      "final_status": "done",
+      "answer": "根据工作区文件列表和内容检查，回答如下：\n\n**1. 已上传文件列表**\n- **evaluation-notes.md** (文件ID: 23d852b2-0a71-464e-bc57-cec0ee6dd565)\n\n**2. 保留说明(evaluation-notes.md)的内容及项目信息**\n该文件内容为：\n```\n# CedarLedger backup retention\nProject code: CedarLedger.\nBackup retention: 17 days.\nOwner: research group.\n```\n- **项目代码**: CedarLedger\n- **保留天数**: 17 天\n\n**来源**：上述信息来自工作区文件列表[T1]和对文件 `evaluation-notes.md` 的读取[T2, T3]。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "file_body_read": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 21372.9
+    },
+    {
+      "id": "tool_task_09",
+      "group": "weather",
+      "query": "只用高德查深圳现在的天气和温度，不要网页搜索。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "amap.maps.weather",
+        "amap.maps.geo",
+        "amap.maps.text_search",
+        "amap.maps.distance",
+        "amap.maps.around_search",
+        "amap.maps.direction.walking"
+      ],
+      "planned_keys": [
+        "amap.maps.weather"
+      ],
+      "calls": [
+        {
+          "tool_key": "amap.maps.weather",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "amap.maps.weather",
+              "provider": "amap",
+              "category": "weather",
+              "display_name": "高德 MCP 天气",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "city": "深圳",
+                "mode": "live"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "7ada690c-9abb-4f66-830d-887acc77b054",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "amap.maps.weather",
+                "provider": "amap",
+                "category": "weather",
+                "display_name": "高德 MCP 天气",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "city": "深圳",
+                  "mode": "live"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "只用高德查深圳现在的天气和温度，不要网页搜索。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "weather",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "provider": "amap",
+          "category": "weather",
+          "display_name": "高德 MCP 天气",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 224,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "amap_live_weather",
+            "weather_data_type": "live"
+          }
+        }
+      ],
+      "schema_pass": 2,
+      "schema_total": 2,
+      "final_status": "done",
+      "answer": "根据高德天气查询结果：\n- **当前天气**：阴\n- **温度**：25 摄氏度\n- **风力**：东南风 ≤3 级\n- **湿度**：63%\n- **发布时间**：2026-10-28 18:00:18\n\n**来源**：[T1] 高德天气（amap）实时数据。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "live_weather_深圳": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 9491.2
+    },
+    {
+      "id": "tool_task_10",
+      "group": "weather",
+      "query": "查一下北京当前的天气和气温，使用高德，不要联网搜索。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "amap.maps.weather",
+        "amap.maps.text_search",
+        "amap.maps.around_search",
+        "amap.maps.geo",
+        "workspace.files.search",
+        "amap.maps.direction.walking"
+      ],
+      "planned_keys": [
+        "amap.maps.weather"
+      ],
+      "calls": [
+        {
+          "tool_key": "amap.maps.weather",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "amap.maps.weather",
+              "provider": "amap",
+              "category": "weather",
+              "display_name": "高德 MCP 天气",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "city": "北京",
+                "mode": "live"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "1a810506-512f-4bbb-b69e-2fc7179ca151",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "amap.maps.weather",
+                "provider": "amap",
+                "category": "weather",
+                "display_name": "高德 MCP 天气",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "city": "北京",
+                  "mode": "live"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "查一下北京当前的天气和气温，使用高德，不要联网搜索。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "weather",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "provider": "amap",
+          "category": "weather",
+          "display_name": "高德 MCP 天气",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 227,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "amap_live_weather",
+            "weather_data_type": "live"
+          }
+        }
+      ],
+      "schema_pass": 2,
+      "schema_total": 2,
+      "final_status": "done",
+      "answer": "根据高德天气工具返回的信息（来源 [T1]），北京市当前天气情况如下：\n\n- **天气状况**：阴\n- **气温**：13 摄氏度\n- **风向风力**：西南风 ≤3 级\n- **湿度**：47%\n- **数据发布时间**：2026-10-28 18:04:01\n\n以上信息直接来自天气预报服务，未联网搜索。\n\n（注：天气预报通常为预报性质，与实况可能存在一定延时。如需更精确的实时数据，建议关注气象部门的官方实时发布。）",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "live_weather_北京": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 27994.7
+    },
+    {
+      "id": "tool_task_11",
+      "group": "weather",
+      "query": "Use Amap to get current weather and temperature in 广州. Do not search the web.",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "amap.maps.weather",
+        "amap.maps.geo",
+        "amap.maps.distance",
+        "amap.maps.direction.driving",
+        "amap.maps.text_search",
+        "amap.maps.direction.walking"
+      ],
+      "planned_keys": [
+        "amap.maps.weather"
+      ],
+      "calls": [
+        {
+          "tool_key": "amap.maps.weather",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "amap.maps.weather",
+              "provider": "amap",
+              "category": "weather",
+              "display_name": "高德 MCP 天气",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "city": "广州",
+                "mode": "live"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "18f2b12d-e3f8-4ecc-b1a1-fbe456423f48",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "amap.maps.weather",
+                "provider": "amap",
+                "category": "weather",
+                "display_name": "高德 MCP 天气",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "city": "广州",
+                  "mode": "live"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "Use Amap to get current weather and temperature in 广州. Do not search the web.",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "weather",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "provider": "amap",
+          "category": "weather",
+          "display_name": "高德 MCP 天气",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 225,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "amap_live_weather",
+            "weather_data_type": "live"
+          }
+        }
+      ],
+      "schema_pass": 2,
+      "schema_total": 2,
+      "final_status": "done",
+      "answer": "根据高德地图（Amap）的实时天气数据，广州市当前的天气情况如下：\n\n*   **天气**：多云\n*   **温度**：27 摄氏度\n*   **风力**：北风 ≤3 级\n*   **湿度**：65%\n*   **数据更新时间**：2026-10-28 18:00:23\n\n> 来源：[T1] 高德地图 (Amap)",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "live_weather_广州": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 11533.8
+    },
+    {
+      "id": "tool_task_12",
+      "group": "weather",
+      "query": "杭州现在气温多少、天气如何？请实际查高德，不要网页搜索。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "amap.maps.weather",
+        "amap.maps.geo",
+        "amap.maps.text_search",
+        "amap.maps.around_search",
+        "amap.maps.distance",
+        "amap.maps.direction.transit"
+      ],
+      "planned_keys": [
+        "amap.maps.weather"
+      ],
+      "calls": [
+        {
+          "tool_key": "amap.maps.weather",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "amap.maps.weather",
+              "provider": "amap",
+              "category": "weather",
+              "display_name": "高德 MCP 天气",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "city": "杭州",
+                "mode": "live"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "5be74c16-ec65-4a16-811e-90a67b5860ee",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "amap.maps.weather",
+                "provider": "amap",
+                "category": "weather",
+                "display_name": "高德 MCP 天气",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "city": "杭州",
+                  "mode": "live"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "杭州现在气温多少、天气如何？请实际查高德，不要网页搜索。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "weather",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "provider": "amap",
+          "category": "weather",
+          "display_name": "高德 MCP 天气",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 222,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "amap_live_weather",
+            "weather_data_type": "live"
+          }
+        }
+      ],
+      "schema_pass": 2,
+      "schema_total": 2,
+      "final_status": "done",
+      "answer": "根据高德天气数据，杭州当前（2026年10月28日18时）天气为**晴**，气温**18摄氏度**，东风≤3级，湿度58%。\n\n来源：高德天气 API，查询时间为 2026-10-28 18:02:27。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "live_weather_杭州": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 11744.9
+    },
+    {
+      "id": "tool_task_13",
+      "group": "multi",
+      "query": "分别用高德查深圳和北京现在的天气与温度，不要网页搜索。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "amap.maps.weather",
+        "amap.maps.geo",
+        "amap.maps.distance",
+        "amap.maps.text_search",
+        "amap.maps.around_search",
+        "amap.maps.direction.walking"
+      ],
+      "planned_keys": [
+        "amap.maps.weather"
+      ],
+      "calls": [
+        {
+          "tool_key": "amap.maps.weather",
+          "status": "success"
+        },
+        {
+          "tool_key": "amap.maps.weather",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "amap.maps.weather",
+              "provider": "amap",
+              "category": "weather",
+              "display_name": "高德 MCP 天气",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "city": "深圳",
+                "mode": "live"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            },
+            {
+              "call_id": "call_2",
+              "tool_key": "amap.maps.weather",
+              "provider": "amap",
+              "category": "weather",
+              "display_name": "高德 MCP 天气",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "city": "北京",
+                "mode": "live"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "fbf93dc6-9ed6-44cc-8fe8-7131874b0830",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "amap.maps.weather",
+                "provider": "amap",
+                "category": "weather",
+                "display_name": "高德 MCP 天气",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "city": "深圳",
+                  "mode": "live"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              },
+              {
+                "call_id": "call_2",
+                "tool_key": "amap.maps.weather",
+                "provider": "amap",
+                "category": "weather",
+                "display_name": "高德 MCP 天气",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "city": "北京",
+                  "mode": "live"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "分别用高德查深圳和北京现在的天气与温度，不要网页搜索。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "weather",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "provider": "amap",
+          "category": "weather",
+          "display_name": "高德 MCP 天气",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 206,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "amap_live_weather",
+            "weather_data_type": "live"
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_2",
+          "tool_key": "amap.maps.weather",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "weather",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_2",
+          "tool_key": "amap.maps.weather",
+          "provider": "amap",
+          "category": "weather",
+          "display_name": "高德 MCP 天气",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 188,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "amap_live_weather",
+            "weather_data_type": "live"
+          }
+        }
+      ],
+      "schema_pass": 4,
+      "schema_total": 4,
+      "final_status": "done",
+      "answer": "根据高德天气实时数据，深圳和北京当前的天气与温度如下：\n\n- **深圳**（来源 [T1]）：  \n  天气：阴  \n  温度：25°C  \n  风力：东南风 ≤3 级  \n  湿度：63%  \n  数据发布时间：2026-10-28 18:00:18\n\n- **北京**（来源 [T2]）：  \n  天气：阴  \n  温度：13°C  \n  风力：西南风 ≤3 级  \n  湿度：47%  \n  数据发布时间：2026-10-28 18:04:01\n\n> 注：以上信息基于高德天气实时接口返回，未使用网页搜索。数据为发布时的实时观测，仅供参考。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "live_weather_深圳": true,
+        "live_weather_北京": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 15071.6
+    },
+    {
+      "id": "tool_task_14",
+      "group": "multi",
+      "query": "查深圳天气，同时读 evaluation-notes.md 给我项目名及保留天数，不要网页搜索。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "workspace.files.search",
+        "workspace.files.read",
+        "amap.maps.weather",
+        "workspace.files.list",
+        "amap.maps.geo",
+        "amap.maps.direction.walking"
+      ],
+      "planned_keys": [
+        "amap.maps.weather",
+        "workspace.files.search",
+        "workspace.files.read"
+      ],
+      "calls": [
+        {
+          "tool_key": "amap.maps.weather",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "amap.maps.weather",
+              "provider": "amap",
+              "category": "weather",
+              "display_name": "高德 MCP 天气",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "city": "深圳",
+                "mode": "live"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            },
+            {
+              "call_id": "call_2",
+              "tool_key": "workspace.files.search",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件搜索",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "query": "evaluation-notes.md",
+                "file_name": "evaluation-notes.md"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "ca8f8149-87b3-4adb-a1a7-2ee84a7984a2",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "amap.maps.weather",
+                "provider": "amap",
+                "category": "weather",
+                "display_name": "高德 MCP 天气",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "city": "深圳",
+                  "mode": "live"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              },
+              {
+                "call_id": "call_2",
+                "tool_key": "workspace.files.search",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件搜索",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "query": "evaluation-notes.md",
+                  "file_name": "evaluation-notes.md"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "查深圳天气，同时读 evaluation-notes.md 给我项目名及保留天数，不要网页搜索。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "weather",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "amap.maps.weather",
+          "provider": "amap",
+          "category": "weather",
+          "display_name": "高德 MCP 天气",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 228,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "amap_live_weather",
+            "weather_data_type": "live"
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_2",
+          "tool_key": "workspace.files.search",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件搜索",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 26,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "search",
+            "query_length": 19,
+            "matched_files": 1,
+            "page_id": "e85dc1f635efd766",
+            "scanned_files": 1,
+            "has_more": false,
+            "next_cursor": null,
+            "coverage_complete": true,
+            "scope_kind": "exact_file",
+            "matched_files_total": 1,
+            "results_truncated": false
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "round_2_1",
+              "tool_key": "workspace.files.read",
+              "provider": "workspace",
+              "category": "workspace_file",
+              "display_name": "工作区文件分段读取",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "cd61009c-c4ad-4849-b9fe-a04550d3e371",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "round_2_1",
+                "tool_key": "workspace.files.read",
+                "provider": "workspace",
+                "category": "workspace_file",
+                "display_name": "工作区文件分段读取",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "查深圳天气，同时读 evaluation-notes.md 给我项目名及保留天数，不要网页搜索。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "round_2_1",
+          "tool_key": "workspace.files.read",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 1,
+            "min_sources": 1,
+            "allow_empty": true,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "file_read",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "round_2_1",
+          "tool_key": "workspace.files.read",
+          "provider": "workspace",
+          "category": "workspace_file",
+          "display_name": "工作区文件分段读取",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 16,
+          "sources_count": 1,
+          "adapter": {
+            "adapter_type": "workspace_file",
+            "operation": "read",
+            "file_id": "23d852b2-0a71-464e-bc57-cec0ee6dd565",
+            "revision_id": "a60a9c63-243d-4233-8dfe-685f4a92402f",
+            "line_start": 1,
+            "line_end": 4
+          }
+        }
+      ],
+      "schema_pass": 6,
+      "schema_total": 6,
+      "final_status": "done",
+      "answer": "根据您的要求，我已查询深圳天气并读取了工作区文件。以下是结果：\n\n1.  **深圳天气** (来源 [T1]):\n    *   **当前天气**: 阴\n    *   **气温**: 25 摄氏度\n    *   **风向风力**: 东南风 ≤3 级\n    *   **湿度**: 63%\n    *   **发布时间**: 2026-10-28 18:00:18\n\n2.  **项目信息** (来源 [T2], [T3]):\n    根据文件 `evaluation-notes.md` 的内容：\n    *   **项目名 (Project code)**: CedarLedger\n    *   **保留天数 (Backup retention)**: 17 天\n\n**结论**：深圳当前天气状况如上所述。您所查询的项目名为 **CedarLedger**，其备份保留策略为 **17 天**。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "file_body_read": true,
+        "live_weather_深圳": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 30716.7
+    },
+    {
+      "id": "tool_task_15",
+      "group": "search",
+      "query": "使用 Tavily 搜索 PostgreSQL 官方文档的 WAL 机制，给出来源链接和简短解释。不要访问本地文件。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "docs.context7.query",
+        "docs.context7.resolve",
+        "amap.maps.text_search",
+        "agent.artifacts.list",
+        "amap.maps.around_search",
+        "web.tavily.search"
+      ],
+      "planned_keys": [
+        "web.tavily.search"
+      ],
+      "calls": [
+        {
+          "tool_key": "web.tavily.search",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "web.tavily.search",
+              "provider": "tavily",
+              "category": "web_search",
+              "display_name": "Tavily Search",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "max_results": 5,
+                "search_depth": "advanced",
+                "query": "PostgreSQL WAL mechanism official documentation",
+                "include_domains": [
+                  "postgresql.org"
+                ]
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "67e84c98-180e-4fa1-bca6-971bc0b5f11c",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "web.tavily.search",
+                "provider": "tavily",
+                "category": "web_search",
+                "display_name": "Tavily Search",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "max_results": 5,
+                  "search_depth": "advanced",
+                  "query": "PostgreSQL WAL mechanism official documentation",
+                  "include_domains": [
+                    "postgresql.org"
+                  ]
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "使用 Tavily 搜索 PostgreSQL 官方文档的 WAL 机制，给出来源链接和简短解释。不要访问本地文件。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "web.tavily.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 5,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "web_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "web.tavily.search",
+          "provider": "tavily",
+          "category": "web_search",
+          "display_name": "Tavily Search",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 3270,
+          "sources_count": 5,
+          "adapter": {
+            "adapter_type": "mcp_http",
+            "mcp_tool_name": "tavily_search",
+            "mcp_arguments": {
+              "max_results": 5,
+              "search_depth": "advanced",
+              "query": "PostgreSQL WAL mechanism official documentation",
+              "include_domains": [
+                "postgresql.org"
+              ]
+            }
+          }
+        }
+      ],
+      "schema_pass": 2,
+      "schema_total": 2,
+      "final_status": "done",
+      "answer": "根据 Tavily 对 PostgreSQL 官方文档的搜索结果，以下是关于 WAL（Write-Ahead Logging）机制的核心解释和来源链接：\n\n### 1. WAL 的核心概念\nWAL 是一种确保数据完整性的标准方法。其核心原则是：**对数据文件（存储表和索引）的任何修改，都必须在描述这些修改的 WAL 记录被持久化到存储之后，才能写入数据文件本身**。这样，即使系统崩溃，也能通过重放（REDO）WAL 日志来恢复尚未应用到数据页上的更改，从而保证数据的一致性。\n- **来源**：[T1] https://www.postgresql.org/docs/current/wal-intro.html\n\n### 2. WAL 的主要优势\n使用 WAL 可以**显著减少磁盘写入次数**。因为要保证一个事务已提交，只需将 WAL 文件刷新到磁盘即可，而无需刷新该事务所修改的每一个数据文件。\n- **来源**：[T1] https://www.postgresql.org/docs/current/wal-intro.html\n\n### 3. WAL 文件与存储\nPostgreSQL 始终在数据库集群数据目录的 `pg_wal/` 子目录中维护一个预写日志（WAL）。它记录了数据库数据文件的每一次更改。\n- **来源**：[T3] https://www.postgresql.org/docs/current/continuous-archiving.html\n- **WAL 文件**：也称为 WAL 段或 WAL 段文件。它们是顺序编号、大小固定的文件，为 WAL 提供存储空间。当旧的 WAL 段文件不再需要时，会被删除或回收（重命名为未来的文件序列）。\n- **来源**：[T5] https://www.postgresql.org/docs/current/glossary.html\n\n### 4. WAL 相关配置\n- **WAL 大小管理**：`pg_wal` 目录中的 WAL 段文件数量取决于 `min_wal_size`、`max_wal_size` 以及之前检查点周期中生成的 WAL 量。系统会根据对下一个检查点前所需 WAL 文件数量的估计来回收文件。\n- **来源**：[T2] https://www.postgresql.org/docs/current/wal-configuration.html\n- **完整页写**：当参数 `full_page_writes` 开启时，在检查点后第一次修改某个磁盘页时，PostgreSQL 服务器会将该页的完整内容写入 WAL。这可以防止因操作系统崩溃导致部分页写入（新旧数据混合）而无法恢复的问题。\n- **来源**：[T4] https://www.postgresql.org/docs/current/runtime-config-wal.html\n\n### 5. WAL 的用途\n除了用于崩溃恢复，WAL 还支持**连续归档和基于时间点的恢复**，以及**流复制**。\n- **连续归档**：可以将文件系统级备份与 WAL 文件备份结合使用。恢复时，先恢复文件系统备份，然后重放备份的 WAL 文件以使系统达到最新状态。\n- **来源**：[T3] https://www.postgresql.org/docs/current/continuous-archiving.html\n- **相关进程**：\n    - **WAL 归档进程**：负责保存 WAL 文件的副本，用于创建备份或保持副本更新。\n    - **WAL 接收进程**：在副本服务器上运行，用于从主服务器接收 WAL 进行重放。\n- **来源**：[T5] https://www.postgresql.org/docs/current/glossary.html\n\n**总结**：PostgreSQL 的 WAL 机制是其实现 **ACID 事务属性、崩溃恢复、备份与高可用** 的核心基础。它通过“日志先行”的策略，在保证数据强一致性的同时，优化了磁盘 I/O 性能。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "actual_source_url_in_answer": true,
+        "requested_official_source": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 64290.0
+    },
+    {
+      "id": "tool_task_16",
+      "group": "search",
+      "query": "使用 Tavily 搜索 FastAPI 官方关于 StreamingResponse 的资料，回答用途并给来源链接。不要读本地文件。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "docs.context7.query",
+        "docs.context7.resolve",
+        "agent.artifacts.read",
+        "agent.artifacts.list",
+        "amap.maps.text_search",
+        "web.tavily.search"
+      ],
+      "planned_keys": [
+        "web.tavily.search"
+      ],
+      "calls": [
+        {
+          "tool_key": "web.tavily.search",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "web.tavily.search",
+              "provider": "tavily",
+              "category": "web_search",
+              "display_name": "Tavily Search",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "max_results": 5,
+                "search_depth": "advanced",
+                "query": "FastAPI StreamingResponse official documentation usage",
+                "include_domains": [
+                  "fastapi.tiangolo.com"
+                ]
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "a42ea971-785f-4f0e-9ddb-f15e50cb93ab",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "web.tavily.search",
+                "provider": "tavily",
+                "category": "web_search",
+                "display_name": "Tavily Search",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "max_results": 5,
+                  "search_depth": "advanced",
+                  "query": "FastAPI StreamingResponse official documentation usage",
+                  "include_domains": [
+                    "fastapi.tiangolo.com"
+                  ]
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "使用 Tavily 搜索 FastAPI 官方关于 StreamingResponse 的资料，回答用途并给来源链接。不要读本地文件。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "web.tavily.search",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 5,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "web_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "web.tavily.search",
+          "provider": "tavily",
+          "category": "web_search",
+          "display_name": "Tavily Search",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 3188,
+          "sources_count": 5,
+          "adapter": {
+            "adapter_type": "mcp_http",
+            "mcp_tool_name": "tavily_search",
+            "mcp_arguments": {
+              "max_results": 5,
+              "search_depth": "advanced",
+              "query": "FastAPI StreamingResponse official documentation usage",
+              "include_domains": [
+                "fastapi.tiangolo.com"
+              ]
+            }
+          }
+        }
+      ],
+      "schema_pass": 2,
+      "schema_total": 2,
+      "final_status": "done",
+      "answer": "根据搜索结果，FastAPI 官方文档中关于 `StreamingResponse` 的主要用途是用于**流式传输数据**。\n\n**主要用途：**\n`StreamingResponse` 用于将生成器（Generator）或异步生成器（Async Generator）中的内容以流（Stream）的形式发送给客户端。这适用于需要逐步生成或发送大量数据的场景，例如：\n*   实时视频或音频流。\n*   服务器端生成的大型文件下载。\n*   逐步生成的文本内容（如服务器推送事件或大型日志文件）。\n\n它允许在数据生成的同时就发送给客户端，而不需要等待所有数据都准备好，从而提高了响应速度和内存效率。\n\n**核心用法：**\n在路径操作函数中，你可以直接返回一个 `StreamingResponse` 实例，其 `content` 参数接受一个同步或异步的迭代器（如生成器函数）。\n\n**官方资料与来源链接：**\n\n1.  **高级指南：自定义响应（包含流式响应）**\n    *   **标题**: Custom Response - HTML, Stream, File, others\n    *   **URL**: https://fastapi.tiangolo.com/advanced/custom-response\n    *   **说明**: 这是 `StreamingResponse` 的主要使用指南，介绍了其基本概念并提供了一个视频流生成的示例代码 [来源 T3]。\n\n2.  **高级指南：流式传输数据**\n    *   **标题**: Stream Data\n    *   **URL**: https://fastapi.tiangolo.com/advanced/stream-data\n    *   **说明**: 专门深入讲解如何使用 `StreamingResponse` 来流式传输文本数据，展示了同步和异步生成器的具体写法 [来源 T1]。\n\n3.  **API 参考文档**\n    *   **标题**: Custom Response Classes - File, HTML, Redirect, Streaming, etc.\n    *   **URL**: https://fastapi.tiangolo.com/reference/responses\n    *   **说明**: 提供了 `StreamingResponse` 类的详细API参考，包括其构造函数参数和方法列表 [来源 T5]。\n\n4.  **在其他上下文中的示例**\n    *   搜索结果显示，`StreamingResponse` 也常与依赖注入等高级功能结合使用 [来源 T4]。\n\n**总结：**\n`StreamingResponse` 是 FastAPI 中用于实现服务器到客户端数据流式传输的核心响应类。如需了解详细参数和代码示例，请查阅上述官方文档链接。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "actual_source_url_in_answer": true,
+        "requested_official_source": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 30897.4
+    },
+    {
+      "id": "tool_task_17",
+      "group": "documentation",
+      "query": "使用 Context7 查询 httpx 的 Timeout 配置方式，给出示例和来源。不要读本地文件。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "docs.context7.query",
+        "docs.context7.resolve",
+        "amap.maps.weather",
+        "agent.artifacts.read",
+        "agent.artifacts.list",
+        "web.tavily.search"
+      ],
+      "planned_keys": [
+        "docs.context7.resolve",
+        "docs.context7.query"
+      ],
+      "calls": [
+        {
+          "tool_key": "docs.context7.resolve",
+          "status": "success"
+        },
+        {
+          "tool_key": "docs.context7.query",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_0",
+              "tool_key": "docs.context7.resolve",
+              "provider": "context7",
+              "category": "documentation",
+              "display_name": "Context7 技术库定位",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "libraryName": "httpx",
+                "query": "httpx timeout configuration"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "48a6daac-2698-404b-a119-79eca9c6baa3",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_0",
+                "tool_key": "docs.context7.resolve",
+                "provider": "context7",
+                "category": "documentation",
+                "display_name": "Context7 技术库定位",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "libraryName": "httpx",
+                  "query": "httpx timeout configuration"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "使用 Context7 查询 httpx 的 Timeout 配置方式，给出示例和来源。不要读本地文件。",
+            "rewritten_query": null,
+            "need_more_rounds": true,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_0",
+          "tool_key": "docs.context7.resolve",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 5,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "web_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_0",
+          "tool_key": "docs.context7.resolve",
+          "provider": "context7",
+          "category": "documentation",
+          "display_name": "Context7 技术库定位",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 4433,
+          "sources_count": 5,
+          "adapter": {
+            "adapter_type": "mcp_http",
+            "mcp_tool_name": "resolve-library-id",
+            "mcp_arguments": {
+              "libraryName": "httpx",
+              "query": "httpx timeout configuration"
+            }
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "docs.context7.query",
+              "provider": "context7",
+              "category": "documentation",
+              "display_name": "Context7 技术文档查询",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "libraryId": "/encode/httpx",
+                "query": "timeout configuration example"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "1e72355f-d74e-4479-8e8b-2fd1f55fce05",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "docs.context7.query",
+                "provider": "context7",
+                "category": "documentation",
+                "display_name": "Context7 技术文档查询",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "libraryId": "/encode/httpx",
+                  "query": "timeout configuration example"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "使用 Context7 查询 httpx 的 Timeout 配置方式，给出示例和来源。不要读本地文件。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "docs.context7.query",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 5,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "web_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "docs.context7.query",
+          "provider": "context7",
+          "category": "documentation",
+          "display_name": "Context7 技术文档查询",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 3927,
+          "sources_count": 5,
+          "adapter": {
+            "adapter_type": "mcp_http",
+            "mcp_tool_name": "query-docs",
+            "mcp_arguments": {
+              "libraryId": "/encode/httpx",
+              "query": "timeout configuration example"
+            }
+          }
+        }
+      ],
+      "schema_pass": 4,
+      "schema_total": 4,
+      "final_status": "done",
+      "answer": "根据检索到的 httpx 官方文档，其 Timeout 配置方式主要有两种：通过构造 `httpx.Timeout` 对象并传递给客户端，或通过请求的 `extensions` 参数进行细粒度设置。\n\n### 配置方式与示例\n\n#### 方式一：使用 `httpx.Timeout` 类（推荐）\n这是主要的配置方式。您可以为连接（connect）、读取（read）、写入（write）或连接池（pool）操作分别设置独立的超时时间。\n\n**示例 1：统一超时**\n```python\nimport httpx\n\n# 为所有操作设置 5 秒超时\ntimeout = httpx.Timeout(5.0)\nclient = httpx.Client(timeout=timeout)\n```\n\n**示例 2：为不同阶段设置不同超时**[T7]\n```python\nimport httpx\n\n# 连接超时 60 秒，其他操作（读、写、池）超时 10 秒\ntimeout = httpx.Timeout(10.0, connect=60.0)\nclient = httpx.Client(timeout=timeout)\nresponse = client.get('http://example.com/')\n```\n（来源：[T6](https://github.com/encode/httpx/blob/master/docs/advanced/timeouts.md) 及 [T7](https://github.com/encode/httpx/blob/master/httpx/_config.py) 中的类文档字符串）\n\n**示例 3：更灵活的参数设置**[T7]\n```python\nimport httpx\n\n# 仅设置连接超时为 5 秒，其他阶段无超时限制\ntimeout = httpx.Timeout(None, connect=5.0)\n# 或：连接超时 10 秒，其他操作 5 秒，获取池连接无超时\ntimeout = httpx.Timeout(5.0, connect=10.0, pool=None)\nclient = httpx.Client(timeout=timeout)\n```\n\n#### 方式二：通过请求的 `extensions` 参数（高级用法）\n这是一种低层级、针对单次请求的配置方法，通常建议使用上一种方式。[T8]\n\n**示例：设置单次请求的连接和连接池超时**\n```python\nimport httpx\n\nclient = httpx.Client()\nresponse = client.get(\n    \"https://www.example.com\",\n    extensions={\"timeout\": {\"connect\": 5.0, \"pool\": 10.0}}\n)\n```\n（来源：[T8](https://github.com/encode/httpx/blob/master/docs/advanced/extensions.md)）\n\n### 关键要点\n1.  **默认行为**：如果不设置 `timeout`，httpx 将不会应用任何超时限制。\n2.  **参数说明**：`httpx.Timeout` 构造函数的第一个参数 `timeout` 是除 `connect` 外所有其他阶段的默认值。您可以通过 `connect`、`read`、`write`、`pool` 关键字参数覆盖特定阶段的超时。\n3.  **禁用超时**：将某个参数设置为 `None` 可以禁用该阶段的超时限制。\n4.  **传递方式**：配置好的 `Timeout` 对象应传递给 `httpx.Client`（用于该客户端的所有请求）或 `httpx.AsyncClient` 的 `timeout` 参数。对于一次性请求，也可以直接传递给 `httpx.get`、`httpx.post` 等函数的 `timeout` 参数。\n\n以上信息全部来源于通过 Context7 检索到的 httpx 官方仓库文档。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "actual_source_url_in_answer": true,
+        "documentation_body": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 83882.1
+    },
+    {
+      "id": "tool_task_18",
+      "group": "documentation",
+      "query": "通过 Context7 查 FastAPI 的 StreamingResponse 用法，简要说明，不读本地文件。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": true,
+      "no_tool_correct": null,
+      "candidate_keys": [
+        "docs.context7.query",
+        "docs.context7.resolve",
+        "agent.artifacts.read",
+        "amap.maps.direction.driving",
+        "amap.maps.around_search",
+        "web.tavily.search"
+      ],
+      "planned_keys": [
+        "docs.context7.resolve",
+        "docs.context7.query"
+      ],
+      "calls": [
+        {
+          "tool_key": "docs.context7.resolve",
+          "status": "success"
+        },
+        {
+          "tool_key": "docs.context7.query",
+          "status": "success"
+        }
+      ],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_0",
+              "tool_key": "docs.context7.resolve",
+              "provider": "context7",
+              "category": "documentation",
+              "display_name": "Context7 技术库定位",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "libraryName": "fastapi",
+                "query": "FastAPI StreamingResponse"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 1,
+          "plan": {
+            "plan_id": "7d82b9e0-9697-4284-9f8a-ac8d152c60cd",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_0",
+                "tool_key": "docs.context7.resolve",
+                "provider": "context7",
+                "category": "documentation",
+                "display_name": "Context7 技术库定位",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "libraryName": "fastapi",
+                  "query": "FastAPI StreamingResponse"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "通过 Context7 查 FastAPI 的 StreamingResponse 用法，简要说明，不读本地文件。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_0",
+          "tool_key": "docs.context7.resolve",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 5,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "web_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_0",
+          "tool_key": "docs.context7.resolve",
+          "provider": "context7",
+          "category": "documentation",
+          "display_name": "Context7 技术库定位",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 4481,
+          "sources_count": 5,
+          "adapter": {
+            "adapter_type": "mcp_http",
+            "mcp_tool_name": "resolve-library-id",
+            "mcp_arguments": {
+              "libraryName": "fastapi",
+              "query": "FastAPI StreamingResponse"
+            }
+          }
+        },
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm_primary",
+          "should_use_tools": true,
+          "selected_tools": [
+            {
+              "call_id": "call_1",
+              "tool_key": "docs.context7.query",
+              "provider": "context7",
+              "category": "documentation",
+              "display_name": "Context7 技术文档查询",
+              "confidence": 0.75,
+              "reason": "LLM 根据工具 manifest 选择。",
+              "arguments": {
+                "libraryId": "/websites/fastapi_tiangolo",
+                "query": "StreamingResponse usage"
+              },
+              "depends_on": [],
+              "can_parallel": true,
+              "result_bindings": []
+            }
+          ],
+          "reason": "LLM 根据候选工具、工具 manifest 和 schema 生成工具计划。"
+        },
+        {
+          "type": "tool_plan",
+          "round": 2,
+          "plan": {
+            "plan_id": "e31058df-88a9-4099-828d-98d3f7853395",
+            "router": "llm_tool_planner_v1",
+            "external_context_allowed": true,
+            "should_use_tools": true,
+            "calls": [
+              {
+                "call_id": "call_1",
+                "tool_key": "docs.context7.query",
+                "provider": "context7",
+                "category": "documentation",
+                "display_name": "Context7 技术文档查询",
+                "confidence": 0.75,
+                "reason": "LLM 根据工具 manifest 选择。",
+                "arguments": {
+                  "libraryId": "/websites/fastapi_tiangolo",
+                  "query": "StreamingResponse usage"
+                },
+                "depends_on": [],
+                "can_parallel": true,
+                "result_bindings": []
+              }
+            ],
+            "fallback_tool_key": null,
+            "original_query": "通过 Context7 查 FastAPI 的 StreamingResponse 用法，简要说明，不读本地文件。",
+            "rewritten_query": null,
+            "need_more_rounds": false,
+            "execution_mode": "sync",
+            "execution_reason": ""
+          }
+        },
+        {
+          "type": "tool_result_quality",
+          "call_id": "call_1",
+          "tool_key": "docs.context7.query",
+          "status": "valid",
+          "reasons": [],
+          "metadata": {
+            "sources_count": 5,
+            "min_sources": 1,
+            "allow_empty": false,
+            "contract_applied": true,
+            "result_semantics": "evidence",
+            "semantic_profile": "web_search",
+            "require_semantic_profile": false,
+            "expected_result_semantics": null,
+            "request_context_checked": true
+          },
+          "result_semantics": "evidence"
+        },
+        {
+          "type": "tool_call_end",
+          "call_id": "call_1",
+          "tool_key": "docs.context7.query",
+          "provider": "context7",
+          "category": "documentation",
+          "display_name": "Context7 技术文档查询",
+          "status": "success",
+          "quality_status": "valid",
+          "result_semantics": "evidence",
+          "elapsed_ms": 5408,
+          "sources_count": 5,
+          "adapter": {
+            "adapter_type": "mcp_http",
+            "mcp_tool_name": "query-docs",
+            "mcp_arguments": {
+              "libraryId": "/websites/fastapi_tiangolo",
+              "query": "StreamingResponse usage"
+            }
+          }
+        }
+      ],
+      "schema_pass": 4,
+      "schema_total": 5,
+      "final_status": "done",
+      "answer": "根据 Context7 检索到的 FastAPI 官方文档，`StreamingResponse` 的简要说明如下：\n\n**1. 核心用途**\n`StreamingResponse` 用于从异步生成器（`async generator`）或普通生成器/迭代器（`yield`函数）流式传输响应体。它适用于发送大型文件、实时数据流（如服务器发送事件SSE）或无限流，避免一次性加载全部数据到内存【T7】【T6】。\n\n**2. 基本用法**\n- 导入并实例化 `StreamingResponse`，将生成器作为 `content` 参数传入。\n- 关键参数包括：\n  - `content` (**必需**): 可迭代的字节流 (如 `AsyncIterable[bytes]` 或 `Iterable[bytes]`)。\n  - `media_type` (可选): 设置媒体类型，例如 `\"text/event-stream\"` 用于 SSE。\n  - `status_code`、`headers`、`background` 等用于定制响应【T7】【T8】。\n\n**3. 代码示例**\n```python\nfrom fastapi import FastAPI\nfrom fastapi.responses import StreamingResponse\nimport anyio\n\napp = FastAPI()\n\nasync def fake_video_streamer():\n    for i in range(10):\n        yield b\"some fake video bytes\"\n        await anyio.sleep(0)  # 允许事件循环处理取消请求\n\n@app.get(\"/\")\nasync def main():\n    return StreamingResponse(fake_video_streamer())\n```\n（示例来源：T6）\n\n**4. 注意事项**\n- **取消处理**：在异步生成器中，务必包含 `await`（如 `await anyio.sleep(0)`），否则任务可能无法正确取消【T6】。\n- **更佳实践**：对于常见场景（如流式传输数据、JSON Lines），建议参考 FastAPI 的 [Stream Data](https://fastapi.tiangolo.com/advanced/stream-data/) 和 [Stream JSON Lines](https://fastapi.tiangolo.com/tutorial/stream-json-lines/) 教程，它们封装了取消等细节，更为便捷【T6】。\n\n> 以上说明基于 FastAPI 官方文档（Context7 检索结果），涵盖英文、法文、日文版本，核心信息一致【T6】【T7】【T8】。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {
+        "documentation_body": true
+      },
+      "strict_passed": true,
+      "elapsed_ms": 69046.2
+    },
+    {
+      "id": "tool_task_19",
+      "group": "negative",
+      "query": "不要使用任何工具，只回复：已收到。",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": false,
+      "no_tool_correct": true,
+      "candidate_keys": [],
+      "planned_keys": [],
+      "calls": [],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm",
+          "should_use_tools": false,
+          "selected_tools": [],
+          "reason": "LLM 判断本轮不需要外部工具。"
+        }
+      ],
+      "schema_pass": 0,
+      "schema_total": 0,
+      "final_status": "done",
+      "answer": "已收到。",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {},
+      "strict_passed": true,
+      "elapsed_ms": 8321.8
+    },
+    {
+      "id": "tool_task_20",
+      "group": "negative",
+      "query": "Do not use any tools. Just reply received.",
+      "passed": true,
+      "candidate_covered": true,
+      "planner_covered": true,
+      "llm_planner": false,
+      "no_tool_correct": true,
+      "candidate_keys": [],
+      "planned_keys": [],
+      "calls": [],
+      "diagnostic_events": [
+        {
+          "type": "tool_planner_end",
+          "planner": "llm_tool_planner_v1",
+          "strategy": "llm",
+          "should_use_tools": false,
+          "selected_tools": [],
+          "reason": "LLM 判断本轮不需要外部工具。"
+        }
+      ],
+      "schema_pass": 0,
+      "schema_total": 0,
+      "final_status": "done",
+      "answer": "Received.",
+      "source_checked": true,
+      "facts_checked": true,
+      "strict_checks": {},
+      "strict_passed": true,
+      "elapsed_ms": 4887.0
+    }
+  ],
+  "safety": [
+    {
+      "id": "unknown_shell",
+      "status": "skipped",
+      "passed": true,
+      "evidence": [
+        "tool_call_error"
+      ]
+    },
+    {
+      "id": "unknown_sql",
+      "status": "skipped",
+      "passed": true,
+      "evidence": [
+        "tool_call_error"
+      ]
+    },
+    {
+      "id": "missing_file_id",
+      "status": "skipped",
+      "passed": true,
+      "evidence": [
+        "tool_schema_validation",
+        "tool_call_error"
+      ]
+    },
+    {
+      "id": "wrong_file_type",
+      "status": "error",
+      "passed": true,
+      "evidence": [
+        "tool_schema_validation",
+        "tool_policy_check",
+        "tool_policy_check",
+        "tool_call_start",
+        "tool_call_error"
+      ]
+    },
+    {
+      "id": "foreign_file",
+      "status": "error",
+      "passed": true,
+      "evidence": [
+        "tool_schema_validation",
+        "tool_policy_check",
+        "tool_policy_check",
+        "tool_call_start",
+        "tool_call_error"
+      ]
+    },
+    {
+      "id": "local_path",
+      "status": "error",
+      "passed": true,
+      "evidence": [
+        "tool_schema_validation",
+        "tool_policy_check",
+        "tool_policy_check",
+        "tool_call_start",
+        "tool_call_error"
+      ]
+    }
+  ]
+}

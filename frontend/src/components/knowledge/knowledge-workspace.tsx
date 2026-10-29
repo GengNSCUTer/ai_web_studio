@@ -827,8 +827,8 @@ export function KnowledgeWorkspace({
           </div>
         ) : null}
 
-        <section className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[320px_1fr]">
-          <aside className="min-h-0 rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel-bg)] p-4 shadow-[var(--panel-shadow)]">
+        <section className="grid min-w-0 min-h-0 flex-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="min-w-0 min-h-0 rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel-bg)] p-4 shadow-[var(--panel-shadow)]">
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold">知识库列表</h2>
@@ -876,11 +876,11 @@ export function KnowledgeWorkspace({
             </div>
           </aside>
 
-          <section className="min-h-0 rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel-bg)] p-4 shadow-[var(--panel-shadow)]">
+          <section className="min-w-0 min-h-0 rounded-[26px] border border-[var(--panel-border)] bg-[var(--panel-bg)] p-4 shadow-[var(--panel-shadow)]">
             {visibleActiveKnowledgeBase ? (
-              <div className="flex h-full min-h-0 flex-col">
-                <div className="flex flex-col gap-4 border-b border-[var(--hairline)] pb-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
+              <div className="flex h-full min-w-0 min-h-0 flex-col">
+                <div className="flex min-w-0 flex-col gap-4 border-b border-[var(--hairline)] pb-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
                     <p className="text-xs uppercase tracking-[0.26em] text-[var(--ink-muted)]">
                       {projectName(initialProjects, visibleActiveKnowledgeBase.project_id)}
                     </p>
@@ -889,7 +889,7 @@ export function KnowledgeWorkspace({
                       {visibleActiveKnowledgeBase.description || "暂无描述。"}
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                  <div className="grid min-w-0 grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                     <Metric label="文档" value={`${visibleActiveKnowledgeBase.document_count}`} />
                     <Metric label="Chunk" value={`${visibleActiveKnowledgeBase.chunk_size}/${visibleActiveKnowledgeBase.chunk_overlap}`} />
                     <Metric label="召回" value={`Top ${visibleActiveKnowledgeBase.retrieval_top_k}`} />
@@ -897,41 +897,42 @@ export function KnowledgeWorkspace({
                   </div>
                 </div>
 
-                <div className="grid gap-4 py-4 xl:grid-cols-[1.05fr_0.85fr_0.85fr]">
-                  <Panel title="配置概览" subtitle="RAG-3 已接入分块与向量索引；更换 Embedding 模型后需要重建索引。">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <Info label="解析器" value={visibleActiveKnowledgeBase.parser_provider} />
-                      <Info
-                        label="分块模式"
-                        value={
-                          visibleActiveKnowledgeBase.chunk_mode === "parent_child"
-                            ? `Parent-Child ${visibleActiveKnowledgeBase.parent_chunk_size ?? "-"} / ${visibleActiveKnowledgeBase.child_chunk_size ?? "-"}`
-                            : "普通分块"
-                        }
-                      />
-                      <Info label="Embedding" value={visibleActiveKnowledgeBase.embedding_model} />
-                      <Info label="Rerank" value={visibleActiveKnowledgeBase.rerank_enabled ? visibleActiveKnowledgeBase.rerank_model : "未启用"} />
-                      <Info label="分数阈值" value={`${visibleActiveKnowledgeBase.score_threshold}`} />
-                      <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 sm:col-span-2">
-                        <SelectField
-                          label="检索模式"
-                          value={visibleActiveKnowledgeBase.retrieval_mode}
-                          onChange={(value) =>
-                            handleUpdateRetrievalMode(value as CreateFormState["retrieval_mode"])
+                <div className="space-y-4 py-4">
+                  <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+                    <Panel title="配置概览" subtitle="RAG-3 已接入分块与向量索引；更换 Embedding 模型后需要重建索引。">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Info label="解析器" value={visibleActiveKnowledgeBase.parser_provider} />
+                        <Info
+                          label="分块模式"
+                          value={
+                            visibleActiveKnowledgeBase.chunk_mode === "parent_child"
+                              ? `Parent-Child ${visibleActiveKnowledgeBase.parent_chunk_size ?? "-"} / ${visibleActiveKnowledgeBase.child_chunk_size ?? "-"}`
+                              : "普通分块"
                           }
-                          options={RETRIEVAL_MODE_OPTIONS}
                         />
-                        <p className="mt-2 text-xs leading-5 text-[var(--ink-muted)]">
-                          {isSavingRetrievalMode
-                            ? "正在保存检索模式..."
-                            : "Hybrid 会同时走向量召回和 BM25 关键词召回，再用 RRF 融合候选。"}
-                        </p>
+                        <Info label="Embedding" value={visibleActiveKnowledgeBase.embedding_model} />
+                        <Info label="Rerank" value={visibleActiveKnowledgeBase.rerank_enabled ? visibleActiveKnowledgeBase.rerank_model : "未启用"} />
+                        <Info label="分数阈值" value={`${visibleActiveKnowledgeBase.score_threshold}`} />
+                        <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 sm:col-span-2">
+                          <SelectField
+                            label="检索模式"
+                            value={visibleActiveKnowledgeBase.retrieval_mode}
+                            onChange={(value) =>
+                              handleUpdateRetrievalMode(value as CreateFormState["retrieval_mode"])
+                            }
+                            options={RETRIEVAL_MODE_OPTIONS}
+                          />
+                          <p className="mt-2 text-xs leading-5 text-[var(--ink-muted)]">
+                            {isSavingRetrievalMode
+                              ? "正在保存检索模式..."
+                              : "Hybrid 会同时走向量召回和 BM25 关键词召回，再用 RRF 融合候选。"}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </Panel>
+                    </Panel>
 
-                  <Panel title="阶段状态" subtitle="当前阶段聚焦文本索引和检索可观测；聊天引用会在 RAG-5 接入。">
-                    <div className="space-y-2 text-sm text-[var(--ink-soft)]">
+                    <Panel title="阶段状态" subtitle="当前阶段聚焦文本索引和检索可观测；聊天引用会在 RAG-5 接入。">
+                      <div className="grid gap-2 text-sm text-[var(--ink-soft)] sm:grid-cols-2">
                       <StatusLine done label="知识库配置已持久化" />
                       <StatusLine done label="文档上传记录已接入" />
                       <StatusLine done label="本地基础解析已接入" />
@@ -940,56 +941,65 @@ export function KnowledgeWorkspace({
                       <StatusLine done label="Chunk / Embedding / FAISS 已接入" />
                       <StatusLine done label="检索测试已接入" />
                       <StatusLine label="聊天引用待接入" />
-                    </div>
-                  </Panel>
+                      </div>
+                    </Panel>
+                  </div>
 
-                  <Panel title="MinerU 凭据" subtitle="Token 按用户加密保存，不会在页面回显明文。">
-                    <form onSubmit={handleSaveMineruCredential} className="space-y-3">
-                      <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3">
-                        <p className="text-xs text-[var(--ink-muted)]">当前状态</p>
-                        <p className="mt-1 text-sm font-semibold">
-                          {mineruCredential?.has_api_key
-                            ? `已配置：${mineruCredential.api_key_masked ?? "****"}`
-                            : "未配置"}
-                        </p>
-                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                          来源：{mineruCredential?.source ?? "missing"}
-                        </p>
-                      </div>
-                      <input
-                        type="password"
-                        value={mineruTokenDraft}
-                        onChange={(event) => setMineruTokenDraft(event.target.value)}
-                        className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-strong)]"
-                        placeholder="输入新的 MinerU token"
-                      />
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="submit"
-                          disabled={isSavingMineru || !mineruTokenDraft.trim()}
-                          className="primary-action rounded-full px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSavingMineru ? "保存中..." : "保存 Token"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleTestMineruCredential()}
-                          disabled={isTestingMineru}
-                          className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isTestingMineru ? "测试中..." : "测试连接"}
-                        </button>
-                      </div>
-                      {mineruMessage ? (
-                        <p className="rounded-2xl border border-[var(--success-border)] bg-[var(--success-bg)] px-3 py-2 text-xs text-[var(--success-text)]">
-                          {mineruMessage}
-                        </p>
-                      ) : null}
-                    </form>
-                  </Panel>
+                  <details className="group min-w-0 rounded-[24px] border border-[var(--control-border)] bg-[var(--soft-bg)]">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-medium text-[var(--ink-soft)] marker:hidden">
+                      <span>高级配置 · MinerU 远程解析</span>
+                      <span className="text-xs text-[var(--ink-muted)] transition group-open:rotate-180">⌄</span>
+                    </summary>
+                    <div className="border-t border-[var(--hairline)] p-4">
+                      <Panel title="MinerU 凭据" subtitle="Token 按用户加密保存，不会在页面回显明文。">
+                        <form onSubmit={handleSaveMineruCredential} className="space-y-3">
+                          <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3">
+                            <p className="text-xs text-[var(--ink-muted)]">当前状态</p>
+                            <p className="mt-1 text-sm font-semibold">
+                              {mineruCredential?.has_api_key
+                                ? `已配置：${mineruCredential.api_key_masked ?? "****"}`
+                                : "未配置"}
+                            </p>
+                            <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                              来源：{mineruCredential?.source ?? "missing"}
+                            </p>
+                          </div>
+                          <input
+                            type="password"
+                            value={mineruTokenDraft}
+                            onChange={(event) => setMineruTokenDraft(event.target.value)}
+                            className="w-full rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-strong)]"
+                            placeholder="输入新的 MinerU token"
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="submit"
+                              disabled={isSavingMineru || !mineruTokenDraft.trim()}
+                              className="primary-action rounded-full px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isSavingMineru ? "保存中..." : "保存 Token"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleTestMineruCredential()}
+                              disabled={isTestingMineru}
+                              className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isTestingMineru ? "测试中..." : "测试连接"}
+                            </button>
+                          </div>
+                          {mineruMessage ? (
+                            <p className="rounded-2xl border border-[var(--success-border)] bg-[var(--success-bg)] px-3 py-2 text-xs text-[var(--success-text)]">
+                              {mineruMessage}
+                            </p>
+                          ) : null}
+                        </form>
+                      </Panel>
+                    </div>
+                  </details>
                 </div>
 
-                <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                <div className="min-w-0 min-h-0 flex-1 space-y-4">
                   <Panel title="文档" subtitle="上传后依次触发解析与索引；索引成功后可在右侧做检索测试。">
                     <div className="mb-4 flex flex-wrap items-center gap-2">
                       <input
@@ -1082,7 +1092,7 @@ export function KnowledgeWorkspace({
                     </div>
                   </Panel>
 
-                  <div className="space-y-4">
+                  <div className="min-w-0 space-y-4">
                     <Panel title="检索测试" subtitle="用于定位解析、分块、Embedding 和召回质量问题；聊天接入前先在这里验证。">
                       <form onSubmit={handleTestRetrieval} className="space-y-3">
                         <textarea
@@ -1263,11 +1273,17 @@ export function KnowledgeWorkspace({
                       ) : null}
                     </Panel>
 
-                    <Panel
-                      title="RAG-6.0 检索观测"
-                      subtitle="先把检索日志和小型评测集打通，为后续 Hybrid、Parent-Child、Contextual Retrieval 提供基线。"
-                    >
-                      <div className="space-y-5">
+                    <details className="group min-w-0 rounded-[24px] border border-[var(--control-border)] bg-[var(--soft-bg)]">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-medium text-[var(--ink-soft)] marker:hidden">
+                        <span>检索观测与评测</span>
+                        <span className="text-xs text-[var(--ink-muted)] transition group-open:rotate-180">⌄</span>
+                      </summary>
+                      <div className="border-t border-[var(--hairline)] p-4">
+                        <Panel
+                          title="RAG-6.0 检索观测"
+                          subtitle="先把检索日志和小型评测集打通，为后续 Hybrid、Parent-Child、Contextual Retrieval 提供基线。"
+                        >
+                          <div className="space-y-5">
                         <div>
                           <div className="mb-3 flex items-center justify-between gap-2">
                             <div>
@@ -1460,11 +1476,19 @@ export function KnowledgeWorkspace({
                             </p>
                           )}
                         </div>
+                          </div>
+                        </Panel>
                       </div>
-                    </Panel>
+                    </details>
 
-                    <Panel title="任务" subtitle="解析和索引当前同步触发；后续会迁移为后台 worker。">
-                      <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
+                    <details className="group min-w-0 rounded-[24px] border border-[var(--control-border)] bg-[var(--soft-bg)]">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-medium text-[var(--ink-soft)] marker:hidden">
+                        <span>任务历史</span>
+                        <span className="text-xs text-[var(--ink-muted)] transition group-open:rotate-180">⌄</span>
+                      </summary>
+                      <div className="border-t border-[var(--hairline)] p-4">
+                        <Panel title="任务" subtitle="解析和索引当前同步触发；后续会迁移为后台 worker。">
+                          <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
                         {jobs.length === 0 ? (
                           <EmptyBox text="暂无任务。上传文档后会生成 parse_document 任务。" />
                         ) : (
@@ -1486,8 +1510,10 @@ export function KnowledgeWorkspace({
                             </div>
                           ))
                         )}
+                          </div>
+                        </Panel>
                       </div>
-                    </Panel>
+                    </details>
                   </div>
                 </div>
               </div>
@@ -1766,7 +1792,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
-    <section className="rounded-[24px] border border-[var(--control-border)] bg-[var(--soft-bg)] p-4">
+    <section className="min-w-0 rounded-[24px] border border-[var(--control-border)] bg-[var(--soft-bg)] p-4">
       <div className="mb-4">
         <h3 className="text-lg font-semibold">{title}</h3>
         <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">{subtitle}</p>

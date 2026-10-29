@@ -49,6 +49,37 @@ class MessageRepository:
         self.db.refresh(message)
         return message
 
+    def history_snapshot(
+        self, conversation_id: str, *, exclude_message_id: str | None = None
+    ) -> list[tuple[str, str, str, str | None]]:
+        """直接读取数据库列，避免身份映射中的旧 ORM 对象掩盖历史变更。"""
+        stmt = select(Message.id, Message.role, Message.content, Message.generation_id).where(
+            Message.conversation_id == conversation_id
+        )
+        if exclude_message_id is not None:
+            stmt = stmt.where(Message.id != exclude_message_id)
+        stmt = stmt.order_by(Message.created_at.asc(), Message.sequence.asc().nulls_last(), Message.id.asc())
+        return [tuple(row) for row in self.db.execute(stmt).all()]
+
+    def invalidate_summary_for_changes(
+        self, conversation: Conversation | None, message_ids: list[str]
+    ) -> None:
+        """调用方先锁定会话；历史修改与摘要失效必须在同一事务提交。"""
+        if conversation is None or not message_ids or not (
+            conversation.context_summary or conversation.context_summary_boundary_message_id
+        ):
+            return
+        ordered_ids = [row[0] for row in self.history_snapshot(conversation.id)]
+        boundary = conversation.context_summary_boundary_message_id
+        if boundary in ordered_ids:
+            covered_ids = set(ordered_ids[:ordered_ids.index(boundary) + 1])
+            if not covered_ids.intersection(message_ids):
+                return
+        # 边界缺失时覆盖范围不可验证，也不能继续保留旧摘要。
+        conversation.context_summary = None
+        conversation.context_summary_boundary_message_id = None
+        conversation.context_summary_updated_at = None
+
     def save(self, message: Message) -> Message:
         # 这里只登记变更；流式完成/失败等业务边界由 MessageService 提交。
         self._assign_sequence_if_needed(message)

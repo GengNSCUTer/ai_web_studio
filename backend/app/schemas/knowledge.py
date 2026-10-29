@@ -262,6 +262,7 @@ class KnowledgeEvalSetResponse(BaseModel):
 
 class KnowledgeEvalCaseCreate(BaseModel):
     query: str = Field(min_length=1, max_length=2000)
+    answerable: bool = True
     expected_document_id: str | None = Field(default=None, max_length=36)
     expected_document_ids: list[str] = Field(default_factory=list, max_length=100)
     expected_chunk_id: str | None = Field(default=None, max_length=36)
@@ -279,6 +280,7 @@ class KnowledgeEvalCaseResponse(BaseModel):
     knowledge_base_id: str
     eval_set_id: str
     query: str
+    answerable: bool = True
     expected_document_id: str | None = None
     expected_document_ids: list[str] = Field(default_factory=list)
     expected_chunk_id: str | None = None

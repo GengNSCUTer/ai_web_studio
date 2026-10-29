@@ -296,7 +296,7 @@
     "provider": "amap",
     "category": "weather",
     "display_name": "高德 MCP 天气",
-    "description": "根据城市名称或者标准adcode查询指定城市的天气",
+    "description": "根据城市名称或adcode查询天气；mode=live 查询最新实况，mode=forecast 查询预报，不把预报当当前温度。",
     "when_to_use": [
       "根据城市名称或者标准adcode查询指定城市的天气"
     ],
@@ -307,6 +307,12 @@
         "city": {
           "type": "string",
           "description": "城市名称或者adcode"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["live", "forecast"],
+          "default": "live",
+          "description": "当前/现在天气用live；未来几天的天气预报用forecast"
         }
       },
       "required": [
@@ -319,6 +325,7 @@
       "credential_provider": "amap",
       "endpoint_template": "https://mcp.amap.com/mcp?key={api_key}",
       "mcp_tool_name": "maps_weather",
+      "live_weather_rest": true,
       "default_arguments": {},
       "result_mapper": "amap_weather"
     },
@@ -881,7 +888,8 @@
         "next_cursor": "/metadata/next_cursor",
         "scanned_files": "/metadata/scanned_files",
         "coverage_complete": "/metadata/coverage_complete",
-        "first_file_id": "/metadata/raw/files/0/file_id"
+        "first_file_id": "/metadata/raw/files/0/file_id",
+        "first_file_name": "/metadata/raw/files/0/file_name"
       }
     },
     "risk_level": "low",

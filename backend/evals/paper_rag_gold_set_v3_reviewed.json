@@ -1,0 +1,156 @@
+{
+  "name": "paper_rag_gold_set_v3_reviewed",
+  "schema_version": 6,
+  "description": "原文优先、在线模型辅助标注、精确引文核验与独立审查；非专家穷尽标注",
+  "labeling_policy": {
+    "retrieval_blind": true,
+    "draft_model": "deepseek-ai/DeepSeek-V3.2",
+    "review_model": "Qwen/Qwen2.5-72B-Instruct",
+    "mode": "source_review"
+  },
+  "cases": [
+    {
+      "case_id": "rag_multi_adaptive_classifier_001",
+      "query": "Adaptive-RAG 的问题复杂度分类器如何训练，并在推理时输出检索策略？",
+      "expected_chunk_selectors": [
+        {
+          "document_file": "Adaptive_RAG.pdf",
+          "chunk_index": 13,
+          "contains": "In this work, we operationalize this process with a novel classifier, which is a smaller model trained to predict the complexity level of incoming queries (see Figure 2 (c))."
+        },
+        {
+          "document_file": "Adaptive_RAG.pdf",
+          "chunk_index": 33,
+          "contains": "To operationalize our adaptive retrieval-augmented LLM framework, we should determine the query complexity, and to achieve this, we propose to model a complexity classifier, whose goal is to return the appropriate complexity level of the given query."
+        },
+        {
+          "document_file": "Adaptive_RAG.pdf",
+          "chunk_index": 34,
+          "contains": "The remaining step is to train the smaller Language Model for Classifier, to accurately predict its complexity o in response to the given query q. Yet, there is no annotated dataset available for query-complexity pairs."
+        },
+        {
+          "document_file": "Adaptive_RAG.pdf",
+          "chunk_index": 35,
+          "contains": "Therefore, for those queries that remain unlabeled after the first labeling step, we assign ‘B’ to queries in single-hop datasets and ‘C’ to queries in multi-hop datasets."
+        }
+      ],
+      "expected_answer_keywords": [
+        "classifier",
+        "complexity",
+        "inference",
+        "crossentropy"
+      ],
+      "difficulty": "hard",
+      "tags": [
+        "adaptive-retrieval",
+        "classifier",
+        "evaluation"
+      ],
+      "answerable": true,
+      "review_note": "删除与训练无关的评测指标块45，补齐训练标签来源34和35；33说明类别与推理策略。",
+      "evidence_review": [
+        {
+          "document_file": "Adaptive_RAG.pdf",
+          "chunk_index": 13,
+          "quote": "In this work, we operationalize this process with a novel classifier, which is a smaller model trained to predict the complexity level of incoming queries (see Figure 2 (c)).",
+          "relevance": 2
+        },
+        {
+          "document_file": "Adaptive_RAG.pdf",
+          "chunk_index": 33,
+          "quote": "To operationalize our adaptive retrieval-augmented LLM framework, we should determine the query complexity, and to achieve this, we propose to model a complexity classifier, whose goal is to return the appropriate complexity level of the given query.",
+          "relevance": 2
+        },
+        {
+          "document_file": "Adaptive_RAG.pdf",
+          "chunk_index": 34,
+          "quote": "The remaining step is to train the smaller Language Model for Classifier, to accurately predict its complexity o in response to the given query q. Yet, there is no annotated dataset available for query-complexity pairs.",
+          "relevance": 2
+        },
+        {
+          "document_file": "Adaptive_RAG.pdf",
+          "chunk_index": 35,
+          "quote": "Therefore, for those queries that remain unlabeled after the first labeling step, we assign ‘B’ to queries in single-hop datasets and ‘C’ to queries in multi-hop datasets.",
+          "relevance": 2
+        }
+      ],
+      "expected_answer_claims": [
+        "Adaptive-RAG uses a smaller language model as a classifier to predict the complexity level of incoming queries.",
+        "The classifier is trained using automatically collected labels from the predicted outcomes of models and inherent inductive biases in datasets.",
+        "Adaptive-RAG can select from non-retrieval, single-step, and multi-step retrieval-augmented strategies based on the query complexity.",
+        "The classifier outputs one of three labels: ‘A’ for straightforward queries, ‘B’ for moderate complexity queries, and ‘C’ for complex queries."
+      ]
+    },
+    {
+      "case_id": "rag_multi_df_diversity_001",
+      "query": "DF-RAG 为什么需要多样性检索，它如何缓解余弦相似度带来的冗余证据问题？",
+      "expected_chunk_selectors": [
+        {
+          "document_file": "DF-RAG.pdf",
+          "chunk_index": 1,
+          "contains": "To address this, we introduce Diversity-Focused Retrieval-Augmented Generation (DF-RAG) that systematically incorporates diversity into the retrieval step to improve performance on complex, reasoning-intensive QA benchmarks."
+        },
+        {
+          "document_file": "DF-RAG.pdf",
+          "chunk_index": 4,
+          "contains": "We build upon Maximal Marginal Relevance (MMR) (Carbonell and Goldstein, 1998), a technique that balances query relevance with dissimilarity from selected information via a diversity parameter, λ."
+        },
+        {
+          "document_file": "DF-RAG.pdf",
+          "chunk_index": 6,
+          "contains": "DF-RAG adaptively determines the optimal λ for each query at test time through a multi-step process: (1) decomposing each query into individual steps with a planner LLM, (2) retrieving multiple candidate sets of chunks, each generated at predefined λ levels; and (3) selecting the chunk set with the highest potential to address the decomposed steps with an Evaluator LLM."
+        },
+        {
+          "document_file": "DF-RAG.pdf",
+          "chunk_index": 2,
+          "contains": "We show that DF-RAG improves $F _ { 1 }$ performance on reasoning-intensive QA benchmarks by 4–10% over vanilla RAG using cosine similarity and also outperforms other established baselines."
+        }
+      ],
+      "expected_answer_keywords": [
+        "diversity",
+        "redundant",
+        "cosine",
+        "DF-RAG"
+      ],
+      "difficulty": "medium",
+      "tags": [
+        "diversity",
+        "multi-hop",
+        "multi-chunk"
+      ],
+      "answerable": true,
+      "evidence_review": [
+        {
+          "document_file": "DF-RAG.pdf",
+          "chunk_index": 1,
+          "quote": "To address this, we introduce Diversity-Focused Retrieval-Augmented Generation (DF-RAG) that systematically incorporates diversity into the retrieval step to improve performance on complex, reasoning-intensive QA benchmarks.",
+          "relevance": 2
+        },
+        {
+          "document_file": "DF-RAG.pdf",
+          "chunk_index": 4,
+          "quote": "We build upon Maximal Marginal Relevance (MMR) (Carbonell and Goldstein, 1998), a technique that balances query relevance with dissimilarity from selected information via a diversity parameter, λ.",
+          "relevance": 2
+        },
+        {
+          "document_file": "DF-RAG.pdf",
+          "chunk_index": 6,
+          "quote": "DF-RAG adaptively determines the optimal λ for each query at test time through a multi-step process: (1) decomposing each query into individual steps with a planner LLM, (2) retrieving multiple candidate sets of chunks, each generated at predefined λ levels; and (3) selecting the chunk set with the highest potential to address the decomposed steps with an Evaluator LLM.",
+          "relevance": 2
+        },
+        {
+          "document_file": "DF-RAG.pdf",
+          "chunk_index": 2,
+          "quote": "We show that DF-RAG improves $F _ { 1 }$ performance on reasoning-intensive QA benchmarks by 4–10% over vanilla RAG using cosine similarity and also outperforms other established baselines.",
+          "relevance": 2
+        }
+      ],
+      "expected_answer_claims": [
+        "DF-RAG is designed to incorporate diversity into the retrieval step to improve performance on complex, reasoning-intensive QA benchmarks.",
+        "DF-RAG builds upon the Maximal Marginal Relevance (MMR) framework to select information chunks that are both relevant to the query and maximally dissimilar from each other.",
+        "DF-RAG dynamically optimizes the level of diversity for each query at test time without requiring any additional fine-tuning or prior information.",
+        "DF-RAG improves $F _ { 1 }$ performance on reasoning-intensive QA benchmarks by 4–10% over vanilla RAG using cosine similarity."
+      ]
+    }
+  ]
+}

@@ -180,6 +180,13 @@ class KnowledgeEvaluationService:
         if payload.expected_chunk_id and payload.expected_chunk_id not in expected_chunk_ids:
             expected_chunk_ids.insert(0, payload.expected_chunk_id)
 
+        tags = list(payload.tags)
+        if not payload.answerable or "no-answer" in tags:
+            if expected_document_ids or expected_chunk_ids:
+                raise ValueError("无答案题不能绑定正例证据。")
+            if "no-answer" not in tags:
+                tags.append("no-answer")
+
         for expected_document_id in expected_document_ids:
             expected_document = self.document_repo.get_by_user(expected_document_id, user_id)
             if not expected_document or expected_document.knowledge_base_id != knowledge_base_id:
@@ -206,7 +213,7 @@ class KnowledgeEvaluationService:
             expected_chunk_ids_json=self._dump_list(expected_chunk_ids),
             expected_answer_keywords_json=self._dump_list(payload.expected_answer_keywords),
             difficulty=payload.difficulty.strip() if payload.difficulty else None,
-            tags_json=self._dump_list(payload.tags),
+            tags_json=self._dump_list(tags),
         )
         return self._to_case_response(self.eval_case_repo.save(item))
 
@@ -273,6 +280,9 @@ class KnowledgeEvaluationService:
             failure_count = 0
             fallback_count = 0
             stale_chunk_target_count = 0
+            answerable_case_count = 0
+            negative_case_count = 0
+            negative_nonempty_count = 0
             case_errors: list[dict[str, str]] = []
             for case in cases:
                 started_at = perf_counter()
@@ -341,12 +351,22 @@ class KnowledgeEvaluationService:
                     expected_document_ids=self._case_document_ids(case),
                     expected_answer_keywords=self._load_list(case.expected_answer_keywords_json),
                 )
-                hit_sum += float(metrics["hit_at_k"])
-                mrr_sum += float(metrics["mrr"] or 0.0)
-                precision_sum += float(metrics["context_precision"] or 0.0)
-                recall_sum += float(metrics["context_recall"] or 0.0)
-                ndcg_sum += float(metrics["ndcg_at_k"] or 0.0)
-                if metrics["expected_keyword_recall"] is not None:
+                no_answer = "no-answer" in self._load_list(case.tags_json)
+                if no_answer:
+                    negative_case_count += 1
+                    negative_nonempty_count += bool(retrieved)
+                    # 无答案题不定义正例相关性，保留检索记录用于拒答评测。
+                    metrics.update(hit_at_k=False, mrr=None, context_precision=None,
+                                   context_recall=None, ndcg_at_k=None,
+                                   expected_keyword_recall=None, matched_chunk_ids=[])
+                else:
+                    answerable_case_count += 1
+                    hit_sum += float(metrics["hit_at_k"])
+                    mrr_sum += float(metrics["mrr"] or 0.0)
+                    precision_sum += float(metrics["context_precision"] or 0.0)
+                    recall_sum += float(metrics["context_recall"] or 0.0)
+                    ndcg_sum += float(metrics["ndcg_at_k"] or 0.0)
+                if not no_answer and metrics["expected_keyword_recall"] is not None:
                     keyword_recall_sum += float(metrics["expected_keyword_recall"] or 0.0)
                     keyword_recall_count += 1
                 result = self.eval_result_repo.create_result(
@@ -384,11 +404,15 @@ class KnowledgeEvaluationService:
             run.metrics_json = self._dump_dict(
                 {
                     "case_count": case_count,
-                    "hit_at_k": hit_sum / case_count,
-                    "mrr": mrr_sum / case_count,
-                    "context_precision": precision_sum / case_count,
-                    "context_recall": recall_sum / case_count,
-                    "ndcg_at_k": ndcg_sum / case_count,
+                    "answerable_case_count": answerable_case_count,
+                    "negative_case_count": negative_case_count,
+                    "negative_nonempty_rate": negative_nonempty_count / negative_case_count if negative_case_count else None,
+                    "metric_scope": "answerable_cases_only",
+                    "hit_at_k": hit_sum / answerable_case_count if answerable_case_count else None,
+                    "mrr": mrr_sum / answerable_case_count if answerable_case_count else None,
+                    "context_precision": precision_sum / answerable_case_count if answerable_case_count else None,
+                    "context_recall": recall_sum / answerable_case_count if answerable_case_count else None,
+                    "ndcg_at_k": ndcg_sum / answerable_case_count if answerable_case_count else None,
                     "expected_keyword_recall": (
                         keyword_recall_sum / keyword_recall_count if keyword_recall_count else None
                     ),
@@ -676,6 +700,7 @@ class KnowledgeEvaluationService:
                 "provider": knowledge_base.rerank_provider,
                 "model": knowledge_base.rerank_model,
                 "top_n": knowledge_base.rerank_top_n,
+                "score_policy": "rank_only",
             },
             "chunking": {
                 "mode": knowledge_base.chunk_mode,
@@ -697,6 +722,7 @@ class KnowledgeEvaluationService:
             knowledge_base_id=item.knowledge_base_id,
             eval_set_id=item.eval_set_id,
             query=item.query,
+            answerable="no-answer" not in self._load_list(item.tags_json),
             expected_document_id=item.expected_document_id,
             expected_document_ids=self._case_document_ids(item),
             expected_chunk_id=item.expected_chunk_id,

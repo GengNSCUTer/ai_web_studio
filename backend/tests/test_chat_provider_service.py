@@ -97,11 +97,13 @@ class ChatProviderServiceTest(unittest.TestCase):
                     api_key="test-key",
                     model_name="model-a",
                     messages=[{"role": "user", "content": "question"}],
+                    response_format={"type": "json_object"},
                 )
             )
 
         self.assertEqual(answer, "answer")
         client.close.assert_awaited_once()
+        self.assertEqual(client.chat.completions.create.await_args.kwargs["response_format"], {"type": "json_object"})
 
     def test_stream_chat_closes_openai_client_when_consumer_stops(self) -> None:
         async def fake_stream():

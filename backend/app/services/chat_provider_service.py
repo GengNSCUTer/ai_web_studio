@@ -276,8 +276,11 @@ class ChatProviderService:
         top_p: float = 0.9,
         max_tokens: int | None = None,
         prompt_cache_breakpoint: int | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> str:
-        # 非流式补全当前主要用于滚动摘要刷新，不直接服务前端聊天输出。
+        # 非流式补全用于摘要、规划和独立评审，不直接服务前端流式输出。
+        if response_format is not None and provider_type not in OPENAI_COMPATIBLE_PROVIDER_TYPES:
+            raise ValueError("当前 Provider 的补全接口未实现 response_format")
         if provider_type == "ollama":
             from app.services.ollama_service import OllamaService
 
@@ -340,6 +343,7 @@ class ChatProviderService:
                     max_tokens=max_tokens,
                     stream=False,
                     extra_body=extra_body,
+                    **({"response_format": response_format} if response_format is not None else {}),
                 )
             except httpx.TimeoutException as exc:
                 raise RuntimeError("模型服务响应超时，请稍后重试") from exc

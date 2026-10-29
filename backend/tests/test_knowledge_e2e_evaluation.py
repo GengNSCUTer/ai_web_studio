@@ -8,6 +8,7 @@ from app.services.knowledge_e2e_evaluation_service import (
     KnowledgeE2EEvaluationService,
     audit_citations,
     build_answer_messages,
+    build_judge_messages,
     extract_citation_labels,
     normalize_score,
     parse_generated_answer,
@@ -16,6 +17,13 @@ from app.services.knowledge_e2e_evaluation_service import (
 
 
 class KnowledgeE2EEvaluationHelpersTest(unittest.TestCase):
+    def test_negative_rubric_is_only_visible_to_judge(self) -> None:
+        answer = build_answer_messages(query="有没有统一保证", sources=[])
+        judge = build_judge_messages(query="有没有统一保证", answer="证据不足", citations=[],
+                                     sources=[], answerable=False)
+        self.assertIn("负例", judge[0]["content"])
+        self.assertNotIn("负例", str(answer))
+
     def test_extract_citation_labels_is_ordered_and_deduplicated(self) -> None:
         self.assertEqual(
             extract_citation_labels("结论 [KB2]，补充 [source-1]，再次 [KB2]，以及 [S3]"),

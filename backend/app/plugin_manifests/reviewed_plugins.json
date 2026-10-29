@@ -1,0 +1,39 @@
+[
+  {
+    "plugin_key": "knowledge.organize", "version": "1.0.0", "name": "知识整理",
+    "description": "搜索并阅读工作区资料，整理主题、证据和待补充内容；可将授权文件副本交给隔离 Python 脚本生成资料清单。",
+    "skills": ["workspace.document-review"],
+    "permissions": ["workspace.read", "sandbox.python.confirm"],
+    "examples": ["整理工作区论文的主题和证据", "对选定资料生成文件与字数清单"],
+    "artifact_types": ["markdown", "json"], "dependencies": ["tabulate==0.9.0"], "domains": [],
+    "scripts": ["document_inventory"],
+    "source": "AI Web Studio / 仓库审核", "review_status": "approved", "compatibility": "plugin-v1"
+  },
+  {
+    "plugin_key": "research.brief", "version": "1.0.0", "name": "来源研究简报",
+    "description": "检索公开资料并读取网页正文，交叉比较来源，输出带引用的研究简报。",
+    "skills": ["research.source-brief"],
+    "permissions": ["public_web.read"],
+    "examples": ["对比两个公开来源并整理简报"], "artifact_types": ["markdown"],
+    "dependencies": [], "domains": [], "scripts": [],
+    "source": "AI Web Studio / Exa MCP", "review_status": "approved", "compatibility": "plugin-v1"
+  },
+  {
+    "plugin_key": "workspace.review-edit", "version": "1.0.0", "name": "文档审阅与受控修改",
+    "description": "阅读资料、起草改写并提出差异；应用修改仍需单次审批和文件版本核验。",
+    "skills": ["workspace.doc-coauthoring", "workspace.document-edit"],
+    "permissions": ["workspace.read", "workspace.edit.propose", "workspace.edit.approval"],
+    "examples": ["审阅方案并提出一处修改，先展示差异"], "artifact_types": ["patch_draft"],
+    "dependencies": [], "domains": [], "scripts": [],
+    "source": "AI Web Studio / 仓库审核", "review_status": "approved", "compatibility": "plugin-v1"
+  },
+  {
+    "plugin_key": "documents.delivery", "version": "1.0.0", "name": "Markdown / Word 交付",
+    "description": "将整理结果保存为独立 Markdown 或 Word 草稿并下载，保留来源，支持进一步受控修改。",
+    "skills": ["workspace.doc-coauthoring"],
+    "permissions": ["workspace.read", "document.create.confirm"],
+    "examples": ["根据资料起草说明，确认后保存为 Word"], "artifact_types": ["markdown", "docx"],
+    "dependencies": [], "domains": [], "scripts": [],
+    "source": "AI Web Studio / 仓库审核", "review_status": "approved", "compatibility": "plugin-v1"
+  }
+]

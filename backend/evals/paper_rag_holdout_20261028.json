@@ -1,0 +1,103 @@
+{
+  "name": "paper_rag_holdout_20261028",
+  "schema_version": 6,
+  "description": "来源优先的新增验收题；与开发集做语义重复审查，不宣称外部盲测。",
+  "labeling_policy": {
+    "retrieval_blind": true,
+    "split": "holdout",
+    "draft_model": "deepseek-ai/DeepSeek-V3.2",
+    "review_model": "Qwen/Qwen2.5-72B-Instruct"
+  },
+  "cases": [
+    {
+      "case_id": "holdout_negative_0",
+      "query": "本库资料是否规定所有线上系统统一的P99延迟服务保证？",
+      "answerable": false,
+      "expected_answer_claims": [
+        "资料不足，不应编造具体值。"
+      ],
+      "tags": [
+        "holdout-source-first",
+        "no-answer"
+      ]
+    },
+    {
+      "case_id": "holdout_negative_1",
+      "query": "本库资料是否提供本项目测试账号的API密钥内容？",
+      "answerable": false,
+      "expected_answer_claims": [
+        "资料不足，不应编造具体值。"
+      ],
+      "tags": [
+        "holdout-source-first",
+        "no-answer"
+      ]
+    },
+    {
+      "case_id": "holdout_negative_2",
+      "query": "本库资料是否给出2027年全部数据库产品的定价？",
+      "answerable": false,
+      "expected_answer_claims": [
+        "资料不足，不应编造具体值。"
+      ],
+      "tags": [
+        "holdout-source-first",
+        "no-answer"
+      ]
+    },
+    {
+      "case_id": "holdout_negative_3",
+      "query": "本库资料是否规定本项目生产服务器的唯一部署密码？",
+      "answerable": false,
+      "expected_answer_claims": [
+        "资料不足，不应编造具体值。"
+      ],
+      "tags": [
+        "holdout-source-first",
+        "no-answer"
+      ]
+    }
+  ],
+  "generation_failures": [
+    {
+      "document": "AT-RAG.pdf",
+      "error_type": "RateLimitError",
+      "reason": "provider_error"
+    },
+    {
+      "document": "Adaptive_RAG.pdf",
+      "error_type": "RateLimitError",
+      "reason": "provider_error"
+    },
+    {
+      "document": "DF-RAG.pdf",
+      "error_type": "RateLimitError",
+      "reason": "provider_error"
+    },
+    {
+      "document": "DH-MHCN.pdf",
+      "error_type": "RateLimitError",
+      "reason": "provider_error"
+    },
+    {
+      "document": "DeepSeek_OCR_paper.pdf",
+      "error_type": "RateLimitError",
+      "reason": "provider_error"
+    },
+    {
+      "document": "EVOLVER.pdf",
+      "error_type": "RateLimitError",
+      "reason": "provider_error"
+    },
+    {
+      "document": "FLARE.pdf",
+      "error_type": "RateLimitError",
+      "reason": "provider_error"
+    },
+    {
+      "document": "Harder Task Needs More Experts;Dynamic Routing in MoE Models.pdf",
+      "error_type": "RateLimitError",
+      "reason": "provider_error"
+    }
+  ]
+}

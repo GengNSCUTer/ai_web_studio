@@ -1,0 +1,1954 @@
+{
+  "eval_set_id": "c1ca0545-6aae-4ee7-9f6b-18ce41d9ad0a",
+  "requested_top_k": 20,
+  "comparison_cutoff": 6,
+  "metric_scope": "可回答题精确块ID二元相关性；未穷尽所有正确证据；统一截取每组实际结果前6条；无答案题单独见原生报告",
+  "groups": {
+    "vector": {
+      "run_id": "abd06ea0-378e-4261-ae01-f806cb90d36d",
+      "native_metrics": {
+        "case_count": 16,
+        "answerable_case_count": 14,
+        "negative_case_count": 2,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 1.0,
+        "mrr": 0.7857142857142857,
+        "context_precision": 0.05357142857142859,
+        "context_recall": 1.0,
+        "ndcg_at_k": 0.8357796223214794,
+        "expected_keyword_recall": 0.9642857142857143,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 275.59238055255264,
+        "total_elapsed_ms": 4409.478088840842,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "vector",
+          "top_k": 20,
+          "score_threshold": 0.15,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": false,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 900,
+            "overlap": 120,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "common_at_6": {
+        "hit_at_k": 0.9285714285714286,
+        "mrr": 0.7797619047619048,
+        "ndcg_at_k": 0.8164768970052424,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.9285714285714286,
+        "document_hit_at_6": 1.0
+      },
+      "buckets": {
+        "legacy20": {
+          "hit_at_k": null,
+          "mrr": null,
+          "ndcg_at_k": null,
+          "context_precision": null,
+          "context_recall": null,
+          "document_hit_at_6": null
+        },
+        "new70": {
+          "hit_at_k": 0.9285714285714286,
+          "mrr": 0.7797619047619048,
+          "ndcg_at_k": 0.8164768970052424,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 0.9285714285714286,
+          "document_hit_at_6": 1.0
+        }
+      },
+      "cases": [
+        {
+          "case_id": "f25c23e1-d933-4237-919b-9fab8b5b0de4",
+          "query": "Redis 为什么适合低延迟访问？它依赖哪些基础特征？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.3333333333333333,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.5,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "8823eb86-5a19-4f1f-8261-f670c4f224cf"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "add002b5-4261-43a2-9eaf-1b35ec851f8e",
+          "query": "Redis 的通用命令有哪些典型用途？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "29b099f9-6464-421a-9879-284d7f9cd79a"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c22de06f-bd7a-42bb-bdb3-ccd03c5c7499",
+          "query": "Redis String 类型支持哪些常见操作？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "341e98ad-9230-4a4c-9845-f386f65e1a84"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "2afd00e3-98c3-478f-a5f1-86daa9bb7b4f",
+          "query": "Redis Hash 适合怎样存储字段型数据？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.25,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.43067655807339306,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "5b462b7d-5e37-438a-b9ae-b1032706a80f"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "adcb9eb1-d161-4e2a-a8e3-528680a45b99",
+          "query": "Redis 分布式锁为什么要同时设置 NX 和 EX？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c8bb452e-3053-46f0-87ce-268d95cda078",
+          "query": "Redis Lua 脚本中的 KEYS 和 ARGV 分别传什么参数？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "4c352814-c4fc-4cf8-be95-f081711311ca",
+          "query": "Redisson 的分布式锁相比直接命令封装了什么能力？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 2,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.3333333333333333,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "e65889d8-f68a-492b-8da3-bc72819d3dcc",
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb"
+          ],
+          "matched_target_count": 2,
+          "ground_truth_target_count": 2
+        },
+        {
+          "case_id": "287cde44-e5a9-445d-96a9-b6c557b02c0e",
+          "query": "Redis 企业实战资料中，如何处理锁释放时的所有者校验？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": false,
+          "mrr": 0.0,
+          "context_precision": 0.0,
+          "context_recall": 0.0,
+          "ndcg_at_k": 0.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [],
+          "matched_target_count": 0,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "f43394bf-554a-4ac5-8e63-6c8b9169a16f",
+          "query": "Python 语言为什么适合快速开发应用？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "27b3b93a-8b61-4a73-b5a0-988b027bc42c"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "cad3b9c2-a9f5-43a7-872e-baa097379d24",
+          "query": "Python 教程覆盖了哪些与后端开发直接相关的主题？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.3333333333333333,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.5,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "32fffeac-1647-463e-b7e8-028cf1c19442"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c685c958-5826-4394-8b6b-9a81f6e64905",
+          "query": "Python 教程中如何定位序列数据结构的学习位置？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "e8f80011-4746-491f-a0c2-f7869fd40631"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "405fe77d-859e-4d5b-9daf-3e1e79bd730b",
+          "query": "Go 切片的长度和容量分别表示什么？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "afd14d25-c9d5-446d-8c03-19fd99a88dd6",
+          "query": "Go 切片什么时候会触发扩容？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "fa747816-9d24-44a1-bf76-d534a1878c93",
+          "query": "Go channel 如何让 goroutine 在交换数据时等待？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a2eb624e-b6ce-47f1-bba6-1e7db3af0ac5"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        }
+      ]
+    },
+    "lexical": {
+      "run_id": "f6e2d764-35a3-45ba-93a6-3d6221808e31",
+      "native_metrics": {
+        "case_count": 16,
+        "answerable_case_count": 14,
+        "negative_case_count": 2,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.9285714285714286,
+        "mrr": 0.47534013605442177,
+        "context_precision": 0.05000000000000001,
+        "context_recall": 0.9285714285714286,
+        "ndcg_at_k": 0.5882381878835666,
+        "expected_keyword_recall": 0.9285714285714286,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 119.88481995649636,
+        "total_elapsed_ms": 1918.1571193039417,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "lexical",
+          "top_k": 20,
+          "score_threshold": 0.15,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": false,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 900,
+            "overlap": 120,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "common_at_6": {
+        "hit_at_k": 0.8571428571428571,
+        "mrr": 0.47023809523809523,
+        "ndcg_at_k": 0.5699554718257226,
+        "context_precision": 0.15476190476190477,
+        "context_recall": 0.8571428571428571,
+        "document_hit_at_6": 1.0
+      },
+      "buckets": {
+        "legacy20": {
+          "hit_at_k": null,
+          "mrr": null,
+          "ndcg_at_k": null,
+          "context_precision": null,
+          "context_recall": null,
+          "document_hit_at_6": null
+        },
+        "new70": {
+          "hit_at_k": 0.8571428571428571,
+          "mrr": 0.47023809523809523,
+          "ndcg_at_k": 0.5699554718257226,
+          "context_precision": 0.15476190476190477,
+          "context_recall": 0.8571428571428571,
+          "document_hit_at_6": 1.0
+        }
+      },
+      "cases": [
+        {
+          "case_id": "f25c23e1-d933-4237-919b-9fab8b5b0de4",
+          "query": "Redis 为什么适合低延迟访问？它依赖哪些基础特征？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.25,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.43067655807339306,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "8823eb86-5a19-4f1f-8261-f670c4f224cf"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "add002b5-4261-43a2-9eaf-1b35ec851f8e",
+          "query": "Redis 的通用命令有哪些典型用途？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.5,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.6309297535714575,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "29b099f9-6464-421a-9879-284d7f9cd79a"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c22de06f-bd7a-42bb-bdb3-ccd03c5c7499",
+          "query": "Redis String 类型支持哪些常见操作？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.3333333333333333,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.5,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "341e98ad-9230-4a4c-9845-f386f65e1a84"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "2afd00e3-98c3-478f-a5f1-86daa9bb7b4f",
+          "query": "Redis Hash 适合怎样存储字段型数据？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.3333333333333333,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.5,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "5b462b7d-5e37-438a-b9ae-b1032706a80f"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "adcb9eb1-d161-4e2a-a8e3-528680a45b99",
+          "query": "Redis 分布式锁为什么要同时设置 NX 和 EX？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.3333333333333333,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.5,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c8bb452e-3053-46f0-87ce-268d95cda078",
+          "query": "Redis Lua 脚本中的 KEYS 和 ARGV 分别传什么参数？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "4c352814-c4fc-4cf8-be95-f081711311ca",
+          "query": "Redisson 的分布式锁相比直接命令封装了什么能力？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 2,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.3333333333333333,
+          "context_precision": 0.3333333333333333,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.5249810332008933,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+            "e65889d8-f68a-492b-8da3-bc72819d3dcc"
+          ],
+          "matched_target_count": 2,
+          "ground_truth_target_count": 2
+        },
+        {
+          "case_id": "287cde44-e5a9-445d-96a9-b6c557b02c0e",
+          "query": "Redis 企业实战资料中，如何处理锁释放时的所有者校验？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": false,
+          "mrr": 0.0,
+          "context_precision": 0.0,
+          "context_recall": 0.0,
+          "ndcg_at_k": 0.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [],
+          "matched_target_count": 0,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "f43394bf-554a-4ac5-8e63-6c8b9169a16f",
+          "query": "Python 语言为什么适合快速开发应用？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "27b3b93a-8b61-4a73-b5a0-988b027bc42c"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "cad3b9c2-a9f5-43a7-872e-baa097379d24",
+          "query": "Python 教程覆盖了哪些与后端开发直接相关的主题？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": false,
+          "mrr": 0.0,
+          "context_precision": 0.0,
+          "context_recall": 0.0,
+          "ndcg_at_k": 0.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [],
+          "matched_target_count": 0,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c685c958-5826-4394-8b6b-9a81f6e64905",
+          "query": "Python 教程中如何定位序列数据结构的学习位置？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.5,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.6309297535714575,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "e8f80011-4746-491f-a0c2-f7869fd40631"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "405fe77d-859e-4d5b-9daf-3e1e79bd730b",
+          "query": "Go 切片的长度和容量分别表示什么？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.5,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.6309297535714575,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "afd14d25-c9d5-446d-8c03-19fd99a88dd6",
+          "query": "Go 切片什么时候会触发扩容？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.5,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.6309297535714575,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "fa747816-9d24-44a1-bf76-d534a1878c93",
+          "query": "Go channel 如何让 goroutine 在交换数据时等待？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a2eb624e-b6ce-47f1-bba6-1e7db3af0ac5"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        }
+      ]
+    },
+    "hybrid": {
+      "run_id": "0ade6e8f-5dc3-4850-b0b3-e6ebd96fbd52",
+      "native_metrics": {
+        "case_count": 16,
+        "answerable_case_count": 14,
+        "negative_case_count": 2,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 1.0,
+        "mrr": 0.8221611721611721,
+        "context_precision": 0.05357142857142859,
+        "context_recall": 1.0,
+        "ndcg_at_k": 0.8608367400967916,
+        "expected_keyword_recall": 0.9642857142857143,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 355.3235389990732,
+        "total_elapsed_ms": 5685.176623985171,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "hybrid",
+          "top_k": 20,
+          "score_threshold": 0.15,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": false,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 900,
+            "overlap": 120,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "common_at_6": {
+        "hit_at_k": 0.8571428571428571,
+        "mrr": 0.8095238095238095,
+        "ndcg_at_k": 0.8214285714285714,
+        "context_precision": 0.15476190476190477,
+        "context_recall": 0.8571428571428571,
+        "document_hit_at_6": 1.0
+      },
+      "buckets": {
+        "legacy20": {
+          "hit_at_k": null,
+          "mrr": null,
+          "ndcg_at_k": null,
+          "context_precision": null,
+          "context_recall": null,
+          "document_hit_at_6": null
+        },
+        "new70": {
+          "hit_at_k": 0.8571428571428571,
+          "mrr": 0.8095238095238095,
+          "ndcg_at_k": 0.8214285714285714,
+          "context_precision": 0.15476190476190477,
+          "context_recall": 0.8571428571428571,
+          "document_hit_at_6": 1.0
+        }
+      },
+      "cases": [
+        {
+          "case_id": "f25c23e1-d933-4237-919b-9fab8b5b0de4",
+          "query": "Redis 为什么适合低延迟访问？它依赖哪些基础特征？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "8823eb86-5a19-4f1f-8261-f670c4f224cf"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "add002b5-4261-43a2-9eaf-1b35ec851f8e",
+          "query": "Redis 的通用命令有哪些典型用途？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "29b099f9-6464-421a-9879-284d7f9cd79a"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c22de06f-bd7a-42bb-bdb3-ccd03c5c7499",
+          "query": "Redis String 类型支持哪些常见操作？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "341e98ad-9230-4a4c-9845-f386f65e1a84"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "2afd00e3-98c3-478f-a5f1-86daa9bb7b4f",
+          "query": "Redis Hash 适合怎样存储字段型数据？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.3333333333333333,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.5,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "5b462b7d-5e37-438a-b9ae-b1032706a80f"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "adcb9eb1-d161-4e2a-a8e3-528680a45b99",
+          "query": "Redis 分布式锁为什么要同时设置 NX 和 EX？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c8bb452e-3053-46f0-87ce-268d95cda078",
+          "query": "Redis Lua 脚本中的 KEYS 和 ARGV 分别传什么参数？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "4c352814-c4fc-4cf8-be95-f081711311ca",
+          "query": "Redisson 的分布式锁相比直接命令封装了什么能力？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 2,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.3333333333333333,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+            "e65889d8-f68a-492b-8da3-bc72819d3dcc"
+          ],
+          "matched_target_count": 2,
+          "ground_truth_target_count": 2
+        },
+        {
+          "case_id": "287cde44-e5a9-445d-96a9-b6c557b02c0e",
+          "query": "Redis 企业实战资料中，如何处理锁释放时的所有者校验？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": false,
+          "mrr": 0.0,
+          "context_precision": 0.0,
+          "context_recall": 0.0,
+          "ndcg_at_k": 0.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [],
+          "matched_target_count": 0,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "f43394bf-554a-4ac5-8e63-6c8b9169a16f",
+          "query": "Python 语言为什么适合快速开发应用？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "27b3b93a-8b61-4a73-b5a0-988b027bc42c"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "cad3b9c2-a9f5-43a7-872e-baa097379d24",
+          "query": "Python 教程覆盖了哪些与后端开发直接相关的主题？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": false,
+          "mrr": 0.0,
+          "context_precision": 0.0,
+          "context_recall": 0.0,
+          "ndcg_at_k": 0.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [],
+          "matched_target_count": 0,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c685c958-5826-4394-8b6b-9a81f6e64905",
+          "query": "Python 教程中如何定位序列数据结构的学习位置？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "e8f80011-4746-491f-a0c2-f7869fd40631"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "405fe77d-859e-4d5b-9daf-3e1e79bd730b",
+          "query": "Go 切片的长度和容量分别表示什么？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "afd14d25-c9d5-446d-8c03-19fd99a88dd6",
+          "query": "Go 切片什么时候会触发扩容？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "fa747816-9d24-44a1-bf76-d534a1878c93",
+          "query": "Go channel 如何让 goroutine 在交换数据时等待？",
+          "bucket": "new70",
+          "returned": 20,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": null,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a2eb624e-b6ce-47f1-bba6-1e7db3af0ac5"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        }
+      ]
+    },
+    "vector_rerank": {
+      "run_id": "87778b62-c2b5-4b85-9c63-53a5fc22309c",
+      "native_metrics": {
+        "case_count": 16,
+        "answerable_case_count": 14,
+        "negative_case_count": 2,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.9285714285714286,
+        "mrr": 0.7857142857142857,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.9285714285714286,
+        "ndcg_at_k": 0.8147755521305476,
+        "expected_keyword_recall": 0.8571428571428571,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 1056.9248792016879,
+        "total_elapsed_ms": 16910.798067227006,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "vector",
+          "top_k": 20,
+          "score_threshold": 0.15,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": true,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 900,
+            "overlap": 120,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "common_at_6": {
+        "hit_at_k": 0.9285714285714286,
+        "mrr": 0.7857142857142857,
+        "ndcg_at_k": 0.8147755521305476,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.9285714285714286,
+        "document_hit_at_6": 1.0
+      },
+      "buckets": {
+        "legacy20": {
+          "hit_at_k": null,
+          "mrr": null,
+          "ndcg_at_k": null,
+          "context_precision": null,
+          "context_recall": null,
+          "document_hit_at_6": null
+        },
+        "new70": {
+          "hit_at_k": 0.9285714285714286,
+          "mrr": 0.7857142857142857,
+          "ndcg_at_k": 0.8147755521305476,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 0.9285714285714286,
+          "document_hit_at_6": 1.0
+        }
+      },
+      "cases": [
+        {
+          "case_id": "f25c23e1-d933-4237-919b-9fab8b5b0de4",
+          "query": "Redis 为什么适合低延迟访问？它依赖哪些基础特征？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "8823eb86-5a19-4f1f-8261-f670c4f224cf"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "add002b5-4261-43a2-9eaf-1b35ec851f8e",
+          "query": "Redis 的通用命令有哪些典型用途？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.5,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.6309297535714575,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "29b099f9-6464-421a-9879-284d7f9cd79a"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c22de06f-bd7a-42bb-bdb3-ccd03c5c7499",
+          "query": "Redis String 类型支持哪些常见操作？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "341e98ad-9230-4a4c-9845-f386f65e1a84"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "2afd00e3-98c3-478f-a5f1-86daa9bb7b4f",
+          "query": "Redis Hash 适合怎样存储字段型数据？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.3333333333333333,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.5,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "5b462b7d-5e37-438a-b9ae-b1032706a80f"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "adcb9eb1-d161-4e2a-a8e3-528680a45b99",
+          "query": "Redis 分布式锁为什么要同时设置 NX 和 EX？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c8bb452e-3053-46f0-87ce-268d95cda078",
+          "query": "Redis Lua 脚本中的 KEYS 和 ARGV 分别传什么参数？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "4c352814-c4fc-4cf8-be95-f081711311ca",
+          "query": "Redisson 的分布式锁相比直接命令封装了什么能力？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 2,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.3333333333333333,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.9197207891481876,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+            "e65889d8-f68a-492b-8da3-bc72819d3dcc"
+          ],
+          "matched_target_count": 2,
+          "ground_truth_target_count": 2
+        },
+        {
+          "case_id": "287cde44-e5a9-445d-96a9-b6c557b02c0e",
+          "query": "Redis 企业实战资料中，如何处理锁释放时的所有者校验？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.16666666666666666,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.3562071871080222,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "f43394bf-554a-4ac5-8e63-6c8b9169a16f",
+          "query": "Python 语言为什么适合快速开发应用？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "27b3b93a-8b61-4a73-b5a0-988b027bc42c"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "cad3b9c2-a9f5-43a7-872e-baa097379d24",
+          "query": "Python 教程覆盖了哪些与后端开发直接相关的主题？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": false,
+          "mrr": 0.0,
+          "context_precision": 0.0,
+          "context_recall": 0.0,
+          "ndcg_at_k": 0.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [],
+          "matched_target_count": 0,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c685c958-5826-4394-8b6b-9a81f6e64905",
+          "query": "Python 教程中如何定位序列数据结构的学习位置？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "e8f80011-4746-491f-a0c2-f7869fd40631"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "405fe77d-859e-4d5b-9daf-3e1e79bd730b",
+          "query": "Go 切片的长度和容量分别表示什么？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "afd14d25-c9d5-446d-8c03-19fd99a88dd6",
+          "query": "Go 切片什么时候会触发扩容？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "fa747816-9d24-44a1-bf76-d534a1878c93",
+          "query": "Go channel 如何让 goroutine 在交换数据时等待？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 40,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a2eb624e-b6ce-47f1-bba6-1e7db3af0ac5"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        }
+      ]
+    },
+    "hybrid_rerank": {
+      "run_id": "725c4413-71c5-4c3c-9e6d-4055989be4ec",
+      "native_metrics": {
+        "case_count": 16,
+        "answerable_case_count": 14,
+        "negative_case_count": 2,
+        "negative_nonempty_rate": 1.0,
+        "metric_scope": "answerable_cases_only",
+        "hit_at_k": 0.9285714285714286,
+        "mrr": 0.7857142857142857,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.9285714285714286,
+        "ndcg_at_k": 0.8147755521305476,
+        "expected_keyword_recall": 0.8571428571428571,
+        "answer_correctness": {
+          "status": "not_scored",
+          "reason": "当前评测运行只执行检索和证据覆盖评测，未自动调用模型评审最终答案。"
+        },
+        "top_k": 20,
+        "avg_elapsed_ms": 1546.0186346899718,
+        "total_elapsed_ms": 24736.29815503955,
+        "failure_count": 0,
+        "fallback_count": 0,
+        "stale_chunk_target_count": 0,
+        "case_errors": [],
+        "config_snapshot": {
+          "active_index_generation": "legacy",
+          "retrieval_mode": "hybrid",
+          "top_k": 20,
+          "score_threshold": 0.15,
+          "rrf_k": 60,
+          "embedding": {
+            "provider": "siliconflow",
+            "model": "BAAI/bge-m3",
+            "dimensions": 1024,
+            "version": "l2-normalized-v1"
+          },
+          "rerank": {
+            "enabled": true,
+            "provider": "siliconflow",
+            "model": "BAAI/bge-reranker-v2-m3",
+            "top_n": 6,
+            "score_policy": "rank_only"
+          },
+          "chunking": {
+            "mode": "general",
+            "size": 900,
+            "overlap": 120,
+            "parent_size": null,
+            "child_size": null,
+            "child_overlap": null
+          }
+        }
+      },
+      "common_at_6": {
+        "hit_at_k": 0.9285714285714286,
+        "mrr": 0.7857142857142857,
+        "ndcg_at_k": 0.8147755521305476,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 0.9285714285714286,
+        "document_hit_at_6": 1.0
+      },
+      "buckets": {
+        "legacy20": {
+          "hit_at_k": null,
+          "mrr": null,
+          "ndcg_at_k": null,
+          "context_precision": null,
+          "context_recall": null,
+          "document_hit_at_6": null
+        },
+        "new70": {
+          "hit_at_k": 0.9285714285714286,
+          "mrr": 0.7857142857142857,
+          "ndcg_at_k": 0.8147755521305476,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 0.9285714285714286,
+          "document_hit_at_6": 1.0
+        }
+      },
+      "cases": [
+        {
+          "case_id": "f25c23e1-d933-4237-919b-9fab8b5b0de4",
+          "query": "Redis 为什么适合低延迟访问？它依赖哪些基础特征？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 66,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "8823eb86-5a19-4f1f-8261-f670c4f224cf"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "add002b5-4261-43a2-9eaf-1b35ec851f8e",
+          "query": "Redis 的通用命令有哪些典型用途？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 62,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.5,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.6309297535714575,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "29b099f9-6464-421a-9879-284d7f9cd79a"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c22de06f-bd7a-42bb-bdb3-ccd03c5c7499",
+          "query": "Redis String 类型支持哪些常见操作？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 60,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "341e98ad-9230-4a4c-9845-f386f65e1a84"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "2afd00e3-98c3-478f-a5f1-86daa9bb7b4f",
+          "query": "Redis Hash 适合怎样存储字段型数据？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 56,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.3333333333333333,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.5,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "5b462b7d-5e37-438a-b9ae-b1032706a80f"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "adcb9eb1-d161-4e2a-a8e3-528680a45b99",
+          "query": "Redis 分布式锁为什么要同时设置 NX 和 EX？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 56,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c8bb452e-3053-46f0-87ce-268d95cda078",
+          "query": "Redis Lua 脚本中的 KEYS 和 ARGV 分别传什么参数？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 56,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "4c352814-c4fc-4cf8-be95-f081711311ca",
+          "query": "Redisson 的分布式锁相比直接命令封装了什么能力？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 2,
+          "rerank_candidates": 61,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.3333333333333333,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.9197207891481876,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+            "e65889d8-f68a-492b-8da3-bc72819d3dcc"
+          ],
+          "matched_target_count": 2,
+          "ground_truth_target_count": 2
+        },
+        {
+          "case_id": "287cde44-e5a9-445d-96a9-b6c557b02c0e",
+          "query": "Redis 企业实战资料中，如何处理锁释放时的所有者校验？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 57,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 0.16666666666666666,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 0.3562071871080222,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "f43394bf-554a-4ac5-8e63-6c8b9169a16f",
+          "query": "Python 语言为什么适合快速开发应用？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 56,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "27b3b93a-8b61-4a73-b5a0-988b027bc42c"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "cad3b9c2-a9f5-43a7-872e-baa097379d24",
+          "query": "Python 教程覆盖了哪些与后端开发直接相关的主题？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 61,
+          "document_hit_at_6": true,
+          "hit_at_k": false,
+          "mrr": 0.0,
+          "context_precision": 0.0,
+          "context_recall": 0.0,
+          "ndcg_at_k": 0.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [],
+          "matched_target_count": 0,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "c685c958-5826-4394-8b6b-9a81f6e64905",
+          "query": "Python 教程中如何定位序列数据结构的学习位置？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 63,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "e8f80011-4746-491f-a0c2-f7869fd40631"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "405fe77d-859e-4d5b-9daf-3e1e79bd730b",
+          "query": "Go 切片的长度和容量分别表示什么？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 59,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "afd14d25-c9d5-446d-8c03-19fd99a88dd6",
+          "query": "Go 切片什么时候会触发扩容？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 59,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        },
+        {
+          "case_id": "fa747816-9d24-44a1-bf76-d534a1878c93",
+          "query": "Go channel 如何让 goroutine 在交换数据时等待？",
+          "bucket": "new70",
+          "returned": 6,
+          "returned_at_6": 6,
+          "gt_chunks": 1,
+          "rerank_candidates": 58,
+          "document_hit_at_6": true,
+          "hit_at_k": true,
+          "mrr": 1.0,
+          "context_precision": 0.16666666666666666,
+          "context_recall": 1.0,
+          "ndcg_at_k": 1.0,
+          "expected_keyword_recall": null,
+          "expected_keyword_hits": [],
+          "matched_chunk_ids": [
+            "a2eb624e-b6ce-47f1-bba6-1e7db3af0ac5"
+          ],
+          "matched_target_count": 1,
+          "ground_truth_target_count": 1
+        }
+      ]
+    }
+  }
+}

@@ -24,7 +24,11 @@ class ServiceCheckTest(unittest.TestCase):
     @patch("deploy.check_services.subprocess.run")
     @patch("deploy.check_services.httpx.get")
     def test_proxy_failure_is_reported_even_when_homepage_opens(self, get, run):
-        get.side_effect = [httpx.Response(200, json={"checks": {}}), httpx.Response(200), httpx.Response(503)]
+        # 按地址模拟故障，新增 Worker 探针不应耗尽固定的响应列表。
+        get.side_effect = lambda url, **kwargs: httpx.Response(
+            503 if url == "http://frontend/api/health/ready" else 200,
+            json={"checks": {}},
+        )
         run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
         report = inspect_services(backend="http://backend", frontend="http://frontend")
         self.assertTrue(report["checks"]["frontend"]["ok"])

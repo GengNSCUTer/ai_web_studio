@@ -71,14 +71,17 @@ class AmapToolProvider:
 
         return []
 
-    async def query_weather(self, query: str, *, api_key: str | None = None) -> list[ExternalSource]:
+    async def query_weather(self, query: str, *, api_key: str | None = None, city: str | None = None) -> list[ExternalSource]:
         if api_key is not None:
             self.api_key = api_key
         api_key = self._api_key()
         if not api_key:
             raise RuntimeError("未配置高德地图 API Key")
 
-        requested_location = self._extract_city(query)
+        # 结构化工具直接使用已校验的 city/adcode，不能再次按旧自然语言规则默认到广州。
+        requested_location = city.strip() if city is not None else self._extract_city(query)
+        if not requested_location:
+            raise RuntimeError("天气查询缺少城市或行政编码")
         tried_cities: list[str] = []
 
         direct_data = await self._request_amap_weather(requested_location)
@@ -173,6 +176,7 @@ class AmapToolProvider:
                     citation_label=f"[W{index}]",
                     metadata={
                         "city": city_name,
+                        "adcode": self._clean_amap_scalar(item.get("adcode")),
                         "province": province,
                         "requested_location": requested_location,
                         "resolved_city": resolved_city,

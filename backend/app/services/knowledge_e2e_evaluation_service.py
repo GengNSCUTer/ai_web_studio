@@ -18,9 +18,14 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any
 
+import httpx
+from openai import APIConnectionError, APITimeoutError
+
+from app.services.tools.schemas import redact_sensitive_text
+from app.services.provider_capabilities import resolve_provider_capabilities
 from app.services.knowledge_evaluation_service import KnowledgeEvaluationService
 from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
 
@@ -40,7 +45,16 @@ class KnowledgeE2EEvaluationConfig:
     answer_temperature: float = 0.0
     answer_max_tokens: int = 1_200
     judge_temperature: float = 0.0
-    judge_max_tokens: int = 500
+    judge_max_tokens: int = 1_000
+    judge_max_attempts: int = 3
+    judge_timeout_seconds: float = 60.0
+    judge_json_mode: bool | None = None
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.judge_max_attempts <= 3:
+            raise ValueError("评审总尝试次数必须在1至3之间")
+        if not 0 < self.judge_timeout_seconds <= 300:
+            raise ValueError("评审单次超时必须大于0且不超过300秒")
 
 
 def _load_list(value: str | None) -> list[str]:
@@ -143,6 +157,8 @@ def parse_generated_answer(raw: str) -> dict[str, Any]:
 def normalize_score(value: Any) -> float | None:
     """Normalize judge output to [0, 1], accepting percentages defensively."""
 
+    if isinstance(value, bool):
+        return None
     try:
         score = float(value)
     except (TypeError, ValueError):
@@ -247,12 +263,13 @@ def build_judge_messages(
     answer: str,
     citations: list[str],
     sources: list[dict[str, Any]],
+    answerable: bool = True,
 ) -> list[dict[str, str]]:
     context = "\n\n".join(
         f"[{source['label']}] {source['file_name']} / chunk={source['chunk_index']}\n{source['content']}"
         for source in sources
     )
-    return [
+    messages = [
         {
             "role": "system",
             "content": (
@@ -271,6 +288,18 @@ def build_judge_messages(
             ),
         },
     ]
+    messages[0]["content"] += (
+        " 忠实度只评价答案是否超出证据，不因答案不完整就降低忠实度；完整性与相关性另评。"
+        " 无引用时不要虚构无效标签，但没有引用也不能证明事实已被支持。"
+        " explanation限80个汉字，使用简短纯文本，不复制公式、反斜杠或长篇证据。"
+        " 三个分数字段必须是数值；JSON字符串中的特殊字符必须正确转义。"
+    )
+    if not answerable:
+        messages[0]["content"] += (
+            " 本题已核验为资料不足的负例。正确行为是明确说明当前证据不足，不编造答案。"
+            " 不要求证明整个知识库不存在答案；准确拒答不能因缺少具体答案被扣相关性。"
+        )
+    return messages
 
 
 class KnowledgeE2EEvaluationService:
@@ -290,9 +319,11 @@ class KnowledgeE2EEvaluationService:
         messages: list[dict[str, str]],
         temperature: float,
         max_tokens: int,
+        json_mode: bool = False,
+        timeout_seconds: float | None = None,
     ) -> str:
-        return asyncio.run(
-            self.chat_provider.complete_chat(
+        async def request():
+            completion = self.chat_provider.complete_chat(
                 provider_type=provider_type,
                 base_url=base_url,
                 api_key=api_key,
@@ -301,8 +332,93 @@ class KnowledgeE2EEvaluationService:
                 temperature=temperature,
                 top_p=0.9,
                 max_tokens=max_tokens,
+                **({"response_format": {"type": "json_object"}}
+                   if json_mode and provider_type in {"openai-compatible", "vllm"} else {}),
             )
-        )
+            if timeout_seconds is None:
+                return await completion
+            return await asyncio.wait_for(completion, timeout=timeout_seconds)
+        return asyncio.run(request())
+
+    def judge_answer(
+        self, *, provider_type: str, base_url: str, api_key: str | None,
+        judge_model_name: str, query: str, answer: str, citations: list[str],
+        sources: list[dict[str, Any]], answerable: bool = True,
+        config: KnowledgeE2EEvaluationConfig | None = None,
+    ) -> dict[str, Any]:
+        """只评审固定答案；取首次合法评分，格式/瞬时故障有限重试，不补造分数。"""
+        resolved = config or KnowledgeE2EEvaluationConfig()
+        messages = build_judge_messages(query=query, answer=answer, citations=citations,
+                                        sources=sources, answerable=answerable)
+        family = resolve_provider_capabilities(provider_type=provider_type, base_url=base_url).family
+        json_mode = resolved.judge_json_mode
+        if json_mode is None:
+            # 未知兼容服务不假设支持JSON参数；已知服务可自动使用，其他由调用方显式配置。
+            json_mode = family in {"openai", "vllm"} or family == "siliconflow" and "qwen" in judge_model_name.lower()
+        attempts = []
+        judgement = None
+        started = perf_counter()
+        for index in range(1, resolved.judge_max_attempts + 1):
+            retryable = True
+            retry_delay = min(index, 2)
+            try:
+                raw = self._complete(provider_type=provider_type, base_url=base_url, api_key=api_key,
+                    model_name=judge_model_name, messages=messages, temperature=resolved.judge_temperature,
+                    max_tokens=resolved.judge_max_tokens, json_mode=json_mode,
+                    timeout_seconds=resolved.judge_timeout_seconds)
+                judgement = parse_judge_scores(raw)
+                safe_raw = redact_sensitive_text(raw)
+                if api_key:
+                    safe_raw = safe_raw.replace(api_key, "***")
+                attempt = {"attempt": index, "status": judgement["status"],
+                    "json_mode": bool(json_mode and provider_type in {"openai-compatible", "vllm"}),
+                    "response_chars": len(raw), "response_preview": safe_raw[:2_000],
+                    "missing_fields": judgement["missing_fields"]}
+                if judgement["status"] != "scored":
+                    try:
+                        json.loads(raw)
+                    except json.JSONDecodeError as exc:
+                        attempt["json_error"] = {"reason": exc.msg, "line": exc.lineno, "column": exc.colno}
+                attempts.append(attempt)
+                if judgement["status"] == "scored":
+                    return {"status": "scored", "judge": judgement, "judge_attempts": attempts,
+                            "judge_elapsed_ms": (perf_counter() - started) * 1000}
+            except Exception as exc:
+                status = getattr(exc, "status_code", None)
+                if status is None:
+                    status = getattr(getattr(exc, "response", None), "status_code", None)
+                retryable = (status in {408, 429} or isinstance(status, int) and status >= 500
+                    or isinstance(exc, (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, APIConnectionError, APITimeoutError)))
+                # Provider可能把网络超时包装成RuntimeError；只沿cause识别，不猜测错误字符串。
+                if isinstance(getattr(exc, "__cause__", None), httpx.TimeoutException):
+                    retryable = True
+                attempt = {"attempt": index, "status": "request_failed", "error_type": type(exc).__name__,
+                           "http_status": status, "retryable": retryable}
+                if status == 429:
+                    headers = getattr(getattr(exc, "response", None), "headers", {})
+                    try:
+                        suggested_delay = float(headers.get("retry-after", 15))
+                        retry_delay = min(60, max(15, suggested_delay))
+                        if suggested_delay > 60:
+                            # 不能为了单次等待上限而提前重打；交给后续受控补评。
+                            retryable = False
+                            attempt["retryable"] = False
+                            attempt["deferred_retry_after_seconds"] = suggested_delay
+                    except (ValueError, TypeError):
+                        # 未能解释的Retry-After不猜测为短等待，保留失败待人工续跑。
+                        retryable = False
+                        attempt["retryable"] = False
+                    attempt["backoff_seconds"] = retry_delay
+                    body = getattr(exc, "body", None)
+                    if isinstance(body, dict):
+                        # 只保留供应商错误码，不保存可能包含账号信息的完整响应体。
+                        attempt["provider_error_code"] = body.get("code")
+                attempts.append(attempt)
+            if not retryable or index == resolved.judge_max_attempts:
+                break
+            sleep(retry_delay)
+        return {"status": "judge_failed", "judge": judgement, "judge_attempts": attempts,
+                "error_code": "judge_failed", "judge_elapsed_ms": (perf_counter() - started) * 1000}
 
     @staticmethod
     def _serialize_sources(
@@ -370,6 +486,7 @@ class KnowledgeE2EEvaluationService:
                 "answer": "",
                 "citations": [],
                 "citation_audit": {},
+                "answerable": "no-answer" not in _load_list(getattr(case, "tags_json", None)),
             }
             try:
                 retrieval_started = perf_counter()
@@ -382,7 +499,7 @@ class KnowledgeE2EEvaluationService:
                 case_result["retrieval_elapsed_ms"] = (perf_counter() - retrieval_started) * 1000
                 sources, source_map = self._serialize_sources(retrieved=retrieved, config=resolved_config)
                 case_result["retrieved"] = [
-                    {key: value for key, value in source.items() if key != "content"}
+                    dict(source)
                     | {"content_preview": source["content"][:800]}
                     for source in sources
                 ]
@@ -392,6 +509,8 @@ class KnowledgeE2EEvaluationService:
                     expected_chunk_ids=_case_chunk_ids(case),
                     expected_answer_keywords=_load_list(getattr(case, "expected_answer_keywords_json", None)),
                 )
+                if not case_result["answerable"]:
+                    case_result["retrieval_metrics"] = {"status": "not_applicable_no_answer"}
             except Exception as exc:
                 retrieval_failures += 1
                 case_result.update(
@@ -439,26 +558,21 @@ class KnowledgeE2EEvaluationService:
                 continue
 
             try:
-                judge_started = perf_counter()
-                raw_judgement = self._complete(
+                review = self.judge_answer(
                     provider_type=provider_type,
                     base_url=base_url,
                     api_key=api_key,
-                    model_name=judge_model,
-                    messages=build_judge_messages(
-                        query=case.query,
-                        answer=case_result["answer"],
-                        citations=case_result["citations"],
-                        sources=sources,
-                    ),
-                    temperature=resolved_config.judge_temperature,
-                    max_tokens=resolved_config.judge_max_tokens,
+                    judge_model_name=judge_model, query=case.query,
+                    answer=case_result["answer"], citations=case_result["citations"],
+                    sources=sources, answerable=case_result["answerable"], config=resolved_config,
                 )
-                case_result["judge_elapsed_ms"] = (perf_counter() - judge_started) * 1000
-                judgement = parse_judge_scores(raw_judgement)
-                case_result["judge"] = judgement
-                if judgement["status"] != "scored":
-                    raise ValueError(f"judge response missing fields: {judgement['missing_fields']}")
+                case_result.update(review)
+                judgement = review["judge"]
+                if review["status"] != "scored":
+                    judge_failures += 1
+                    case_result["elapsed_ms"] = (perf_counter() - case_started) * 1000
+                    case_results.append(case_result)
+                    continue
                 faithfulness_values.append(float(judgement["answer_faithfulness"]))
                 relevancy_values.append(float(judgement["answer_relevancy"]))
                 citation_values.append(float(judgement["citation_correctness"]))

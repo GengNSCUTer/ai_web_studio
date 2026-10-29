@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import type { RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { ExternalSourceCard } from "@/components/external-source-card";
 import { MessageMarkdown } from "@/components/message-markdown";
@@ -48,6 +48,7 @@ type ChatMessageListText = {
   copyAnswer: string;
   copied: string;
   regenerateAnswer: string;
+  saveAsDocument: string;
   editLastUser: string;
   saveAndRetry: string;
   editingMessage: string;
@@ -57,6 +58,7 @@ type ChatMessageListText = {
   cancel: string;
   sending: string;
   enterDeleteMode: string;
+  scrollToLatest: string;
 };
 
 type ChatMessageListProps = {
@@ -89,6 +91,7 @@ type ChatMessageListProps = {
   onCancelEditLastUser: () => void;
   onSubmitEditLastUser: (messageId: string) => void | Promise<void>;
   onCopyMessage: (messageId: string, content: string) => void | Promise<void>;
+  onSaveAsDocument: (messageId: string, content: string, sources: ExternalSource[]) => void | Promise<void>;
   onEnterManageMode: (messageId?: string) => void;
   onRegenerateLastAssistant: (assistantMessageId: string) => void | Promise<void>;
   onBeginEditLastUser: (message: ThreadMessage) => void;
@@ -128,6 +131,7 @@ export function ChatMessageList({
   onCancelEditLastUser,
   onSubmitEditLastUser,
   onCopyMessage,
+  onSaveAsDocument,
   onEnterManageMode,
   onRegenerateLastAssistant,
   onBeginEditLastUser,
@@ -136,8 +140,41 @@ export function ChatMessageList({
   conversationId,
   onConversationMessagesChanged,
 }: ChatMessageListProps) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldFollowLatestRef = useRef(true);
+  const [isAtLatest, setIsAtLatest] = useState(true);
+  const activeStreamingContent = activeStreamingAssistantMessageId
+    ? messages.find((message) => message.id === activeStreamingAssistantMessageId)?.content ?? ""
+    : "";
+
+  function handleScroll() {
+    const container = scrollContainerRef.current;
+    if (!container) {
+      return;
+    }
+    const atLatest = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+    shouldFollowLatestRef.current = atLatest;
+    setIsAtLatest(atLatest);
+  }
+
+  function scrollToLatest() {
+    shouldFollowLatestRef.current = true;
+    setIsAtLatest(true);
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }
+
+  useEffect(() => {
+    if (!shouldFollowLatestRef.current) {
+      return;
+    }
+    messageEndRef.current?.scrollIntoView({
+      behavior: isGenerating ? "auto" : "smooth",
+      block: "end",
+    });
+  }, [activeStreamingContent, isGenerating, messages.length, messageEndRef]);
+
   return (
-    <div className="chat-scroll min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
+    <div ref={scrollContainerRef} onScroll={handleScroll} className="chat-scroll relative min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5">
       <div className="mx-auto flex w-full max-w-[74rem] flex-col gap-4">
         {messages.length === 0 && !isLoadingMessages ? (
           <div className="rounded-[22px] border border-dashed border-[var(--control-border)] bg-[var(--soft-bg)] px-5 py-6 text-center">
@@ -182,6 +219,7 @@ export function ChatMessageList({
             onCancelEditLastUser={onCancelEditLastUser}
             onSubmitEditLastUser={onSubmitEditLastUser}
             onCopyMessage={onCopyMessage}
+            onSaveAsDocument={onSaveAsDocument}
             onEnterManageMode={onEnterManageMode}
             onRegenerateLastAssistant={onRegenerateLastAssistant}
             onBeginEditLastUser={onBeginEditLastUser}
@@ -210,6 +248,15 @@ export function ChatMessageList({
 
         <div ref={messageEndRef} />
       </div>
+      {!isAtLatest ? (
+        <button
+          type="button"
+          onClick={scrollToLatest}
+          className="sticky bottom-4 left-full z-10 ml-auto mt-2 block rounded-full border border-[var(--control-border)] bg-[var(--panel)] px-3 py-1.5 text-xs text-[var(--ink-soft)] shadow-[var(--panel-shadow)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)]"
+        >
+          ↓ {text.scrollToLatest}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -242,6 +289,7 @@ function MessageItem({
   onCancelEditLastUser,
   onSubmitEditLastUser,
   onCopyMessage,
+  onSaveAsDocument,
   onEnterManageMode,
   onRegenerateLastAssistant,
   onBeginEditLastUser,
@@ -408,6 +456,7 @@ function MessageItem({
         latestAssistantMessageId={latestAssistantMessageId}
         isDeletingMessages={isDeletingMessages}
         onCopyMessage={onCopyMessage}
+        onSaveAsDocument={onSaveAsDocument}
         onEnterManageMode={onEnterManageMode}
         onRegenerateLastAssistant={onRegenerateLastAssistant}
         onBeginEditLastUser={onBeginEditLastUser}
@@ -661,6 +710,7 @@ function MessageActions({
   latestAssistantMessageId,
   isDeletingMessages,
   onCopyMessage,
+  onSaveAsDocument,
   onEnterManageMode,
   onRegenerateLastAssistant,
   onBeginEditLastUser,
@@ -673,6 +723,7 @@ function MessageActions({
   latestAssistantMessageId: string | null;
   isDeletingMessages: boolean;
   onCopyMessage: (messageId: string, content: string) => void | Promise<void>;
+  onSaveAsDocument: (messageId: string, content: string, sources: ExternalSource[]) => void | Promise<void>;
   onEnterManageMode: (messageId?: string) => void;
   onRegenerateLastAssistant: (assistantMessageId: string) => void | Promise<void>;
   onBeginEditLastUser: (message: ThreadMessage) => void;
@@ -688,6 +739,15 @@ function MessageActions({
           title={copiedMessageId === message.id ? text.copied : text.copyAnswer}
         >
           {copiedMessageId === message.id ? <CheckIcon /> : <CopyIcon />}
+        </button>
+        <button
+          type="button"
+          onClick={() => void onSaveAsDocument(message.id, message.content, message.externalSources ?? [])}
+          className="inline-flex h-8 items-center justify-center rounded-full border border-[rgba(22,34,27,0.12)] bg-[rgba(248,244,234,0.92)] px-3 text-[11px] text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)] hover:text-[var(--ink-strong)]"
+          aria-label={text.saveAsDocument}
+          title={text.saveAsDocument}
+        >
+          {text.saveAsDocument}
         </button>
         <button
           type="button"

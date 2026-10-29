@@ -9,6 +9,7 @@ import re
 import tempfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -20,6 +21,7 @@ from app.repositories.knowledge_repo import KnowledgeChunkRepository, KnowledgeD
 from app.services.knowledge_parser_service import KnowledgeParserService
 from app.services.setting_service import SettingService
 from app.services.knowledge_vector_search import CURRENT_EMBEDDING_VERSION, KnowledgeVectorSearch
+from app.services.knowledge_search_text import metadata_at, structural_markers, retrieval_text
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,9 @@ class KnowledgeChunker:
                 paragraph_start = cursor
             paragraph_end = paragraph_start + len(paragraph)
             cursor = paragraph_end
+            if paragraph.startswith("#") and buffer:
+                chunks.extend(self._window_chunk(buffer, buffer_start, chunk_size, chunk_overlap, len(chunks)))
+                buffer = ""
             candidate = paragraph if not buffer else f"{buffer}\n\n{paragraph}"
             if len(candidate) <= chunk_size:
                 if not buffer:
@@ -86,7 +91,8 @@ class KnowledgeChunker:
 
         if buffer:
             chunks.extend(self._window_chunk(buffer, buffer_start, chunk_size, chunk_overlap, len(chunks)))
-        return chunks
+        markers = structural_markers(normalized)
+        return [replace(chunk, metadata=metadata_at(markers, chunk.source_start)) for chunk in chunks]
 
     def split_parent_child(
         self,
@@ -310,8 +316,11 @@ class KnowledgeLexicalStore:
     BM25_K1 = 1.5
     BM25_B = 0.75
 
-    def __init__(self, index_root: str | None = None):
+    def __init__(self, index_root: str | None = None, *, contextual: bool = False):
         self.index_root = Path(index_root or settings.knowledge_index_dir)
+        self.contextual = contextual
+        if contextual:
+            self.INDEX_FILE_NAME = "lexical_context_index.json"
 
     def index_path(self, knowledge_base_id: str, *, generation_id: str | None = None) -> Path:
         base_dir = self.index_root / knowledge_base_id
@@ -383,7 +392,7 @@ class KnowledgeLexicalStore:
         total_length = 0
 
         for chunk in chunks:
-            terms = self.tokenize(chunk.content)
+            terms = self.tokenize(retrieval_text(chunk) if self.contextual else chunk.content)
             counts = Counter(terms)
             doc_len = sum(counts.values())
             if doc_len <= 0:

@@ -1,0 +1,8 @@
+{
+  "base": "fcef7a39-8ca1-4f28-8d3b-a6e65f229924",
+  "corpus": "chinese",
+  "reviewed": true,
+  "eval_set_id": "7087d074-ce51-4b3f-8c74-4c0d681217de",
+  "matrix_complete": true,
+  "e2e_complete": true
+}

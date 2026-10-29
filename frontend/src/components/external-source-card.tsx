@@ -16,6 +16,7 @@ function sourceKindLabel(source: ExternalSource) {
   if (source.source_type === "durable_run") {
     return "后台任务";
   }
+  if (source.source_type === "document_task") return "文档任务";
   const tool = sourceMeta(source, "tool");
   if (source.source_type === "knowledge") {
     return "知识库";
@@ -77,9 +78,9 @@ export function ExternalSourceCard({
   const toolDisplayName = sourceMeta(source, "tool_display_name");
   const callId = sourceMeta(source, "call_id");
   const contentPreview = source.display_text;
-  const runId = source.source_type === "durable_run" ? sourceMeta(source, "run_id") : "";
+  const runId = ["durable_run", "document_task"].includes(source.source_type) ? sourceMeta(source, "run_id") : "";
   const runHref = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(runId)
-    ? `/tasks?run=${encodeURIComponent(runId)}`
+    ? `${source.source_type === "document_task" ? "/documents" : "/tasks"}?run=${encodeURIComponent(runId)}`
     : null;
 
   const cardBody =

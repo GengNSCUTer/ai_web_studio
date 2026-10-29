@@ -199,7 +199,7 @@ class MessageService:
     def reset_assistant_for_regeneration(self, assistant_message: Message) -> None:
         conversation_id = assistant_message.conversation_id
         try:
-            self.repo.lock_conversation(conversation_id)
+            conversation = self.repo.lock_conversation(conversation_id)
             # Regeneration is another way to start a generation. It must use
             # the same conversation-wide active check as a new turn, otherwise
             # an already-running newer turn could coexist with this reset.
@@ -209,6 +209,7 @@ class MessageService:
                 raise RuntimeError("assistant message not found")
             if locked.status == "streaming":
                 raise MessageGenerationConflict()
+            self.repo.invalidate_summary_for_changes(conversation, [locked.id])
             self._reset_assistant(locked)
             self.repo.save(locked)
             self._touch_conversation(conversation_id)
@@ -230,7 +231,7 @@ class MessageService:
         """原子保存编辑后的用户消息、附件替换和 assistant 重置。"""
 
         try:
-            self.repo.lock_conversation(user_message.conversation_id)
+            conversation = self.repo.lock_conversation(user_message.conversation_id)
             # Editing the previous turn also starts a new generation and must
             # not race with a newer active turn in the same conversation.
             self.repo.ensure_no_active_streaming(user_message.conversation_id)
@@ -242,6 +243,7 @@ class MessageService:
                 raise RuntimeError("assistant message not found")
             if locked_assistant.status == "streaming":
                 raise MessageGenerationConflict()
+            self.repo.invalidate_summary_for_changes(conversation, [user_message.id, locked_assistant.id])
             user_message.content = content
             self.repo.save(user_message)
             attachments: list[Attachment] | None = None
@@ -269,11 +271,13 @@ class MessageService:
 
     def delete_message(self, message_id: str, conversation_id: str) -> bool:
         # 删除消息前先解除 RAG 日志中的消息引用，避免来源定位指向不存在的 message_id。
-        message = self.repo.get_by_id_and_conversation(message_id, conversation_id)
-        if not message:
-            return False
-
         try:
+            conversation = self.repo.lock_conversation(conversation_id)
+            message = self.repo.get_by_id_and_conversation(message_id, conversation_id)
+            if not message:
+                self.repo.db.rollback()
+                return False
+            self.repo.invalidate_summary_for_changes(conversation, [message.id])
             KnowledgeRetrievalLogRepository(self.repo.db).detach_message_links(
                 message_ids=[message.id],
                 commit=False,
@@ -291,8 +295,10 @@ class MessageService:
         # 不能把客户端原始 message_ids 直接交给 RAG 日志断链，否则夹带其他会话 ID 时，
         # 虽然消息不会被删，但其他会话的来源定位会被误清空。
         try:
+            conversation = self.repo.lock_conversation(conversation_id)
             messages = self.repo.list_by_ids_and_conversation(conversation_id, message_ids)
             scoped_message_ids = [message.id for message in messages]
+            self.repo.invalidate_summary_for_changes(conversation, scoped_message_ids)
             if scoped_message_ids:
                 KnowledgeRetrievalLogRepository(self.repo.db).detach_message_links(
                     message_ids=scoped_message_ids,

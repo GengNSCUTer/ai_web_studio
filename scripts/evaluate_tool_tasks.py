@@ -11,6 +11,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy import select, delete
@@ -68,15 +69,46 @@ def summarize(rows, denied):
     latencies=sorted(r["elapsed_ms"] for r in rows)
     all_calls=[c for r in rows for c in r.get("calls",[])]
     schema_total=sum(r.get("schema_total",0) for r in rows)
-    return dict(cases=len(rows),task_passed=sum(r["passed"] for r in rows),task_success_rate=sum(r["passed"] for r in rows)/len(rows),
+    result = dict(cases=len(rows),task_passed=sum(r["passed"] for r in rows),task_success_rate=sum(r["passed"] for r in rows)/len(rows),
         candidate_task_coverage=sum(r.get("candidate_covered",False) for r in positive)/len(positive) if positive else None,
         planner_task_coverage=sum(r.get("planner_covered",False) for r in positive)/len(positive) if positive else None,
         online_planner_cases=sum(r.get("llm_planner",False) for r in rows),
+        fallback_case_count=sum(any(e.get("type")=="tool_fallback" for e in r.get("diagnostic_events",[])) for r in rows),
         argument_schema_pass_rate=sum(r.get("schema_pass",0) for r in rows)/schema_total if schema_total else None,
         execution_success_rate=sum(c["status"]=="success" for c in all_calls)/len(all_calls) if all_calls else None,
         tool_calls=len(all_calls),no_tool_correct=sum(r.get("no_tool_correct") is True for r in rows),
         safety_rejected=sum(r["passed"] for r in denied),safety_cases=len(denied),
         mean_task_ms=statistics.mean(latencies),p95_task_ms=latencies[min(len(latencies)-1,int(len(latencies)*.95))])
+    if rows and all("strict_passed" in r for r in rows):
+        result.update(strict_task_passed=sum(r["strict_passed"] for r in rows),
+                      strict_task_success_rate=sum(r["strict_passed"] for r in rows)/len(rows))
+    return result
+
+
+def strict_checks(case, calls, sources, answer):
+    """补充正文、实况及真实官网链接校验；旧评分另存，不能混改历史分母。"""
+    checks = {}
+    used = [s for s in sources if s.get("used_in_prompt")]
+    if case["group"] == "file" or case.get("facts") and case["group"] == "multi":
+        checks["file_body_read"] = any(s["source_type"]=="workspace_file_read" for s in used)
+    if case["group"] in {"weather", "multi"}:
+        for city in [name for name in ["深圳","北京","广州","杭州"] if name in case["query"]]:
+            matching=[s for s in used if s.get("source_type")=="weather"
+                      and city in str(s.get("metadata",{}).get("raw",{}).get("city",""))]
+            checks["live_weather_"+city] = any(s.get("metadata",{}).get("raw",{}).get("weather_data_type")=="live"
+                and re.search(r"(?<!\d)"+re.escape(str(s.get("metadata",{}).get("raw",{}).get("temperature","missing")))
+                    +r"\s*(?:°\s*C|℃|摄氏度|度)",answer,re.I) for s in matching)
+    if case["group"] in {"search", "documentation"} and re.search(r"来源|链接|\b(?:urls?|sources?|links?)\b",case["query"],re.I):
+        checks["actual_source_url_in_answer"] = any(s.get("url") and s["url"] in answer for s in used)
+    if case["group"] == "documentation":
+        checks["documentation_body"] = any(s.get("source_type")=="documentation" for s in used)
+    if case["group"] == "search":
+        domain = "postgresql.org" if "PostgreSQL" in case["query"] else "fastapi.tiangolo.com"
+        checks["requested_official_source"] = any(
+            ((urlsplit(s.get("url") or "").hostname or "") == domain
+             or (urlsplit(s.get("url") or "").hostname or "").endswith("."+domain))
+            and s.get("url") in answer for s in used)
+    return checks
 
 
 def prepare_fixture():
@@ -175,17 +207,32 @@ def run(output: Path, backend: str):
                                 numeric=[v for v in temps if re.fullmatch(r"-?\d+(\.\d+)?",v)]
                                 facts_ok &= bool(numeric) and any(v in answer.content for v in numeric)
                         if case["group"] in {"search","documentation"}:
+                            # 旧断言全部要求明文URL；新版仅在题目确实要求来源/链接时检查。
+                            semantic_facts_ok = facts_ok
                             facts_ok &= bool(re.search(r"https?://",answer.content))
+                            if re.search(r"来源|链接|\b(?:urls?|sources?|links?)\b",case["query"],re.I):
+                                semantic_facts_ok &= bool(re.search(r"https?://",answer.content))
+                        else:
+                            semantic_facts_ok = facts_ok
                         schema=[e for e in trace if e.get("type")=="tool_schema_validation"]
                         row.update(candidate_covered=coverage(case["required"],candidates),planner_covered=coverage(case["required"],planned),
                             llm_planner=any(e.get("strategy")=="llm_primary" for e in trace if e.get("type")=="tool_planner_end"),
                             no_tool_correct=(not calls) if case.get("no_tools") else None,
                             candidate_keys=list(dict.fromkeys(candidates)),planned_keys=list(dict.fromkeys(planned)),
                             calls=[dict(tool_key=c.tool_key,status=c.status) for c in calls],
+                            diagnostic_events=[e for e in trace if e.get("type") in {
+                                "tool_plan", "tool_query_rewrite", "tool_planner_end", "tool_fallback",
+                                "tool_result_quality", "tool_execution_summary", "tool_call_end",
+                                "tool_observation", "tool_replan_decision"}],
                             schema_pass=sum(e.get("status")=="passed" for e in schema),schema_total=len(schema),
                             final_status=answer.status,answer=answer.content,source_checked=source_ok,facts_checked=facts_ok,
                             passed=answer.status=="done" and facts_ok and source_ok and coverage(case["required"],[c.tool_key for c in calls]))
+                        row["strict_checks"] = strict_checks(case,calls,sources,answer.content)
+                        row["strict_passed"] = bool(answer.status=="done" and semantic_facts_ok and source_ok
+                            and coverage(case["required"],[c.tool_key for c in calls if c.status=="success"])
+                            and all(row["strict_checks"].values()))
                 except Exception as exc:
+                    row["strict_passed"] = False
                     row["error_type"]=type(exc).__name__
                     if isinstance(exc,httpx.HTTPStatusError):
                         row["http_status"]=exc.response.status_code

@@ -374,8 +374,13 @@ class DurableToolRuntimeTest(unittest.TestCase):
             state = json.loads(run.planner_state_json)
             self.assertEqual(state["durable_result_message_id"], messages[-1].id)
             message_count = len(messages)
+            conversation = db.get(Conversation, self.conversation_id)
+            conversation.context_summary = "已摘要且内容未变的后台结果"
+            conversation.context_summary_boundary_message_id = messages[-1].id
+            db.commit()
             DurableToolWorker._project_terminal_message(db, run)
             db.commit()
+            self.assertEqual(conversation.context_summary, "已摘要且内容未变的后台结果")
             self.assertEqual(
                 db.query(Message).filter(Message.conversation_id == self.conversation_id, Message.role == "assistant").count(),
                 message_count,
@@ -1092,9 +1097,18 @@ class DurableToolRuntimeTest(unittest.TestCase):
             run = db.get(AgentRun, run_id)
             message_id = json.loads(run.planner_state_json)["durable_result_message_id"]
             self.assertEqual(db.get(Message, message_id).status, "failed")
+            conversation = db.get(Conversation, self.conversation_id)
+            conversation.context_summary = "包含旧后台失败结果的摘要"
+            conversation.context_summary_boundary_message_id = message_id
+            db.commit()
             step = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id))
             DurableToolRunService(db).replay_dead_letter(run_id=run_id, step_id=step.id, user_id=self.user_id)
             self.assertIn("已重新排队", db.get(Message, message_id).content)
+            self.assertIsNone(conversation.context_summary)
+            self.assertIsNone(conversation.context_summary_boundary_message_id)
+            conversation.context_summary = "包含排队结果的摘要"
+            conversation.context_summary_boundary_message_id = message_id
+            db.commit()
             with self.assertRaises(DurableToolRuntimeError):
                 DurableToolRunService(db).replay_dead_letter(run_id=run_id, step_id=step.id, user_id=self.user_id)
         succeeded_worker = DurableToolWorker(
@@ -1107,6 +1121,7 @@ class DurableToolRuntimeTest(unittest.TestCase):
             self.assertEqual(run.status, "succeeded")
             self.assertEqual(result_message.status, "done")
             self.assertIn("后台任务已完成", result_message.content)
+            self.assertIsNone(db.get(Conversation, self.conversation_id).context_summary)
             self.assertEqual(json.loads(run.planner_state_json)["durable_result_message_id"], message_id)
             self.assertEqual(db.query(Message).filter(Message.conversation_id == self.conversation_id).count(), 2)
 

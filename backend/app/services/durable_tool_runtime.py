@@ -430,7 +430,7 @@ class DurableToolRunService:
         if current_skill.version != expected_version or current_skill.manifest_digest != expected_digest:
             raise DurableToolRuntimeError("skill_snapshot_mismatch", "Skill 版本或审核摘要已变化，不能直接回放。")
 
-    def claim_next(self, *, owner: str, lease_seconds: int | None = None) -> DurableStepClaim | None:
+    def claim_next(self, *, owner: str, lease_seconds: int | None = None, runtime_kinds: tuple[str, ...] = ("durable_tool_workflow",)) -> DurableStepClaim | None:
         now = utcnow()
         ttl = max(15, int(lease_seconds or self.LEASE_SECONDS))
         event = self.db.scalars(
@@ -438,7 +438,7 @@ class DurableToolRunService:
             .join(AgentStep, AgentStep.id == AgentOutboxEvent.step_id)
             .join(AgentRun, AgentRun.id == AgentOutboxEvent.run_id)
             .where(
-                AgentRun.runtime_kind == "durable_tool_workflow",
+                AgentRun.runtime_kind.in_(runtime_kinds),
                 AgentRun.status.in_(["queued", "running"]),
                 or_(
                     AgentOutboxEvent.status == "pending",
@@ -674,6 +674,9 @@ class DurableToolRunService:
         projected_message_id = state.get("durable_result_message_id") if isinstance(state, dict) else None
         projected_message = self.db.get(Message, projected_message_id) if isinstance(projected_message_id, str) else None
         if projected_message and projected_message.conversation_id == run.conversation_id:
+            message_repo = MessageRepository(self.db)
+            conversation = message_repo.lock_conversation(run.conversation_id)
+            message_repo.invalidate_summary_for_changes(conversation, [projected_message.id])
             projected_message.content = f"后台任务已重新排队（Run {run.id}）\n\n将重新执行 {len(replay_steps)} 个只读步骤。"
             projected_message.status = "done"
             projected_message.external_sources = self._json([{
@@ -688,7 +691,7 @@ class DurableToolRunService:
         self.db.refresh(run)
         return run
 
-    def reconcile_orphaned_steps(self, *, user_id: str | None = None, limit: int = 100) -> int:
+    def reconcile_orphaned_steps(self, *, user_id: str | None = None, limit: int = 100, runtime_kind: str = "durable_tool_workflow") -> int:
         """Recreate a delivery intent when non-terminal durable state lost its event.
 
         It closes the database-side crash/manual-removal window. Existing pending
@@ -699,7 +702,7 @@ class DurableToolRunService:
             select(AgentStep)
             .join(AgentRun, AgentRun.id == AgentStep.run_id)
             .where(
-                AgentRun.runtime_kind == "durable_tool_workflow",
+                AgentRun.runtime_kind == runtime_kind,
                 AgentStep.status.in_(["pending", "running"]),
             )
             .order_by(AgentStep.created_at.asc())
@@ -1017,7 +1020,7 @@ class DurableToolWorker:
         if self._stop_requested.is_set():
             return False
         with self.session_factory() as db:
-            claim = DurableToolRunService(db).claim_next(owner=self.owner)
+            claim = DurableToolRunService(db).claim_next(owner=self.owner, runtime_kinds=("durable_tool_workflow", "document_workflow"))
         if not claim:
             return False
         if self._instance_id:
@@ -1054,6 +1057,7 @@ class DurableToolWorker:
                     if loop_time - self._last_reconcile_at >= self.RECONCILE_INTERVAL_SECONDS:
                         with self.session_factory() as reconcile_db:
                             DurableToolRunService(reconcile_db).reconcile_orphaned_steps(limit=100)
+                            DurableToolRunService(reconcile_db).reconcile_orphaned_steps(limit=100, runtime_kind="document_workflow")
                         self._last_reconcile_at = loop_time
                     self._update_worker_status("idle")
                     worked = await self.run_once()
@@ -1085,6 +1089,10 @@ class DurableToolWorker:
             return
         run = db.get(AgentRun, step.run_id)
         if not run or event.lease_owner != self.owner or event.lease_version != claim.outbox_lease_version:
+            return
+        if run.runtime_kind == "document_workflow":
+            from app.services.document_task_worker import execute_document_claim
+            await execute_document_claim(self, db, claim)
             return
         dependency_status = self._dependency_status(db, run.id, step)
         if dependency_status == "waiting":
@@ -1563,7 +1571,7 @@ class DurableToolWorker:
             select(Conversation).where(
                 Conversation.id == run.conversation_id,
                 Conversation.user_id == run.user_id,
-            ).limit(1)
+            ).execution_options(populate_existing=True).with_for_update().limit(1)
         ).first()
         if not conversation:
             logger.warning("durable_result_projection_skipped run=%s reason=conversation_missing", run.id)
@@ -1606,6 +1614,8 @@ class DurableToolWorker:
         if message and message.conversation_id != run.conversation_id:
             message = None
         if message:
+            if message.content != content:
+                MessageRepository(db).invalidate_summary_for_changes(conversation, [message.id])
             message.content = content
             message.external_sources = external_sources
             message.status = "done" if run.status == "succeeded" else "failed"

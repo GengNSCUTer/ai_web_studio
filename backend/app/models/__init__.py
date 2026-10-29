@@ -44,6 +44,7 @@ from app.models.user import User
 from app.models.resource_lease import ResourceLease
 from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.models.user_setting import UserSetting
+from app.models.plugin import PluginInstallation, PluginRelease, ProjectPlugin, PluginSubmission, SandboxJob, SandboxWorkerState
 
 __all__ = [
     "Attachment",

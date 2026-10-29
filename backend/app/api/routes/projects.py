@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -13,6 +14,8 @@ from app.schemas.project import (
     ProjectStatsResponse,
     ProjectUpdate,
 )
+from app.schemas.document_delivery import DocumentDraftCreate, DocumentDraftResponse
+from app.services.document_delivery_service import DocumentDeliveryError, DocumentDeliveryService
 from app.services.project_service import ProjectFileService, ProjectService
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -89,6 +92,46 @@ def add_project_file(
     if not file_item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     return file_item
+
+
+@router.post("/{project_id}/documents/draft", response_model=DocumentDraftResponse, status_code=status.HTTP_201_CREATED)
+def create_document_draft(
+    project_id: str,
+    payload: DocumentDraftCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DocumentDraftResponse:
+    try:
+        return DocumentDeliveryService(db).create_draft(
+            user_id=current_user.id,
+            project_id=project_id,
+            payload=payload,
+        )
+    except DocumentDeliveryError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get("/{project_id}/files/{file_id}/download")
+def download_project_file(
+    project_id: str,
+    file_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FileResponse:
+    resolved = DocumentDeliveryService(db).resolve_download_path(
+        user_id=current_user.id,
+        project_id=project_id,
+        file_id=file_id,
+    )
+    if not resolved:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project file not found")
+    item, path = resolved
+    return FileResponse(
+        path,
+        media_type=item.mime_type or "application/octet-stream",
+        filename=item.file_name,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.delete("/{project_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)

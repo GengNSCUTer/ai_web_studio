@@ -18,6 +18,8 @@ from app.api.routes import (
     messages,            # 单条消息CRUD接口
     prompt_templates,    # 提示词模板接口
     projects,            # 项目管理接口
+    plugins,             # 审核插件与独立沙箱授权控制面
+    document_tasks,      # 可恢复文档取证、生成、导出与审批交付
     providers,           # AI模型服务商配置接口
     settings,            # 系统全局设置接口
     shares,              # 会话/内容分享接口
@@ -93,6 +95,8 @@ app.include_router(settings.router, prefix="/api")
 app.include_router(providers.router, prefix="/api")
 # 注册工具插件路由
 app.include_router(tools.router, prefix="/api")
+app.include_router(plugins.router, prefix="/api")
+app.include_router(document_tasks.router, prefix="/api")
 # 注册聊天交互主路由
 app.include_router(chat.router, prefix="/api")
 # 注册文件上传路由

@@ -1,4 +1,4 @@
-"""运维检查：依赖就绪、前端响应、五个受管进程；只输出状态，不打印连接凭据。"""
+"""检查依赖、Worker 心跳、前端与受管进程；只输出状态，不打印连接凭据。"""
 
 import argparse
 import json
@@ -11,11 +11,12 @@ import httpx
 def inspect_services(*, backend: str, frontend: str) -> dict:
     checks = {}
     for name, url in (("backend", f"{backend}/health/ready"), ("frontend", f"{frontend}/"),
-                      ("frontend_proxy", f"{frontend}/api/health/ready")):
+                      ("frontend_proxy", f"{frontend}/api/health/ready"),
+                      ("durable_worker", f"{backend}/health/workers")):
         try:
             response = httpx.get(url, timeout=5, follow_redirects=True, trust_env=False)
             checks[name] = {"ok": response.status_code == 200}
-            if name == "backend" and response.status_code in (200, 503):
+            if name in {"backend", "durable_worker"} and response.status_code in (200, 503):
                 checks[name]["dependencies"] = response.json().get("checks", {})
         except (httpx.HTTPError, ValueError):
             checks[name] = {"ok": False}

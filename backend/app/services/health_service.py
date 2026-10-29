@@ -1,4 +1,4 @@
-"""就绪探针只检查必要依赖，不执行模型请求或修改业务数据。"""
+"""分开检查 Web 依赖与后台 Worker，不执行工具或修改业务数据。"""
 
 import asyncio
 import time
@@ -9,11 +9,12 @@ from redis.backoff import NoBackoff
 from redis.retry import Retry
 
 from app.core.config import settings
+from app.services.durable_worker_registry import DurableWorkerRegistry
 
 
-def check_postgres() -> None:
+def _connect_postgres() -> psycopg.Connection:
     # 不借用业务连接池，避免探针排在长事务后无限等待。
-    with psycopg.connect(
+    return psycopg.connect(
         host=settings.postgres_host,
         port=settings.postgres_port,
         dbname=settings.postgres_db,
@@ -21,8 +22,28 @@ def check_postgres() -> None:
         password=settings.postgres_password,
         connect_timeout=2,
         options="-c statement_timeout=2000",
-    ) as connection:
+    )
+
+
+def check_postgres() -> None:
+    with _connect_postgres() as connection:
         connection.execute("SELECT 1").fetchone()
+
+
+def check_durable_worker() -> bool:
+    """即使没有待执行任务，也要求至少一个 Worker 有有效心跳。"""
+    with _connect_postgres() as connection:
+        row = connection.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM agent_worker_heartbeats
+                WHERE status IN ('idle', 'running')
+                  AND heartbeat_at >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
+            )
+            """,
+            (DurableWorkerRegistry.STALE_SECONDS,),
+        ).fetchone()
+        return bool(row and row[0])
 
 
 def check_redis() -> None:
@@ -40,8 +61,8 @@ def check_redis() -> None:
 async def _probe(check) -> dict[str, object]:
     started = time.monotonic()
     try:
-        await asyncio.wait_for(asyncio.to_thread(check), timeout=3)
-        status = "ok"
+        result = await asyncio.wait_for(asyncio.to_thread(check), timeout=3)
+        status = "unavailable" if result is False else "ok"
     except Exception:
         # 不输出异常原文；其中可能包含服务器地址或带密码的连接 URL。
         status = "unavailable"
@@ -54,4 +75,13 @@ async def readiness() -> dict[str, object]:
     return {
         "status": "ready" if all(item["status"] == "ok" for item in checks.values()) else "not_ready",
         "checks": checks,
+    }
+
+
+async def worker_readiness() -> dict[str, object]:
+    """后台能力单独返回状态，避免 Worker 故障使普通 Chat 被摘流。"""
+    durable = await _probe(check_durable_worker)
+    return {
+        "status": "ready" if durable["status"] == "ok" else "not_ready",
+        "checks": {"durable_worker": durable},
     }

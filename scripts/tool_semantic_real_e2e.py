@@ -126,7 +126,7 @@ def run():
     finally:
         cleanup(user_id=user_id,project_id=project_id)
     report['temporary_data_cleaned'] = True
-    output = Path(__file__).resolve().parents[1]/'backend/evals/results/tool_semantic_e2e_2026-10-11.json'
+    output = Path(os.getenv('AIWS_TOOL_E2E_OUTPUT',str(Path(__file__).resolve().parents[1]/'backend/evals/results/tool_semantic_e2e_2026-10-11.json')))
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
 
 

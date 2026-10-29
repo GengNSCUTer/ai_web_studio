@@ -38,6 +38,8 @@ def evaluate_case(base_id, case_id, model, judge):
         db.expunge(case);db.rollback()
         result=service.run(**runtime,knowledge_base=config,cases=[case],config=KnowledgeE2EEvaluationConfig(top_k=20))
         row=result["cases"][0]
+        row["question_type"] = next((t for t in json.loads(case.tags_json or "[]") if t in {
+            "fact","mechanism","synthesis","comparison","procedure","numeric_condition","limitation","no_answer"}),"legacy_untyped")
         row.pop("error",None)
         return row
 
@@ -82,10 +84,27 @@ def run(args):
         runner_failure_count=sum(r["status"]=="runner_failed" for r in rows))
     for key in ("answer_faithfulness","answer_relevancy","citation_correctness"):
         metrics[key]=avg([r["judge"][key] for r in scored])
-        metrics[key+"_all_cases"]=sum(r.get("judge",{}).get(key) or 0 for r in rows)/len(ids)
+        metrics[key+"_all_cases"]=sum((r.get("judge") or {}).get(key) or 0 for r in rows)/len(ids)
     for key,field in (("citation_validity","valid_citation_rate"),("ground_truth_citation_precision","ground_truth_citation_precision"),
                       ("ground_truth_citation_recall","ground_truth_citation_recall")):
         metrics[key]=avg([r.get("citation_audit",{}).get(field,0) for r in rows])
+    citation_count = sum(r.get("citation_audit", {}).get("citation_count", 0) for r in rows)
+    valid_count = sum(r.get("citation_audit", {}).get("valid_citation_count", 0) for r in rows)
+    metrics["citation_validity_micro"] = valid_count / citation_count if citation_count else None
+    metrics["citation_coverage"] = sum(bool(r.get("citations")) for r in rows) / len(ids)
+    metrics["answerable_case_count"] = sum(r.get("answerable", True) for r in rows)
+    metrics["negative_case_count"] = sum(not r.get("answerable", True) for r in rows)
+    metrics["by_answerability"] = {
+        label: {key: avg([r["judge"][key] for r in scored if r.get("answerable", True) == flag])
+                for key in ("answer_faithfulness", "answer_relevancy", "citation_correctness")}
+        for label, flag in (("answerable", True), ("no_answer", False))
+    }
+    metrics["evaluation_policy"] = "v2_answerability_aware_judge"
+    metrics["by_question_type"] = {kind:dict(case_count=sum(r.get("question_type")==kind for r in rows),
+        scored_case_count=sum(r.get("question_type")==kind for r in scored),
+        **{key:avg([r["judge"][key] for r in scored if r.get("question_type")==kind])
+           for key in ("answer_faithfulness","answer_relevancy","citation_correctness")})
+        for kind in sorted({r.get("question_type","legacy_untyped") for r in rows})}
     for key in ("retrieval_elapsed_ms","generation_elapsed_ms","judge_elapsed_ms"):
         metrics["avg_"+key]=avg([r[key] for r in rows if key in r])
     payload=dict(eval_set_id=args.eval_set,knowledge_base_id=args.base,case_count=len(ids),answer_model=args.model,

@@ -1,0 +1,1951 @@
+{
+  "eval_set_id": "c1ca0545-6aae-4ee7-9f6b-18ce41d9ad0a",
+  "knowledge_base_id": "fcef7a39-8ca1-4f28-8d3b-a6e65f229924",
+  "case_count": 16,
+  "answer_model": "deepseek-ai/DeepSeek-V3.2",
+  "judge_model": "Qwen/Qwen2.5-72B-Instruct",
+  "top_k": 20,
+  "retrieval_mode": "hybrid",
+  "rerank_enabled": true,
+  "config_snapshot": {
+    "rerank_top_n": 6,
+    "document_count": 4,
+    "chunk_count": 168,
+    "workers": 3
+  },
+  "metrics": {
+    "case_count": 16,
+    "scored_case_count": 16,
+    "retrieval_failure_count": 0,
+    "generation_failure_count": 0,
+    "judge_failure_count": 0,
+    "runner_failure_count": 0,
+    "answer_faithfulness": 0.9375,
+    "answer_faithfulness_all_cases": 0.9375000000000001,
+    "answer_relevancy": 0.959375,
+    "answer_relevancy_all_cases": 0.959375,
+    "citation_correctness": 0.915625,
+    "citation_correctness_all_cases": 0.9156250000000001,
+    "citation_validity": 0.875,
+    "ground_truth_citation_precision": 0.41354166666666664,
+    "ground_truth_citation_recall": 0.75,
+    "citation_validity_micro": 1.0,
+    "citation_coverage": 0.875,
+    "answerable_case_count": 14,
+    "negative_case_count": 2,
+    "by_answerability": {
+      "answerable": {
+        "answer_faithfulness": 0.9285714285714286,
+        "answer_relevancy": 0.9535714285714285,
+        "citation_correctness": 0.9035714285714286
+      },
+      "no_answer": {
+        "answer_faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 1.0
+      }
+    },
+    "evaluation_policy": "v2_answerability_aware_judge",
+    "avg_retrieval_elapsed_ms": 2086.1593442969024,
+    "avg_generation_elapsed_ms": 11027.966890018433,
+    "avg_judge_elapsed_ms": 5887.45173253119
+  },
+  "cases": [
+    {
+      "case_id": "f25c23e1-d933-4237-919b-9fab8b5b0de4",
+      "query": "Redis 为什么适合低延迟访问？它依赖哪些基础特征？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "8823eb86-5a19-4f1f-8261-f670c4f224cf",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 2,
+          "score": 0.7768113613128662,
+          "content_preview": "数据结构\n数据关联\n查询方式\n事务特性\n存储方式\n磁盘\n内存\n扩展性\n垂直\n水平\n使用场景\n认识NoSQL\nSQL\nNoSQL\n结构化(Structured)\n关联的(Relational)\n非结构化\n无关联的\nSQL查询\n非SQL\nACID\nBASE\n#1 键值类型（Redis）\n#2 文档类型（MongoDB）\n#3 列类型（HBase）\n#4 Graph类型（Neo4j）\n1）数据结构固定\n2）相关业务对数据安全性、一致性要求较高\n1）数据结构不固定\n2）对一致性、安全性要求不高\n3）对性能要求\n\n## 幻灯片 13\n\n认识NoSQL\n认识Redis\n安装Redis\n\n## 幻灯片 14\n\nRedis诞生于2009年全称是Remote Dictionary Server，远程词典服务器，是一个基于内存的键值型NoSQL数据库。\n特征：\n键值（key-value）型，value支持多种不同数据结构，功能丰富\n单线程，每个命令具备原子性\n低延迟，速度快（基于内存、IO多路复用、良好的编码）。\n支持数据持久化\n支持主从集群、分片集群\n支持多语言客户端\n认识Redis\nSALVATORE SANFILIPPO\nAKA ANTIREZ\n\n## 幻灯片 15\n\n认识NoSQL\n认识Redis\n安装Redis\n\n## 幻灯片 16\n\n参考课前资料《Redis安装说明》\n安装Redis\n\n## 幻灯片 17\n\nRedis常见命令\n02\n\n## 幻灯片 18\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 19"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "d2e0f8b5-afe5-42c4-81b3-86abab32f169",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 10,
+          "score": 0.4589047431945801,
+          "content_preview": "Redis的Java客户端\n以Redis命令作为方法名称，学习成本低，简单实用。但是Jedis实例是线程不安全的，多线程环境下需要基于连接池来使用\nLettuce是基于Netty实现的，支持同步、异步和响应式编程方式，并且是线程安全的。支持Redis的哨兵模式、集群模式和管道模式。\nRedisson是一个基于Redis实现的分布式、可伸缩的Java数据结构集合。包含了诸如Map、Queue、Lock、 Semaphore、AtomicLong等强大功能\nSpring Data Redis\n\n## 幻灯片 48\n\nJedis\nSpringDataRedis\n\n## 幻灯片 49\n\nJedis的官网地址： https://github.com/redis/jedis，我们先来个快速入门：\n引入依赖：\n建立连接\nJedis\n<dependency>    <groupId>redis.clients</groupId>    <artifactId>jedis</artifactId>    <version>3.7.0</version></dependency>\nprivate Jedis jedis;@BeforeEachvoid setUp() {    // 建立连接    jedis = new Jedis(\"192.168.150.101\", 6379);    // 设置密码    jedis.auth(\"123321\");    // 选择库    jedis.select(0);}\n\n## 幻灯片 50"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 22,
+          "score": 0.40921708941459656,
+          "content_preview": "基于Redis的分布式锁实现思路：\n利用set nx ex获取锁，并设置过期时间，保存线程标示\n释放锁时先判断线程标示是否与自己一致，一致则删除锁\n特性：\n利用set nx满足互斥性\n利用set ex保证故障时锁依然能释放，避免死锁，提高安全性\n利用Redis集群保证高可用和高并发特性\n\n## 幻灯片 105\n\n基于Redis的分布式锁优化\n基于setnx实现的分布式锁存在下面的问题：\n不可重入\n同一个线程无法多次获取同一把锁\n01\n不可重试\n获取锁只尝试一次就返回false，没有重试机制\n02\n超时释放\n锁超时释放虽然可以避免死锁，但如果是业务执行耗时较长，也会导致锁释放，存在安全隐患\n03\n主从一致性\n如果Redis提供了主从集群，主从同步存在延迟，当主宕机时，如果从并同步主中的锁数据，则会出现锁实现\n04\n\n## 幻灯片 106\n\nRedisson\nRedisson是一个在Redis的基础上实现的Java驻内存数据网格（In-Memory Data Grid）。它不仅提供了一系列的分布式的Java常用对象，还提供了许多分布式服务，其中就包含了各种分布式锁的实现。\n官网地址： https://redisson.org\nGitHub地址： https://github.com/redisson/redisson\n\n## 幻灯片 107"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "29b099f9-6464-421a-9879-284d7f9cd79a",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 3,
+          "score": 0.2725684940814972,
+          "content_preview": "Redis是一个key-value的数据库，key一般是String类型，不过value的类型多种多样：\nRedis数据结构介绍\nhello world\nString\n{name: \"Jack\", age: 21}\nHash\n[A -> B -> C -> C]\nList\n{A, B, C}\nSet\n{A: 1, B: 2, C: 3}\nSortedSet\n{A:（120.3， 30.5）}\nGEO\n0110110101110101011\nBitMap\n0110110101110101011\nHyperLog\n基本类型\n特殊类型\n\n## 幻灯片 20\n\nRedis为了方便我们学习，将操作不同数据类型的命令也做了分组，在官网（ https://redis.io/commands ）可以查看到不同的命令：\nRedis数据结构介绍\n\n## 幻灯片 21\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 22\n\n通用指令是部分数据类型的，都可以使用的指令，常见的有：\nKEYS：查看符合模板的所有key\nDEL：删除一个指定的key\nEXISTS：判断key是否存在\nEXPIRE：给一个key设置有效期，有效期到期时该key会被自动删除\nTTL：查看一个KEY的剩余有效期\n通过help [command] 可以查看一个命令的具体用法，例如：\nRedis通用命令\n，不建议在生产环境设备上使用\n\n## 幻灯片 23\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 24"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "59bbbde6-6e1f-4bfe-a2a9-fd5bb7476380",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 4,
+          "score": 0.2722204625606537,
+          "content_preview": "基于Redis实现共享session登录\n保存登录的用户信息，可以使用String结构，以JSON字符串来保存，比较直观：\nHash结构可以将对象中的每个字段独立存储，可以针对单个字段做CRUD，并且内存占用更少：\nKEY\nVALUE\nheima:user:1\n{name:\"Jack\", age:21}\nheima:user:2\n{name:\"Rose\", age:18}\nKEY\nVALUE\nfield\nvalue\nheima:user:1\nname\nJack\nage\n21\nheima:user:2\nname\nRose\nage\n18\n\n## 幻灯片 24\n\nRedis代替session需要考虑的问题：\n选择合适的数据结构\n选择合适的key\n选择合适的存储粒度\n\n## 幻灯片 25\n\n登录拦截器的优化\n黑马点评服务\nOrderController\nUserController\nXxxController\n拦截器\n拦截：\n需要登录的路径\n获取token\n查询Redis的用户\n不存在，则拦截\n存在，则继续\n保存到ThreadLocal\n刷新token有效期\n放行\n\n## 幻灯片 26\n\n登录拦截器的优化\n黑马点评服务\nOrderController\nUserController\nXxxController\n拦截器\n拦截：\n需要登录的路径\n不存在，则拦截\n存在，则继续\n拦截器\n拦截：\n一切路径\n获取token\n查询Redis的用户\n保存到ThreadLocal\n刷新token有效期\n放行\n查询ThreadLocal\n的用户：\n\n## 幻灯片 27\n\n商户查询缓存\n02\n\n## 幻灯片 28\n\n什么是缓存\n添加Redis缓存\n缓存更新策略\n缓存穿透\n缓存雪崩\n缓存击穿\n缓存工具封装\n\n## 幻灯片 29\n\n缓存就是数据交换的缓冲区（称作Cache [ kæʃ ] ），是存贮数据的临时"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "8074c7f3-2d33-4275-9d0f-1f702d298f83",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 7,
+          "score": 0.26347988843917847,
+          "content_preview": "Cache Aside Pattern\n先删除缓存，再操作数据库\n先操作数据库，再删除缓存\n线程1\n1.删除缓存\n线程2\n2.查询缓存，\n未命中,\n查询数据库\n4.更新数据库\nv = 20\n3.写入缓存\n线程1\n1.查询缓存，\n未命中，\n查询数据库\n线程2\n2.更新数据库\nv = 20\n4. 写入缓存\n3.删除缓存\n缓存\n数据库\n10\n10\n20\n10\n\n## 幻灯片 42\n\n缓存更新策略的最佳实践方案：\n低一致性需求：使用Redis自带的内存淘汰机制\n高一致性需求：主动更新，并以超时剔除作为兜底方案\n读操作：\n缓存命中则直接返回\n缓存未命中则查询数据库，并写入缓存，设定超时时间\n写操作：\n先写数据库，然后再删除缓存\n要确保数据库与缓存操作的原子性\n\n## 幻灯片 43\n\n给查询商铺的缓存添加超时剔除和主动更新的策略\n修改ShopController中的业务逻辑，满足下面的需求：\n根据id查询店铺时，如果缓存未命中，则查询数据库，将数据库结果写入缓存，并设置超时时间\n根据id修改店铺时，先修改数据库，再删除缓存\n\n## 幻灯片 44\n\n什么是缓存\n添加Redis缓存\n缓存更新策略\n缓存穿透\n缓存雪崩\n缓存击穿\n缓存工具封装\n\n## 幻灯片 45\n\n缓存穿透是指客户端请求的数据在缓存中和数据库中都不存在，这样缓存永远不会生效，这些请求都会打到数据库。\n常见的解决方案有两种：\n缓存空对象\n优点：实现简单，维护方便\n缺点：\n额外的内存消耗\n可能造成短期的不一致\n布隆过滤\n优点：内存占用较少，没有多余key\n缺点：\n实现复杂\n存在误判可能\n缓存穿透\n客户端\n数据库\nRedis\n请求\n2.未命中\n请求\n1.未命中\n3.缓存null\n客户端\n数据库\nRedis\n客户端\n数据库\nRedis\n布隆过滤器\n请求\n拒绝\n1.不存在\n则拒绝\n放行\n2.存在，\n则放行\n返回\n3.缓存命中，\n则返回"
+        }
+      ],
+      "answer": "Redis 适合低延迟访问，主要依赖以下基础特征：\n1. 基于内存存储：数据存储在内存中，读写速度远快于磁盘，这是实现低延迟的关键。\n2. 单线程模型：每个命令具备原子性，避免了多线程上下文切换和竞争的开销，简化了设计并提高了性能。\n3. I/O 多路复用：使用高效的 I/O 模型处理多个客户端连接，减少了网络延迟。\n4. 良好的编码：优化了数据结构和算法，进一步提升了速度。\n这些特征共同使得 Redis 具有低延迟和高性能的特点。",
+      "citations": [
+        "KB1"
+      ],
+      "citation_audit": {
+        "citation_count": 1,
+        "valid_citation_count": 1,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 1.0,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 2293.9224038273096,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 1.0,
+        "expected_keyword_recall": 0.5,
+        "expected_keyword_hits": [
+          "内存"
+        ],
+        "matched_chunk_ids": [
+          "8823eb86-5a19-4f1f-8261-f670c4f224cf"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 7331.372652202845,
+      "judge_elapsed_ms": 7767.7398808300495,
+      "judge": {
+        "answer_faithfulness": 0.8,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.7,
+        "judge_explanation": "答案中的四个特征（基于内存存储、单线程模型、I/O多路复用、良好的编码）确实被证据支持，这些特征在[KB1]的幻灯片14中都有提及。因此，答案的事实性得到了较好的支持。答案直接回答了问题，解释了Redis为什么适合低延迟访问及其依赖的基础特征，相关性较高。引用标签[KB1]存在，并且支持了答案中的结论，但没有具体指出是哪一张幻灯片，因此引用的正确性可以更高。",
+        "raw_json": {
+          "answer_faithfulness": 0.8,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.7,
+          "explanation": "答案中的四个特征（基于内存存储、单线程模型、I/O多路复用、良好的编码）确实被证据支持，这些特征在[KB1]的幻灯片14中都有提及。因此，答案的事实性得到了较好的支持。答案直接回答了问题，解释了Redis为什么适合低延迟访问及其依赖的基础特征，相关性较高。引用标签[KB1]存在，并且支持了答案中的结论，但没有具体指出是哪一张幻灯片，因此引用的正确性可以更高。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 17393.797241151333
+    },
+    {
+      "case_id": "add002b5-4261-43a2-9eaf-1b35ec851f8e",
+      "query": "Redis 的通用命令有哪些典型用途？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "5b462b7d-5e37-438a-b9ae-b1032706a80f",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 6,
+          "score": 0.9741269946098328,
+          "content_preview": "Hash的常见命令有：\nHSET key field value：添加或者修改hash类型key的field的值\nHGET key field：获取一个hash类型key的field的值\nHMSET：批量添加多个hash类型key的field的值\nHMGET：批量获取多个hash类型key的field的值\nHGETALL：获取一个hash类型的key中的所有的field和value\nHKEYS：获取一个hash类型的key中的所有的field\nHVALS：获取一个hash类型的key中的所有的value\nHINCRBY:让一个hash类型key的字段值自增并指定步长\nHSETNX：添加一个hash类型的key的field值，前提是这个field不存在，否则不执行\nHash类型的常见命令\n\n## 幻灯片 32\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 33\n\nRedis中的List类型与Java中的LinkedList类似，可以看做是一个双向链表结构。既可以支持正向检索和也可以支持反向检索。\n特征也与LinkedList类似：\n有序\n元素可以重复\n插入和删除快\n查询速度一般\n常用来存储一个有序数据，例如：朋友圈点赞列表，评论列表等。\nList类型\n\n## 幻灯片 34\n\nList的常见命令有：\nLPUSH key  element ... ：向列表左侧插入一个或多个元素\nLPOP key：移除并返回列表左侧的第一个元素，没有则返回nil\nRPUSH key  element ... ：向列表右侧插入一个或多个元素\nRPOP key：移除并返回列表右侧的第一个元素\nLRANGE key star end：返回一段角标范围内的所有元素\nBLPOP和BRPOP：与LPOP和RPOP"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "29b099f9-6464-421a-9879-284d7f9cd79a",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 3,
+          "score": 0.9610952138900757,
+          "content_preview": "Redis是一个key-value的数据库，key一般是String类型，不过value的类型多种多样：\nRedis数据结构介绍\nhello world\nString\n{name: \"Jack\", age: 21}\nHash\n[A -> B -> C -> C]\nList\n{A, B, C}\nSet\n{A: 1, B: 2, C: 3}\nSortedSet\n{A:（120.3， 30.5）}\nGEO\n0110110101110101011\nBitMap\n0110110101110101011\nHyperLog\n基本类型\n特殊类型\n\n## 幻灯片 20\n\nRedis为了方便我们学习，将操作不同数据类型的命令也做了分组，在官网（ https://redis.io/commands ）可以查看到不同的命令：\nRedis数据结构介绍\n\n## 幻灯片 21\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 22\n\n通用指令是部分数据类型的，都可以使用的指令，常见的有：\nKEYS：查看符合模板的所有key\nDEL：删除一个指定的key\nEXISTS：判断key是否存在\nEXPIRE：给一个key设置有效期，有效期到期时该key会被自动删除\nTTL：查看一个KEY的剩余有效期\n通过help [command] 可以查看一个命令的具体用法，例如：\nRedis通用命令\n，不建议在生产环境设备上使用\n\n## 幻灯片 23\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 24"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "1cf64ee5-a2af-42bf-910b-cceb707dfd9b",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 9,
+          "score": 0.9128583669662476,
+          "content_preview": "SortedSet的常见命令有：\nZADD key score member：添加一个或多个元素到sorted set ，如果已经存在则更新其score值\nZREM key member：删除sorted set中的一个指定元素\nZSCORE key member : 获取sorted set中的指定元素的score值\nZRANK key member：获取sorted set 中的指定元素的排名\nZCARD key：获取sorted set中的元素个数\nZCOUNT key min max：统计score值在给定范围内的所有元素的个数\nZINCRBY key increment member：让sorted set中的指定元素自增，步长为指定的increment值\nZRANGE key min max：按照score排序后，获取指定排名范围内的元素\nZRANGEBYSCORE key min max：按照score排序后，获取指定score范围内的元素\nZDIFF、ZINTER、ZUNION：求差集、交集、并集\n注意：所有的排名默认都是升序，如果要降序则在命令的Z后面添加REV即可\nSortedSet类型的常见命令\n\n## 幻灯片 44\n\nSortedSet命令练习\n将班级的下列学生得分存入Redis的SortedSet中：\nJack 85, Lucy 89, Rose 82, Tom 95, Jerry 78, Amy 92, Miles 76\n并实现下列功能：\n删除Tom同学\n获取Amy同学的分数\n获取Rose同学的排名\n查询80分以下有几个学生\n给Amy同学加2分\n查出成绩前3名的同学\n查出成绩80分以下的所有同学\n\n## 幻灯片 45\n\nRedis的Java客户端\n03\n\n## 幻灯片 46\n\nRedis的Java客户端\n在Redis官网中提供了各种语言的客户端，"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "341e98ad-9230-4a4c-9845-f386f65e1a84",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 4,
+          "score": 0.8953820466995239,
+          "content_preview": "String类型，也就是字符串类型，是Redis中最简单的存储类型。\n其value是字符串，不过根据字符串的格式不同，又可以分为3类：\nstring：普通字符串\nint：整数类型，可以做自增、自减操作\nfloat：浮点类型，可以做自增、自减操作\n不管是哪种格式，底层都是字节数组形式存储，只不过是编码方式不同。字符串类型的最大空间不能超过512m.\nString类型\nKEY\nVALUE\nmsg\nhello world\nnum\n10\nscore\n92.5\n\n## 幻灯片 25\n\nString的常见命令有：\nSET：添加或者修改已经存在的一个String类型的键值对\nGET：根据key获取String类型的value\nMSET：批量添加多个String类型的键值对\nMGET：根据多个key获取多个String类型的value\nINCR：让一个整型的key自增1\nINCRBY:让一个整型的key自增并指定步长，例如：incrby num 2 让num值自增2\nINCRBYFLOAT：让一个浮点类型的数字自增并指定步长\nSETNX：添加一个String类型的键值对，前提是这个key不存在，否则不执行\nSETEX：添加一个String类型的键值对，并且指定有效期\nString类型的常见命令\n\n## 幻灯片 26\n\nRedis没有类似MySQL中的Table的概念，我们该如何区分不同类型的key呢？\n例如，需要存储用户、商品信息到redis，有一个用户id是1，有一个商品id恰好也是1\n\n## 幻灯片 27"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "5fe0d48a-12f1-4f6b-b565-98ea4ff55e4b",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 7,
+          "score": 0.8806068301200867,
+          "content_preview": "如何利用List结构模拟一个栈?\n入口和出口在同一边\n如何利用List结构模拟一个队列?\n入口和出口在不同边\n如何利用List结构模拟一个阻塞队列?\n入口和出口在不同边\n出队时采用BLPOP或BRPOP\n\n## 幻灯片 36\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 37\n\nRedis的Set结构与Java中的HashSet类似，可以看做是一个value为null的HashMap。因为也是一个hash表，因此具备与HashSet类似的特征：\n无序\n元素不可重复\n查找快\n支持交集、并集、差集等功能\nSet类型\n\n## 幻灯片 38\n\nString的常见命令有：\nSADD key member ... ：向set中添加一个或多个元素\nSREM key member ... : 移除set中的指定元素\nSCARD key： 返回set中元素的个数\nSISMEMBER key member：判断一个元素是否存在于set中\nSMEMBERS：获取set中的所有元素\nSINTER key1 key2 ... ：求key1与key2的交集\nSet类型的常见命令\nS1\nS2\nA\nB\nC\nB\nC\nD\n\n## 幻灯片 39\n\nString的常见命令有：\nSADD key member ... ：向set中添加一个或多个元素\nSREM key member ... : 移除set中的指定元素\nSCARD key： 返回set中元素的个数\nSISMEMBER key member：判断一个元素是否存在于set中\nSMEMBERS：获取set中的所有元素\nSINTER key1 key2 ... ：求key1与key2的交集\nSet类型的常见命令\nS1\nS2\nA\nB\nC\nD\nINTER\ns1 DIF"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "ad610c2d-1ac5-4229-98a7-48d09b743ae0",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 8,
+          "score": 0.8499389886856079,
+          "content_preview": "Set命令的练习\n将下列数据用Redis的Set集合来存储：\n张三的好友有：李四、王五、赵六\n李四的好友有：王五、麻子、二狗\n利用Set的命令实现下列功能：\n计算张三的好友有几人\n计算张三和李四有哪些共同好友\n查询哪些人是张三的好友却不是李四的好友\n查询张三和李四的好友总共有哪些人\n判断李四是否是张三的好友\n判断张三是否是李四的好友\n将李四从张三的好友列表中移除\n\n## 幻灯片 41\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 42\n\nRedis的SortedSet是一个可排序的set集合，与Java中的TreeSet有些类似，但底层数据结构却差别很大。SortedSet中的每一个元素都带有一个score属性，可以基于score属性对元素排序，底层的实现是一个跳表（SkipList）加 hash表。\nSortedSet具备下列特性：\n可排序\n元素不重复\n查询速度快\n因为SortedSet的可排序特性，经常被用来实现排行榜这样的功能。\nSortedSet类型\n\n## 幻灯片 43"
+        }
+      ],
+      "answer": "根据证据，Redis的通用命令是部分数据类型都可以使用的指令。其典型用途包括：查看符合模板的所有key（KEYS）、删除指定的key（DEL）、判断key是否存在（EXISTS）、给key设置有效期（EXPIRE）以及查看key的剩余有效期（TTL）。这些命令适用于多种数据类型，用于进行基本的键管理操作。",
+      "citations": [
+        "KB2"
+      ],
+      "citation_audit": {
+        "citation_count": 1,
+        "valid_citation_count": 1,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 1.0,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB2"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 2173.8194953650236,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.5,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 0.6309297535714575,
+        "expected_keyword_recall": 0.5,
+        "expected_keyword_hits": [
+          "EXISTS"
+        ],
+        "matched_chunk_ids": [
+          "29b099f9-6464-421a-9879-284d7f9cd79a"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 9289.984690025449,
+      "judge_elapsed_ms": 4344.841377809644,
+      "judge": {
+        "answer_faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 1.0,
+        "judge_explanation": "答案中的通用命令及其用途与证据中的描述完全一致，且答案直接回答了问题。引用的标签[KB2]确实存在，并且支持了答案中的结论。",
+        "raw_json": {
+          "answer_faithfulness": 1.0,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 1.0,
+          "explanation": "答案中的通用命令及其用途与证据中的描述完全一致，且答案直接回答了问题。引用的标签[KB2]确实存在，并且支持了答案中的结论。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 15809.401240199804
+    },
+    {
+      "case_id": "c22de06f-bd7a-42bb-bdb3-ccd03c5c7499",
+      "query": "Redis String 类型支持哪些常见操作？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "341e98ad-9230-4a4c-9845-f386f65e1a84",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 4,
+          "score": 0.9806327223777771,
+          "content_preview": "String类型，也就是字符串类型，是Redis中最简单的存储类型。\n其value是字符串，不过根据字符串的格式不同，又可以分为3类：\nstring：普通字符串\nint：整数类型，可以做自增、自减操作\nfloat：浮点类型，可以做自增、自减操作\n不管是哪种格式，底层都是字节数组形式存储，只不过是编码方式不同。字符串类型的最大空间不能超过512m.\nString类型\nKEY\nVALUE\nmsg\nhello world\nnum\n10\nscore\n92.5\n\n## 幻灯片 25\n\nString的常见命令有：\nSET：添加或者修改已经存在的一个String类型的键值对\nGET：根据key获取String类型的value\nMSET：批量添加多个String类型的键值对\nMGET：根据多个key获取多个String类型的value\nINCR：让一个整型的key自增1\nINCRBY:让一个整型的key自增并指定步长，例如：incrby num 2 让num值自增2\nINCRBYFLOAT：让一个浮点类型的数字自增并指定步长\nSETNX：添加一个String类型的键值对，前提是这个key不存在，否则不执行\nSETEX：添加一个String类型的键值对，并且指定有效期\nString类型的常见命令\n\n## 幻灯片 26\n\nRedis没有类似MySQL中的Table的概念，我们该如何区分不同类型的key呢？\n例如，需要存储用户、商品信息到redis，有一个用户id是1，有一个商品id恰好也是1\n\n## 幻灯片 27"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "29b099f9-6464-421a-9879-284d7f9cd79a",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 3,
+          "score": 0.9065224528312683,
+          "content_preview": "Redis是一个key-value的数据库，key一般是String类型，不过value的类型多种多样：\nRedis数据结构介绍\nhello world\nString\n{name: \"Jack\", age: 21}\nHash\n[A -> B -> C -> C]\nList\n{A, B, C}\nSet\n{A: 1, B: 2, C: 3}\nSortedSet\n{A:（120.3， 30.5）}\nGEO\n0110110101110101011\nBitMap\n0110110101110101011\nHyperLog\n基本类型\n特殊类型\n\n## 幻灯片 20\n\nRedis为了方便我们学习，将操作不同数据类型的命令也做了分组，在官网（ https://redis.io/commands ）可以查看到不同的命令：\nRedis数据结构介绍\n\n## 幻灯片 21\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 22\n\n通用指令是部分数据类型的，都可以使用的指令，常见的有：\nKEYS：查看符合模板的所有key\nDEL：删除一个指定的key\nEXISTS：判断key是否存在\nEXPIRE：给一个key设置有效期，有效期到期时该key会被自动删除\nTTL：查看一个KEY的剩余有效期\n通过help [command] 可以查看一个命令的具体用法，例如：\nRedis通用命令\n，不建议在生产环境设备上使用\n\n## 幻灯片 23\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 24"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "5fe0d48a-12f1-4f6b-b565-98ea4ff55e4b",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 7,
+          "score": 0.8517796397209167,
+          "content_preview": "如何利用List结构模拟一个栈?\n入口和出口在同一边\n如何利用List结构模拟一个队列?\n入口和出口在不同边\n如何利用List结构模拟一个阻塞队列?\n入口和出口在不同边\n出队时采用BLPOP或BRPOP\n\n## 幻灯片 36\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 37\n\nRedis的Set结构与Java中的HashSet类似，可以看做是一个value为null的HashMap。因为也是一个hash表，因此具备与HashSet类似的特征：\n无序\n元素不可重复\n查找快\n支持交集、并集、差集等功能\nSet类型\n\n## 幻灯片 38\n\nString的常见命令有：\nSADD key member ... ：向set中添加一个或多个元素\nSREM key member ... : 移除set中的指定元素\nSCARD key： 返回set中元素的个数\nSISMEMBER key member：判断一个元素是否存在于set中\nSMEMBERS：获取set中的所有元素\nSINTER key1 key2 ... ：求key1与key2的交集\nSet类型的常见命令\nS1\nS2\nA\nB\nC\nB\nC\nD\n\n## 幻灯片 39\n\nString的常见命令有：\nSADD key member ... ：向set中添加一个或多个元素\nSREM key member ... : 移除set中的指定元素\nSCARD key： 返回set中元素的个数\nSISMEMBER key member：判断一个元素是否存在于set中\nSMEMBERS：获取set中的所有元素\nSINTER key1 key2 ... ：求key1与key2的交集\nSet类型的常见命令\nS1\nS2\nA\nB\nC\nD\nINTER\ns1 DIF"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "47b1dc64-f3b3-4afb-82b3-be53ef357c54",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 13,
+          "score": 0.8386443257331848,
+          "content_preview": "SpringData是Spring中数据操作的模块，包含对各种数据库的集成，其中对Redis的集成模块就叫做SpringDataRedis，官网地址：https://spring.io/projects/spring-data-redis\n提供了对不同Redis客户端的整合（Lettuce和Jedis）\n提供了RedisTemplate统一API来操作Redis\n支持Redis的发布订阅模型\n支持Redis哨兵和Redis集群\n支持基于Lettuce的响应式编程\n支持基于JDK、JSON、字符串、Spring对象的数据序列化及反序列化\n支持基于Redis的JDKCollection实现\nSpringDataRedis\n\n## 幻灯片 56\n\nSpringDataRedis快速入门\nSpringDataRedis中提供了RedisTemplate工具类，其中封装了各种对Redis的操作。并且将不同数据类型的操作API封装到了不同的类型中：\nAPI\n返回值类型\n说明\nredisTemplate.opsForValue()\nValueOperations\n操作String类型数据\nredisTemplate.opsForHash()\nHashOperations\n操作Hash类型数据\nredisTemplate.opsForList()\nListOperations\n操作List类型数据\nredisTemplate.opsForSet()\nSetOperations\n操作Set类型数据\nredisTemplate.opsForZSet()\nZSetOperations\n操作SortedSet类型数据\nredisTemplate\n通用的命令\n\n## 幻灯片 57"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "5b462b7d-5e37-438a-b9ae-b1032706a80f",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 6,
+          "score": 0.8152729868888855,
+          "content_preview": "Hash的常见命令有：\nHSET key field value：添加或者修改hash类型key的field的值\nHGET key field：获取一个hash类型key的field的值\nHMSET：批量添加多个hash类型key的field的值\nHMGET：批量获取多个hash类型key的field的值\nHGETALL：获取一个hash类型的key中的所有的field和value\nHKEYS：获取一个hash类型的key中的所有的field\nHVALS：获取一个hash类型的key中的所有的value\nHINCRBY:让一个hash类型key的字段值自增并指定步长\nHSETNX：添加一个hash类型的key的field值，前提是这个field不存在，否则不执行\nHash类型的常见命令\n\n## 幻灯片 32\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 33\n\nRedis中的List类型与Java中的LinkedList类似，可以看做是一个双向链表结构。既可以支持正向检索和也可以支持反向检索。\n特征也与LinkedList类似：\n有序\n元素可以重复\n插入和删除快\n查询速度一般\n常用来存储一个有序数据，例如：朋友圈点赞列表，评论列表等。\nList类型\n\n## 幻灯片 34\n\nList的常见命令有：\nLPUSH key  element ... ：向列表左侧插入一个或多个元素\nLPOP key：移除并返回列表左侧的第一个元素，没有则返回nil\nRPUSH key  element ... ：向列表右侧插入一个或多个元素\nRPOP key：移除并返回列表右侧的第一个元素\nLRANGE key star end：返回一段角标范围内的所有元素\nBLPOP和BRPOP：与LPOP和RPOP"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "a4ebb83a-c87a-4607-8d30-1a69d3c78ebb",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 5,
+          "score": 0.7645671963691711,
+          "content_preview": "Redis的key允许有多个单词形成层级结构，多个单词之间用':'隔开，格式如下：\n这个格式并非固定，也可以根据自己的需求来删除或添加词条。\n例如我们的项目名称叫 heima，有user和product两种不同类型的数据，我们可以这样定义key：\nuser相关的key：heima:user:1\nproduct相关的key：heima:product:1\n如果Value是一个Java对象，例如一个User对象，则可以将对象序列化为JSON字符串后存储：\nkey的结构\n项目名:业务名:类型:id\nKEY\nVALUE\nheima:user:1\n{\"id\":1, \"name\": \"Jack\", \"age\": 21}\nheima:product:1\n{\"id\":1, \"name\": \"小米11\", \"price\": 4999}\n\n## 幻灯片 28\n\nString类型的三种格式：\n字符串\nint\nfloat\nRedis的key的格式：\n[项目名]:[业务名]:[类型]:[id]\n\n## 幻灯片 29\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 30\n\nHash类型，也叫散列，其value是一个无序字典，类似于Java中的HashMap结构。\nString结构是将对象序列化为JSON字符串后存储，当需要修改对象某个字段时很不方便：\nHash结构可以将对象中的每个字段独立存储，可以针对单个字段做CRUD：\nHash类型\nKEY\nVALUE\nheima:user:1\n{name:\"Jack\", age:21}\nheima:user:2\n{name:\"Rose\", age:18}\nKEY\nVALUE\nfield\nvalue\nheima:user:1\nname\nJack\nage\n21\nheima"
+        }
+      ],
+      "answer": "根据证据，Redis String 类型支持以下常见操作：SET（添加或修改键值对）、GET（根据 key 获取 value）、MSET（批量添加多个键值对）、MGET（根据多个 key 获取多个 value）、INCR（整型 key 自增 1）、INCRBY（整型 key 自增指定步长）、INCRBYFLOAT（浮点类型数字自增指定步长）、SETNX（key 不存在时添加键值对）、SETEX（添加键值对并指定有效期）。这些操作适用于字符串、整数和浮点数格式的 String 类型值。",
+      "citations": [
+        "KB1"
+      ],
+      "citation_audit": {
+        "citation_count": 1,
+        "valid_citation_count": 1,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 1.0,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 2224.0817081183195,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 1.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "GET",
+          "自增"
+        ],
+        "matched_chunk_ids": [
+          "341e98ad-9230-4a4c-9845-f386f65e1a84"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 10121.39075435698,
+      "judge_elapsed_ms": 4640.960900112987,
+      "judge": {
+        "answer_faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 1.0,
+        "judge_explanation": "答案中列出的Redis String类型的操作命令完全符合KB1中提供的信息。答案直接回答了问题，且引用了正确的证据KB1来支持答案中的结论。",
+        "raw_json": {
+          "answer_faithfulness": 1.0,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 1.0,
+          "explanation": "答案中列出的Redis String类型的操作命令完全符合KB1中提供的信息。答案直接回答了问题，且引用了正确的证据KB1来支持答案中的结论。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 16987.008914351463
+    },
+    {
+      "case_id": "2afd00e3-98c3-478f-a5f1-86daa9bb7b4f",
+      "query": "Redis Hash 适合怎样存储字段型数据？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "59bbbde6-6e1f-4bfe-a2a9-fd5bb7476380",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 4,
+          "score": 0.8345239162445068,
+          "content_preview": "基于Redis实现共享session登录\n保存登录的用户信息，可以使用String结构，以JSON字符串来保存，比较直观：\nHash结构可以将对象中的每个字段独立存储，可以针对单个字段做CRUD，并且内存占用更少：\nKEY\nVALUE\nheima:user:1\n{name:\"Jack\", age:21}\nheima:user:2\n{name:\"Rose\", age:18}\nKEY\nVALUE\nfield\nvalue\nheima:user:1\nname\nJack\nage\n21\nheima:user:2\nname\nRose\nage\n18\n\n## 幻灯片 24\n\nRedis代替session需要考虑的问题：\n选择合适的数据结构\n选择合适的key\n选择合适的存储粒度\n\n## 幻灯片 25\n\n登录拦截器的优化\n黑马点评服务\nOrderController\nUserController\nXxxController\n拦截器\n拦截：\n需要登录的路径\n获取token\n查询Redis的用户\n不存在，则拦截\n存在，则继续\n保存到ThreadLocal\n刷新token有效期\n放行\n\n## 幻灯片 26\n\n登录拦截器的优化\n黑马点评服务\nOrderController\nUserController\nXxxController\n拦截器\n拦截：\n需要登录的路径\n不存在，则拦截\n存在，则继续\n拦截器\n拦截：\n一切路径\n获取token\n查询Redis的用户\n保存到ThreadLocal\n刷新token有效期\n放行\n查询ThreadLocal\n的用户：\n\n## 幻灯片 27\n\n商户查询缓存\n02\n\n## 幻灯片 28\n\n什么是缓存\n添加Redis缓存\n缓存更新策略\n缓存穿透\n缓存雪崩\n缓存击穿\n缓存工具封装\n\n## 幻灯片 29\n\n缓存就是数据交换的缓冲区（称作Cache [ kæʃ ] ），是存贮数据的临时"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "a4ebb83a-c87a-4607-8d30-1a69d3c78ebb",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 5,
+          "score": 0.8320911526679993,
+          "content_preview": "Redis的key允许有多个单词形成层级结构，多个单词之间用':'隔开，格式如下：\n这个格式并非固定，也可以根据自己的需求来删除或添加词条。\n例如我们的项目名称叫 heima，有user和product两种不同类型的数据，我们可以这样定义key：\nuser相关的key：heima:user:1\nproduct相关的key：heima:product:1\n如果Value是一个Java对象，例如一个User对象，则可以将对象序列化为JSON字符串后存储：\nkey的结构\n项目名:业务名:类型:id\nKEY\nVALUE\nheima:user:1\n{\"id\":1, \"name\": \"Jack\", \"age\": 21}\nheima:product:1\n{\"id\":1, \"name\": \"小米11\", \"price\": 4999}\n\n## 幻灯片 28\n\nString类型的三种格式：\n字符串\nint\nfloat\nRedis的key的格式：\n[项目名]:[业务名]:[类型]:[id]\n\n## 幻灯片 29\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 30\n\nHash类型，也叫散列，其value是一个无序字典，类似于Java中的HashMap结构。\nString结构是将对象序列化为JSON字符串后存储，当需要修改对象某个字段时很不方便：\nHash结构可以将对象中的每个字段独立存储，可以针对单个字段做CRUD：\nHash类型\nKEY\nVALUE\nheima:user:1\n{name:\"Jack\", age:21}\nheima:user:2\n{name:\"Rose\", age:18}\nKEY\nVALUE\nfield\nvalue\nheima:user:1\nname\nJack\nage\n21\nheima"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "5b462b7d-5e37-438a-b9ae-b1032706a80f",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 6,
+          "score": 0.8293426632881165,
+          "content_preview": "Hash的常见命令有：\nHSET key field value：添加或者修改hash类型key的field的值\nHGET key field：获取一个hash类型key的field的值\nHMSET：批量添加多个hash类型key的field的值\nHMGET：批量获取多个hash类型key的field的值\nHGETALL：获取一个hash类型的key中的所有的field和value\nHKEYS：获取一个hash类型的key中的所有的field\nHVALS：获取一个hash类型的key中的所有的value\nHINCRBY:让一个hash类型key的字段值自增并指定步长\nHSETNX：添加一个hash类型的key的field值，前提是这个field不存在，否则不执行\nHash类型的常见命令\n\n## 幻灯片 32\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 33\n\nRedis中的List类型与Java中的LinkedList类似，可以看做是一个双向链表结构。既可以支持正向检索和也可以支持反向检索。\n特征也与LinkedList类似：\n有序\n元素可以重复\n插入和删除快\n查询速度一般\n常用来存储一个有序数据，例如：朋友圈点赞列表，评论列表等。\nList类型\n\n## 幻灯片 34\n\nList的常见命令有：\nLPUSH key  element ... ：向列表左侧插入一个或多个元素\nLPOP key：移除并返回列表左侧的第一个元素，没有则返回nil\nRPUSH key  element ... ：向列表右侧插入一个或多个元素\nRPOP key：移除并返回列表右侧的第一个元素\nLRANGE key star end：返回一段角标范围内的所有元素\nBLPOP和BRPOP：与LPOP和RPOP"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "341e98ad-9230-4a4c-9845-f386f65e1a84",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 4,
+          "score": 0.5522102117538452,
+          "content_preview": "String类型，也就是字符串类型，是Redis中最简单的存储类型。\n其value是字符串，不过根据字符串的格式不同，又可以分为3类：\nstring：普通字符串\nint：整数类型，可以做自增、自减操作\nfloat：浮点类型，可以做自增、自减操作\n不管是哪种格式，底层都是字节数组形式存储，只不过是编码方式不同。字符串类型的最大空间不能超过512m.\nString类型\nKEY\nVALUE\nmsg\nhello world\nnum\n10\nscore\n92.5\n\n## 幻灯片 25\n\nString的常见命令有：\nSET：添加或者修改已经存在的一个String类型的键值对\nGET：根据key获取String类型的value\nMSET：批量添加多个String类型的键值对\nMGET：根据多个key获取多个String类型的value\nINCR：让一个整型的key自增1\nINCRBY:让一个整型的key自增并指定步长，例如：incrby num 2 让num值自增2\nINCRBYFLOAT：让一个浮点类型的数字自增并指定步长\nSETNX：添加一个String类型的键值对，前提是这个key不存在，否则不执行\nSETEX：添加一个String类型的键值对，并且指定有效期\nString类型的常见命令\n\n## 幻灯片 26\n\nRedis没有类似MySQL中的Table的概念，我们该如何区分不同类型的key呢？\n例如，需要存储用户、商品信息到redis，有一个用户id是1，有一个商品id恰好也是1\n\n## 幻灯片 27"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "8823eb86-5a19-4f1f-8261-f670c4f224cf",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 2,
+          "score": 0.29624149203300476,
+          "content_preview": "数据结构\n数据关联\n查询方式\n事务特性\n存储方式\n磁盘\n内存\n扩展性\n垂直\n水平\n使用场景\n认识NoSQL\nSQL\nNoSQL\n结构化(Structured)\n关联的(Relational)\n非结构化\n无关联的\nSQL查询\n非SQL\nACID\nBASE\n#1 键值类型（Redis）\n#2 文档类型（MongoDB）\n#3 列类型（HBase）\n#4 Graph类型（Neo4j）\n1）数据结构固定\n2）相关业务对数据安全性、一致性要求较高\n1）数据结构不固定\n2）对一致性、安全性要求不高\n3）对性能要求\n\n## 幻灯片 13\n\n认识NoSQL\n认识Redis\n安装Redis\n\n## 幻灯片 14\n\nRedis诞生于2009年全称是Remote Dictionary Server，远程词典服务器，是一个基于内存的键值型NoSQL数据库。\n特征：\n键值（key-value）型，value支持多种不同数据结构，功能丰富\n单线程，每个命令具备原子性\n低延迟，速度快（基于内存、IO多路复用、良好的编码）。\n支持数据持久化\n支持主从集群、分片集群\n支持多语言客户端\n认识Redis\nSALVATORE SANFILIPPO\nAKA ANTIREZ\n\n## 幻灯片 15\n\n认识NoSQL\n认识Redis\n安装Redis\n\n## 幻灯片 16\n\n参考课前资料《Redis安装说明》\n安装Redis\n\n## 幻灯片 17\n\nRedis常见命令\n02\n\n## 幻灯片 18\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 19"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "29b099f9-6464-421a-9879-284d7f9cd79a",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 3,
+          "score": 0.294213205575943,
+          "content_preview": "Redis是一个key-value的数据库，key一般是String类型，不过value的类型多种多样：\nRedis数据结构介绍\nhello world\nString\n{name: \"Jack\", age: 21}\nHash\n[A -> B -> C -> C]\nList\n{A, B, C}\nSet\n{A: 1, B: 2, C: 3}\nSortedSet\n{A:（120.3， 30.5）}\nGEO\n0110110101110101011\nBitMap\n0110110101110101011\nHyperLog\n基本类型\n特殊类型\n\n## 幻灯片 20\n\nRedis为了方便我们学习，将操作不同数据类型的命令也做了分组，在官网（ https://redis.io/commands ）可以查看到不同的命令：\nRedis数据结构介绍\n\n## 幻灯片 21\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 22\n\n通用指令是部分数据类型的，都可以使用的指令，常见的有：\nKEYS：查看符合模板的所有key\nDEL：删除一个指定的key\nEXISTS：判断key是否存在\nEXPIRE：给一个key设置有效期，有效期到期时该key会被自动删除\nTTL：查看一个KEY的剩余有效期\n通过help [command] 可以查看一个命令的具体用法，例如：\nRedis通用命令\n，不建议在生产环境设备上使用\n\n## 幻灯片 23\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 24"
+        }
+      ],
+      "answer": "Redis Hash 适合存储需要独立访问或修改字段的对象型数据，例如用户信息等。与将整个对象序列化为 JSON 字符串存储相比，Hash 结构允许对单个字段进行 CRUD 操作，且内存占用更少[KB1]。具体来说，Hash 类型的 value 是一个无序字典，可以将对象中的每个字段作为独立的 field-value 对存储，从而方便针对特定字段进行读写或更新，而无需操作整个对象[KB2]。",
+      "citations": [
+        "KB1",
+        "KB2"
+      ],
+      "citation_audit": {
+        "citation_count": 2,
+        "valid_citation_count": 2,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 0,
+        "ground_truth_citation_precision": 0.0,
+        "ground_truth_citation_recall": 0.0,
+        "invalid_citations": [],
+        "target_citation_labels": []
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1391.1581002175808,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.3333333333333333,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 0.5,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "field",
+          "HGET"
+        ],
+        "matched_chunk_ids": [
+          "5b462b7d-5e37-438a-b9ae-b1032706a80f"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 6477.100627496839,
+      "judge_elapsed_ms": 10598.731840029359,
+      "judge": {
+        "answer_faithfulness": 0.85,
+        "answer_relevancy": 0.95,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案中的大部分内容被证据支持，例如Redis Hash适合存储需要独立访问或修改字段的对象型数据，以及与JSON字符串相比，Hash结构允许对单个字段进行CRUD操作且内存占用更少。然而，关于内存占用更少的断言在证据中没有具体的数据支持，因此忠实度略打折扣。答案直接回答了问题，指出了Redis Hash适合存储字段型数据的场景。引用标签[KB1]和[KB2]在证据中真实存在且支持对应结论，但[KB3]和[KB4]虽然存在，但与答案内容无关，因此引用正确性略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.85,
+          "answer_relevancy": 0.95,
+          "citation_correctness": 0.9,
+          "explanation": "答案中的大部分内容被证据支持，例如Redis Hash适合存储需要独立访问或修改字段的对象型数据，以及与JSON字符串相比，Hash结构允许对单个字段进行CRUD操作且内存占用更少。然而，关于内存占用更少的断言在证据中没有具体的数据支持，因此忠实度略打折扣。答案直接回答了问题，指出了Redis Hash适合存储字段型数据的场景。引用标签[KB1]和[KB2]在证据中真实存在且支持对应结论，但[KB3]和[KB4]虽然存在，但与答案内容无关，因此引用正确性略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 18467.67983213067
+    },
+    {
+      "case_id": "adcb9eb1-d161-4e2a-a8e3-528680a45b99",
+      "query": "Redis 分布式锁为什么要同时设置 NX 和 EX？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 22,
+          "score": 0.9783071279525757,
+          "content_preview": "基于Redis的分布式锁实现思路：\n利用set nx ex获取锁，并设置过期时间，保存线程标示\n释放锁时先判断线程标示是否与自己一致，一致则删除锁\n特性：\n利用set nx满足互斥性\n利用set ex保证故障时锁依然能释放，避免死锁，提高安全性\n利用Redis集群保证高可用和高并发特性\n\n## 幻灯片 105\n\n基于Redis的分布式锁优化\n基于setnx实现的分布式锁存在下面的问题：\n不可重入\n同一个线程无法多次获取同一把锁\n01\n不可重试\n获取锁只尝试一次就返回false，没有重试机制\n02\n超时释放\n锁超时释放虽然可以避免死锁，但如果是业务执行耗时较长，也会导致锁释放，存在安全隐患\n03\n主从一致性\n如果Redis提供了主从集群，主从同步存在延迟，当主宕机时，如果从并同步主中的锁数据，则会出现锁实现\n04\n\n## 幻灯片 106\n\nRedisson\nRedisson是一个在Redis的基础上实现的Java驻内存数据网格（In-Memory Data Grid）。它不仅提供了一系列的分布式的Java常用对象，还提供了许多分布式服务，其中就包含了各种分布式锁的实现。\n官网地址： https://redisson.org\nGitHub地址： https://github.com/redisson/redisson\n\n## 幻灯片 107"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "1d571761-90ce-460f-87a3-f7e7397a11aa",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 30,
+          "score": 0.9059856534004211,
+          "content_preview": "Redisson分布式锁主从一致性问题\nRedis Node\nRedis Node\nRedis Node\nJava应用\n2.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\nlock = thread1\nlock = thread1\n1.获取锁\nSET lock thread1 NX EX 10\n3.获取锁\nSET lock thread1 NX EX 10\nRedis Master\n主从同步\nRedis Slave\n主从同步\nRedis Slave\n主从同步\n\n## 幻灯片 119\n\n1）不可重入Redis分布式锁：\n原理：利用setnx的互斥性；利用ex避免死锁；释放锁时判断线程标示\n缺陷：不可重入、无法重试、锁超时失效\n2）可重入的Redis分布式锁：\n原理：利用hash结构，记录线程标示和重入次数；利用watchDog延续锁时间；利用信号量控制锁重试等待\n缺陷：redis宕机引起锁失效问题\n3）Redisson的multiLock：\n原理：多个独立的Redis节点，必须在所有节点都获取重入锁，才算获取锁成功\n缺陷：运维成本高、实现复杂\n\n## 幻灯片 120\n\n实现优惠券秒杀下单\n超卖问题\n一人一单\n分布式锁\nRedis优化秒杀\nRedis消息队列实现异步秒杀\n全局ID生成器\n\n## 幻灯片 121\n\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTomcat\n\n## 幻灯片 122\n\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTomcat\n\n## 幻灯片 123\n\n校验\n一人一单\n判断秒杀库存\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTo"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "689d9fe6-722e-4f91-bd8a-bb3ca187bcbc",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 18,
+          "score": 0.8383454084396362,
+          "content_preview": "分布式锁\n线程3\n线程4\nJVM2\n线程1\n1.查询订单\n线程2\n2.判断是否存在\n是：报错\n否：插入新订单\n0.获取互斥\n锁成功\n3.释放锁\n0.获取互斥\n锁失败\n等待锁释放\nJVM1\n锁监视器\n0.获取互斥\n锁失败\n等待锁释放\n线程1\n1.查询订单\n2.判断是否存在\n是：报错\n否：插入新订单\n0.获取互斥\n锁成功\n0.获取互斥\n锁失败\n等待锁释放\n\n## 幻灯片 90\n\n分布式锁：满足分布式系统或集群模式下多进程可见并且互斥的锁。\n什么是分布式锁\n互斥\n...\n多进程可见\n安全性\n高可用\n高性能\n分布式锁\n\n## 幻灯片 91\n\nMySQL\nRedis\nZookeeper\n分布式锁的核心是实现多进程之间互斥，而满足这一点的方式有很多，常见的有三种：\n分布式锁的实现\n安全性\n高性能\n互斥\n高可用\n利用mysql本身的互斥锁机制\n利用setnx这样的互斥命令\n利用节点的唯一性和有序性实现互斥\n好\n好\n好\n一般\n好\n一般\n断开连接，自动释放锁\n利用锁超时时间，到期释放\n临时节点，断开连接自动释放\n\n## 幻灯片 92\n\n基于Redis的分布式锁\n实现分布式锁时需要实现的两个基本方法：\n获取锁：\n互斥：确保只能有一个线程获取锁\n非阻塞：尝试一次，成功返回true，失败返回false\n释放锁：\n手动释放\n超时释放\n：获取锁时添加一个超时时间\n# 添加锁，NX是互斥、EX是设置超时时间\nSET lock thread1 NX EX 10\n# 释放锁，删除即可\nDEL key\n开始\n尝试获取锁\n判断结果\nnil\nok\n获取锁成功\n执行业务\n释放锁\n获取锁失败\n业务超时\n或服务宕机\n自动\n释放锁\n# 添加锁，利用setnx的互斥特性\nSETNX lock thread1\n# 添加锁过期时间，避免服务宕机引起的死锁\nEXPIRE lock 10\n\n## 幻灯片 93"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "e65889d8-f68a-492b-8da3-bc72819d3dcc",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 29,
+          "score": 0.8315922617912292,
+          "content_preview": "Redisson分布式锁原理：\n可重入：利用hash结构记录线程id和重入次数\n可重试：利用信号量和PubSub功能实现等待、唤醒，获取锁失败的重试机制\n超时续约：利用watchDog，每隔一段时间（releaseTime / 3），重置超时时间\n\n## 幻灯片 115\n\nRedisson分布式锁主从一致性问题\nRedis Master\nRedis Slave\nRedis Slave\nJava应用\n1.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\n主从同步\n主从同步\n\n## 幻灯片 116\n\nRedisson分布式锁主从一致性问题\nRedis Master\nRedis Slave\nRedis Master\nJava应用\n1.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\n主从同步\n锁失效\n\n## 幻灯片 117\n\nRedis Slave\nRedis Slave\nRedis Slave\nRedisson分布式锁主从一致性问题\nRedis Node\nRedis Node\nRedis Node\nJava应用\n2.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\nlock = thread1\nlock = thread1\n1.获取锁\nSET lock thread1 NX EX 10\n3.获取锁\nSET lock thread1 NX EX 10\nRedis Slave\n主从同步\nRedis Slave\n主从同步\nRedis Slave\n主从同步\n\n## 幻灯片 118"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "4eddc606-b34b-4275-b13d-b8b10cf8a8d2",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 19,
+          "score": 0.2516595125198364,
+          "content_preview": "基于Redis实现分布式锁初级版本\n需求：定义一个类，实现下面接口，利用Redis实现分布式锁功能。\npublic interface ILock {    /**     * 尝试获取锁      * @param timeoutSec 锁持有的超时时间，过期后自动释放     * @return true代表获取锁成功; false代表获取锁失败     */    boolean tryLock(long timeoutSec);    /**     * 释放锁     */    void unlock();}\n\n## 幻灯片 94\n\n基于Redis的分布式锁\nRedis锁\n线程1\n线程2\n线程3\n获取锁\n业务阻塞\n超时释放锁\n获取锁\nOK\nOK\n执行业务\n释放锁\n业务完成\n获取锁\nOK\n执行业务\n\n## 幻灯片 95\n\n基于Redis的分布式锁\nRedis锁\n线程1\n线程2\n线程3\n获取锁\n业务阻塞\n超时释放锁\n获取锁\nOK\nOK\n执行业务\n释放锁\n业务完成\n获取锁\nOK\n执行业务\n获取锁标示\n并判断是否\n一致\nNIL\n释放锁\n获取锁标示\n并判断是否\n一致\nOK\n\n## 幻灯片 96\n\n基于Redis的分布式锁\nRedis锁\n线程1\n线程2\n线程3\n获取锁\n业务阻塞\n超时释放锁\n获取锁\nOK\nOK\n执行业务\n业务完成\n获取锁\nOK\n执行业务\n获取锁标示\n并判断是否\n一致\nNIL\n释放锁\n获取锁标示\n并判断是否\n一致\nOK\n开始\n尝试获取锁\n判断结果\nnil\nok\n获取锁成功\n执行业务\n释放锁\n获取锁失败\n业务超时\n或服务宕机\n自动\n释放锁\n\n## 幻灯片 97\n\n基于Redis的分布式锁\nRedis锁\n线程1\n线程2\n线程3\n获取锁\n业务阻塞\n超时释放锁\n获取锁\nOK\nOK\n执行业务\n业务完成\n获取锁\nOK\n执行业务\n获取锁标示\n并判断是否\n一致\nNIL\n释放锁"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "42de7f97-9f48-40d5-90c5-5ac23239de9c",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 20,
+          "score": 0.24037525057792664,
+          "content_preview": "## 幻灯片 98\n\n改进Redis的分布式锁\n需求：修改之前的分布式锁实现，满足：\n在获取锁时存入线程标示（可以用UUID表示）\n在释放锁时先获取锁中的线程标示，判断是否与当前线程标示一致\n如果一致则释放锁\n如果不一致则不释放锁\n\n## 幻灯片 99\n\n基于Redis的分布式锁\nRedis锁\n线程1\n线程2\n线程3\n获取锁\n执行业务\n超时释放锁\n获取锁\nOK\nOK\n执行业务\n释放锁\n阻塞\n获取锁\nOK\n执行业务\n获取锁标示\n并判断是否\n一致\nok\n\n## 幻灯片 100\n\nRedis的Lua脚本\nRedis提供了Lua脚本功能，在一个脚本中编写多条Redis命令，确保多条命令执行时的原子性。Lua是一种编程语言，它的基本语法大家可以参考网站：https://www.runoob.com/lua/lua-tutorial.html\n这里重点介绍Redis提供的调用函数，语法如下：\n例如，我们要执行set name jack，则脚本是这样：\n例如，我们要先执行set name Rose，再执行get name，则脚本如下：\n# 执行redis命令\nredis.call('命令名称', 'key', '其它参数', ...)\n# 执行 set name jack\nredis.call('set', 'name', 'jack')\n# 先执行 set name jack\nredis.call('set', 'name', 'jack')\n# 再执行 get name\nlocal name = redis.call('get', 'name')\n# 返回\nreturn name\n\n## 幻灯片 101"
+        }
+      ],
+      "answer": "Redis 分布式锁同时设置 NX 和 EX 是为了满足互斥性和避免死锁。NX 确保只有第一个设置键的客户端能获取锁，实现互斥性；EX 设置过期时间，保证即使持有锁的客户端发生故障，锁也能自动释放，防止死锁。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.3333333333333333,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1475.4325095564127,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 1.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "互斥",
+          "过期",
+          "死锁"
+        ],
+        "matched_chunk_ids": [
+          "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 5784.448632970452,
+      "judge_elapsed_ms": 9431.150006130338,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案中的解释与提供的证据基本一致，说明了NX和EX的作用，符合证据中的描述。因此，答案的事实性得到了证据的支持，但没有直接引用具体的证据来源，所以忠实度接近但不完全为1。答案直接回答了问题，解释了为什么需要同时设置NX和EX，因此相关性为1。引用的标签['KB1', 'KB2', 'KB3']在证据中确实存在，并且这些证据支持了答案中的结论，因此引用正确性较高，但并非完美，因为没有具体指出每个引用标签对应的内容。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 0.8,
+          "explanation": "答案中的解释与提供的证据基本一致，说明了NX和EX的作用，符合证据中的描述。因此，答案的事实性得到了证据的支持，但没有直接引用具体的证据来源，所以忠实度接近但不完全为1。答案直接回答了问题，解释了为什么需要同时设置NX和EX，因此相关性为1。引用的标签['KB1', 'KB2', 'KB3']在证据中确实存在，并且这些证据支持了答案中的结论，因此引用正确性较高，但并非完美，因为没有具体指出每个引用标签对应的内容。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 16691.601645201445
+    },
+    {
+      "case_id": "c8bb452e-3053-46f0-87ce-268d95cda078",
+      "query": "Redis Lua 脚本中的 KEYS 和 ARGV 分别传什么参数？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 21,
+          "score": 0.9812943935394287,
+          "content_preview": "Redis的Lua脚本\n写好脚本以后，需要用Redis命令来调用脚本，调用脚本的常见命令如下：\n例如，我们要执行 redis.call('set', 'name', 'jack') 这个脚本，语法如下：\n如果脚本中的key、value不想写死，可以作为参数传递。key类型参数会放入KEYS数组，其它参数会放入ARGV数组，在脚本中可以从KEYS和ARGV数组获取这些参数：\n# 调用脚本\nEVAL \"return redis.call('set', 'name', 'jack')\"  0\n脚本内容\n脚本需要的key类型的参数个数\n# 调用脚本\nEVAL \"return redis.call('set',        ,        )\"  1   name  Rose\n脚本内容\n脚本需要的key类型的参数个数\nKEYS[1]\nARGV[1]\n\n## 幻灯片 102\n\n基于Redis的分布式锁\n释放锁的业务流程是这样的：\n获取锁中的线程标示\n判断是否与指定的标示（当前线程标示）一致\n如果一致则释放锁（删除）\n如果不一致则什么都不做\n如果用Lua脚本来表示则是这样的：\n-- 这里的 KEYS[1] 就是锁的key，这里的ARGV[1] 就是当前线程标示\n-- 获取锁中的标示，判断是否与当前线程标示一致\nif (redis.call('GET', KEYS[1]) == ARGV[1]) then\n-- 一致，则删除锁\nreturn redis.call('DEL', KEYS[1])\nend\n-- 不一致，则直接返回\nreturn 0\n\n## 幻灯片 103\n\n再次改进Redis的分布式锁\n需求：基于Lua脚本实现分布式锁的释放锁逻辑\n提示：RedisTemplate调用Lua脚本的API如下：\n\n## 幻灯片 104"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "4ffcbee3-ceb8-4b54-b96a-472671f30840",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 28,
+          "score": 0.8258209228515625,
+          "content_preview": "Redisson可重入锁原理\n开始\n设置锁有效期\n释放锁\n获取锁失败\n锁已释放\n判断锁是否存在\n是\n否\n判断锁标示是否是自己\n是\n否\n锁计数+1\n执行业务\n判断锁是否是自己\n否\n是\n锁计数-1\n判断锁计数是否为0\n获取锁并添加线程标示\n是\n否\n重置锁\n有效期\nlocal key = KEYS[1]; -- 锁的keylocal threadId = ARGV[1]; -- 线程唯一标识local releaseTime = ARGV[2]; -- 锁的自动释放时间-- 判断当前锁是否还是被自己持有if (redis.call('HEXISTS', key, threadId) == 0) then    return nil; -- 如果已经不是自己，则直接返回end;-- 是自己的锁，则重入次数-1local count = redis.call('HINCRBY', key, threadId, -1);-- 判断是否重入次数是否已经为0 if (count > 0) then    -- 大于0说明不能释放锁，重置有效期然后返回    redis.call('EXPIRE', key, releaseTime);    return nil;else  -- 等于0说明可以释放锁，直接删除    redis.call('DEL', key);    return nil;end;\n释放锁的Lua脚本：\nKEY\nVALUE\nfield\nvalue\nlock:order\nthread1\n0\n\n## 幻灯片 113\n\nRedisson分布式锁原理\n开始\n尝试获取锁\n判断ttl是否为null\n是\n否\n返回true\n结束\n开启watchDog\nleaseTime是否为-1\n是\n否\n判断剩余等待时间是否大于0\n否\n返回false\n订阅并等待释放锁的信号\n是\n判断等待时间是否超时\n"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "401fdbcf-c5ad-4f3b-ae2a-7e37f4fff60d",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 27,
+          "score": 0.7901925444602966,
+          "content_preview": "Redisson可重入锁原理\n开始\n设置锁有效期\n释放锁\n获取锁失败\n锁已释放\n判断锁是否存在\n是\n否\n判断锁标示是否是自己\n是\n否\n锁计数+1\n执行业务\n判断锁是否是自己\n否\n是\n锁计数-1\n判断锁计数是否为0\n获取锁并添加线程标示\n是\n否\n重置锁\n有效期\nlocal key = KEYS[1]; -- 锁的keylocal threadId = ARGV[1]; -- 线程唯一标识local releaseTime = ARGV[2]; -- 锁的自动释放时间-- 判断是否存在if(redis.call('exists', key) == 0) then\n-- 不存在, 获取锁    redis.call('hset', key, threadId, '1');\n-- 设置有效期    redis.call('expire', key, releaseTime);     return 1; -- 返回结果end;-- 锁已经存在，判断threadId是否是自己if(redis.call('hexists', key, threadId) == 1) then\n-- 不存在, 获取锁，重入次数+1    redis.call('hincrby', key, threadId, '1');\n-- 设置有效期\nredis.call('expire', key, releaseTime);     return 1; -- 返回结果end;return 0; -- 代码走到这里,说明获取锁的不是自己，获取锁失败\n获取锁的Lua脚本：\nKEY\nVALUE\nfield\nvalue\nlock\nthread1\n0\n\n## 幻灯片 112"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "42de7f97-9f48-40d5-90c5-5ac23239de9c",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 20,
+          "score": 0.505894124507904,
+          "content_preview": "## 幻灯片 98\n\n改进Redis的分布式锁\n需求：修改之前的分布式锁实现，满足：\n在获取锁时存入线程标示（可以用UUID表示）\n在释放锁时先获取锁中的线程标示，判断是否与当前线程标示一致\n如果一致则释放锁\n如果不一致则不释放锁\n\n## 幻灯片 99\n\n基于Redis的分布式锁\nRedis锁\n线程1\n线程2\n线程3\n获取锁\n执行业务\n超时释放锁\n获取锁\nOK\nOK\n执行业务\n释放锁\n阻塞\n获取锁\nOK\n执行业务\n获取锁标示\n并判断是否\n一致\nok\n\n## 幻灯片 100\n\nRedis的Lua脚本\nRedis提供了Lua脚本功能，在一个脚本中编写多条Redis命令，确保多条命令执行时的原子性。Lua是一种编程语言，它的基本语法大家可以参考网站：https://www.runoob.com/lua/lua-tutorial.html\n这里重点介绍Redis提供的调用函数，语法如下：\n例如，我们要执行set name jack，则脚本是这样：\n例如，我们要先执行set name Rose，再执行get name，则脚本如下：\n# 执行redis命令\nredis.call('命令名称', 'key', '其它参数', ...)\n# 执行 set name jack\nredis.call('set', 'name', 'jack')\n# 先执行 set name jack\nredis.call('set', 'name', 'jack')\n# 再执行 get name\nlocal name = redis.call('get', 'name')\n# 返回\nreturn name\n\n## 幻灯片 101"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "29b099f9-6464-421a-9879-284d7f9cd79a",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 3,
+          "score": 0.4424491822719574,
+          "content_preview": "Redis是一个key-value的数据库，key一般是String类型，不过value的类型多种多样：\nRedis数据结构介绍\nhello world\nString\n{name: \"Jack\", age: 21}\nHash\n[A -> B -> C -> C]\nList\n{A, B, C}\nSet\n{A: 1, B: 2, C: 3}\nSortedSet\n{A:（120.3， 30.5）}\nGEO\n0110110101110101011\nBitMap\n0110110101110101011\nHyperLog\n基本类型\n特殊类型\n\n## 幻灯片 20\n\nRedis为了方便我们学习，将操作不同数据类型的命令也做了分组，在官网（ https://redis.io/commands ）可以查看到不同的命令：\nRedis数据结构介绍\n\n## 幻灯片 21\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 22\n\n通用指令是部分数据类型的，都可以使用的指令，常见的有：\nKEYS：查看符合模板的所有key\nDEL：删除一个指定的key\nEXISTS：判断key是否存在\nEXPIRE：给一个key设置有效期，有效期到期时该key会被自动删除\nTTL：查看一个KEY的剩余有效期\n通过help [command] 可以查看一个命令的具体用法，例如：\nRedis通用命令\n，不建议在生产环境设备上使用\n\n## 幻灯片 23\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 24"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "0cb9818e-79df-46bc-89a3-b327f108706f",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 31,
+          "score": 0.21915856003761292,
+          "content_preview": "Lua脚本\nRedis优化秒杀\n开始\n判断库存\n是否充足\n结束\n否\n返回1\n是\n判断用户是否下单\n扣减库存\n否\n将userId存入当前优惠券的set集合\n返回0\n开始\n执行lua脚本\n判断结果是否为0\n否\n返回\n异常信息\n结束\n将优惠券id、用户id和订单id存入阻塞队列\n是\n返回\n订单id\n是\n返回2\nKEY\nVALUE\nstock:vid:7\n100\nKEY\nVALUE\norder:vid:7\n1\n, 2\n, 3\n, 5\n, 7\n, 8\n异步下单\n\n## 幻灯片 125\n\n改进秒杀业务，提高并发性能\n需求：\n新增秒杀优惠券的同时，将优惠券信息保存到Redis中\n基于Lua脚本，判断秒杀库存、一人一单，决定用户是否抢购成功\n如果抢购成功，将优惠券id和用户id封装后存入阻塞队列\n开启线程任务，不断从阻塞队列中获取信息，实现异步下单功能\n\n## 幻灯片 126\n\n秒杀业务的优化思路是什么？\n先利用Redis完成库存余量、一人一单判断，完成抢单业务\n再将下单业务放入阻塞队列，利用独立线程异步下单\n基于阻塞队列的异步秒杀存在哪些问题？\n内存限制问题\n数据安全问题\n\n## 幻灯片 127\n\n实现优惠券秒杀下单\n超卖问题\n一人一单\n分布式锁\nRedis优化秒杀\nRedis消息队列实现异步秒杀\n全局ID生成器\n\n## 幻灯片 128\n\n消息队列（Message Queue），字面意思就是存放消息的队列。最简单的消息队列模型包括3个角色：\n消息队列：存储和管理消息，也被称为消息代理（Message Broker）\n生产者：发送消息到消息队列\n消费者：从消息队列获取消息并处理消息\nRedis消息队列实现异步秒杀\n生产者\n判断秒杀时间\n和库存\n校验\n一人一单\nMessage Queue\n发送优惠券id和\n用户id到消息队列\n消费者\n接收消息\n完成下单\n\n## 幻灯片 129"
+        }
+      ],
+      "answer": "在 Redis Lua 脚本中，KEYS 数组用于传递脚本中涉及的 Redis key 参数，ARGV 数组用于传递其他非 key 参数。具体来说：\n- KEYS 数组中的参数是脚本中需要操作的 Redis key，例如锁的 key 或库存的 key。\n- ARGV 数组中的参数是脚本需要的其他值，例如线程标识、自动释放时间或用户 ID。\n在调用 EVAL 命令时，KEYS 参数的数量由命令中的 key 类型参数个数指定，后续参数依次分配给 KEYS 和 ARGV。例如，在分布式锁的 Lua 脚本中，KEYS[1] 通常表示锁的 key，而 ARGV[1] 表示当前线程标识。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.3333333333333333,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1448.257027193904,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 1.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "key",
+          "value"
+        ],
+        "matched_chunk_ids": [
+          "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 14073.265569284558,
+      "judge_elapsed_ms": 5703.963838517666,
+      "judge": {
+        "answer_faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 1.0,
+        "judge_explanation": "答案中的描述与提供的证据完全一致。证据 [KB1] 和 [KB2] 明确指出了 KEYS 数组用于传递 key 参数，而 ARGV 数组用于传递其他非 key 参数。答案也直接回答了问题，说明了 KEYS 和 ARGV 的用途。引用的标签 [KB1]、[KB2] 和 [KB3] 都存在，并且支持答案中的结论。",
+        "raw_json": {
+          "answer_faithfulness": 1.0,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 1.0,
+          "explanation": "答案中的描述与提供的证据完全一致。证据 [KB1] 和 [KB2] 明确指出了 KEYS 数组用于传递 key 参数，而 ARGV 数组用于传递其他非 key 参数。答案也直接回答了问题，说明了 KEYS 和 ARGV 的用途。引用的标签 [KB1]、[KB2] 和 [KB3] 都存在，并且支持答案中的结论。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 21225.94058699906
+    },
+    {
+      "case_id": "4c352814-c4fc-4cf8-be95-f081711311ca",
+      "query": "Redisson 的分布式锁相比直接命令封装了什么能力？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 22,
+          "score": 0.7628235816955566,
+          "content_preview": "基于Redis的分布式锁实现思路：\n利用set nx ex获取锁，并设置过期时间，保存线程标示\n释放锁时先判断线程标示是否与自己一致，一致则删除锁\n特性：\n利用set nx满足互斥性\n利用set ex保证故障时锁依然能释放，避免死锁，提高安全性\n利用Redis集群保证高可用和高并发特性\n\n## 幻灯片 105\n\n基于Redis的分布式锁优化\n基于setnx实现的分布式锁存在下面的问题：\n不可重入\n同一个线程无法多次获取同一把锁\n01\n不可重试\n获取锁只尝试一次就返回false，没有重试机制\n02\n超时释放\n锁超时释放虽然可以避免死锁，但如果是业务执行耗时较长，也会导致锁释放，存在安全隐患\n03\n主从一致性\n如果Redis提供了主从集群，主从同步存在延迟，当主宕机时，如果从并同步主中的锁数据，则会出现锁实现\n04\n\n## 幻灯片 106\n\nRedisson\nRedisson是一个在Redis的基础上实现的Java驻内存数据网格（In-Memory Data Grid）。它不仅提供了一系列的分布式的Java常用对象，还提供了许多分布式服务，其中就包含了各种分布式锁的实现。\n官网地址： https://redisson.org\nGitHub地址： https://github.com/redisson/redisson\n\n## 幻灯片 107"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "1d571761-90ce-460f-87a3-f7e7397a11aa",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 30,
+          "score": 0.47083842754364014,
+          "content_preview": "Redisson分布式锁主从一致性问题\nRedis Node\nRedis Node\nRedis Node\nJava应用\n2.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\nlock = thread1\nlock = thread1\n1.获取锁\nSET lock thread1 NX EX 10\n3.获取锁\nSET lock thread1 NX EX 10\nRedis Master\n主从同步\nRedis Slave\n主从同步\nRedis Slave\n主从同步\n\n## 幻灯片 119\n\n1）不可重入Redis分布式锁：\n原理：利用setnx的互斥性；利用ex避免死锁；释放锁时判断线程标示\n缺陷：不可重入、无法重试、锁超时失效\n2）可重入的Redis分布式锁：\n原理：利用hash结构，记录线程标示和重入次数；利用watchDog延续锁时间；利用信号量控制锁重试等待\n缺陷：redis宕机引起锁失效问题\n3）Redisson的multiLock：\n原理：多个独立的Redis节点，必须在所有节点都获取重入锁，才算获取锁成功\n缺陷：运维成本高、实现复杂\n\n## 幻灯片 120\n\n实现优惠券秒杀下单\n超卖问题\n一人一单\n分布式锁\nRedis优化秒杀\nRedis消息队列实现异步秒杀\n全局ID生成器\n\n## 幻灯片 121\n\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTomcat\n\n## 幻灯片 122\n\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTomcat\n\n## 幻灯片 123\n\n校验\n一人一单\n判断秒杀库存\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTo"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "e65889d8-f68a-492b-8da3-bc72819d3dcc",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 29,
+          "score": 0.36516737937927246,
+          "content_preview": "Redisson分布式锁原理：\n可重入：利用hash结构记录线程id和重入次数\n可重试：利用信号量和PubSub功能实现等待、唤醒，获取锁失败的重试机制\n超时续约：利用watchDog，每隔一段时间（releaseTime / 3），重置超时时间\n\n## 幻灯片 115\n\nRedisson分布式锁主从一致性问题\nRedis Master\nRedis Slave\nRedis Slave\nJava应用\n1.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\n主从同步\n主从同步\n\n## 幻灯片 116\n\nRedisson分布式锁主从一致性问题\nRedis Master\nRedis Slave\nRedis Master\nJava应用\n1.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\n主从同步\n锁失效\n\n## 幻灯片 117\n\nRedis Slave\nRedis Slave\nRedis Slave\nRedisson分布式锁主从一致性问题\nRedis Node\nRedis Node\nRedis Node\nJava应用\n2.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\nlock = thread1\nlock = thread1\n1.获取锁\nSET lock thread1 NX EX 10\n3.获取锁\nSET lock thread1 NX EX 10\nRedis Slave\n主从同步\nRedis Slave\n主从同步\nRedis Slave\n主从同步\n\n## 幻灯片 118"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 21,
+          "score": 0.33185455203056335,
+          "content_preview": "Redis的Lua脚本\n写好脚本以后，需要用Redis命令来调用脚本，调用脚本的常见命令如下：\n例如，我们要执行 redis.call('set', 'name', 'jack') 这个脚本，语法如下：\n如果脚本中的key、value不想写死，可以作为参数传递。key类型参数会放入KEYS数组，其它参数会放入ARGV数组，在脚本中可以从KEYS和ARGV数组获取这些参数：\n# 调用脚本\nEVAL \"return redis.call('set', 'name', 'jack')\"  0\n脚本内容\n脚本需要的key类型的参数个数\n# 调用脚本\nEVAL \"return redis.call('set',        ,        )\"  1   name  Rose\n脚本内容\n脚本需要的key类型的参数个数\nKEYS[1]\nARGV[1]\n\n## 幻灯片 102\n\n基于Redis的分布式锁\n释放锁的业务流程是这样的：\n获取锁中的线程标示\n判断是否与指定的标示（当前线程标示）一致\n如果一致则释放锁（删除）\n如果不一致则什么都不做\n如果用Lua脚本来表示则是这样的：\n-- 这里的 KEYS[1] 就是锁的key，这里的ARGV[1] 就是当前线程标示\n-- 获取锁中的标示，判断是否与当前线程标示一致\nif (redis.call('GET', KEYS[1]) == ARGV[1]) then\n-- 一致，则删除锁\nreturn redis.call('DEL', KEYS[1])\nend\n-- 不一致，则直接返回\nreturn 0\n\n## 幻灯片 103\n\n再次改进Redis的分布式锁\n需求：基于Lua脚本实现分布式锁的释放锁逻辑\n提示：RedisTemplate调用Lua脚本的API如下：\n\n## 幻灯片 104"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "689d9fe6-722e-4f91-bd8a-bb3ca187bcbc",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 18,
+          "score": 0.3124691843986511,
+          "content_preview": "分布式锁\n线程3\n线程4\nJVM2\n线程1\n1.查询订单\n线程2\n2.判断是否存在\n是：报错\n否：插入新订单\n0.获取互斥\n锁成功\n3.释放锁\n0.获取互斥\n锁失败\n等待锁释放\nJVM1\n锁监视器\n0.获取互斥\n锁失败\n等待锁释放\n线程1\n1.查询订单\n2.判断是否存在\n是：报错\n否：插入新订单\n0.获取互斥\n锁成功\n0.获取互斥\n锁失败\n等待锁释放\n\n## 幻灯片 90\n\n分布式锁：满足分布式系统或集群模式下多进程可见并且互斥的锁。\n什么是分布式锁\n互斥\n...\n多进程可见\n安全性\n高可用\n高性能\n分布式锁\n\n## 幻灯片 91\n\nMySQL\nRedis\nZookeeper\n分布式锁的核心是实现多进程之间互斥，而满足这一点的方式有很多，常见的有三种：\n分布式锁的实现\n安全性\n高性能\n互斥\n高可用\n利用mysql本身的互斥锁机制\n利用setnx这样的互斥命令\n利用节点的唯一性和有序性实现互斥\n好\n好\n好\n一般\n好\n一般\n断开连接，自动释放锁\n利用锁超时时间，到期释放\n临时节点，断开连接自动释放\n\n## 幻灯片 92\n\n基于Redis的分布式锁\n实现分布式锁时需要实现的两个基本方法：\n获取锁：\n互斥：确保只能有一个线程获取锁\n非阻塞：尝试一次，成功返回true，失败返回false\n释放锁：\n手动释放\n超时释放\n：获取锁时添加一个超时时间\n# 添加锁，NX是互斥、EX是设置超时时间\nSET lock thread1 NX EX 10\n# 释放锁，删除即可\nDEL key\n开始\n尝试获取锁\n判断结果\nnil\nok\n获取锁成功\n执行业务\n释放锁\n获取锁失败\n业务超时\n或服务宕机\n自动\n释放锁\n# 添加锁，利用setnx的互斥特性\nSETNX lock thread1\n# 添加锁过期时间，避免服务宕机引起的死锁\nEXPIRE lock 10\n\n## 幻灯片 93"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "42de7f97-9f48-40d5-90c5-5ac23239de9c",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 20,
+          "score": 0.2820378541946411,
+          "content_preview": "## 幻灯片 98\n\n改进Redis的分布式锁\n需求：修改之前的分布式锁实现，满足：\n在获取锁时存入线程标示（可以用UUID表示）\n在释放锁时先获取锁中的线程标示，判断是否与当前线程标示一致\n如果一致则释放锁\n如果不一致则不释放锁\n\n## 幻灯片 99\n\n基于Redis的分布式锁\nRedis锁\n线程1\n线程2\n线程3\n获取锁\n执行业务\n超时释放锁\n获取锁\nOK\nOK\n执行业务\n释放锁\n阻塞\n获取锁\nOK\n执行业务\n获取锁标示\n并判断是否\n一致\nok\n\n## 幻灯片 100\n\nRedis的Lua脚本\nRedis提供了Lua脚本功能，在一个脚本中编写多条Redis命令，确保多条命令执行时的原子性。Lua是一种编程语言，它的基本语法大家可以参考网站：https://www.runoob.com/lua/lua-tutorial.html\n这里重点介绍Redis提供的调用函数，语法如下：\n例如，我们要执行set name jack，则脚本是这样：\n例如，我们要先执行set name Rose，再执行get name，则脚本如下：\n# 执行redis命令\nredis.call('命令名称', 'key', '其它参数', ...)\n# 执行 set name jack\nredis.call('set', 'name', 'jack')\n# 先执行 set name jack\nredis.call('set', 'name', 'jack')\n# 再执行 get name\nlocal name = redis.call('get', 'name')\n# 返回\nreturn name\n\n## 幻灯片 101"
+        }
+      ],
+      "answer": "Redisson 的分布式锁相比直接命令封装了以下能力：1. 可重入性：利用 hash 结构记录线程 id 和重入次数，允许同一线程多次获取同一把锁 [KB3]。2. 可重试机制：利用信号量和 PubSub 功能实现等待、唤醒，获取锁失败时可重试 [KB3]。3. 超时续约（WatchDog）：自动续期锁的超时时间，避免业务执行时间较长导致锁提前释放 [KB3]。4. 解决主从一致性问题：通过 Redisson 的 multiLock 机制，在多个独立 Redis 节点上获取锁，提高可靠性 [KB2]。而直接命令（如 set nx ex）实现的分布式锁存在不可重入、不可重试、超时释放安全隐患和主从一致性等问题 [KB1]。",
+      "citations": [
+        "KB1",
+        "KB2",
+        "KB3"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 2,
+        "ground_truth_citation_precision": 0.6666666666666666,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1",
+          "KB3"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1520.3636921942234,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.3333333333333333,
+        "context_recall": 1.0,
+        "ndcg_at_k": 0.9197207891481876,
+        "expected_keyword_recall": 0.0,
+        "expected_keyword_hits": [],
+        "matched_chunk_ids": [
+          "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+          "e65889d8-f68a-492b-8da3-bc72819d3dcc"
+        ],
+        "matched_target_count": 2,
+        "ground_truth_target_count": 2
+      },
+      "generation_elapsed_ms": 9435.687543824315,
+      "judge_elapsed_ms": 7040.111558511853,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 0.9,
+        "judge_explanation": "答案中的四个主要能力（可重入性、可重试机制、超时续约、解决主从一致性问题）都得到了证据的支持。可重入性、可重试机制和超时续约在[KB3]中得到了直接支持，而解决主从一致性问题在[KB2]中得到了支持。然而，[KB2]并没有详细说明multiLock机制如何解决主从一致性问题，只是展示了Redisson在多个Redis节点上获取锁的机制，因此在解决主从一致性问题的忠实度上略有不足。答案直接回答了问题，且引用标签真实存在且支持对应结论。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 0.9,
+          "explanation": "答案中的四个主要能力（可重入性、可重试机制、超时续约、解决主从一致性问题）都得到了证据的支持。可重入性、可重试机制和超时续约在[KB3]中得到了直接支持，而解决主从一致性问题在[KB2]中得到了支持。然而，[KB2]并没有详细说明multiLock机制如何解决主从一致性问题，只是展示了Redisson在多个Redis节点上获取锁的机制，因此在解决主从一致性问题的忠实度上略有不足。答案直接回答了问题，且引用标签真实存在且支持对应结论。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 17997.01469577849
+    },
+    {
+      "case_id": "287cde44-e5a9-445d-96a9-b6c557b02c0e",
+      "query": "Redis 企业实战资料中，如何处理锁释放时的所有者校验？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "4ffcbee3-ceb8-4b54-b96a-472671f30840",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 28,
+          "score": 0.6654599905014038,
+          "content_preview": "Redisson可重入锁原理\n开始\n设置锁有效期\n释放锁\n获取锁失败\n锁已释放\n判断锁是否存在\n是\n否\n判断锁标示是否是自己\n是\n否\n锁计数+1\n执行业务\n判断锁是否是自己\n否\n是\n锁计数-1\n判断锁计数是否为0\n获取锁并添加线程标示\n是\n否\n重置锁\n有效期\nlocal key = KEYS[1]; -- 锁的keylocal threadId = ARGV[1]; -- 线程唯一标识local releaseTime = ARGV[2]; -- 锁的自动释放时间-- 判断当前锁是否还是被自己持有if (redis.call('HEXISTS', key, threadId) == 0) then    return nil; -- 如果已经不是自己，则直接返回end;-- 是自己的锁，则重入次数-1local count = redis.call('HINCRBY', key, threadId, -1);-- 判断是否重入次数是否已经为0 if (count > 0) then    -- 大于0说明不能释放锁，重置有效期然后返回    redis.call('EXPIRE', key, releaseTime);    return nil;else  -- 等于0说明可以释放锁，直接删除    redis.call('DEL', key);    return nil;end;\n释放锁的Lua脚本：\nKEY\nVALUE\nfield\nvalue\nlock:order\nthread1\n0\n\n## 幻灯片 113\n\nRedisson分布式锁原理\n开始\n尝试获取锁\n判断ttl是否为null\n是\n否\n返回true\n结束\n开启watchDog\nleaseTime是否为-1\n是\n否\n判断剩余等待时间是否大于0\n否\n返回false\n订阅并等待释放锁的信号\n是\n判断等待时间是否超时\n"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "1d571761-90ce-460f-87a3-f7e7397a11aa",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 30,
+          "score": 0.5678878426551819,
+          "content_preview": "Redisson分布式锁主从一致性问题\nRedis Node\nRedis Node\nRedis Node\nJava应用\n2.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\nlock = thread1\nlock = thread1\n1.获取锁\nSET lock thread1 NX EX 10\n3.获取锁\nSET lock thread1 NX EX 10\nRedis Master\n主从同步\nRedis Slave\n主从同步\nRedis Slave\n主从同步\n\n## 幻灯片 119\n\n1）不可重入Redis分布式锁：\n原理：利用setnx的互斥性；利用ex避免死锁；释放锁时判断线程标示\n缺陷：不可重入、无法重试、锁超时失效\n2）可重入的Redis分布式锁：\n原理：利用hash结构，记录线程标示和重入次数；利用watchDog延续锁时间；利用信号量控制锁重试等待\n缺陷：redis宕机引起锁失效问题\n3）Redisson的multiLock：\n原理：多个独立的Redis节点，必须在所有节点都获取重入锁，才算获取锁成功\n缺陷：运维成本高、实现复杂\n\n## 幻灯片 120\n\n实现优惠券秒杀下单\n超卖问题\n一人一单\n分布式锁\nRedis优化秒杀\nRedis消息队列实现异步秒杀\n全局ID生成器\n\n## 幻灯片 121\n\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTomcat\n\n## 幻灯片 122\n\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTomcat\n\n## 幻灯片 123\n\n校验\n一人一单\n判断秒杀库存\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTo"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "42de7f97-9f48-40d5-90c5-5ac23239de9c",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 20,
+          "score": 0.496237188577652,
+          "content_preview": "## 幻灯片 98\n\n改进Redis的分布式锁\n需求：修改之前的分布式锁实现，满足：\n在获取锁时存入线程标示（可以用UUID表示）\n在释放锁时先获取锁中的线程标示，判断是否与当前线程标示一致\n如果一致则释放锁\n如果不一致则不释放锁\n\n## 幻灯片 99\n\n基于Redis的分布式锁\nRedis锁\n线程1\n线程2\n线程3\n获取锁\n执行业务\n超时释放锁\n获取锁\nOK\nOK\n执行业务\n释放锁\n阻塞\n获取锁\nOK\n执行业务\n获取锁标示\n并判断是否\n一致\nok\n\n## 幻灯片 100\n\nRedis的Lua脚本\nRedis提供了Lua脚本功能，在一个脚本中编写多条Redis命令，确保多条命令执行时的原子性。Lua是一种编程语言，它的基本语法大家可以参考网站：https://www.runoob.com/lua/lua-tutorial.html\n这里重点介绍Redis提供的调用函数，语法如下：\n例如，我们要执行set name jack，则脚本是这样：\n例如，我们要先执行set name Rose，再执行get name，则脚本如下：\n# 执行redis命令\nredis.call('命令名称', 'key', '其它参数', ...)\n# 执行 set name jack\nredis.call('set', 'name', 'jack')\n# 先执行 set name jack\nredis.call('set', 'name', 'jack')\n# 再执行 get name\nlocal name = redis.call('get', 'name')\n# 返回\nreturn name\n\n## 幻灯片 101"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "401fdbcf-c5ad-4f3b-ae2a-7e37f4fff60d",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 27,
+          "score": 0.4769778847694397,
+          "content_preview": "Redisson可重入锁原理\n开始\n设置锁有效期\n释放锁\n获取锁失败\n锁已释放\n判断锁是否存在\n是\n否\n判断锁标示是否是自己\n是\n否\n锁计数+1\n执行业务\n判断锁是否是自己\n否\n是\n锁计数-1\n判断锁计数是否为0\n获取锁并添加线程标示\n是\n否\n重置锁\n有效期\nlocal key = KEYS[1]; -- 锁的keylocal threadId = ARGV[1]; -- 线程唯一标识local releaseTime = ARGV[2]; -- 锁的自动释放时间-- 判断是否存在if(redis.call('exists', key) == 0) then\n-- 不存在, 获取锁    redis.call('hset', key, threadId, '1');\n-- 设置有效期    redis.call('expire', key, releaseTime);     return 1; -- 返回结果end;-- 锁已经存在，判断threadId是否是自己if(redis.call('hexists', key, threadId) == 1) then\n-- 不存在, 获取锁，重入次数+1    redis.call('hincrby', key, threadId, '1');\n-- 设置有效期\nredis.call('expire', key, releaseTime);     return 1; -- 返回结果end;return 0; -- 代码走到这里,说明获取锁的不是自己，获取锁失败\n获取锁的Lua脚本：\nKEY\nVALUE\nfield\nvalue\nlock\nthread1\n0\n\n## 幻灯片 112"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 22,
+          "score": 0.4384213089942932,
+          "content_preview": "基于Redis的分布式锁实现思路：\n利用set nx ex获取锁，并设置过期时间，保存线程标示\n释放锁时先判断线程标示是否与自己一致，一致则删除锁\n特性：\n利用set nx满足互斥性\n利用set ex保证故障时锁依然能释放，避免死锁，提高安全性\n利用Redis集群保证高可用和高并发特性\n\n## 幻灯片 105\n\n基于Redis的分布式锁优化\n基于setnx实现的分布式锁存在下面的问题：\n不可重入\n同一个线程无法多次获取同一把锁\n01\n不可重试\n获取锁只尝试一次就返回false，没有重试机制\n02\n超时释放\n锁超时释放虽然可以避免死锁，但如果是业务执行耗时较长，也会导致锁释放，存在安全隐患\n03\n主从一致性\n如果Redis提供了主从集群，主从同步存在延迟，当主宕机时，如果从并同步主中的锁数据，则会出现锁实现\n04\n\n## 幻灯片 106\n\nRedisson\nRedisson是一个在Redis的基础上实现的Java驻内存数据网格（In-Memory Data Grid）。它不仅提供了一系列的分布式的Java常用对象，还提供了许多分布式服务，其中就包含了各种分布式锁的实现。\n官网地址： https://redisson.org\nGitHub地址： https://github.com/redisson/redisson\n\n## 幻灯片 107"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 21,
+          "score": 0.4051600992679596,
+          "content_preview": "Redis的Lua脚本\n写好脚本以后，需要用Redis命令来调用脚本，调用脚本的常见命令如下：\n例如，我们要执行 redis.call('set', 'name', 'jack') 这个脚本，语法如下：\n如果脚本中的key、value不想写死，可以作为参数传递。key类型参数会放入KEYS数组，其它参数会放入ARGV数组，在脚本中可以从KEYS和ARGV数组获取这些参数：\n# 调用脚本\nEVAL \"return redis.call('set', 'name', 'jack')\"  0\n脚本内容\n脚本需要的key类型的参数个数\n# 调用脚本\nEVAL \"return redis.call('set',        ,        )\"  1   name  Rose\n脚本内容\n脚本需要的key类型的参数个数\nKEYS[1]\nARGV[1]\n\n## 幻灯片 102\n\n基于Redis的分布式锁\n释放锁的业务流程是这样的：\n获取锁中的线程标示\n判断是否与指定的标示（当前线程标示）一致\n如果一致则释放锁（删除）\n如果不一致则什么都不做\n如果用Lua脚本来表示则是这样的：\n-- 这里的 KEYS[1] 就是锁的key，这里的ARGV[1] 就是当前线程标示\n-- 获取锁中的标示，判断是否与当前线程标示一致\nif (redis.call('GET', KEYS[1]) == ARGV[1]) then\n-- 一致，则删除锁\nreturn redis.call('DEL', KEYS[1])\nend\n-- 不一致，则直接返回\nreturn 0\n\n## 幻灯片 103\n\n再次改进Redis的分布式锁\n需求：基于Lua脚本实现分布式锁的释放锁逻辑\n提示：RedisTemplate调用Lua脚本的API如下：\n\n## 幻灯片 104"
+        }
+      ],
+      "answer": "在Redis企业实战资料中，处理锁释放时的所有者校验主要通过以下方式：\n\n1. **基本思路**：释放锁时，先获取锁中存储的线程标识，判断是否与当前线程标识一致。如果一致则释放锁（删除），否则什么都不做，以确保只有锁的持有者才能释放锁[KB3][KB5]。\n\n2. **具体实现**：通常使用Lua脚本保证原子性执行。脚本中，首先比较锁的value（线程标识）与传入的当前线程标识是否相等。如果相等，则删除锁；否则返回0，表示释放失败[KB6]。\n\n3. **可重入锁的扩展**：对于可重入锁（如Redisson实现），使用Hash结构存储线程标识和重入次数。释放锁时，先检查锁是否存在以及线程标识是否匹配（通过`HEXISTS`判断）。如果是自己的锁，则将重入次数减1；如果重入次数为0，则删除锁；如果大于0，则重置有效期并返回[KB1][KB4]。\n\n4. **关键步骤**：\n   - 获取锁中的线程标识（例如通过`GET`或`HEXISTS`命令）。\n   - 与当前线程标识进行比较。\n   - 根据比较结果决定是否删除锁或减少重入次数。\n\n这些方法避免了非所有者误释放锁的问题，提高了分布式锁的安全性。",
+      "citations": [
+        "KB1",
+        "KB3",
+        "KB4",
+        "KB5",
+        "KB6"
+      ],
+      "citation_audit": {
+        "citation_count": 5,
+        "valid_citation_count": 5,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.2,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB6"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1395.941961556673,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 0.16666666666666666,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 0.3562071871080222,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "一致",
+          "删除"
+        ],
+        "matched_chunk_ids": [
+          "43753fcc-09f4-4d3c-a09d-5d8cfed4f1e3"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 24216.95776283741,
+      "judge_elapsed_ms": 6642.128199338913,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 0.9,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案中的大部分内容得到了证据的支持，例如锁释放时的所有者校验的基本思路和具体实现（[KB3][KB5][KB6]），以及可重入锁的扩展实现（[KB1][KB4]）。然而，答案中提到的'可重入锁的扩展'部分，虽然与证据中的内容一致，但证据中没有明确提到这是'扩展'，因此这部分的忠实度略有折扣。答案直接回答了问题，提供了处理锁释放时所有者校验的方法。引用标签大部分是正确的，但[KB5]和[KB6]的内容虽然相关，但没有直接提到可重入锁的实现细节，这部分引用略有不准确。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 0.9,
+          "citation_correctness": 0.8,
+          "explanation": "答案中的大部分内容得到了证据的支持，例如锁释放时的所有者校验的基本思路和具体实现（[KB3][KB5][KB6]），以及可重入锁的扩展实现（[KB1][KB4]）。然而，答案中提到的'可重入锁的扩展'部分，虽然与证据中的内容一致，但证据中没有明确提到这是'扩展'，因此这部分的忠实度略有折扣。答案直接回答了问题，提供了处理锁释放时所有者校验的方法。引用标签大部分是正确的，但[KB5]和[KB6]的内容虽然相关，但没有直接提到可重入锁的实现细节，这部分引用略有不准确。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 32255.75802475214
+    },
+    {
+      "case_id": "f43394bf-554a-4ac5-8e63-6c8b9169a16f",
+      "query": "Python 语言为什么适合快速开发应用？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "27b3b93a-8b61-4a73-b5a0-988b027bc42c",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 3,
+          "score": 0.9919934272766113,
+          "content_preview": "前  言\nPython是一种简单易学且功能强大的编程语言，具备高效的高级数据结构，能够简洁\n而有效地实现面向对象编程。Python 的简洁语法，加之其解释型语言的特性，使其成为许\n多平台上理想的脚本语言，尤其适用于快速开发应用程序。\nPython的应用领域广泛，包括数据分析、组件集成、网络服务、图像处理、数值计\n算和科学计算等。目前，众多大中型互联网企业均在使用Python，如豆瓣、知乎、百度、\n腾讯、美团等。这些互联网公司普遍使用Python进行自动化运维、自动化测试、大数据分\n析、网络爬虫和 Web 开发等。\nPython 的学习和掌握相对容易，且拥有大量内置函数和丰富的扩展库，可以快速实现\n众多复杂功能。在学习Python语言的过程中，仍需通过不断的练习来熟悉其编程模式，建\n议避免将其他语言的编程风格应用于Python，而应从自然和简洁的角度出发，以免设计出\n冗长且低效的Python程序。\n一、本书内容特点\n(1) 本书专为计算机相关专业的高校学生及程序设计爱好者编写，详细介绍了 Python \n语言的各种规则和规范，帮助读者全面掌握这门编程语言，从而设计出优秀的程序。\n(2) Python 程序设计涉及的范围非常广泛，本书内容的编排并不求全、求深，而是考\n虑零基础读者的接受能力，其中语法的介绍以够用、实用为原则，本书选择Python中实用\n的知识进行讲解，强化对程序思维能力的培养。\n(3) 书中实例均提供了详细的设计思路、关键技术分析以及具体的解决方案。每个知\n识点均配有示例代码，辅以相关说明和运行结果，某些章节还深入探讨经典的程序设计问\n题。读者可通过参考源程序进行实践，加深理解。\n需要说明的是，学习编程是一个实践的过程，除了需要看书、查阅资料，亲自动手编\n写、调试程序才是至关重要的。通过实际的编程和积极的思考，读者可以很快掌握许多宝\n贵的编程经验，这些编程经验对"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "50abb4a3-d24a-494b-8c54-0a7659603015",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 22,
+          "score": 0.9334145784378052,
+          "content_preview": "编程语言编写的\n程序无缝结合，充分发挥各种语言和工具的优势，以满足不同应用领域的需求。因此，\nPython程序通常简单易懂，初学者不仅能够轻松入门，未来深入学习后也能编写复杂的\n程序。\n此外，Python还支持伪编译，可以将源程序转换为字节码，以优化程序性能并提高运\n行速度，这使得在没有安装Python解释器和相关依赖包的平台上也能运行Python程序。\n许多大型网站都是用Python开发的，例如YouTube、 Instagram，以及国内的豆瓣等。\n许多大公司，包括Google、Yahoo、NASA也在大量使用Python。\n任何编程语言都有其缺点，Python的主要缺点包括以下几点。\n(1) 运行速度慢。与C语言相比，Python的运行速度较慢，因为Python是一种解释型语\n言。在执行过程中，Python代码会逐行翻译成CPU能够理解的机器码，这一翻译过程非常\n耗时。而C语言则是在运行前直接编译成机器码，因此运行速度更快。\n(2) 代码无法加密。发布Python程序时，实际上就是在发布源代码。这与C语言不同，\nC语言可以只发布编译后的机器码( 例如在Windows 上常见的.exe文件) ，而无须公开源代\n码。由于从机器码反推出C语言代码几乎是不可能的，编译型语言在这方面具有一定的安\n全性。而解释型语言则必须公开源代码。\n(3) 缩进带来的困惑。 Python使用缩进来区分语句之间的关系，这对于许多初学者来\n说可能造成困惑。即使是经验丰富的Python程序员，有时也会因为缩进错误而陷入困境。"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "ab049fe4-f06d-4013-b44a-4ee9df310e6d",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 20,
+          "score": 0.8799200654029846,
+          "content_preview": "第1章　Python编程基础\n1\n第 1 章\nPython 编程基础\nPython是一门跨平台、开源的解释型高级动态类型\n编程语言。Python尤其适合初学编程者，因为它能够让\n初学者将注意力集中在编程的对象和思维方法上，而不\n必过于担心语法和类型等外部因素。Python易于学习，\n并拥有丰富的库，使得开发各种应用程序变得高效。本\n章将介绍Python语言的优缺点、安装方法，以及Python\n开发环境IDLE的使用。"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "3d2bf744-dacb-435d-942d-c8296e6fd440",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 21,
+          "score": 0.8235973119735718,
+          "content_preview": "Python编程入门与实践（微视频版）\n2\n1.1　Python语言简介\nPython的创始人吉多·范罗苏姆(Guido van Rossum)于 1989年底发明了Python语言，\n其被广泛应用于系统管理任务和科学计算，是最受欢迎的编程语言之一。自 2004年以\n来，Python的使用率持续增长，在2017年 TIOBE编程语言指数排行榜中位列第四名(前3名\n为Java、C和C++)。2017年7月，根据IEEE Spectrum发布的编程语言排行榜显示Python已\n成为全球最受欢迎的编程语言。2024年，Python无论在数据分析、机器学习，还是Web 开\n发领域，都展现出了强大的适应性，受到广大程序员的青睐，再次突破历史记录，稳居\n编程语言排行榜的前列。\nPython支持命令式编程、函数式编程，完全支持面向对象编程，语法简洁清晰，且拥\n有大量成熟的扩展库，几乎覆盖所有领域的应用开发。许多开源的专业领域工具库都提供\n了Python的调用接口，例如著名的计算机视觉库OpenCV、三维可视化库VTK和医学图像\n处理库ITK。此外，Python专用的科学计算扩展库也非常丰富，经典的有NumPy、 SciPy和\nMatplotlib，它们分别为Python提供了快速数组处理、数值运算和绘图功能。因此，Python\n及其众多扩展库为工程技术和科研人员处理实验数据、制作图表，甚至开发科学计算应用\n程序提供了理想的开发环境。\nPython为开发者提供了一个全面的标准库，涵盖了网络、文件、GUI、数据库、文本\n等众多领域。使用Python开发时，许多功能可以直接利用现成的库，而无须从头编写。\n此外，除内置库外，Python还有大量的第三方库可供使用，开发者也可以将自己封装好\n的代码作为第三方库分享给他人。Python就像胶水一样，可以将用不同编程语言编写的\n程序无缝结合，充分发挥各"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "e61eb85f-9505-40d6-9a73-ed3917e242d4",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 38,
+          "score": 0.2982073724269867,
+          "content_preview": "Python编程入门与实践（微视频版）\n14\n装与配置、IDLE开发环境的使用、基本输入输出操作、代码规范以及获取帮助信息的方\n式。首先，简要概述了Python的易读性和强大的库支持，使其成为初学者和专业开发者的\n理想选择。接着，详细说明了在macOS、 Linux和 Windows等操作系统上安装Python的步\n骤，以及如何运行Python程序。随后，介绍了IDLE作为集成开发环境的使用方法，包括创\n建、编辑和调试程序的基本操作。接下来，讲解了如何使用input()和 print()函数进行基本\n的输入输出，实现简单的交互式程序。此外，还强调了遵循PEP 8代码规范的重要性，以\n提高代码的可读性和可维护性。最后，本章提供了获取Python帮助信息的途径，帮助读者\n在编程过程中解决问题。\n本章为用户进一步学习Python奠定了扎实的基础。在下面的课后实践部分，用户可以\n通过动手实现几个简单的编程实例并完成课后的思考练习，加深对Python的了解。\n一、应用实例\n【例1-1】熟悉IDLE开发环境。\n本例将使用标准的IDLE 作为开发环境，帮助用户熟悉Python的强大功能。有时，我\n们可能需要同时安装多个不同版本的Python，并根据不同的开发需求在这多个版本之间\n切换。多个版本并存不会影响在IDLE环境中直接运行程序，只需启动相应版本的IDLE\n即可。\n熟练掌握开发环境提供的一些快捷键可以显著提升开发效率。在IDLE环境中，除了\n常用的撤销(Ctrl+Z)、全选(Ctrl+A)、复制(Ctrl+C)、粘贴(Ctrl+V)和剪切(Ctrl+X)等快捷\n键，还有一些其他快捷键，如表1-3所示。\n表1-3　IDLE中的常用快捷键\n快 捷 键 说　　明\nTab 补全单词，列出所有可选单词供选择\nAlt + P 浏览历史命令(上一条)\nAlt + N 浏览历史命令(下一条)\nCtr"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "f56043ed-e1ee-4aa1-ad27-8b038f0f72ee",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 23,
+          "score": 0.20688529312610626,
+          "content_preview": "第1章　Python编程基础\n3\n最常见的问题是混用制表符(tab)和空格，可能导致代码无法正常运行。\n这些缺点在一定程度上限制了Python的应用，但它的优点和灵活性仍然使其在许多领\n域中广受欢迎。\n1.2　安装与配置Python环境\n因为Python是跨平台的，它可以在Windows、 macOS以及各种Linux/UNIX系统上运\n行。用户在Windows上编写的Python程序，能够直接在Linux上运行。\n学习Python编程的第一步是将Python安装到计算机上。安装完成后，将获得Python解\n释器(负责执行Python程序)、一个命令行交互环境，以及一个简单的集成开发环境(IDE)。\nPython至今已有多个版本。但截至目前，主流版本仍为Python 2.x和Python 3.x，这两个\n版本并不兼容。Python 2.x版本已于2020年 1月1日停止更新，Python 2.7被确定为最后一个\nPython 2.x版本。因此，如果用户正在使用Python 2.x，建议考虑升级到Python 3.x。\n1.2.1　安装Python\n1. 在 Mac 上安装 Python\n若用户使用的是Mac系统，版本在OSX 10.8到 10.10之间，那么系统自带的Python版本\n是2.x。要安装最新的Python 3.x，可以使用以下两种方法。\n  方法一：从Python官方网站(https://www.python.org)下载Python 3.x的安装程序，双\n击运行并进行安装。\n  方法二：如果已经安装了Homebrew，可以通过命令行直接执行brew install \npython@3 来完成安装。\n2. 在 Linux 上安装 Python\n若用户使用的是Linux，并具备一定的系统管理经验，可以参考以下步骤安装\nPython 3.x。\n(1) 下载Py"
+        }
+      ],
+      "answer": "Python 语言适合快速开发应用，主要基于以下证据：\n1. Python 语法简洁清晰，是解释型语言，具备简单易学、功能强大的特点，使其成为许多平台上理想的脚本语言，尤其适用于快速开发应用程序 [KB1]。\n2. Python 拥有大量内置函数和丰富的扩展库，可以快速实现众多复杂功能，开发时许多功能可以直接利用现成的库，无需从头编写 [KB1][KB4]。\n3. Python 支持命令式编程、函数式编程和面向对象编程，语法简洁，且拥有大量成熟的扩展库，几乎覆盖所有领域的应用开发 [KB4]。\n4. Python 易于学习，能让初学者将注意力集中在编程的对象和思维方法上，而不必过于担心语法和类型等外部因素，拥有丰富的库使得开发各种应用程序变得高效 [KB3]。\n5. Python 程序通常简单易懂，初学者能够轻松入门，同时也能编写复杂的程序，这得益于其简洁的语法和强大的库支持 [KB2][KB4]。",
+      "citations": [
+        "KB1",
+        "KB3",
+        "KB4",
+        "KB2"
+      ],
+      "citation_audit": {
+        "citation_count": 4,
+        "valid_citation_count": 4,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.25,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1670.6153620034456,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 1.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "简洁语法",
+          "解释型"
+        ],
+        "matched_chunk_ids": [
+          "27b3b93a-8b61-4a73-b5a0-988b027bc42c"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 13536.405930295587,
+      "judge_elapsed_ms": 7177.518805488944,
+      "judge": {
+        "answer_faithfulness": 0.95,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 0.95,
+        "judge_explanation": "答案中的大部分内容都得到了证据的支持，如Python的简洁语法、解释型语言的特性、丰富的内置函数和扩展库、支持多种编程范式、易于学习等。这些信息在[KB1]、[KB3]、[KB4]中均有提及。然而，[KB2]中提到的Python程序简单易懂，初学者能够轻松入门，同时也能编写复杂的程序，这部分内容在答案中重复出现，但[KB2]并未提供新的支持信息，因此忠实度略有扣分。答案直接回答了问题，相关性满分。引用标签[KB1]、[KB3]、[KB4]均真实存在且支持对应结论，但[KB2]并未提供新的支持信息，因此引用正确性略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.95,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 0.95,
+          "explanation": "答案中的大部分内容都得到了证据的支持，如Python的简洁语法、解释型语言的特性、丰富的内置函数和扩展库、支持多种编程范式、易于学习等。这些信息在[KB1]、[KB3]、[KB4]中均有提及。然而，[KB2]中提到的Python程序简单易懂，初学者能够轻松入门，同时也能编写复杂的程序，这部分内容在答案中重复出现，但[KB2]并未提供新的支持信息，因此忠实度略有扣分。答案直接回答了问题，相关性满分。引用标签[KB1]、[KB3]、[KB4]均真实存在且支持对应结论，但[KB2]并未提供新的支持信息，因此引用正确性略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 22385.189190506935
+    },
+    {
+      "case_id": "cad3b9c2-a9f5-43a7-872e-baa097379d24",
+      "query": "Python 教程覆盖了哪些与后端开发直接相关的主题？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "27b3b93a-8b61-4a73-b5a0-988b027bc42c",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 3,
+          "score": 0.06367181241512299,
+          "content_preview": "前  言\nPython是一种简单易学且功能强大的编程语言，具备高效的高级数据结构，能够简洁\n而有效地实现面向对象编程。Python 的简洁语法，加之其解释型语言的特性，使其成为许\n多平台上理想的脚本语言，尤其适用于快速开发应用程序。\nPython的应用领域广泛，包括数据分析、组件集成、网络服务、图像处理、数值计\n算和科学计算等。目前，众多大中型互联网企业均在使用Python，如豆瓣、知乎、百度、\n腾讯、美团等。这些互联网公司普遍使用Python进行自动化运维、自动化测试、大数据分\n析、网络爬虫和 Web 开发等。\nPython 的学习和掌握相对容易，且拥有大量内置函数和丰富的扩展库，可以快速实现\n众多复杂功能。在学习Python语言的过程中，仍需通过不断的练习来熟悉其编程模式，建\n议避免将其他语言的编程风格应用于Python，而应从自然和简洁的角度出发，以免设计出\n冗长且低效的Python程序。\n一、本书内容特点\n(1) 本书专为计算机相关专业的高校学生及程序设计爱好者编写，详细介绍了 Python \n语言的各种规则和规范，帮助读者全面掌握这门编程语言，从而设计出优秀的程序。\n(2) Python 程序设计涉及的范围非常广泛，本书内容的编排并不求全、求深，而是考\n虑零基础读者的接受能力，其中语法的介绍以够用、实用为原则，本书选择Python中实用\n的知识进行讲解，强化对程序思维能力的培养。\n(3) 书中实例均提供了详细的设计思路、关键技术分析以及具体的解决方案。每个知\n识点均配有示例代码，辅以相关说明和运行结果，某些章节还深入探讨经典的程序设计问\n题。读者可通过参考源程序进行实践，加深理解。\n需要说明的是，学习编程是一个实践的过程，除了需要看书、查阅资料，亲自动手编\n写、调试程序才是至关重要的。通过实际的编程和积极的思考，读者可以很快掌握许多宝\n贵的编程经验，这些编程经验对"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "24d12d60-a24d-4c90-b211-b989f58bc4f7",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 12,
+          "score": 0.04888858646154404,
+          "content_preview": "自定义模块 ··························· 112\n4.5.3 常用标准模块 ························ 113\n4.6 课后实践 ···································122\n第 5 章　 Python文件操作 ··············127\n5.1　文件的访问 ································128\n5.1.1　打开文件 ······························ 128\n5.1.2　读取文本文件 ························ 130\n5.1.3　写文本文件 ··························· 131\n5.1.4　文件内移动 ··························· 133\n5.1.5　文件的关闭 ··························· 134\n5.1.6　二进制文件的读/写 ··················135\n5.2　文件夹操作 ································137\n5.2.1　当前工作目录 ························ 138\n5.2.2　目录操作 ······························ 138\n5.2.3　文件操作 ······························ 140\n5.3　课后实践 ···································143\n第 6 章　 面向对象程序设计 ···········149\n6.1　面向对象程序设计基础 ·················150\n6.2　类和对象 ····························"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "00b1e29b-0a6b-41fe-9c70-612057847bd9",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 13,
+          "score": 0.040469519793987274,
+          "content_preview": "···························151\n6.2.1　定义和使用类 ························ 151\n6.2.2　构造函数 ······························ 152\n6.2.3　析构函数 ······························ 153\n6.2.4　实例属性和类属性 ·················· 153\n6.2.5　私有成员与公有成员 ··············· 156\n6.2.6　方法 ···································· 157\n6.3　类的继承和多态 ··························158\n6.3.1　类的继承 ······························ 159\n6.3.2　类的多继承 ··························· 161\n6.3.3　方法重写 ······························ 162\n6.3.4　多态 ···································· 162\n6.3.5　运算符重载 ··························· 163\n6.4　课后实践 ···································164\n第 7 章　 Python GUI编程 ··············169\n7.1　Python GUI库 ····························· 170\n7.1.1　创建Windows窗口 ··················· 170\n7.1.2　几何布局管理器 ····················· 171\n7.2　常用Tkinter组件的使用 ··"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "83897a4a-f3bc-4647-9c8c-541fb6f4c1a6",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 18,
+          "score": 0.03861505538225174,
+          "content_preview": "9.4.4 数据库表的查询操作 ··············· 278\n9.5 课后实践 ···································279\n第 10 章　 Python图像处理 ············ 287\n10.1 使用Pillow库 ···························· 288\n10.1.1 Image 模块 ··························· 288\n10.1.2 ImageDraw模块 ····················· 292\n10.1.3 ImageFont 模块 ······················ 293\n10.1.4 ImageFilter 模块 ····················· 293\n10.2 为图片添加水印 ························ 294\n10.3 生成验证码 ······························ 296\n10.4 生成二维码 ······························ 298\n10.5 课后实践 ································· 300\n第 11 章　 Python网络编程 ············ 303\n11.1 计算机网络基础知识 ·················· 304\n11.2 TCP和UDP编程 ························· 305\n11.2.1 TCP编程 ······························ 305\n11.2.2 UDP编程 ····························· 310\n11.3 网络嗅探器 ······························ 312\n11"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "543753df-5a62-403a-b5f9-edd87a170d80",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 4,
+          "score": 0.03185092285275459,
+          "content_preview": "掌握许多宝\n贵的编程经验，这些编程经验对开发者而言是不可或缺的。\n二、本书内容简介\n本书可作为Python程序设计课程的教材，也可为具备一定Python编程基础的读者提供\n学习参考。此外，它还可作为Python 应用开发人员的首选参考书。对于那些希望利用业余\n时间学习一门有趣的编程语言的读者，本书同样适用。\n本书共分11 章，内容涵盖了Python编程基础、Python语法基础、Python控制语句、\nPython函数与模块、Python文件操作、面向对象程序设计、Python GUI编程、Python多线程\n编程技术、Python访问数据库、Python图像处理、Python网络编程等，各章内容简介如下。\n-preface-"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "960bbcf8-497d-4b6e-baab-cefb7988d15b",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 2,
+          "score": 0.028216438367962837,
+          "content_preview": "es\netcd\nconsul\ncloudﬂare CDN\n七⽜牛云存储\n基础后端软件\ntidb\ninﬂuxdb\ncockroachdb\n微服务\ngo-kit\nmicro\n互联⽹网基础设施\n以太坊\nhyperledger\n明星作品\n不不⾜足\n包管理理，⼤大部分包都在github上\n⽆无泛化类型\n所有Excepiton都⽤用Error来处理理(⽐比较有争议)。\n对C的降级处理理，并⾮非⽆无缝，没有C降级到asm那么完美(序列列化问题)\ngolang语法新奇\n从⼀一个main函数初⻅见golang语法\n  package main\n  import \"fmt\"\n  func main() {\n          /* 简单的程序 万能的hello world */\n          fmt.Println(\"Hello Go\")\n  }\ngolang中的表达式，加\";\", 和不不\n加 都可以，建议是不不加\n函数的{  ⼀一定是 和函数名在同⼀一⾏行行的，否则编译错\npackage main //程序的包名\n/*\nimport \"fmt\"\nimport \"time\"\n*/\nimport (\n\"fmt\"\n\"time\"\n)\n变量量 变量量的声明\n局部变量量的声明\n⽅方法⼀一//⽅方法⼀一：声明⼀一个变量量 默认的值是0\nvar a int\n⽅方法⼆二//⽅方法⼆二：声明⼀一个变量量，初始化⼀一个值\nvar b int = 100\n⽅方法三 //⽅方法三：在初始化的时候，可以省去数据类型，通过值⾃自动匹配当前的变量量的数据类型\nvar c = 100\n⽅方法四(常⽤用)//⽅方法四：(常⽤用的⽅方法) 省去var关键字，直接⾃自动匹配\ne := 100\n全局变量量的声明 ⽅方法四不不⽀支持全局\n多变量量的声明\n单⾏行行写法\nvar xx, yy int = 100, 200\nvar k"
+        }
+      ],
+      "answer": "证据不足。提供的证据中，KB1和KB5列出了Python教程的章节标题，包括Python网络编程、Python访问数据库等，这些可能与后端开发相关，但证据没有具体说明这些章节中覆盖了哪些与后端开发直接相关的主题（例如具体的Web框架、API开发、数据库操作细节等）。其他证据（KB2、KB3、KB4、KB6）要么不相关，要么没有提供关于后端开发主题的具体信息。因此，无法基于给定证据回答该教程具体覆盖了哪些与后端开发直接相关的主题。",
+      "citations": [
+        "KB1",
+        "KB5"
+      ],
+      "citation_audit": {
+        "citation_count": 2,
+        "valid_citation_count": 2,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 0,
+        "ground_truth_citation_precision": 0.0,
+        "ground_truth_citation_recall": 0.0,
+        "invalid_citations": [],
+        "target_citation_labels": []
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1598.4925292432308,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": false,
+        "mrr": 0.0,
+        "context_precision": 0.0,
+        "context_recall": 0.0,
+        "ndcg_at_k": 0.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "数据库",
+          "多线程"
+        ],
+        "matched_chunk_ids": [],
+        "matched_target_count": 0,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 21886.910807341337,
+      "judge_elapsed_ms": 5829.954572021961,
+      "judge": {
+        "answer_faithfulness": 0.8,
+        "answer_relevancy": 0.6,
+        "citation_correctness": 1.0,
+        "judge_explanation": "答案指出证据不足，无法具体说明Python教程中与后端开发直接相关的主题，这与提供的证据相符。KB1和KB5确实提到了Python网络编程和Python访问数据库，这些内容可能与后端开发相关，但没有具体说明这些章节中覆盖了哪些与后端开发直接相关的主题。因此，答案的忠实度较高。然而，答案没有直接回答问题，而是说明了证据的不足，因此相关性较低。引用的标签KB1和KB5确实存在，并且支持答案的结论。",
+        "raw_json": {
+          "answer_faithfulness": 0.8,
+          "answer_relevancy": 0.6,
+          "citation_correctness": 1.0,
+          "explanation": "答案指出证据不足，无法具体说明Python教程中与后端开发直接相关的主题，这与提供的证据相符。KB1和KB5确实提到了Python网络编程和Python访问数据库，这些内容可能与后端开发相关，但没有具体说明这些章节中覆盖了哪些与后端开发直接相关的主题。因此，答案的忠实度较高。然而，答案没有直接回答问题，而是说明了证据的不足，因此相关性较低。引用的标签KB1和KB5确实存在，并且支持答案的结论。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 29316.13969989121
+    },
+    {
+      "case_id": "c685c958-5826-4394-8b6b-9a81f6e64905",
+      "query": "Python 教程中如何定位序列数据结构的学习位置？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "e8f80011-4746-491f-a0c2-f7869fd40631",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 63,
+          "score": 0.6297420859336853,
+          "content_preview": "Python编程入门与实践（微视频版）\n34\n优 先 级 运 算 符 说　　明\n7 ^、| 按位异或和按位或\n8 <=、 >、 >= 比较(关系)运算符\n9 < >、 ==、!= 比较(关系)运算符\n10 =、 +=、 -=、 *=、 /=、 %=、 //=、 **= 赋值运算符\n11 is、 is not 标识运算符\n12 in、not in 成员运算符\n13 not、or、and 逻辑运算符\n2.3.2　表达式\nPython语言中的表达式与其他编程语言的表达式没有显著区别。每个符合Python语言\n规则的表达式都会计算出一个确定的值。常量、变量的运算以及函数的调用都可以构成表\n达式。在本书后续章节中，我们将介绍的序列、函数和对象也可以成为表达式的一部分。\n2.4　序列数据结构\n在序列中，每个元素都被赋予了一个特定的数字，用以标识其在序列中的位置，这个数\n字被称为元素的“索引”或“位置”。第一个索引为0，第二个索引为1，以此类推。序列支\n持的操作包括索引、切片、加法、乘法以及成员检查。此外，Python 内置了确定序列长度以\n及查找最大和最小元素的方法。接下来将介绍 Python 中的列表、元组、字典和集合。\n2.4.1　列表\n列表(list)是 Python中使用最广泛的数据类型。列表中的数据项不需要具有相同的类\n型。虽然列表类似于其他语言中的数组，但其功能要强大得多。\n创建一个列表，只需将逗号分隔的不同数据项用方括号括起来即可。例如：\nlist1 = ['泰山', '嵩山', 1997, 2000]\nlist2 = [1, 2, 3, 4, 5]\nlist3 = [\"a\", \"b\", \"c\", \"d\"]\n列表的索引从0开始，可以进行截取(切片)、组合等操作。\n1. 访问列表中的值\n使用下标索引可以访问列表中的值，也可以使用方括号进行切片。下面的示例演示了\n如何访问列表"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "4057d1e1-c4fb-43d1-aa16-6d623a28199f",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 80,
+          "score": 0.11001130193471909,
+          "content_preview": "Python编程入门与实践（微视频版）\n46\n2.5　课后实践\n本章全面介绍了Python的基础知识，涵盖了数据类型、变量和常量、运算符与表达\n式，以及序列数据结构。从基本的数值、字符串和布尔类型，到复杂的列表、元组、字典\n和集合，本章详细讲解了各种数据类型的特性和用法。同时，深入探讨了变量与常量的概\n念，以及各种运算符的使用方法。这些基础内容为用户提供了系统的Python语法知识，为\n今后的编程实践奠定了坚实的基础。掌握这些核心概念，将有助于用户更好地理解和应用\nPython编程。\n在下面的课后实践部分，用户可以通过动手实现几个应用实例并完成课后的思考练\n习，巩固所学的知识。\n一、应用实例\n【例2-1】生成不重复随机数。\n分析：下面使用三种不同方法生成指定数量的不重复随机数，并对它们进行性能比\n较。第一种方法使用列表和计数器，第二种方法使用列表和长度检查，第三种方法使用集\n合。代码包含一个性能测试函数，用于测量每种方法在生成10 000次随机数集合时的执行\n时间。通过比较这些执行时间，可以评估哪种方法在生成不重复随机数时更加高效，从而\n为类似任务选择最优的实现方式。\nimport random\nimport time\ndef generate_random_numbers_v1(number, start, end):\n        \"\"\"\n        使用列表和计数器来生成指定数量的介于给定范围内的不重复随机数\n        \"\"\"\n        data = [ ]\n        count = 0\n        while count < number:\n                element = random.randint(start, end)\n                if element not in data:\n       "
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "da9c641c-5860-43f0-a5fa-979cfa2aad0b",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 8,
+          "score": 0.06418703496456146,
+          "content_preview": "·············13\n第 2 章  Python语法基础 ················19\n2.1　Python数据类型 ····························20\n2.1.1　数值类型 ································ 20\n2.1.2　字符串 ··································· 20\n2.1.3　布尔类型 ································ 23\n2.1.4　空值 ······································ 24\n2.1.5　Python数据类型转换 ··················24\n2.2　变量和常量 ··································25\n2.2.1　变量 ······································ 25\n2.2.2　常量 ······································ 26\n2.3　运算符与表达式 ····························27\n2.3.1　运算符 ··································· 27\n2.3.2　表达式 ··································· 34\n2.4　序列数据结构 ·······························34\n2.4.1　列表 ······································ 34\n2.4.2　元组 ······································ 38\n2.4.3　字典 ·····················"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "32fffeac-1647-463e-b7e8-028cf1c19442",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 5,
+          "score": 0.05781394988298416,
+          "content_preview": "Python编程入门与实践（微视频版）\nII\n章节 内容说明\n第1章 介绍Python编程基础，包括语言特点、环境配置、IDLE、基本输入输出、代码规范和获取帮助\n第2章 讲解Python语法基础，包括数据类型、变量、运算符和序列数据结构，为编程实践奠定基础\n第3章 讲解分支和循环控制语句，包括if、 while和for循环等语句，并通过示例阐述常用算法以提高\n程序设计能力\n第4章 介绍函数与模块的基本概念，包括函数定义、参数传递、闭包、递归及模块管理技巧\n第5章 探讨文件与文件夹操作，包括打开/关闭文件、使用不同模式进行数据读写等\n第6章 深入面向对象设计，重点讲解封装、继承和多态，以及类与对象的定义与管理\n第7章 剖析Python图形用户界面(GUI)编程，重点使用Tkinter库创建交互界面，涵盖组件使用和事件\n处理\n第8章 探讨多线程与多进程编程，讲解threading模块与multiprocessing模块的使用方法\n第9章 讲解Python数据库访问，重点介绍SQL的基本概念及SQLite3模块的使用\n第10章 介绍Pillow库核心模块，包括图像操作、文本与图形添加、滤镜应用及生成水印和二维码\n第11章 深入探讨Python网络编程，涵盖计算机网络基础、TCP/UDP编程、网络安全工具及网络爬虫技术\n三、本书配套资源及服务\n与书中内容同步的案例操作教学资源可供读者随时扫码学习。此外本书免费提供电子\n课件、完整代码文档和实例源文件，读者可以扫描下方的二维码获取，也可以进入本书信\n息支持网站(http://www.tupwk.com.cn/downpage)下载。扫描下方的视频二维码可以观看教\n学视频。\n扫一扫，看视频\n 扫码推送配套资源到邮箱\n本书由哈尔滨理工大学的席亮、黄山学院的毕津滔和黑龙江东方学院的马俊合作编\n写，其中席亮编写了第1、2、7、10章，毕津滔"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "7f27d524-7484-485e-a1f4-2787b53e8dbb",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 46,
+          "score": 0.021206451579928398,
+          "content_preview": "BitMap用法\nRedis中是利用string类型数据结构实现BitMap，因此最大上限是512M，转换为bit则是 2^32个bit位。\nBitMap的操作命令有：\nSETBIT：向指定位置（offset）存入一个0或1\nGETBIT ：获取指定位置（offset）的bit值\nBITCOUNT ：统计BitMap中值为1的bit位的数量\nBITFIELD ：操作（查询、修改、自增）BitMap中bit数组中的指定位置（offset）的值\nBITFIELD_RO ：获取BitMap中bit数组，并以十进制形式返回\nBITOP ：将多个BitMap的结果做位运算（与 、或、异或）\nBITPOS ：查找bit数组中指定范围内第一个0或1出现的位置\n\n## 幻灯片 194\n\nBitMap用法\n签到功能\n签到统计\n\n## 幻灯片 195\n\n需求：实现签到接口，将当前用户当天签到信息保存到Redis中\n提示：因为BitMap底层是基于String数据结构，因此其操作也都封装在字符串相关操作中了。\n说明\n请求方式\nPost\n请求路径\n/user/sign\n请求参数\n无\n返回值\n无\n签到功能\n\n## 幻灯片 196\n\nBitMap用法\n签到功能\n签到统计\n\n## 幻灯片 197\n\n签到统计\n问题1：什么叫做连续签到天数？\n从最后一次签到开始向前统计，直到遇到第一次未签到为止，计算总的签到次数，就是连续签到天数。\n问题2：如何得到本月到今天为止的所有签到数据？\nBITFIELD key GET u[dayOfMonth] 0\n问题3：如何从后向前遍历每个bit位？\n与 1 做与运算，就能得到最后一个bit位。\n随后右移1位，下一个bit位就成为了最后一个bit位。\n1\n1\n1\n0\n0\n0\n1\n1\n0\n1\n1\n0\n0\n0\n1\n0\n1\n1\n1\n0\n1\n1\n1\n1\n1\n0\n1\n1\n1\n1\n1\n"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "52223632-8a6a-4fc2-b619-d69651754942",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 46,
+          "score": 0.02098560705780983,
+          "content_preview": "第2章　Python语法基础\n21\n上述代码的执行结果为：\nvar1[0]: H\nvar2[1:5]: ytho\n切片是对字符串(或其他序列)的一种操作，格式为字符串后跟方括号，方括号中包含\n一对可选的数字，用冒号分隔，例如 [1:5]。切片操作中的第一个数字(冒号之前)表示切片\n的起始位置，第二个数字(冒号之后)表示切片的结束位置。\n  如果不指定起始位置，Python 将默认从字符串的开头开始切片。\n  如果不指定结束位置，Python 将默认切片到字符串的末尾。\n需要注意的是，切片返回的内容从起始位置开始，正好在结束位置之前结束。例如，\n[1:5] 表示获取从第二个字符到第六个字符之前(即第5个字符)的部分。\n2. Python 转义字符\n在Python中，当需要在字符串中使用特殊字符时，可以使用反斜杠“\\ ”进行转义。\n表 2-1 所示为常用的转义字符。\n表2-2　转义字符\n转 义 字 符 说　　明 转 义 字 符 说　　明\n\\(在行尾时) 续行符 \\r 回车\n\\\\ 反斜杠 \\a 响铃\n\\n 换行 \\f 换页\n\\t 横向制表符 \\b 退格(Backspace)\n\\v 纵向制表符 \\000 空\n\\' 单引号 \\xyy 十六进制数，yy代表的字符\n\\\" 双引号 \\oyy 八进制数，yy代表的字符\n3. Python 字符串运算符\nPython中的字符串运算符如表2-3所示。在以下示例中，变量a的值为字符串 \"Hello\"，\n变量b的值为字符串\"Python\"。\n表2-3　Python字符串运算符\n运 算 符 说　　明 示　　例\n＋ 字符串连接 a＋b输出结果：HelloPython\n* 重复输出字符串 a * 2输出结果：HelloHello"
+        }
+      ],
+      "answer": "根据证据，在《Python编程入门与实践（微视频版）》教程中，序列数据结构的学习位置位于第2章“Python语法基础”的第2.4节，标题为“序列数据结构”。该节从第34页开始，具体内容包括列表、元组、字典和集合的介绍【KB1】【KB3】。此外，教程的目录也明确列出了第2章包含“2.4 序列数据结构”及其子节【KB3】【KB4】。",
+      "citations": [
+        "KB1",
+        "KB3",
+        "KB4"
+      ],
+      "citation_audit": {
+        "citation_count": 3,
+        "valid_citation_count": 3,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.3333333333333333,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1474.9015364795923,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 1.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "数据类型",
+          "变量"
+        ],
+        "matched_chunk_ids": [
+          "e8f80011-4746-491f-a0c2-f7869fd40631"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 7029.95297499001,
+      "judge_elapsed_ms": 4248.27510677278,
+      "judge": {
+        "answer_faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 1.0,
+        "judge_explanation": "答案中的信息完全符合提供的证据，且直接回答了问题。引用的标签【KB1】【KB3】【KB4】均真实存在，并且支持答案中的结论。",
+        "raw_json": {
+          "answer_faithfulness": 1.0,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 1.0,
+          "explanation": "答案中的信息完全符合提供的证据，且直接回答了问题。引用的标签【KB1】【KB3】【KB4】均真实存在，并且支持答案中的结论。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 12753.80564853549
+    },
+    {
+      "case_id": "405fe77d-859e-4d5b-9daf-3e1e79bd730b",
+      "query": "Go 切片的长度和容量分别表示什么？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "a3978e91-54e2-49f6-99d7-d14aaa49b834",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 4,
+          "score": 0.8407320380210876,
+          "content_preview": "组他们的形参是⼀一致。\nslice\n声明⽅方式\n使⽤用⽅方式\n切⽚片容量量的追加\nlen 和 cap\n切⽚片的⻓长度和容量量不不同，⻓长度表示左指针⾄至右指针之间的距离，容量量表示左指针⾄至底层数组末尾的距离。\n切⽚片的扩容机制，append的时候，如果⻓长度增加后超过容量量，则将容量量增加2倍\n切⽚片的截取\nmap\n声明⽅方式\n使⽤用⽅方式\n⾯面向对象特征\n封装\n类名、属性名、⽅方法名 ⾸首字⺟母⼤大写表示对外(其他包)\n可以访问，否则只能够在本包内访问\n继承\n⽗父类\n⼦子类\n定义⼦子类\n多态\n基本的要素\n有⼀一个⽗父类(有接⼝口)\n有⼦子类(实现了了⽗父类的全部接⼝口⽅方法)\n⽗父类类型的变量量(指针) 指向(引⽤用) ⼦子类的具体数据变量量\ninterface 通⽤用万能类型\ninterface{}\n空接⼝口\nint 、string、ﬂoat32、\nﬂoat64、struct .... 都实现了了interface{}\n就可以⽤用interface{}类型 引⽤用 任\n意的数据类型\n类型断⾔言\n反射\n变量量的结构\nreﬂect包\n结构体标签\n结构体标签的定义\n结构体标签应⽤用\njson编解码\norm映射关系\ngolang⾼高阶\ngoroutine\nruntime.Goexit() 退出当前的goroutine\nchannel\nchannel的定义\nchannel的使⽤用\n⽆无缓冲的channel\n在第 1 步，两个 goroutine 都到达通道，但哪个都没有开始执⾏行行发送或者接收。\n在第 2 步，左侧的 goroutine 将它的⼿手伸进了了通道，这模拟了了向通道发送数据的⾏行行\n为。这时，这个 goroutine 会在通道中被锁住，直到交换完成。\n在第 3 步，右侧的 goroutine 将它的⼿手放⼊入通道，这模拟了了从通道⾥里里接收数据。这\n个 gorout"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "474b918b-9723-43d1-af5e-d8bccead129a",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 3,
+          "score": 0.7361264824867249,
+          "content_preview": "int = 100, 200\nvar kk, ll = 100, \"Aceld\"\n多⾏行行写法\nvar (\nvv int  = 100\njj bool = true\n)\n常量量与iota\n常量量\nconst a int = 10\nconst (\n   a = 10\n   b = 20\n)\niota\n与const来表示枚举类型\n函数\n多返回值\ninit函数与import导包\ninit函数\n制作包的时候，项⽬目路路径如下\n$GOPATH/GolangStudy/5-init/\n├── lib1/\n│   └── lib1.go\n├── lib2/\n│   └── lib2.go\n└── main.go\nmain.go\nlib1.go\nlib2.go\nimport导包\nimport _ “fmt” 给fmt包起⼀一个别名，匿匿名， ⽆无法使⽤用当前包的⽅方法，但是\n会执⾏行行当前的包内部的init()⽅方法\nimport aa “fmt” 给fmt包起⼀一个别名，aa， aa.Println()来直接调⽤用。\nimport . “fmt” 将当前fmt包中的全部⽅方法，导⼊入到当前本包的作⽤用中，fmt包中\n的全部的⽅方法可以直接使⽤用API来调⽤用，不不需要fmt.API来调⽤用\n指针\ndefer\n知识点1 defer的执⾏行行顺序\n执⾏行行顺序是 fun3() -> func2()-> func1()\n知识点2 defer和return谁先谁后\n执⾏行行结果:\n结论: return之后的语句句先执⾏行行，defer后的语句句后执⾏行行\n切⽚片slice\n数组 声明数组的⽅方式\n 数组的⻓长度是固定的\n固定⻓长度的数组在传参的时候，\n是严格匹配数组类型的\nslice(动态数组)\n动态数组在传参上是引⽤用传递，⽽而且不不同元素⻓长度的动态数组他们的形参是⼀一致。\nslice\n声明"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "7c0391ca-9bdb-45e1-93a4-57ea9607e7ed",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 1,
+          "score": 0.010926470160484314,
+          "content_preview": "《后端极速转职Golang⼯工程师》\ngolang环境安装\n源码包下载\nhttps://golang.org/dl/ 国外官⽅方\nhttps://golang.google.cn/dl/ 中国镜像\nhttps://studygolang.com/dl 中⽂文⽹网站\nlinux为例例\n源码包 go1.14.4.linux-amd64.tar.gz\n解压源码包到/usr/local sudo tar -zxvf go1.14.4.linux-amd64.tar.gz -C /usr/local/\n配置环境变量量\n打开~/.bashrc 添加如下配置变量量\nexport GOROOT=/usr/local/go\nexport GOPATH=$HOME/go\nexport PATH=$PATH:$GOROOT/bin:$GOPATH/bin\nGOROOT 表示源码包所在路路径\nGOPATH 开发者Go的项⽬目默认路路径\n不不同的操作系统具体配置不不同\n检测开发环境\n⼿手动加载~/.bashrc source ~/.bashrc\ngo version\ngo --help\n没有任何错误提示表示环境搭建成功\nIDE的推荐\n收费 Goland\n免费 VsCode\nVim + go插件\ngolang语⾔言特性\n优势\n简单的部署\n可直接编译成机器器码可执⾏行行\n不不依赖其他库\n直接运⾏行行即可部署\n静态类型语⾔言 编译的时候即可检查出来隐藏的\n⼤大多数问题\n语⾔言层⾯面的并发\n天⽣生基因⽀支持\n充分的利利⽤用多核\n强⼤大的标准库\nruntime系统调度机制\n⾼高效的GC垃圾回收\n丰富的标准库\n简单易易学\n25个关键字\nC语⾔言简洁基因，内嵌C语法⽀支持\n⾯面向对象特征\n跨平台\n⼤大⼚厂领军\n适合做什什么\n云计算基础设施领域\ndocker\nkubernetes\netcd\nconsul\ncloud"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "51ab9d65-30d5-438a-92f0-34c3bff1bebe",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 8,
+          "score": 0.006419280543923378,
+          "content_preview": "thub.com/aceld/moudles_test\ngo 1.14\n在该项⽬目编写源代码\n如果源代码中依赖某个库(⽐比如: github.com/aceld/zinx/znet)\n⼿手动down go get github.com/aceld/zinx/znet\n⾃自动down\ngo mod ⽂文件会添加⼀一⾏行行新代码\nmodule github.com/aceld/moudles_test\ngo 1.14\nrequire github.com/aceld/zinx v0.0.0-20200315073925-f09df55dc746 // indirect\n含义当前模块依赖github.com/aceld/zinx \n依赖的版本是 v0.0.0-20200315073925-f09df55dc746 \n//indirect 表示间接依赖\n因为项⽬目直接依赖的是znet包\n所以所间接依赖zinx包\n会⽣生成⼀一个go.sum⽂文件\ngithub.com/aceld/zinx v0.0.0-20200315073925-f09df55dc746 h1:TturbcEfboY81jsKVSQtGkqk8FN8ag0TmKYzaFHﬂmQ=\ngithub.com/aceld/zinx v0.0.0-20200315073925-f09df55dc746/go.mod h1:bMiERrPdR8FzpBOo86nhWWmeHJ1cCaqVvWKCGcDVJ5M=\ngithub.com/golang/protobuf v1.3.3/go.mod h1:vzj43D7+SQXF/4pzW/hwtAqwc6iTitCiVSaWz5lYuqw=\ngo.sum⽂文件的作⽤用罗列列当前项⽬目直接或间接的依赖所有模块版本，保证今后项⽬目依赖的版本不不会被篡改\nh1:hash\n表示整体项⽬目"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "0068fc68-8447-4ff1-81e9-8065553c1c2e",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 9,
+          "score": 0.003964007366448641,
+          "content_preview": "会被篡改\nh1:hash\n表示整体项⽬目的zip⽂文件打开之后的全部⽂文件的校验和来⽣生成的hash\n如果不不存在，可能表示依赖的库可能⽤用不不上\nxxx/go.mod h1:hash go.mod⽂文件做的hash\n修改项⽬目模块的版本依赖关系\n go mod edit -replace=zinx@v0.0.0-20200306023939bc416543ae24=zinx@v0.0.0-20200221135252-8a8954e75100\ngo mod⽂文件就会被修改\nmodule github.com/aceld/modules_test\ngo 1.14\nrequire github.com/aceld/zinx v0.0.0-20200306023939-bc416543ae24 // indirect\nreplace zinx v0.0.0-20200306023939-bc416543ae24 => zinx v0.0.0-20200221135252-8a8954e75100\n⼩小试⽜牛⼑刀golang经典的案例例 即时通信系统"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "960bbcf8-497d-4b6e-baab-cefb7988d15b",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 2,
+          "score": 0.0039094011299312115,
+          "content_preview": "es\netcd\nconsul\ncloudﬂare CDN\n七⽜牛云存储\n基础后端软件\ntidb\ninﬂuxdb\ncockroachdb\n微服务\ngo-kit\nmicro\n互联⽹网基础设施\n以太坊\nhyperledger\n明星作品\n不不⾜足\n包管理理，⼤大部分包都在github上\n⽆无泛化类型\n所有Excepiton都⽤用Error来处理理(⽐比较有争议)。\n对C的降级处理理，并⾮非⽆无缝，没有C降级到asm那么完美(序列列化问题)\ngolang语法新奇\n从⼀一个main函数初⻅见golang语法\n  package main\n  import \"fmt\"\n  func main() {\n          /* 简单的程序 万能的hello world */\n          fmt.Println(\"Hello Go\")\n  }\ngolang中的表达式，加\";\", 和不不\n加 都可以，建议是不不加\n函数的{  ⼀一定是 和函数名在同⼀一⾏行行的，否则编译错\npackage main //程序的包名\n/*\nimport \"fmt\"\nimport \"time\"\n*/\nimport (\n\"fmt\"\n\"time\"\n)\n变量量 变量量的声明\n局部变量量的声明\n⽅方法⼀一//⽅方法⼀一：声明⼀一个变量量 默认的值是0\nvar a int\n⽅方法⼆二//⽅方法⼆二：声明⼀一个变量量，初始化⼀一个值\nvar b int = 100\n⽅方法三 //⽅方法三：在初始化的时候，可以省去数据类型，通过值⾃自动匹配当前的变量量的数据类型\nvar c = 100\n⽅方法四(常⽤用)//⽅方法四：(常⽤用的⽅方法) 省去var关键字，直接⾃自动匹配\ne := 100\n全局变量量的声明 ⽅方法四不不⽀支持全局\n多变量量的声明\n单⾏行行写法\nvar xx, yy int = 100, 200\nvar k"
+        }
+      ],
+      "answer": "Go 切片的长度表示左指针至右指针之间的距离，容量表示左指针至底层数组末尾的距离。",
+      "citations": [
+        "KB1",
+        "KB2"
+      ],
+      "citation_audit": {
+        "citation_count": 2,
+        "valid_citation_count": 2,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.5,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1348.9078152924776,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 1.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "len",
+          "cap"
+        ],
+        "matched_chunk_ids": [
+          "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 3441.0029258579016,
+      "judge_elapsed_ms": 4120.851680636406,
+      "judge": {
+        "answer_faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 1.0,
+        "judge_explanation": "答案中的描述与提供的证据 [KB1] 和 [KB2] 中关于 Go 切片的长度和容量的定义完全一致。答案直接回答了问题，且引用的标签 [KB1] 和 [KB2] 确实存在并支持答案中的结论。",
+        "raw_json": {
+          "answer_faithfulness": 1.0,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 1.0,
+          "explanation": "答案中的描述与提供的证据 [KB1] 和 [KB2] 中关于 Go 切片的长度和容量的定义完全一致。答案直接回答了问题，且引用的标签 [KB1] 和 [KB2] 确实存在并支持答案中的结论。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 8911.390936002135
+    },
+    {
+      "case_id": "afd14d25-c9d5-446d-8c03-19fd99a88dd6",
+      "query": "Go 切片什么时候会触发扩容？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "a3978e91-54e2-49f6-99d7-d14aaa49b834",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 4,
+          "score": 0.3244474530220032,
+          "content_preview": "组他们的形参是⼀一致。\nslice\n声明⽅方式\n使⽤用⽅方式\n切⽚片容量量的追加\nlen 和 cap\n切⽚片的⻓长度和容量量不不同，⻓长度表示左指针⾄至右指针之间的距离，容量量表示左指针⾄至底层数组末尾的距离。\n切⽚片的扩容机制，append的时候，如果⻓长度增加后超过容量量，则将容量量增加2倍\n切⽚片的截取\nmap\n声明⽅方式\n使⽤用⽅方式\n⾯面向对象特征\n封装\n类名、属性名、⽅方法名 ⾸首字⺟母⼤大写表示对外(其他包)\n可以访问，否则只能够在本包内访问\n继承\n⽗父类\n⼦子类\n定义⼦子类\n多态\n基本的要素\n有⼀一个⽗父类(有接⼝口)\n有⼦子类(实现了了⽗父类的全部接⼝口⽅方法)\n⽗父类类型的变量量(指针) 指向(引⽤用) ⼦子类的具体数据变量量\ninterface 通⽤用万能类型\ninterface{}\n空接⼝口\nint 、string、ﬂoat32、\nﬂoat64、struct .... 都实现了了interface{}\n就可以⽤用interface{}类型 引⽤用 任\n意的数据类型\n类型断⾔言\n反射\n变量量的结构\nreﬂect包\n结构体标签\n结构体标签的定义\n结构体标签应⽤用\njson编解码\norm映射关系\ngolang⾼高阶\ngoroutine\nruntime.Goexit() 退出当前的goroutine\nchannel\nchannel的定义\nchannel的使⽤用\n⽆无缓冲的channel\n在第 1 步，两个 goroutine 都到达通道，但哪个都没有开始执⾏行行发送或者接收。\n在第 2 步，左侧的 goroutine 将它的⼿手伸进了了通道，这模拟了了向通道发送数据的⾏行行\n为。这时，这个 goroutine 会在通道中被锁住，直到交换完成。\n在第 3 步，右侧的 goroutine 将它的⼿手放⼊入通道，这模拟了了从通道⾥里里接收数据。这\n个 gorout"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "474b918b-9723-43d1-af5e-d8bccead129a",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 3,
+          "score": 0.1223442405462265,
+          "content_preview": "int = 100, 200\nvar kk, ll = 100, \"Aceld\"\n多⾏行行写法\nvar (\nvv int  = 100\njj bool = true\n)\n常量量与iota\n常量量\nconst a int = 10\nconst (\n   a = 10\n   b = 20\n)\niota\n与const来表示枚举类型\n函数\n多返回值\ninit函数与import导包\ninit函数\n制作包的时候，项⽬目路路径如下\n$GOPATH/GolangStudy/5-init/\n├── lib1/\n│   └── lib1.go\n├── lib2/\n│   └── lib2.go\n└── main.go\nmain.go\nlib1.go\nlib2.go\nimport导包\nimport _ “fmt” 给fmt包起⼀一个别名，匿匿名， ⽆无法使⽤用当前包的⽅方法，但是\n会执⾏行行当前的包内部的init()⽅方法\nimport aa “fmt” 给fmt包起⼀一个别名，aa， aa.Println()来直接调⽤用。\nimport . “fmt” 将当前fmt包中的全部⽅方法，导⼊入到当前本包的作⽤用中，fmt包中\n的全部的⽅方法可以直接使⽤用API来调⽤用，不不需要fmt.API来调⽤用\n指针\ndefer\n知识点1 defer的执⾏行行顺序\n执⾏行行顺序是 fun3() -> func2()-> func1()\n知识点2 defer和return谁先谁后\n执⾏行行结果:\n结论: return之后的语句句先执⾏行行，defer后的语句句后执⾏行行\n切⽚片slice\n数组 声明数组的⽅方式\n 数组的⻓长度是固定的\n固定⻓长度的数组在传参的时候，\n是严格匹配数组类型的\nslice(动态数组)\n动态数组在传参上是引⽤用传递，⽽而且不不同元素⻓长度的动态数组他们的形参是⼀一致。\nslice\n声明"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "7c0391ca-9bdb-45e1-93a4-57ea9607e7ed",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 1,
+          "score": 0.0013447207165881991,
+          "content_preview": "《后端极速转职Golang⼯工程师》\ngolang环境安装\n源码包下载\nhttps://golang.org/dl/ 国外官⽅方\nhttps://golang.google.cn/dl/ 中国镜像\nhttps://studygolang.com/dl 中⽂文⽹网站\nlinux为例例\n源码包 go1.14.4.linux-amd64.tar.gz\n解压源码包到/usr/local sudo tar -zxvf go1.14.4.linux-amd64.tar.gz -C /usr/local/\n配置环境变量量\n打开~/.bashrc 添加如下配置变量量\nexport GOROOT=/usr/local/go\nexport GOPATH=$HOME/go\nexport PATH=$PATH:$GOROOT/bin:$GOPATH/bin\nGOROOT 表示源码包所在路路径\nGOPATH 开发者Go的项⽬目默认路路径\n不不同的操作系统具体配置不不同\n检测开发环境\n⼿手动加载~/.bashrc source ~/.bashrc\ngo version\ngo --help\n没有任何错误提示表示环境搭建成功\nIDE的推荐\n收费 Goland\n免费 VsCode\nVim + go插件\ngolang语⾔言特性\n优势\n简单的部署\n可直接编译成机器器码可执⾏行行\n不不依赖其他库\n直接运⾏行行即可部署\n静态类型语⾔言 编译的时候即可检查出来隐藏的\n⼤大多数问题\n语⾔言层⾯面的并发\n天⽣生基因⽀支持\n充分的利利⽤用多核\n强⼤大的标准库\nruntime系统调度机制\n⾼高效的GC垃圾回收\n丰富的标准库\n简单易易学\n25个关键字\nC语⾔言简洁基因，内嵌C语法⽀支持\n⾯面向对象特征\n跨平台\n⼤大⼚厂领军\n适合做什什么\n云计算基础设施领域\ndocker\nkubernetes\netcd\nconsul\ncloud"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "960bbcf8-497d-4b6e-baab-cefb7988d15b",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 2,
+          "score": 0.0009633087902329862,
+          "content_preview": "es\netcd\nconsul\ncloudﬂare CDN\n七⽜牛云存储\n基础后端软件\ntidb\ninﬂuxdb\ncockroachdb\n微服务\ngo-kit\nmicro\n互联⽹网基础设施\n以太坊\nhyperledger\n明星作品\n不不⾜足\n包管理理，⼤大部分包都在github上\n⽆无泛化类型\n所有Excepiton都⽤用Error来处理理(⽐比较有争议)。\n对C的降级处理理，并⾮非⽆无缝，没有C降级到asm那么完美(序列列化问题)\ngolang语法新奇\n从⼀一个main函数初⻅见golang语法\n  package main\n  import \"fmt\"\n  func main() {\n          /* 简单的程序 万能的hello world */\n          fmt.Println(\"Hello Go\")\n  }\ngolang中的表达式，加\";\", 和不不\n加 都可以，建议是不不加\n函数的{  ⼀一定是 和函数名在同⼀一⾏行行的，否则编译错\npackage main //程序的包名\n/*\nimport \"fmt\"\nimport \"time\"\n*/\nimport (\n\"fmt\"\n\"time\"\n)\n变量量 变量量的声明\n局部变量量的声明\n⽅方法⼀一//⽅方法⼀一：声明⼀一个变量量 默认的值是0\nvar a int\n⽅方法⼆二//⽅方法⼆二：声明⼀一个变量量，初始化⼀一个值\nvar b int = 100\n⽅方法三 //⽅方法三：在初始化的时候，可以省去数据类型，通过值⾃自动匹配当前的变量量的数据类型\nvar c = 100\n⽅方法四(常⽤用)//⽅方法四：(常⽤用的⽅方法) 省去var关键字，直接⾃自动匹配\ne := 100\n全局变量量的声明 ⽅方法四不不⽀支持全局\n多变量量的声明\n单⾏行行写法\nvar xx, yy int = 100, 200\nvar k"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "0068fc68-8447-4ff1-81e9-8065553c1c2e",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 9,
+          "score": 0.0008409346337430179,
+          "content_preview": "会被篡改\nh1:hash\n表示整体项⽬目的zip⽂文件打开之后的全部⽂文件的校验和来⽣生成的hash\n如果不不存在，可能表示依赖的库可能⽤用不不上\nxxx/go.mod h1:hash go.mod⽂文件做的hash\n修改项⽬目模块的版本依赖关系\n go mod edit -replace=zinx@v0.0.0-20200306023939bc416543ae24=zinx@v0.0.0-20200221135252-8a8954e75100\ngo mod⽂文件就会被修改\nmodule github.com/aceld/modules_test\ngo 1.14\nrequire github.com/aceld/zinx v0.0.0-20200306023939-bc416543ae24 // indirect\nreplace zinx v0.0.0-20200306023939-bc416543ae24 => zinx v0.0.0-20200221135252-8a8954e75100\n⼩小试⽜牛⼑刀golang经典的案例例 即时通信系统"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "51ab9d65-30d5-438a-92f0-34c3bff1bebe",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 8,
+          "score": 0.00083934236317873,
+          "content_preview": "thub.com/aceld/moudles_test\ngo 1.14\n在该项⽬目编写源代码\n如果源代码中依赖某个库(⽐比如: github.com/aceld/zinx/znet)\n⼿手动down go get github.com/aceld/zinx/znet\n⾃自动down\ngo mod ⽂文件会添加⼀一⾏行行新代码\nmodule github.com/aceld/moudles_test\ngo 1.14\nrequire github.com/aceld/zinx v0.0.0-20200315073925-f09df55dc746 // indirect\n含义当前模块依赖github.com/aceld/zinx \n依赖的版本是 v0.0.0-20200315073925-f09df55dc746 \n//indirect 表示间接依赖\n因为项⽬目直接依赖的是znet包\n所以所间接依赖zinx包\n会⽣生成⼀一个go.sum⽂文件\ngithub.com/aceld/zinx v0.0.0-20200315073925-f09df55dc746 h1:TturbcEfboY81jsKVSQtGkqk8FN8ag0TmKYzaFHﬂmQ=\ngithub.com/aceld/zinx v0.0.0-20200315073925-f09df55dc746/go.mod h1:bMiERrPdR8FzpBOo86nhWWmeHJ1cCaqVvWKCGcDVJ5M=\ngithub.com/golang/protobuf v1.3.3/go.mod h1:vzj43D7+SQXF/4pzW/hwtAqwc6iTitCiVSaWz5lYuqw=\ngo.sum⽂文件的作⽤用罗列列当前项⽬目直接或间接的依赖所有模块版本，保证今后项⽬目依赖的版本不不会被篡改\nh1:hash\n表示整体项⽬目"
+        }
+      ],
+      "answer": "Go切片在append时，如果长度增加后超过容量，则会触发扩容，容量会增加2倍。",
+      "citations": [
+        "KB1",
+        "KB2"
+      ],
+      "citation_audit": {
+        "citation_count": 2,
+        "valid_citation_count": 2,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.5,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1612.491823732853,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 1.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "append",
+          "容量"
+        ],
+        "matched_chunk_ids": [
+          "a3978e91-54e2-49f6-99d7-d14aaa49b834"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 3248.002279549837,
+      "judge_elapsed_ms": 4492.808191105723,
+      "judge": {
+        "answer_faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案中的描述'Go切片在append时，如果长度增加后超过容量，则会触发扩容，容量会增加2倍'与KB1和KB2中的内容一致，因此答案的事实被证据支持，且直接回答了问题。引用的KB1和KB2确实存在，并且支持了答案的结论，但是KB2的内容被截断了，所以引用的完整性略有欠缺。",
+        "raw_json": {
+          "answer_faithfulness": 1.0,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 0.8,
+          "explanation": "答案中的描述'Go切片在append时，如果长度增加后超过容量，则会触发扩容，容量会增加2倍'与KB1和KB2中的内容一致，因此答案的事实被证据支持，且直接回答了问题。引用的KB1和KB2确实存在，并且支持了答案的结论，但是KB2的内容被截断了，所以引用的完整性略有欠缺。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 9353.886971250176
+    },
+    {
+      "case_id": "fa747816-9d24-44a1-bf76-d534a1878c93",
+      "query": "Go channel 如何让 goroutine 在交换数据时等待？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "a2eb624e-b6ce-47f1-bba6-1e7db3af0ac5",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 5,
+          "score": 0.8877502679824829,
+          "content_preview": "通道⾥里里接收数据。这\n个 goroutine ⼀一样也会在通道中被锁住，直到交换完成。\n在第 4 步和第 5 步，进⾏行行交换，并最终，在第 6 步，两个 goroutine 都将它们的\n⼿手从通道⾥里里拿出来，这模拟了了被锁住的 goroutine 得到释放。两个 goroutine 现在\n都可以去做其他事情了了。\n有缓冲的channel\n在第 1 步，右侧的 goroutine 正在从通道接收⼀一个值。\n在第 2 步，右侧的这个 goroutine独⽴立完成了了接收值的动作，⽽而左侧的 \ngoroutine 正在发送⼀一个新值到通道⾥里里。\n在第 3 步，左侧的goroutine 还在向通道发送新值，⽽而右侧的 goroutine 正在\n从通道接收另外⼀一个值。这个步骤⾥里里的两个操作既不不是同步的，也不不会互相阻\n塞。\n最后，在第 4 步，所有的发送和接收都完成，⽽而通道⾥里里还有⼏几个值，也有⼀一些空\n间可以存更更多的值。\n特点\n当channel已经满，再向⾥里里⾯面写数据，就会阻塞\n当channel为空，从⾥里里⾯面取数据也会阻塞\n关闭channel\nchannel不不像⽂文件⼀一样需要经常去关闭，只有当你确实没有任何发送数据了了，或者你想显式的结\n束range循环之类的，才去关闭channel；\n关闭channel后，⽆无法向channel 再发送数据(引发 panic 错误后导致接收⽴立即返回零值)；\n关闭channel后，可以继续从channel接收数据；\n对于nil channel，⽆无论收发都会被阻塞。\nchannel与range\nchannel与select\n单流程下⼀一个go只能监控⼀一个channel的状态，select可以完成\n监控多个channel的状态\nselect具备多路路channel的监控状态功能\ngo modules模块管理理\n课程"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "a3978e91-54e2-49f6-99d7-d14aaa49b834",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 4,
+          "score": 0.8803703784942627,
+          "content_preview": "组他们的形参是⼀一致。\nslice\n声明⽅方式\n使⽤用⽅方式\n切⽚片容量量的追加\nlen 和 cap\n切⽚片的⻓长度和容量量不不同，⻓长度表示左指针⾄至右指针之间的距离，容量量表示左指针⾄至底层数组末尾的距离。\n切⽚片的扩容机制，append的时候，如果⻓长度增加后超过容量量，则将容量量增加2倍\n切⽚片的截取\nmap\n声明⽅方式\n使⽤用⽅方式\n⾯面向对象特征\n封装\n类名、属性名、⽅方法名 ⾸首字⺟母⼤大写表示对外(其他包)\n可以访问，否则只能够在本包内访问\n继承\n⽗父类\n⼦子类\n定义⼦子类\n多态\n基本的要素\n有⼀一个⽗父类(有接⼝口)\n有⼦子类(实现了了⽗父类的全部接⼝口⽅方法)\n⽗父类类型的变量量(指针) 指向(引⽤用) ⼦子类的具体数据变量量\ninterface 通⽤用万能类型\ninterface{}\n空接⼝口\nint 、string、ﬂoat32、\nﬂoat64、struct .... 都实现了了interface{}\n就可以⽤用interface{}类型 引⽤用 任\n意的数据类型\n类型断⾔言\n反射\n变量量的结构\nreﬂect包\n结构体标签\n结构体标签的定义\n结构体标签应⽤用\njson编解码\norm映射关系\ngolang⾼高阶\ngoroutine\nruntime.Goexit() 退出当前的goroutine\nchannel\nchannel的定义\nchannel的使⽤用\n⽆无缓冲的channel\n在第 1 步，两个 goroutine 都到达通道，但哪个都没有开始执⾏行行发送或者接收。\n在第 2 步，左侧的 goroutine 将它的⼿手伸进了了通道，这模拟了了向通道发送数据的⾏行行\n为。这时，这个 goroutine 会在通道中被锁住，直到交换完成。\n在第 3 步，右侧的 goroutine 将它的⼿手放⼊入通道，这模拟了了从通道⾥里里接收数据。这\n个 gorout"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "7c0391ca-9bdb-45e1-93a4-57ea9607e7ed",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 1,
+          "score": 0.0070095849223434925,
+          "content_preview": "《后端极速转职Golang⼯工程师》\ngolang环境安装\n源码包下载\nhttps://golang.org/dl/ 国外官⽅方\nhttps://golang.google.cn/dl/ 中国镜像\nhttps://studygolang.com/dl 中⽂文⽹网站\nlinux为例例\n源码包 go1.14.4.linux-amd64.tar.gz\n解压源码包到/usr/local sudo tar -zxvf go1.14.4.linux-amd64.tar.gz -C /usr/local/\n配置环境变量量\n打开~/.bashrc 添加如下配置变量量\nexport GOROOT=/usr/local/go\nexport GOPATH=$HOME/go\nexport PATH=$PATH:$GOROOT/bin:$GOPATH/bin\nGOROOT 表示源码包所在路路径\nGOPATH 开发者Go的项⽬目默认路路径\n不不同的操作系统具体配置不不同\n检测开发环境\n⼿手动加载~/.bashrc source ~/.bashrc\ngo version\ngo --help\n没有任何错误提示表示环境搭建成功\nIDE的推荐\n收费 Goland\n免费 VsCode\nVim + go插件\ngolang语⾔言特性\n优势\n简单的部署\n可直接编译成机器器码可执⾏行行\n不不依赖其他库\n直接运⾏行行即可部署\n静态类型语⾔言 编译的时候即可检查出来隐藏的\n⼤大多数问题\n语⾔言层⾯面的并发\n天⽣生基因⽀支持\n充分的利利⽤用多核\n强⼤大的标准库\nruntime系统调度机制\n⾼高效的GC垃圾回收\n丰富的标准库\n简单易易学\n25个关键字\nC语⾔言简洁基因，内嵌C语法⽀支持\n⾯面向对象特征\n跨平台\n⼤大⼚厂领军\n适合做什什么\n云计算基础设施领域\ndocker\nkubernetes\netcd\nconsul\ncloud"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "d361a720-d15d-48dc-80b6-443dcb9a89f9",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 7,
+          "score": 0.0018915811087936163,
+          "content_preview": "GOSUMDB\n⽤用来校验拉取的第三⽅方库是否是完整的\n默认也是国外的⽹网站，如果设置了了GOPROXY，这个就不不⽤用设置了了\nGONOPROXY 通过设置GOPRIVATE即可\nGONOSUMDB 通过设置GOPRIVATE即可\nGOPRIVATE 通过设置GOPRIVATE即可\ngo env -w GOPRIVATE=\"git.example.com,github.com/aceld/zinx\n表示git.example.com 和 github.com/aceld/zinx\n是私有仓库，不不会进⾏行行GOPROXY下载和校验\ngo evn -w GOPRIVATE=\"*.example.com\"\n表示所有模块路路径为example.com的⼦子域名，⽐比如\ngit.example.com 或者 hello.example.com 都不不进⾏行行\nGOPROXY下载和校验\n通过 go env来查看环境变量量\ngo env -w GO111MODULE=on\n或者通过 Linux export 环境⽅方式也可以\n使⽤用Go Modules初始化项⽬目\n1 开启Go Modules模块 保证GO111MODULE=on\ngo  env -w GO111MODULE=on\nexport GO111MODULE=on\n设置在⽤用户启动脚本中\n需要重新打开终端或者执⾏行行source ~/.bashrc\n2 初始化项⽬目\n任意⽂文件夹创建⼀一个项⽬目（不不要求在$GOPATH/src） mkdir -p $HOME/aceld/modules_test\n创建go.mod⽂文件，同时起当前项⽬目的模块名称 go mod init github.com/aceld/module_test\n就会⽣生成⼀一个go mod⽂文件\nmodule github.com/aceld/moudl"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "474b918b-9723-43d1-af5e-d8bccead129a",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 3,
+          "score": 0.0018033069791272283,
+          "content_preview": "int = 100, 200\nvar kk, ll = 100, \"Aceld\"\n多⾏行行写法\nvar (\nvv int  = 100\njj bool = true\n)\n常量量与iota\n常量量\nconst a int = 10\nconst (\n   a = 10\n   b = 20\n)\niota\n与const来表示枚举类型\n函数\n多返回值\ninit函数与import导包\ninit函数\n制作包的时候，项⽬目路路径如下\n$GOPATH/GolangStudy/5-init/\n├── lib1/\n│   └── lib1.go\n├── lib2/\n│   └── lib2.go\n└── main.go\nmain.go\nlib1.go\nlib2.go\nimport导包\nimport _ “fmt” 给fmt包起⼀一个别名，匿匿名， ⽆无法使⽤用当前包的⽅方法，但是\n会执⾏行行当前的包内部的init()⽅方法\nimport aa “fmt” 给fmt包起⼀一个别名，aa， aa.Println()来直接调⽤用。\nimport . “fmt” 将当前fmt包中的全部⽅方法，导⼊入到当前本包的作⽤用中，fmt包中\n的全部的⽅方法可以直接使⽤用API来调⽤用，不不需要fmt.API来调⽤用\n指针\ndefer\n知识点1 defer的执⾏行行顺序\n执⾏行行顺序是 fun3() -> func2()-> func1()\n知识点2 defer和return谁先谁后\n执⾏行行结果:\n结论: return之后的语句句先执⾏行行，defer后的语句句后执⾏行行\n切⽚片slice\n数组 声明数组的⽅方式\n 数组的⻓长度是固定的\n固定⻓长度的数组在传参的时候，\n是严格匹配数组类型的\nslice(动态数组)\n动态数组在传参上是引⽤用传递，⽽而且不不同元素⻓长度的动态数组他们的形参是⼀一致。\nslice\n声明"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "960bbcf8-497d-4b6e-baab-cefb7988d15b",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 2,
+          "score": 0.0016155189368873835,
+          "content_preview": "es\netcd\nconsul\ncloudﬂare CDN\n七⽜牛云存储\n基础后端软件\ntidb\ninﬂuxdb\ncockroachdb\n微服务\ngo-kit\nmicro\n互联⽹网基础设施\n以太坊\nhyperledger\n明星作品\n不不⾜足\n包管理理，⼤大部分包都在github上\n⽆无泛化类型\n所有Excepiton都⽤用Error来处理理(⽐比较有争议)。\n对C的降级处理理，并⾮非⽆无缝，没有C降级到asm那么完美(序列列化问题)\ngolang语法新奇\n从⼀一个main函数初⻅见golang语法\n  package main\n  import \"fmt\"\n  func main() {\n          /* 简单的程序 万能的hello world */\n          fmt.Println(\"Hello Go\")\n  }\ngolang中的表达式，加\";\", 和不不\n加 都可以，建议是不不加\n函数的{  ⼀一定是 和函数名在同⼀一⾏行行的，否则编译错\npackage main //程序的包名\n/*\nimport \"fmt\"\nimport \"time\"\n*/\nimport (\n\"fmt\"\n\"time\"\n)\n变量量 变量量的声明\n局部变量量的声明\n⽅方法⼀一//⽅方法⼀一：声明⼀一个变量量 默认的值是0\nvar a int\n⽅方法⼆二//⽅方法⼆二：声明⼀一个变量量，初始化⼀一个值\nvar b int = 100\n⽅方法三 //⽅方法三：在初始化的时候，可以省去数据类型，通过值⾃自动匹配当前的变量量的数据类型\nvar c = 100\n⽅方法四(常⽤用)//⽅方法四：(常⽤用的⽅方法) 省去var关键字，直接⾃自动匹配\ne := 100\n全局变量量的声明 ⽅方法四不不⽀支持全局\n多变量量的声明\n单⾏行行写法\nvar xx, yy int = 100, 200\nvar k"
+        }
+      ],
+      "answer": "Go channel 通过阻塞机制让 goroutine 在交换数据时等待。对于无缓冲的 channel，当 goroutine 向通道发送数据时，它会被锁住（阻塞），直到另一个 goroutine 从通道接收数据，完成交换后两者才被释放。对于有缓冲的 channel，当通道已满时发送会阻塞，当通道为空时接收会阻塞。",
+      "citations": [
+        "KB1",
+        "KB2"
+      ],
+      "citation_audit": {
+        "citation_count": 2,
+        "valid_citation_count": 2,
+        "valid_citation_rate": 1.0,
+        "ground_truth_citation_count": 1,
+        "ground_truth_citation_precision": 0.5,
+        "ground_truth_citation_recall": 1.0,
+        "invalid_citations": [],
+        "target_citation_labels": [
+          "KB1"
+        ]
+      },
+      "answerable": true,
+      "retrieval_elapsed_ms": 1509.0339966118336,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "hit_at_k": true,
+        "mrr": 1.0,
+        "context_precision": 0.16666666666666666,
+        "context_recall": 1.0,
+        "ndcg_at_k": 1.0,
+        "expected_keyword_recall": 1.0,
+        "expected_keyword_hits": [
+          "通道",
+          "阻塞"
+        ],
+        "matched_chunk_ids": [
+          "a2eb624e-b6ce-47f1-bba6-1e7db3af0ac5"
+        ],
+        "matched_target_count": 1,
+        "ground_truth_target_count": 1
+      },
+      "generation_elapsed_ms": 29133.12280923128,
+      "judge_elapsed_ms": 5038.548734039068,
+      "judge": {
+        "answer_faithfulness": 0.9,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 0.8,
+        "judge_explanation": "答案中的描述与提供的证据内容基本一致，说明Go channel通过阻塞机制让goroutine在交换数据时等待，无论是无缓冲还是有缓冲的channel。因此，答案的忠实度较高。答案直接回答了问题，相关性满分。引用的标签[KB1]和[KB2]确实存在，并且支持了答案中的结论，但是[KB2]的内容被截断了，无法完全验证答案的所有细节，因此引用正确性略有扣分。",
+        "raw_json": {
+          "answer_faithfulness": 0.9,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 0.8,
+          "explanation": "答案中的描述与提供的证据内容基本一致，说明Go channel通过阻塞机制让goroutine在交换数据时等待，无论是无缓冲还是有缓冲的channel。因此，答案的忠实度较高。答案直接回答了问题，相关性满分。引用的标签[KB1]和[KB2]确实存在，并且支持了答案中的结论，但是[KB2]的内容被截断了，无法完全验证答案的所有细节，因此引用正确性略有扣分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 35681.24746903777
+    },
+    {
+      "case_id": "77048b20-7454-4388-b042-c839c1b3ff94",
+      "query": "这些资料是否给出了 Redis 集群在线扩容的统一 P99 延迟保证？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "28fed7f7-5cb0-48a9-8d26-a707c6dcb8eb",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 22,
+          "score": 0.2146136313676834,
+          "content_preview": "基于Redis的分布式锁实现思路：\n利用set nx ex获取锁，并设置过期时间，保存线程标示\n释放锁时先判断线程标示是否与自己一致，一致则删除锁\n特性：\n利用set nx满足互斥性\n利用set ex保证故障时锁依然能释放，避免死锁，提高安全性\n利用Redis集群保证高可用和高并发特性\n\n## 幻灯片 105\n\n基于Redis的分布式锁优化\n基于setnx实现的分布式锁存在下面的问题：\n不可重入\n同一个线程无法多次获取同一把锁\n01\n不可重试\n获取锁只尝试一次就返回false，没有重试机制\n02\n超时释放\n锁超时释放虽然可以避免死锁，但如果是业务执行耗时较长，也会导致锁释放，存在安全隐患\n03\n主从一致性\n如果Redis提供了主从集群，主从同步存在延迟，当主宕机时，如果从并同步主中的锁数据，则会出现锁实现\n04\n\n## 幻灯片 106\n\nRedisson\nRedisson是一个在Redis的基础上实现的Java驻内存数据网格（In-Memory Data Grid）。它不仅提供了一系列的分布式的Java常用对象，还提供了许多分布式服务，其中就包含了各种分布式锁的实现。\n官网地址： https://redisson.org\nGitHub地址： https://github.com/redisson/redisson\n\n## 幻灯片 107"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "8823eb86-5a19-4f1f-8261-f670c4f224cf",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 2,
+          "score": 0.15226106345653534,
+          "content_preview": "数据结构\n数据关联\n查询方式\n事务特性\n存储方式\n磁盘\n内存\n扩展性\n垂直\n水平\n使用场景\n认识NoSQL\nSQL\nNoSQL\n结构化(Structured)\n关联的(Relational)\n非结构化\n无关联的\nSQL查询\n非SQL\nACID\nBASE\n#1 键值类型（Redis）\n#2 文档类型（MongoDB）\n#3 列类型（HBase）\n#4 Graph类型（Neo4j）\n1）数据结构固定\n2）相关业务对数据安全性、一致性要求较高\n1）数据结构不固定\n2）对一致性、安全性要求不高\n3）对性能要求\n\n## 幻灯片 13\n\n认识NoSQL\n认识Redis\n安装Redis\n\n## 幻灯片 14\n\nRedis诞生于2009年全称是Remote Dictionary Server，远程词典服务器，是一个基于内存的键值型NoSQL数据库。\n特征：\n键值（key-value）型，value支持多种不同数据结构，功能丰富\n单线程，每个命令具备原子性\n低延迟，速度快（基于内存、IO多路复用、良好的编码）。\n支持数据持久化\n支持主从集群、分片集群\n支持多语言客户端\n认识Redis\nSALVATORE SANFILIPPO\nAKA ANTIREZ\n\n## 幻灯片 15\n\n认识NoSQL\n认识Redis\n安装Redis\n\n## 幻灯片 16\n\n参考课前资料《Redis安装说明》\n安装Redis\n\n## 幻灯片 17\n\nRedis常见命令\n02\n\n## 幻灯片 18\n\nRedis数据结构介绍\nRedis通用命令\nString类型\nHash类型\nList类型\nSet类型\nSortedSet类型\n\n## 幻灯片 19"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "83c00aca-8084-4970-bc34-2e05b590fb4f",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 0,
+          "score": 0.03819994255900383,
+          "content_preview": "# 02-Redis企业实战\n\n## 幻灯片 1\n\nRedis企业实战\nRedis的企业应用案例\n\n## 幻灯片 2\n\n今日课程介绍\n商户查询缓存\n企业的缓存使用技巧\n缓存雪崩、穿透等问题解决\n优惠券秒杀\nRedis的计数器、Lua脚本Redis\n分布式锁\nRedis的三种消息队列\n附近的商户\nRedis的GeoHash的应用\n达人探店\n基于List的点赞列表\n基于SortedSet的点赞排行榜\n好友关注\n用户签到\nRedis的BitMap数据统计功能\n基于Set集合的关注、取关、共同关注、消息推送等功能\n黑马点评\nRedis\nUV统计\nRedis的HyperLogLog的统计功能\n短信登录\nRedis的共享session应用\n\n## 幻灯片 3\n\n短信登录\n商户查询缓存\n优惠券秒杀\n达人探店\n好友关注\n附近的商户\n用户签到\nUV统计\n\n## 幻灯片 4\n\n短信登录\n01\n\n## 幻灯片 5\n\n导入黑马点评项目\n基于Session实现登录\n集群的session共享问题\n基于Redis实现共享session登录\n\n## 幻灯片 6\n\n首先，导入课前资料提供的SQL文件：\n其中的表有：\ntb_user：用户表\ntb_user_info：用户详情表\ntb_shop：商户信息表\ntb_shop_type：商户类型表\ntb_blog：用户日记表（达人探店日记）\ntb_follow：用户关注表\ntb_voucher：优惠券表\ntb_voucher_order：优惠券的订单表\n导入黑马点评项目\n注意\nMysql的版本采用5.7及以上版本\n\n## 幻灯片 7\n\n导入黑马点评项目\nRedis集群\nMySQL集群\ntomcat\ntomcat\ntomcat\n\n## 幻灯片 8"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "0db89c09-09f1-4b0c-b2ff-a036d0ec6bd6",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 9,
+          "score": 0.030910415574908257,
+          "content_preview": "缓存穿透\n开始\n提交\n商铺id\n判断缓存\n是否命中\n未命中\n命中\n返回商铺信息\n结束\n从Redis查询商铺缓存\n根据id查询数据库\n将空值写入Redis\n判断商铺\n是否存在\n将商铺数据写入Redis\n存在\n不存在\n解决\n缓存穿透\n开始\n提交\n商铺id\n判断缓存\n是否命中\n未命中\n命中\n返回商铺信息\n结束\n从Redis查询商铺缓存\n根据id查询数据库\n返回404\n判断商铺\n是否存在\n将商铺数据写入Redis\n存在\n不存在\n判断是否是空值\n是\n不是\n\n## 幻灯片 50\n\n缓存穿透产生的原因是什么？\n用户请求的数据在缓存中和数据库中都不存在，不断发起这样的请求，给数据库带来巨大压力\n缓存穿透的解决方案有哪些？\n缓存null值\n布隆过滤\n增强id的复杂度，避免被猜测id规律\n做好数据的基础格式校验\n加强用户权限校验\n做好热点参数的限流\n\n## 幻灯片 51\n\n什么是缓存\n添加Redis缓存\n缓存更新策略\n缓存穿透\n缓存雪崩\n缓存击穿\n缓存工具封装\n\n## 幻灯片 52\n\n缓存雪崩是指在同一时段大量的缓存key同时失效或者Redis服务宕机，导致大量请求到达数据库，带来巨大压力。\n解决方案：\n给不同的Key的TTL添加随机值\n利用Redis集群提高服务的可用性\n给缓存业务添加降级限流策略\n给业务添加多级缓存\n缓存雪崩\n客户端\n数据库\nRedis\n请求\n请求\n1.未命中\n客户端\n数据库\nRedis\n请求\n请求\nRedis宕机\n\n## 幻灯片 53\n\n什么是缓存\n添加Redis缓存\n缓存更新策略\n缓存穿透\n缓存雪崩\n缓存击穿\n缓存工具封装\n\n## 幻灯片 54"
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "d2e0f8b5-afe5-42c4-81b3-86abab32f169",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 10,
+          "score": 0.029377415776252747,
+          "content_preview": "Redis的Java客户端\n以Redis命令作为方法名称，学习成本低，简单实用。但是Jedis实例是线程不安全的，多线程环境下需要基于连接池来使用\nLettuce是基于Netty实现的，支持同步、异步和响应式编程方式，并且是线程安全的。支持Redis的哨兵模式、集群模式和管道模式。\nRedisson是一个基于Redis实现的分布式、可伸缩的Java数据结构集合。包含了诸如Map、Queue、Lock、 Semaphore、AtomicLong等强大功能\nSpring Data Redis\n\n## 幻灯片 48\n\nJedis\nSpringDataRedis\n\n## 幻灯片 49\n\nJedis的官网地址： https://github.com/redis/jedis，我们先来个快速入门：\n引入依赖：\n建立连接\nJedis\n<dependency>    <groupId>redis.clients</groupId>    <artifactId>jedis</artifactId>    <version>3.7.0</version></dependency>\nprivate Jedis jedis;@BeforeEachvoid setUp() {    // 建立连接    jedis = new Jedis(\"192.168.150.101\", 6379);    // 设置密码    jedis.auth(\"123321\");    // 选择库    jedis.select(0);}\n\n## 幻灯片 50"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "1d571761-90ce-460f-87a3-f7e7397a11aa",
+          "document_id": "5aff8b12-ae40-4c5d-834f-a2f75259c45d",
+          "file_name": "02-Redis企业实战.pptx",
+          "chunk_index": 30,
+          "score": 0.026677370071411133,
+          "content_preview": "Redisson分布式锁主从一致性问题\nRedis Node\nRedis Node\nRedis Node\nJava应用\n2.获取锁\nSET lock thread1 NX EX 10\nlock = thread1\nlock = thread1\nlock = thread1\n1.获取锁\nSET lock thread1 NX EX 10\n3.获取锁\nSET lock thread1 NX EX 10\nRedis Master\n主从同步\nRedis Slave\n主从同步\nRedis Slave\n主从同步\n\n## 幻灯片 119\n\n1）不可重入Redis分布式锁：\n原理：利用setnx的互斥性；利用ex避免死锁；释放锁时判断线程标示\n缺陷：不可重入、无法重试、锁超时失效\n2）可重入的Redis分布式锁：\n原理：利用hash结构，记录线程标示和重入次数；利用watchDog延续锁时间；利用信号量控制锁重试等待\n缺陷：redis宕机引起锁失效问题\n3）Redisson的multiLock：\n原理：多个独立的Redis节点，必须在所有节点都获取重入锁，才算获取锁成功\n缺陷：运维成本高、实现复杂\n\n## 幻灯片 120\n\n实现优惠券秒杀下单\n超卖问题\n一人一单\n分布式锁\nRedis优化秒杀\nRedis消息队列实现异步秒杀\n全局ID生成器\n\n## 幻灯片 121\n\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTomcat\n\n## 幻灯片 122\n\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTomcat\n\n## 幻灯片 123\n\n校验\n一人一单\n判断秒杀库存\nRedis优化秒杀\n查询优惠券\n判断秒杀库存\n查询订单\n减库存\n创建订单\n校验\n一人一单\nMySQL集群\nTo"
+        }
+      ],
+      "answer": "证据不足。提供的资料主要涉及Redis集群的高可用性、分布式锁实现、缓存问题解决方案以及客户端使用等，但没有提及Redis集群在线扩容的具体性能指标，特别是关于P99延迟保证的内容。",
+      "citations": [],
+      "citation_audit": {
+        "citation_count": 0,
+        "valid_citation_count": 0,
+        "valid_citation_rate": 0.0,
+        "ground_truth_citation_count": 0,
+        "ground_truth_citation_precision": 0.0,
+        "ground_truth_citation_recall": 0.0,
+        "invalid_citations": [],
+        "target_citation_labels": []
+      },
+      "answerable": false,
+      "retrieval_elapsed_ms": 6248.3776565641165,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "status": "not_applicable_no_answer"
+      },
+      "generation_elapsed_ms": 5382.440404966474,
+      "judge_elapsed_ms": 3728.8909051567316,
+      "judge": {
+        "answer_faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 1.0,
+        "judge_explanation": "答案准确地指出了提供的资料中没有提及Redis集群在线扩容的具体性能指标，特别是关于P99延迟保证的内容。这与可用证据相符，因此答案的事实性、相关性和引用正确性都得到了满分。",
+        "raw_json": {
+          "answer_faithfulness": 1.0,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 1.0,
+          "explanation": "答案准确地指出了提供的资料中没有提及Redis集群在线扩容的具体性能指标，特别是关于P99延迟保证的内容。这与可用证据相符，因此答案的事实性、相关性和引用正确性都得到了满分。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 15360.171588137746
+    },
+    {
+      "case_id": "63b71b04-cdb9-4027-96d1-98a25c58110b",
+      "query": "Python 教程是否规定了 FastAPI 生产环境的固定连接池大小？",
+      "status": "scored",
+      "retrieved": [
+        {
+          "label": "KB1",
+          "rank": 1,
+          "chunk_id": "27b3b93a-8b61-4a73-b5a0-988b027bc42c",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 3,
+          "score": 0.00824494007974863,
+          "content_preview": "前  言\nPython是一种简单易学且功能强大的编程语言，具备高效的高级数据结构，能够简洁\n而有效地实现面向对象编程。Python 的简洁语法，加之其解释型语言的特性，使其成为许\n多平台上理想的脚本语言，尤其适用于快速开发应用程序。\nPython的应用领域广泛，包括数据分析、组件集成、网络服务、图像处理、数值计\n算和科学计算等。目前，众多大中型互联网企业均在使用Python，如豆瓣、知乎、百度、\n腾讯、美团等。这些互联网公司普遍使用Python进行自动化运维、自动化测试、大数据分\n析、网络爬虫和 Web 开发等。\nPython 的学习和掌握相对容易，且拥有大量内置函数和丰富的扩展库，可以快速实现\n众多复杂功能。在学习Python语言的过程中，仍需通过不断的练习来熟悉其编程模式，建\n议避免将其他语言的编程风格应用于Python，而应从自然和简洁的角度出发，以免设计出\n冗长且低效的Python程序。\n一、本书内容特点\n(1) 本书专为计算机相关专业的高校学生及程序设计爱好者编写，详细介绍了 Python \n语言的各种规则和规范，帮助读者全面掌握这门编程语言，从而设计出优秀的程序。\n(2) Python 程序设计涉及的范围非常广泛，本书内容的编排并不求全、求深，而是考\n虑零基础读者的接受能力，其中语法的介绍以够用、实用为原则，本书选择Python中实用\n的知识进行讲解，强化对程序思维能力的培养。\n(3) 书中实例均提供了详细的设计思路、关键技术分析以及具体的解决方案。每个知\n识点均配有示例代码，辅以相关说明和运行结果，某些章节还深入探讨经典的程序设计问\n题。读者可通过参考源程序进行实践，加深理解。\n需要说明的是，学习编程是一个实践的过程，除了需要看书、查阅资料，亲自动手编\n写、调试程序才是至关重要的。通过实际的编程和积极的思考，读者可以很快掌握许多宝\n贵的编程经验，这些编程经验对"
+        },
+        {
+          "label": "KB2",
+          "rank": 2,
+          "chunk_id": "abc1cdb1-5302-45d2-984b-2979279f58f0",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 40,
+          "score": 0.0043735988438129425,
+          "content_preview": "第1章　Python编程基础\n15\n(1) 进入IDLE开发环境，直接在Python提示符>>>后输入以下命令并按Enter键执行。\n执行成功后，会立即显示结果；如果出现错误，则会提示错误信息并抛出异常。\n>>>2+1\n3\n>>>import math   # 导入Python标准库math\n>>>math.sqrt(25)   # 使用标准库函数sqrt计算平方根\n5.0\n>>>3**2    # 使用**计算幂运算\n9\n>>> 3 * (1 + 9)\n30\n>>>2/0    # 除以0错误，会抛出异常\nTraceback (most recent call last):\nFile \"<pyshell#5>\", line 1, in <module>\n2/0\nZeroDivisionError: division by zero\n>>>x = 'hello    # 语法错误，字符串的末尾缺少一个单引号\nSyntaxError: EOL while scanning string literal\n从以上代码可以看出，交互模式一般用于实现简单的业务逻辑或验证某些功能。复杂\n的业务逻辑通常通过编写Python程序来实现，这样可以更方便地不断完善和复用代码。\n(2) 在IDLE界面中选择File | New File 命令创建一个程序文件，输入代码并保存为文件\n(确保扩展名为.py；如果是GUI程序，扩展名为.pyw)。\ndef main():\n       print(\"this is a test program\")\nmain()\n(3) 使用Run | Run Module菜单命令运行程序，程序的运行结果将直接显示在IDLE的交\n互界面中。例如，以上程序输出结果如下：\n==== RESTART: C:/Users/miaof/AppData/Local/Programs"
+        },
+        {
+          "label": "KB3",
+          "rank": 3,
+          "chunk_id": "3d2bf744-dacb-435d-942d-c8296e6fd440",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 21,
+          "score": 0.004074351396411657,
+          "content_preview": "Python编程入门与实践（微视频版）\n2\n1.1　Python语言简介\nPython的创始人吉多·范罗苏姆(Guido van Rossum)于 1989年底发明了Python语言，\n其被广泛应用于系统管理任务和科学计算，是最受欢迎的编程语言之一。自 2004年以\n来，Python的使用率持续增长，在2017年 TIOBE编程语言指数排行榜中位列第四名(前3名\n为Java、C和C++)。2017年7月，根据IEEE Spectrum发布的编程语言排行榜显示Python已\n成为全球最受欢迎的编程语言。2024年，Python无论在数据分析、机器学习，还是Web 开\n发领域，都展现出了强大的适应性，受到广大程序员的青睐，再次突破历史记录，稳居\n编程语言排行榜的前列。\nPython支持命令式编程、函数式编程，完全支持面向对象编程，语法简洁清晰，且拥\n有大量成熟的扩展库，几乎覆盖所有领域的应用开发。许多开源的专业领域工具库都提供\n了Python的调用接口，例如著名的计算机视觉库OpenCV、三维可视化库VTK和医学图像\n处理库ITK。此外，Python专用的科学计算扩展库也非常丰富，经典的有NumPy、 SciPy和\nMatplotlib，它们分别为Python提供了快速数组处理、数值运算和绘图功能。因此，Python\n及其众多扩展库为工程技术和科研人员处理实验数据、制作图表，甚至开发科学计算应用\n程序提供了理想的开发环境。\nPython为开发者提供了一个全面的标准库，涵盖了网络、文件、GUI、数据库、文本\n等众多领域。使用Python开发时，许多功能可以直接利用现成的库，而无须从头编写。\n此外，除内置库外，Python还有大量的第三方库可供使用，开发者也可以将自己封装好\n的代码作为第三方库分享给他人。Python就像胶水一样，可以将用不同编程语言编写的\n程序无缝结合，充分发挥各"
+        },
+        {
+          "label": "KB4",
+          "rank": 4,
+          "chunk_id": "f8e44519-1f09-4821-ae02-33a99e7c871c",
+          "document_id": "dbf7970e-16ef-4c41-a19c-f64e19725d23",
+          "file_name": "01-Redis快速入门.pptx",
+          "chunk_index": 12,
+          "score": 0.003440435975790024,
+          "content_preview": "Jedis本身是线程不安全的，并且频繁的创建和销毁连接会有性能损耗，因此我们推荐大家使用Jedis连接池代替Jedis的直连方式。\nJedis连接池\npublic class JedisConnectionFactory {    private static final JedisPool jedisPool;    static {        JedisPoolConfig jedisPoolConfig = new JedisPoolConfig();        // 最大连接        jedisPoolConfig.setMaxTotal(8);        // 最大空闲连接        jedisPoolConfig.setMaxIdle(8);         // 最小空闲连接        jedisPoolConfig.setMinIdle(0);        // 设置最长等待时间， ms        jedisPoolConfig.setMaxWaitMillis(200);        jedisPool = new JedisPool(jedisPoolConfig, \"192.168.150.101\", 6379,                1000, \"123321\");    }    // 获取Jedis对象    public static Jedis getJedis(){        return jedisPool.getResource();    }}\n\n## 幻灯片 53\n\n基于SpringBoot整合Jedis\nSpringBoot已经成为企业开发的标配，你能不能基于SpringBoot来整合下Jedis的连接池呢？\n\n## 幻灯片 54\n\nJedis\nSpringDataRedis\n\n## "
+        },
+        {
+          "label": "KB5",
+          "rank": 5,
+          "chunk_id": "474b918b-9723-43d1-af5e-d8bccead129a",
+          "document_id": "a0be7981-d410-46b7-870f-bb671137376c",
+          "file_name": "《8小时转职Golang工程师-语法部分》.pdf",
+          "chunk_index": 3,
+          "score": 0.003062907140702009,
+          "content_preview": "int = 100, 200\nvar kk, ll = 100, \"Aceld\"\n多⾏行行写法\nvar (\nvv int  = 100\njj bool = true\n)\n常量量与iota\n常量量\nconst a int = 10\nconst (\n   a = 10\n   b = 20\n)\niota\n与const来表示枚举类型\n函数\n多返回值\ninit函数与import导包\ninit函数\n制作包的时候，项⽬目路路径如下\n$GOPATH/GolangStudy/5-init/\n├── lib1/\n│   └── lib1.go\n├── lib2/\n│   └── lib2.go\n└── main.go\nmain.go\nlib1.go\nlib2.go\nimport导包\nimport _ “fmt” 给fmt包起⼀一个别名，匿匿名， ⽆无法使⽤用当前包的⽅方法，但是\n会执⾏行行当前的包内部的init()⽅方法\nimport aa “fmt” 给fmt包起⼀一个别名，aa， aa.Println()来直接调⽤用。\nimport . “fmt” 将当前fmt包中的全部⽅方法，导⼊入到当前本包的作⽤用中，fmt包中\n的全部的⽅方法可以直接使⽤用API来调⽤用，不不需要fmt.API来调⽤用\n指针\ndefer\n知识点1 defer的执⾏行行顺序\n执⾏行行顺序是 fun3() -> func2()-> func1()\n知识点2 defer和return谁先谁后\n执⾏行行结果:\n结论: return之后的语句句先执⾏行行，defer后的语句句后执⾏行行\n切⽚片slice\n数组 声明数组的⽅方式\n 数组的⻓长度是固定的\n固定⻓长度的数组在传参的时候，\n是严格匹配数组类型的\nslice(动态数组)\n动态数组在传参上是引⽤用传递，⽽而且不不同元素⻓长度的动态数组他们的形参是⼀一致。\nslice\n声明"
+        },
+        {
+          "label": "KB6",
+          "rank": 6,
+          "chunk_id": "32fffeac-1647-463e-b7e8-028cf1c19442",
+          "document_id": "a84d3145-bccc-4a15-b038-a416a51f1d3a",
+          "file_name": "python教程.pdf",
+          "chunk_index": 5,
+          "score": 0.0028593523893505335,
+          "content_preview": "Python编程入门与实践（微视频版）\nII\n章节 内容说明\n第1章 介绍Python编程基础，包括语言特点、环境配置、IDLE、基本输入输出、代码规范和获取帮助\n第2章 讲解Python语法基础，包括数据类型、变量、运算符和序列数据结构，为编程实践奠定基础\n第3章 讲解分支和循环控制语句，包括if、 while和for循环等语句，并通过示例阐述常用算法以提高\n程序设计能力\n第4章 介绍函数与模块的基本概念，包括函数定义、参数传递、闭包、递归及模块管理技巧\n第5章 探讨文件与文件夹操作，包括打开/关闭文件、使用不同模式进行数据读写等\n第6章 深入面向对象设计，重点讲解封装、继承和多态，以及类与对象的定义与管理\n第7章 剖析Python图形用户界面(GUI)编程，重点使用Tkinter库创建交互界面，涵盖组件使用和事件\n处理\n第8章 探讨多线程与多进程编程，讲解threading模块与multiprocessing模块的使用方法\n第9章 讲解Python数据库访问，重点介绍SQL的基本概念及SQLite3模块的使用\n第10章 介绍Pillow库核心模块，包括图像操作、文本与图形添加、滤镜应用及生成水印和二维码\n第11章 深入探讨Python网络编程，涵盖计算机网络基础、TCP/UDP编程、网络安全工具及网络爬虫技术\n三、本书配套资源及服务\n与书中内容同步的案例操作教学资源可供读者随时扫码学习。此外本书免费提供电子\n课件、完整代码文档和实例源文件，读者可以扫描下方的二维码获取，也可以进入本书信\n息支持网站(http://www.tupwk.com.cn/downpage)下载。扫描下方的视频二维码可以观看教\n学视频。\n扫一扫，看视频\n 扫码推送配套资源到邮箱\n本书由哈尔滨理工大学的席亮、黄山学院的毕津滔和黑龙江东方学院的马俊合作编\n写，其中席亮编写了第1、2、7、10章，毕津滔"
+        }
+      ],
+      "answer": "证据不足。提供的证据中，KB1、KB2、KB3、KB6 是关于 Python 语言的一般性教程，没有提及 FastAPI 或连接池大小。KB4 是关于 Java 中 Jedis 连接池的配置，与 FastAPI 无关。KB5 是关于 Go 语言的，与问题无关。因此，没有证据表明该 Python 教程规定了 FastAPI 生产环境的固定连接池大小。",
+      "citations": [],
+      "citation_audit": {
+        "citation_count": 0,
+        "valid_citation_count": 0,
+        "valid_citation_rate": 0.0,
+        "ground_truth_citation_count": 0,
+        "ground_truth_citation_precision": 0.0,
+        "ground_truth_citation_recall": 0.0,
+        "invalid_citations": [],
+        "target_citation_labels": []
+      },
+      "answerable": false,
+      "retrieval_elapsed_ms": 3992.7518907934427,
+      "retrieval_count": 6,
+      "retrieval_metrics": {
+        "status": "not_applicable_no_answer"
+      },
+      "generation_elapsed_ms": 6059.423875063658,
+      "judge_elapsed_ms": 3392.7521239966154,
+      "judge": {
+        "answer_faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "citation_correctness": 1.0,
+        "judge_explanation": "答案明确指出了当前证据不足，无法支持关于Python教程是否规定了FastAPI生产环境的固定连接池大小的结论。答案没有超出证据范围，直接回答了问题，并且没有使用无效的引用标签。",
+        "raw_json": {
+          "answer_faithfulness": 1.0,
+          "answer_relevancy": 1.0,
+          "citation_correctness": 1.0,
+          "explanation": "答案明确指出了当前证据不足，无法支持关于Python教程是否规定了FastAPI生产环境的固定连接池大小的结论。答案没有超出证据范围，直接回答了问题，并且没有使用无效的引用标签。"
+        },
+        "missing_fields": [],
+        "status": "scored"
+      },
+      "elapsed_ms": 13445.27317583561
+    }
+  ]
+}

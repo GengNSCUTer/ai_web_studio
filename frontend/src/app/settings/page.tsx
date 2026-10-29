@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 
 import { AuthScreen } from "@/components/auth-screen";
-import { SettingsCenter } from "@/components/settings-center";
+import { SettingsCenter, type SettingsTab } from "@/components/settings-center";
 import { AUTH_COOKIE_NAME } from "@/lib/auth";
 import { fetchBackendJson, fetchBackendJsonOrNull } from "@/lib/server-backend";
 import type {
@@ -17,7 +17,25 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-export default async function SettingsPage() {
+const SETTINGS_TABS: SettingsTab[] = [
+  "provider",
+  "knowledge",
+  "generation",
+  "context",
+  "memory",
+  "system",
+  "tools",
+  "templates",
+  "appearance",
+  "privacy",
+  "workspace",
+];
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string | string[] }>;
+}) {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
 
@@ -46,6 +64,11 @@ export default async function SettingsPage() {
     return <AuthScreen initialError="设置加载失败，请重新登录后重试。" />;
   }
 
+  const requestedTab = (await searchParams).tab;
+  const initialTab = typeof requestedTab === "string" && SETTINGS_TABS.includes(requestedTab as SettingsTab)
+    ? (requestedTab as SettingsTab)
+    : undefined;
+
   return (
     <SettingsCenter
       currentUser={currentUser}
@@ -56,6 +79,7 @@ export default async function SettingsPage() {
       initialMemories={memories ?? []}
       initialPromptTemplates={promptTemplates ?? []}
       initialMineruCredential={mineruCredential}
+      initialTab={initialTab}
     />
   );
 }

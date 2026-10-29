@@ -1,0 +1,79 @@
+{
+  "passed": 3,
+  "browser_errors": 0,
+  "model": "deepseek-ai/DeepSeek-V3.2",
+  "cases": [
+    {
+      "scenario": "semantic_weather",
+      "answer_status": "done",
+      "tool_keys": [
+        "amap.maps.weather"
+      ],
+      "source_checked": true,
+      "elapsed_ms": 3726,
+      "selector": "tool_candidate_selector_v3",
+      "retrieval": {
+        "mode": "hybrid",
+        "fallback_reason": null,
+        "cache_hits": 13,
+        "embedded_tools": 0,
+        "elapsed_ms": 224.6,
+        "model": "BAAI/bge-m3"
+      },
+      "candidates": [
+        "amap.maps.weather",
+        "workspace.files.search",
+        "workspace.files.read",
+        "amap.maps.geo",
+        "amap.maps.distance",
+        "workspace.files.list"
+      ],
+      "weather_answer": "根据当前查询到的天气信息，深圳市现在没有下雨。\n\n*   **当前天气状况**：阴天\n*   **当前温度**：25 摄氏度\n*   **数据来源**：高德地图天气服务，发布时间为 2026-10-28 18:00:18 [T1]。\n\n请注意，此信息为检索到的实时数据。"
+    },
+    {
+      "scenario": "semantic_attachment",
+      "answer_status": "done",
+      "tool_keys": [
+        "workspace.files.search",
+        "workspace.files.search",
+        "workspace.files.read"
+      ],
+      "source_checked": true,
+      "elapsed_ms": 9948,
+      "selector": "tool_candidate_selector_v3",
+      "retrieval": {
+        "mode": "hybrid",
+        "fallback_reason": null,
+        "cache_hits": 13,
+        "embedded_tools": 0,
+        "elapsed_ms": 229.5,
+        "model": "BAAI/bge-m3"
+      },
+      "candidates": [
+        "agent.artifacts.read",
+        "workspace.files.search",
+        "agent.artifacts.list",
+        "workspace.files.read",
+        "workspace.files.list",
+        "amap.maps.around_search"
+      ],
+      "weather_answer": null
+    },
+    {
+      "scenario": "explicit_no_tools",
+      "answer_status": "done",
+      "tool_keys": [],
+      "source_checked": true,
+      "elapsed_ms": 1874,
+      "selector": "tool_candidate_selector_v2",
+      "retrieval": {
+        "mode": "skipped",
+        "fallback_reason": "user_requested_no_tools",
+        "elapsed_ms": 0
+      },
+      "candidates": [],
+      "weather_answer": null
+    }
+  ],
+  "temporary_data_cleaned": true
+}

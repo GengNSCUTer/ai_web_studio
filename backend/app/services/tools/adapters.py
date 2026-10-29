@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import httpx
+
 from app.services.tools.mcp_client import McpHttpClient
 from app.services.tools.mcp_security import McpEndpointPolicyError, enforce_mcp_endpoint_target_policy, validate_mcp_endpoint_url
 from app.services.tools.public_research import validate_public_lookup_arguments
@@ -31,6 +33,8 @@ class ToolAdapterRunner:
         api_key: str | None,
     ) -> tuple[list[ExternalSource], dict[str, Any]]:
         if definition.adapter_type == "mcp_http":
+            if definition.adapter.get("live_weather_rest") is True and call.arguments.get("mode", "live") == "live":
+                return await self._run_live_weather(definition=definition, call=call, api_key=api_key)
             return await self._run_mcp_http(definition=definition, call=call, api_key=api_key)
         if definition.adapter_type == "workspace_file":
             if not self.workspace_file_provider:
@@ -41,6 +45,22 @@ class ToolAdapterRunner:
                 raise RuntimeError("Agent Artifact 工具未初始化。")
             return await self.agent_artifact_provider.run(call=call)
         raise RuntimeError(f"未知工具 adapter 类型：{definition.adapter_type}")
+
+    async def _run_live_weather(self, *, definition, call, api_key):
+        """仅审核过的内置天气工具访问固定高德实况接口，不开放任意 HTTP。"""
+        if definition.tool_key != "amap.maps.weather" or definition.source_type != "mcp" or definition.provider != "amap":
+            raise ToolExecutionFeedbackError("实况适配仅允许内置高德天气工具。")
+        if not api_key:
+            raise ToolExecutionFeedbackError("未配置高德凭据。")
+        try:
+            sources = await AmapToolProvider(api_key=api_key).query_weather("", city=str(call.arguments.get("city") or ""))
+        except httpx.HTTPError:
+            # HTTP 异常可能包含 query 中的 Key，不能把原异常带入轨迹。
+            raise ToolExecutionFeedbackError("高德实况接口网络失败。") from None
+        for source in sources:
+            source.metadata["weather_data_type"] = "live"
+            source.metadata["raw"] = dict(source.metadata)
+        return sources, {"adapter_type": "amap_live_weather", "weather_data_type": "live"}
 
     async def _run_mcp_http(
         self,
@@ -67,6 +87,9 @@ class ToolAdapterRunner:
             # 内置 manifest endpoint 由项目维护；用户动态添加的 Server 必须在每次调用前做 SSRF 检查。
             await enforce_mcp_endpoint_target_policy(endpoint)
         arguments = self._build_adapter_arguments(definition=definition, call=call)
+        if definition.adapter.get("live_weather_rest") is True:
+            # mode 是平台的路由选项，远端 maps_weather 仅接收 city。
+            arguments.pop("mode", None)
         if definition.adapter.get("public_lookup") is True:
             urls = validate_public_lookup_arguments(
                 arguments, url_fields=list(definition.adapter.get("public_url_arguments") or []),

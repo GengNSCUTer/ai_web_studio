@@ -1,4 +1,4 @@
-"""Import and index a reviewed PDF batch into an existing knowledge base.
+"""Import and index a reviewed PDF/text batch into an existing knowledge base.
 
 The command is intentionally account-scoped and does not use login credentials.
 It compares file names, raw bytes, and normalized extracted text before creating
@@ -61,9 +61,10 @@ def _text_fingerprint(path: Path, parser: FileParserService) -> str:
 def main() -> int:
     args = parse_args()
     source_dir = Path(args.source_dir).expanduser().resolve()
-    files = sorted(path for path in source_dir.glob("*.pdf") if path.is_file())
+    supported_suffixes = {".pdf", ".md", ".markdown", ".txt", ".pptx"}
+    files = sorted(path for path in source_dir.iterdir() if path.is_file() and path.suffix.lower() in supported_suffixes)
     if not files:
-        raise SystemExit("source directory contains no PDF files")
+        raise SystemExit("source directory contains no supported documents")
 
     ensure_runtime_schema()
     parser = FileParserService()
@@ -135,7 +136,13 @@ def main() -> int:
                     user.id,
                     KnowledgeDocumentCreate(
                         file_name=source.name,
-                        mime_type="application/pdf",
+                        mime_type={
+                            ".pdf": "application/pdf",
+                            ".md": "text/markdown",
+                            ".markdown": "text/markdown",
+                            ".txt": "text/plain",
+                            ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        }[source.suffix.lower()],
                         file_size=source.stat().st_size,
                         storage_key=storage_key,
                     ),

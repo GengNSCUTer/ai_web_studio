@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
-from app.models.agent_runtime import AgentRun
+from app.models.agent_runtime import AgentRun, AgentApproval
 from app.schemas.agent_runtime import (
     AgentApprovalResponse,
     AgentArtifactResponse,
@@ -317,13 +317,21 @@ def issue_approval_challenge(
     return ApprovalChallengeResponse(approval_id=approval_id, approval_token=token)
 
 
-@router.post("/approvals/{approval_id}/apply", response_model=FileEditApplyResponse)
+@router.post("/approvals/{approval_id}/apply", response_model=FileEditApplyResponse | dict[str, object])
 def apply_approval(
     approval_id: str,
     payload: ApprovalApplyRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> FileEditApplyResponse:
+) -> FileEditApplyResponse | dict[str, object]:
+    approval = db.scalar(select(AgentApproval).where(AgentApproval.id == approval_id, AgentApproval.user_id == current_user.id))
+    if approval and approval.action == "documents.save_to_workspace":
+        from app.services.document_task_service import DocumentTaskService, DocumentTaskError
+        try:
+            return DocumentTaskService(db).approve(current_user.id, approval_id, payload.approval_token)
+        except DocumentTaskError as exc:
+            db.rollback()
+            raise HTTPException(409, str(exc)) from exc
     try:
         result = AgentRuntimeService(db).apply_approved_file_edit(
             approval_id=approval_id,
@@ -335,12 +343,20 @@ def apply_approval(
     return FileEditApplyResponse(**result.__dict__)
 
 
-@router.post("/approvals/{approval_id}/reject", response_model=FileEditApplyResponse)
+@router.post("/approvals/{approval_id}/reject", response_model=FileEditApplyResponse | dict[str, object])
 def reject_approval(
     approval_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> FileEditApplyResponse:
+) -> FileEditApplyResponse | dict[str, object]:
+    approval = db.scalar(select(AgentApproval).where(AgentApproval.id == approval_id, AgentApproval.user_id == current_user.id))
+    if approval and approval.action == "documents.save_to_workspace":
+        from app.services.document_task_service import DocumentTaskService, DocumentTaskError
+        try:
+            return DocumentTaskService(db).cancel(current_user.id, approval.run_id)
+        except DocumentTaskError as exc:
+            db.rollback()
+            raise HTTPException(409, str(exc)) from exc
     try:
         result = AgentRuntimeService(db).reject_approval(
             approval_id=approval_id,

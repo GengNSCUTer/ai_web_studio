@@ -26,7 +26,7 @@ import type {
   UserSettings,
 } from "@/lib/types";
 
-type SettingsTab =
+export type SettingsTab =
   | "provider"
   | "knowledge"
   | "generation"
@@ -48,6 +48,7 @@ type SettingsCenterProps = {
   initialMemories?: UserMemory[];
   initialPromptTemplates?: PromptTemplate[];
   initialMineruCredential?: KnowledgeCredential | null;
+  initialTab?: SettingsTab;
 };
 
 const TEXT = {
@@ -55,6 +56,7 @@ const TEXT = {
     title: "设置中心",
     subtitle: "统一管理模型服务、上下文策略、工具与集成、长期记忆和工作区默认设置。",
     backHome: "返回工作台",
+    openChat: "进入问答台",
     save: "保存设置",
     saving: "保存中...",
     loading: "加载中...",
@@ -184,6 +186,7 @@ const TEXT = {
     subtitle:
       "Manage model services, context strategy, tool integrations, long-term memory, and workspace defaults in one place.",
     backHome: "Back to Workspace",
+    openChat: "Open Chat",
     save: "Save",
     saving: "Saving...",
     loading: "Loading...",
@@ -433,6 +436,7 @@ export function SettingsCenter({
   initialMemories = [],
   initialPromptTemplates = [],
   initialMineruCredential = null,
+  initialTab = "provider",
 }: SettingsCenterProps) {
   const [userSettings, setUserSettings] = useState<UserSettings>(normalizeUserSettings(initialSettings));
   const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(initialProviderInfo);
@@ -441,7 +445,7 @@ export function SettingsCenter({
   const [memories, setMemories] = useState<UserMemory[]>(initialMemories);
   const [promptTemplates] = useState<PromptTemplate[]>(initialPromptTemplates);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(initialProjects[0]?.id ?? "");
-  const [activeTab, setActiveTab] = useState<SettingsTab>("provider");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -1154,6 +1158,12 @@ export function SettingsCenter({
             <div className="rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3 text-sm text-[var(--ink-soft)]">
               {currentUser.email || currentUser.username || currentUser.id}
             </div>
+            <Link
+              href="/chat"
+              className="rounded-full border border-[var(--accent-strong)] bg-[var(--accent-soft)] px-4 py-2 text-sm text-[var(--ink-strong)] transition hover:brightness-95"
+            >
+              {text.openChat}
+            </Link>
             <Link
               href="/"
               className="rounded-full border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-2 text-sm text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
@@ -1882,6 +1892,9 @@ export function SettingsCenter({
 
               {activeTab === "tools" ? (
                 <div className="space-y-4">
+                  <Link href="/plugins" className="mb-4 inline-flex rounded-xl border border-[var(--hairline)] px-4 py-2 text-sm">
+                    {uiLanguage === "zh-CN" ? "打开审核插件中心" : "Open reviewed plugins"}
+                  </Link>
                   <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
                     <p className="text-sm leading-6 text-[var(--ink-soft)]">{text.toolsHint}</p>
                   </div>
