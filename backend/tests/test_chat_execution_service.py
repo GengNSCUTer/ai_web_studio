@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -379,6 +380,31 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_streaming_citation_event_persists_without_failing_answer(self) -> None:
+        class CitedProvider:
+            async def stream_chat_events(self, **kwargs):
+                for part in ("结论[KB", "1]，另一个[KB", "99]"):
+                    yield SimpleNamespace(type="answer_delta", text=part)
+        async def run_test():
+            context = self._create_stream_context()
+            context.external_sources = [{"citation_label": "[KB1]", "used_in_prompt": True,
+                "metadata": {"citation_scope": "final_prompt", "citation_body_chars": 4}}]
+            body = "".join([part async for part in _build_streaming_response(context, CitedProvider(), event_stream=True).body_iterator])
+            events = [json.loads(line) for line in body.splitlines()]
+            audit_event = next(item for item in events if item["type"] == "citation_audit")
+            self.assertEqual(audit_event["audit"]["status"], "needs_review")
+            self.assertEqual(audit_event["audit"]["unknown_labels"], ["[KB99]"])
+            self.assertEqual(events[-1]["type"], "done")
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "done")
+            self.assertEqual(context.assistant_message.content, "结论[KB1]，另一个[KB99]")
+            self.assertEqual(json.loads(context.assistant_message.citation_audit), audit_event["audit"])
+            serialized = context.message_service._serialize_message(context.assistant_message)
+            self.assertEqual(serialized.citation_audit, context.assistant_message.citation_audit)
+            context.message_service.reset_assistant_for_regeneration(context.assistant_message)
+            self.assertIsNone(context.assistant_message.citation_audit)
+        asyncio.run(run_test())
+
     def test_streaming_response_cancelled_persists_partial_answer(self) -> None:
         class CancelledProvider:
             async def stream_chat_events(self, **_: object):
@@ -396,6 +422,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, "cancelled")
             self.assertEqual(context.assistant_message.content, "RRF 是一种排名融合算法")
+            self.assertEqual(json.loads(context.assistant_message.citation_audit)["status"], "incomplete")
 
         asyncio.run(run_test())
 
@@ -1227,6 +1254,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
             assistant_message=stale_message,
             message_service=context.message_service,
             external_sources=[],
+            context_details={},
+            context_stats={},
         )
         persisted = _persist_stream_result(
             stale_context,
@@ -1239,6 +1268,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
         self.db.refresh(context.assistant_message)
         self.assertEqual(context.assistant_message.status, "streaming")
         self.assertEqual(context.assistant_message.content, "")
+        self.assertIsNone(context.assistant_message.citation_audit)
 
     def test_stale_streaming_message_is_fenced_after_process_failure(self) -> None:
         context = self._create_stream_context()

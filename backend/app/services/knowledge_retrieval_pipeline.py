@@ -4,7 +4,7 @@ import asyncio
 import json
 import math
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from app.models.knowledge import KnowledgeBase
 from app.repositories.knowledge_repo import KnowledgeChunkRepository
@@ -109,6 +109,32 @@ class KnowledgeRetrievalPipeline:
         )
 
     async def retrieve_async(
+        self, *, user_id: str, knowledge_base: KnowledgeBase, query: str, top_k: int,
+        filters: KnowledgeRetrievalFilter | None = None,
+    ) -> list[RetrievalResult]:
+        results = await self._retrieve_async(user_id=user_id, knowledge_base=knowledge_base,
+                                             query=query, top_k=top_k, filters=filters)
+        pending = {}
+        for result in results:
+            index = result.metadata.get("parent_chunk_index")
+            if result.metadata.get("chunk_mode") == "parent_child" and isinstance(index, int) and not result.metadata.get("parent_content"):
+                chunk = result.chunk
+                pending[(chunk.knowledge_base_id, chunk.document_id, chunk.index_generation, index)] = True
+        if not pending:
+            return results
+        anchors = self.chunk_repo.parent_anchors(user_id=user_id, keys=list(pending))
+        parents = {(c.knowledge_base_id, c.document_id, c.index_generation, c.chunk_index):
+                   json.loads(c.metadata_json or "{}").get("parent_content") for c in anchors}
+        hydrated = []
+        for result in results:
+            c = result.chunk
+            key = (c.knowledge_base_id, c.document_id, c.index_generation, result.metadata.get("parent_chunk_index"))
+            content = parents.get(key)
+            hydrated.append(replace(result, metadata={**result.metadata, "parent_content": content})
+                            if isinstance(content, str) and content.strip() else result)
+        return hydrated
+
+    async def _retrieve_async(
         self,
         *,
         user_id: str,

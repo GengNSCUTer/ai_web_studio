@@ -156,6 +156,7 @@ class MessageRepository:
         reasoning_content: str | None,
         external_sources: str | None,
         status: str,
+        citation_audit: str | None = None,
     ) -> bool:
         """使用 message id + generation token 做一次条件更新。
 
@@ -175,6 +176,7 @@ class MessageRepository:
                     content=content,
                     reasoning_content=reasoning_content,
                     external_sources=external_sources,
+                    citation_audit=citation_audit,
                     status=status,
                     updated_at=updated_at,
                 )

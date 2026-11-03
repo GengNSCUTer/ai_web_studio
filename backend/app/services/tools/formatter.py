@@ -18,6 +18,7 @@ class ExternalContextAssembler:
                 source.metadata.setdefault("provider_citation_label", previous_label)
             source.citation_label = f"[T{index}]"
             source.used_in_prompt = False
+            source.metadata.pop("citation_span", None)
 
         # 库候选用于 Planner 定位文档。已有同 Provider 的正文后，简介不再
         # 竞争最终证据预算；完整候选仍留在 Trace，引用标签也不重新挪用。
@@ -46,12 +47,13 @@ class ExternalContextAssembler:
         for index, source in enumerate(answer_sources, start=1):
             label = source.citation_label
             url_line = f"\nURL: {source.url}" if source.url else ""
-            text = (
+            heading = (
                 f"{label} 类型：{source.source_type}\n"
                 f"来源：{source.provider}\n"
                 f"标题：{source.title}{url_line}\n"
-                f"内容：{source.display_text.strip()}"
-            ).strip()
+                "内容："
+            )
+            text = (heading + source.display_text.strip()).strip()
             # 按剩余来源公平分配证据预算，避免第一篇长文挤掉其他结果。
             # max_chars 沿用现有语义，只预算来源块，不包含固定说明头。
             remaining = max_chars - used_chars
@@ -68,6 +70,10 @@ class ExternalContextAssembler:
                 marker = "\n[结果已按上下文预算压缩]"
                 available_text = max(1, source_budget - len(marker))
                 text = text[:available_text].rstrip() + marker
+            start = len(intro) + sum(len(part) + 2 for part in parts)
+            if text.startswith(heading) and len(text) > len(heading):
+                source.metadata["citation_span"] = {"layer": "external_context", "start": start,
+                    "body_start": start + len(heading), "end": start + len(text)}
             parts.append(text)
             used_chars += len(text)
             source.used_in_prompt = True

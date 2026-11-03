@@ -598,6 +598,18 @@ export type ContextGovernanceInfo = {
   details?: ContextDiagnosticDetails | null;
 };
 
+export type CitationAudit = {
+  version: number;
+  status: "passed" | "needs_review" | "not_applicable" | "incomplete";
+  support_checked: boolean;
+  cited_labels: string[];
+  available_labels: string[];
+  unknown_labels: string[];
+  excluded_labels: string[];
+  missing_citation: boolean;
+  reasons: string[];
+};
+
 export type Message = {
   id: string;
   conversation_id: string;
@@ -605,6 +617,7 @@ export type Message = {
   content: string;
   reasoning_content?: string | null;
   external_sources?: string | null;
+  citation_audit?: string | null;
   tool_events?: ToolTraceEvent[];
   status: "done" | "streaming" | "failed" | "cancelled" | string;
   created_at: string;

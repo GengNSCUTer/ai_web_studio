@@ -34,6 +34,7 @@ class MessageResponse(BaseModel):
     content: str
     reasoning_content: str | None = None
     external_sources: str | None = None
+    citation_audit: str | None = None
     tool_events: list[dict[str, Any]] = Field(default_factory=list)
     status: str
     created_at: datetime

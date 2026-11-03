@@ -28,6 +28,7 @@ from app.services.tools.schemas import redact_sensitive_text
 from app.services.provider_capabilities import resolve_provider_capabilities
 from app.services.knowledge_evaluation_service import KnowledgeEvaluationService
 from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
+from app.services.knowledge_parent_context import unique_parent_results, bounded_evidence
 
 
 _CITATION_PATTERN = re.compile(r"\[(?:kb|source|s)\s*[-_:]?\s*(\d+)\]", re.IGNORECASE)
@@ -429,19 +430,24 @@ class KnowledgeE2EEvaluationService:
         sources: list[dict[str, Any]] = []
         source_map: dict[str, dict[str, Any]] = {}
         used_chars = 0
+        retrieved = unique_parent_results(retrieved)
+        has_parents = any(item.metadata.get("chunk_mode") == "parent_child" for item in retrieved)
         for rank, item in enumerate(retrieved, start=1):
             label = f"KB{rank}"
             metadata = item.metadata if isinstance(item.metadata, dict) else {}
-            content = metadata.get("parent_content") or item.chunk.content or ""
             remaining = max(0, config.max_context_chars - used_chars)
             if not remaining:
                 break
-            content = str(content)[: min(config.max_chunk_chars, remaining)]
+            allowance = min(config.max_chunk_chars, remaining // (len(retrieved) - rank + 1) if has_parents else remaining)
+            if allowance <= 0:
+                break
+            content = bounded_evidence(item, allowance)
             source = {
                 "label": label,
                 "rank": rank,
                 "chunk_id": str(item.chunk.id),
                 "document_id": str(item.chunk.document_id),
+                "matched_child_ids": metadata.get("matched_child_ids", [str(item.chunk.id)]),
                 "file_name": str(metadata.get("file_name") or "unknown"),
                 "chunk_index": int(getattr(item.chunk, "chunk_index", -1)),
                 "score": item.rerank_score if item.rerank_score is not None else item.score,

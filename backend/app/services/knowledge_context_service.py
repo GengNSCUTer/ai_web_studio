@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -29,6 +29,7 @@ from app.services.knowledge_error import (
 )
 from app.services.setting_service import SettingService
 from app.services.tools.schemas import ExternalSource
+from app.services.knowledge_parent_context import unique_parent_results, bounded_evidence
 
 
 logger = logging.getLogger(__name__)
@@ -118,10 +119,11 @@ class KnowledgeContextService:
             key=lambda source: float(source.score or 0),
             reverse=True,
         )
-        all_results = self._relabel_sources(ranked_sources)
         max_context_chars = self._multi_context_char_budget(resolved_ids)
+        all_results = self._prepare_multi_sources(self._relabel_sources(ranked_sources), max_context_chars)
         context_text = self._format_multi_context(results=all_results, max_chars=max_context_chars)
         injected_sources = all_results[: len(self._extract_context_labels(context_text))]
+        self._stamp_citation_spans(injected_sources, knowledge_base_name=None)
         retrieval_log_ids = [partial.retrieval_log_id for partial in partials if partial.retrieval_log_id]
         diagnostics = self._merge_multi_diagnostics(
             partials=partials,
@@ -234,7 +236,12 @@ class KnowledgeContextService:
             )
         latency_ms = int((time.monotonic() - started_at) * 1000)
 
-        selected = results[: max(1, knowledge_base.max_context_chunks)]
+        unique_results = unique_parent_results(results)
+        selected = self._prepare_context_results(
+            knowledge_base_name=knowledge_base.name,
+            results=unique_results[:max(1, knowledge_base.max_context_chunks)],
+            max_chars=knowledge_base.max_context_chars,
+        )
         context_text = self._format_context(
             knowledge_base_name=knowledge_base.name,
             results=selected,
@@ -248,6 +255,8 @@ class KnowledgeContextService:
             "knowledge_base_name": knowledge_base.name,
             "knowledge_chunks_total": total_chunks,
             "knowledge_chunks_retrieved": len(results),
+            "knowledge_parent_duplicates_removed": len(results) - len(unique_results),
+            "knowledge_parent_expansions_truncated": sum(bool(item.metadata.get("parent_expansion_truncated")) for item in injected_results),
             "knowledge_chunks_injected": len(injected_results),
             "knowledge_context_chars": len(context_text or ""),
             "knowledge_rerank_enabled": int(bool(knowledge_base.rerank_enabled)),
@@ -284,6 +293,7 @@ class KnowledgeContextService:
             results=injected_results,
             retrieval_log_id=retrieval_log.id,
         )
+        self._stamp_citation_spans(sources, knowledge_base_name=knowledge_base.name, results=injected_results)
         return KnowledgeContextResult(
             context_text=context_text,
             sources=sources,
@@ -344,16 +354,65 @@ class KnowledgeContextService:
         return list(dict.fromkeys(values))[:10]
 
     @staticmethod
+    def _stamp_citation_spans(sources: list[ExternalSource], *, knowledge_base_name: str | None,
+                             results: list[RetrievalResult] | None = None) -> None:
+        """从格式化结构计算来源位置，不在不可信正文里搜索伪造标签。"""
+        title = knowledge_base_name if knowledge_base_name is not None else "多知识库检索"
+        cursor = len(f"知识库：{title}\n请优先依据以下知识库片段回答；若片段不足以回答，请明确说明不确定。")
+        for index, source in enumerate(sources, 1):
+            if results is not None:
+                header = KnowledgeContextService._context_header(index, results[index - 1])
+            else:
+                meta = source.metadata
+                header = f"\n[KB{index}] 知识库：{meta.get('knowledge_base_name') or 'unknown'}；文件：{meta.get('file_name') or 'unknown'}；chunk：{meta.get('chunk_index', '')}；score：{float(source.score or 0):.4f}"
+            start = cursor + 1
+            body_start = start + len(header) + 1
+            cursor = body_start + len(source.display_text.strip())
+            source.metadata["citation_span"] = {"layer": "knowledge_context", "start": start,
+                "body_start": body_start, "end": cursor}
+
+    @staticmethod
+    def _context_header(index: int, result: RetrievalResult) -> str:
+        file_name = str(result.metadata.get("file_name") or "unknown")
+        score = result.rerank_score if result.rerank_score is not None else result.score
+        expansion = "；parent-child：已扩展" if KnowledgeContextService._is_parent_child_result(result) else ""
+        return f"\n[KB{index}] 文件：{file_name}；chunk：{result.chunk.chunk_index}；score：{score:.4f}{expansion}"
+
+    @staticmethod
+    def _prepare_context_results(*, knowledge_base_name: str, results: list[RetrievalResult], max_chars: int) -> list[RetrievalResult]:
+        """先去重再按候选数分配预算，避免大父块吃掉其他证据的全部空间。"""
+        results = unique_parent_results(results)
+        prefix = f"知识库：{knowledge_base_name}\n请优先依据以下知识库片段回答；若片段不足以回答，请明确说明不确定。"
+        remaining = max_chars - len(prefix)
+        selected = []
+        expand_parents = any(KnowledgeContextService._is_parent_child_result(item) for item in results)
+        for index, result in enumerate(results, 1):
+            header = KnowledgeContextService._context_header(index, result)
+            capacity = (remaining // (len(results) - index + 1) if expand_parents else remaining) - len(header) - 2
+            if capacity <= 120:
+                # 极小窗口至少允许最佳证据，仍不突破总预算。
+                capacity = remaining - len(header) - 2
+            if capacity <= 120:
+                break
+            existing = result.metadata.get("context_content")
+            content = existing[:capacity] if isinstance(existing, str) else bounded_evidence(result, capacity)
+            content = content.strip()
+            selected.append(replace(result, metadata={**result.metadata, "context_content": content,
+                "parent_expansion_truncated": bool(KnowledgeContextService._is_parent_child_result(result)
+                    and len(content) < len(result.metadata["parent_content"]))}))
+            remaining -= len(header) + 2 + len(content)
+        return selected
+
+    @staticmethod
     def _format_context(*, knowledge_base_name: str, results: list[RetrievalResult], max_chars: int) -> str | None:
+        results = KnowledgeContextService._prepare_context_results(
+            knowledge_base_name=knowledge_base_name, results=results, max_chars=max_chars)
         if not results:
             return None
         lines = [f"知识库：{knowledge_base_name}", "请优先依据以下知识库片段回答；若片段不足以回答，请明确说明不确定。"]
         used_chars = sum(len(line) for line in lines)
         for index, result in enumerate(results, start=1):
-            file_name = str(result.metadata.get("file_name") or "unknown")
-            score = result.rerank_score if result.rerank_score is not None else result.score
-            expansion = "；parent-child：已扩展" if KnowledgeContextService._is_parent_child_result(result) else ""
-            header = f"\n[KB{index}] 文件：{file_name}；chunk：{result.chunk.chunk_index}；score：{score:.4f}{expansion}"
+            header = KnowledgeContextService._context_header(index, result)
             content = KnowledgeContextService._result_display_text(result).strip()
             remaining = max_chars - used_chars - len(header)
             if remaining <= 120:
@@ -365,7 +424,33 @@ class KnowledgeContextService:
         return "\n".join(lines).strip() if len(lines) > 2 else None
 
     @staticmethod
+    def _prepare_multi_sources(results: list[ExternalSource], max_chars: int) -> list[ExternalSource]:
+        """跨库合并仍限制父块预算，来源正文与实际注入保持一致。"""
+        remaining = max_chars - len("知识库：多知识库检索\n请优先依据以下知识库片段回答；若片段不足以回答，请明确说明不确定。")
+        selected = []
+        has_parents = any(item.metadata.get("chunk_mode") == "parent_child" for item in results)
+        for index, source in enumerate(results, 1):
+            meta = source.metadata
+            header = f"\n[KB{index}] 知识库：{meta.get('knowledge_base_name') or 'unknown'}；文件：{meta.get('file_name') or 'unknown'}；chunk：{meta.get('chunk_index', '')}；score：{float(source.score or 0):.4f}"
+            capacity = (remaining // (len(results) - index + 1) if has_parents else remaining) - len(header) - 2
+            if capacity <= 120:
+                capacity = remaining - len(header) - 2
+            if capacity <= 120:
+                break
+            text = source.display_text.strip()
+            anchor = max(0, int(meta.get("context_child_offset", 0)))
+            start = min(max(0, anchor - capacity // 3), max(0, len(text) - capacity))
+            raw_content = text[start:start + capacity]
+            content = raw_content.strip()
+            selected.append(replace(source, display_text=content, metadata={**meta,
+                "context_child_offset": max(0, anchor - start - (len(raw_content) - len(raw_content.lstrip()))),
+                "parent_expansion_truncated": bool(meta.get("parent_expansion_truncated") or (has_parents and len(content) < len(text)))}))
+            remaining -= len(header) + 2 + len(content)
+        return selected
+
+    @staticmethod
     def _format_multi_context(*, results: list[ExternalSource], max_chars: int) -> str | None:
+        results = KnowledgeContextService._prepare_multi_sources(results, max_chars)
         if not results:
             return None
         lines = ["知识库：多知识库检索", "请优先依据以下知识库片段回答；若片段不足以回答，请明确说明不确定。"]
@@ -432,6 +517,7 @@ class KnowledgeContextService:
             "knowledge_base_name": "、".join(names) if names else "多知识库",
             "knowledge_chunks_total": total_chunks,
             "knowledge_chunks_retrieved": retrieved,
+            "knowledge_parent_duplicates_removed": sum(int(partial.diagnostics.get("knowledge_parent_duplicates_removed", 0)) for partial in partials),
             "knowledge_chunks_injected": injected_count,
             "knowledge_context_chars": len(context_text or ""),
             "knowledge_rerank_enabled": rerank_enabled,
@@ -489,7 +575,7 @@ class KnowledgeContextService:
                     "source_start": result.chunk.source_start,
                     "source_end": result.chunk.source_end,
                     "preview": KnowledgeContextService._result_display_text(result)[:1200],
-                    "metadata": result.metadata,
+                    "metadata": {k: v for k, v in result.metadata.items() if k not in {"parent_content", "context_content"}},
                 }
             )
         return serialized
@@ -507,7 +593,7 @@ class KnowledgeContextService:
             file_name = str(result.metadata.get("file_name") or "unknown")
             score = result.rerank_score if result.rerank_score is not None else result.score
             metadata = {
-                **result.metadata,
+                **{k: v for k, v in result.metadata.items() if k not in {"parent_content", "context_content"}},
                 "knowledge_base_id": knowledge_base_id,
                 "knowledge_base_name": knowledge_base_name,
                 "document_id": result.chunk.document_id,
@@ -524,12 +610,13 @@ class KnowledgeContextService:
                 "tool": "knowledge_retrieval",
             }
             display_text = KnowledgeContextService._result_display_text(result)
+            metadata["context_child_offset"] = max(0, display_text.find(result.chunk.content.strip()))
             sources.append(
                 ExternalSource(
                     source_type="knowledge",
                     provider="knowledge_base",
                     title=f"{knowledge_base_name} / {file_name}",
-                    display_text=display_text[:1200],
+                    display_text=display_text,
                     rank=index,
                     score=score,
                     used_in_prompt=True,
@@ -547,6 +634,9 @@ class KnowledgeContextService:
 
     @staticmethod
     def _result_display_text(result: RetrievalResult) -> str:
+        content = result.metadata.get("context_content")
+        if isinstance(content, str):
+            return content
         parent_content = result.metadata.get("parent_content")
         if isinstance(parent_content, str) and parent_content.strip():
             return parent_content

@@ -41,6 +41,17 @@ class MigrationPostgresTest(unittest.TestCase):
             self.assertEqual(c.execute(text("select id from users where id='kept'")).scalar(), "kept")
             self.assertTrue(inspect(c).has_table("resource_leases"))
 
+    def test_citation_column_keeps_old_messages_unreviewed(self):
+        upgrade_database(self.engine, target="20261028_01")
+        with self.engine.begin() as c:
+            c.execute(text("insert into users(id,email) values ('u','citation-migration@example.test')"))
+            c.execute(text("insert into conversations(id,user_id,title,model_name,is_archived,is_pinned) values ('c','u','test','test',false,false)"))
+            c.execute(text("insert into messages(id,conversation_id,generation_id,role,content,status) values ('m','c','g','assistant','旧答案','done')"))
+        upgrade_database(self.engine)
+        with self.engine.connect() as c:
+            row = c.execute(text("select content,status,citation_audit from messages where id='m'")).one()
+            self.assertEqual(tuple(row), ("旧答案", "done", None))
+
     def test_current_legacy_is_validated_and_adopted_without_data_loss(self):
         upgrade_database(self.engine, target=FIRST_REVISION)
         with self.engine.begin() as c:

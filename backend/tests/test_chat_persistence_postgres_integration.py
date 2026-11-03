@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
+import json
+from dataclasses import replace
 from datetime import timedelta
 import unittest
 from types import SimpleNamespace
@@ -103,12 +105,14 @@ class ChatPersistencePostgresIntegrationTest(unittest.TestCase):
             return asyncio.run(persist_stream_result(snapshot))
 
     def test_async_result_persists_message_metric_and_fences_old_generation(self) -> None:
-        self.assertTrue(self._persist(self._snapshot()))
+        snapshot = replace(self._snapshot(), citation_audit=json.dumps({"status": "needs_review", "support_checked": False}))
+        self.assertTrue(self._persist(snapshot))
         with Session(self.engine) as db:
             message = db.get(Message, self.message_id)
             assert message is not None
             self.assertEqual(message.status, "done")
             self.assertEqual(message.content, "测试回答")
+            self.assertEqual(message.citation_audit, snapshot.citation_audit)
             metric = db.scalar(
                 select(ChatRuntimeMetric).where(ChatRuntimeMetric.assistant_message_id == self.message_id)
             )
@@ -119,14 +123,16 @@ class ChatPersistencePostgresIntegrationTest(unittest.TestCase):
             message.generation_id = str(uuid4())
             message.status = "streaming"
             message.content = ""
+            message.citation_audit = None
             db.commit()
 
-        self.assertFalse(self._persist(self._snapshot()))
+        self.assertFalse(self._persist(snapshot))
         with Session(self.engine) as db:
             message = db.get(Message, self.message_id)
             assert message is not None
             self.assertEqual(message.status, "streaming")
             self.assertEqual(message.content, "")
+            self.assertIsNone(message.citation_audit)
 
     def test_done_enqueues_memory_extraction_when_user_opted_in(self) -> None:
         """验证既有同步记忆任务逻辑能在 AsyncSession.run_sync 中执行。"""

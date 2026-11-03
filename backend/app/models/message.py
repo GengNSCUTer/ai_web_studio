@@ -34,6 +34,8 @@ class Message(Base):
     # external_sources 当前以 JSON 字符串保存，序列化/反序列化由上层负责。
     reasoning_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_sources: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 与本次生成同事务保存标签审计；不代表证据语义支持性已经验证。
+    citation_audit: Mapped[str | None] = mapped_column(Text, nullable=True)
     # status 至少包含 done/streaming/failed/cancelled 等状态；前端依赖它区分流式中、失败和停止。
     status: Mapped[str] = mapped_column(String(32), default="done")
     # 应用侧先生成高精度 UTC 时间；数据库默认值保留给 SQL 直写/旧迁移路径兜底。

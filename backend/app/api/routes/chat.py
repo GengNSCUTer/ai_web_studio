@@ -28,6 +28,7 @@ from app.services.chat_execution_service import (
 from app.services.chat_provider_service import ChatProviderService
 from app.services.chat_persistence_service import ChatPersistenceSnapshot, persist_stream_result
 from app.services.message_service import MessageService
+from app.services.citation_audit_service import audit_answer_citations
 
 from app.api.resource_limits import chat_capacity
 
@@ -252,6 +253,7 @@ def _persist_stream_result(
 ) -> bool:
     """统一收口流式结果，避免完成、取消和失败分支写出不同的消息字段。"""
     content = "".join(content_parts)
+    audit = _stream_citation_audit(context, content=content, status_value=status_value)
     reasoning_content = "".join(reasoning_parts) or None
     external_sources = (
         json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
@@ -263,6 +265,7 @@ def _persist_stream_result(
         reasoning_content=reasoning_content,
         external_sources=external_sources,
         status=status_value,
+        citation_audit=json.dumps(audit, ensure_ascii=False),
     )
     if not persisted:
         # 另一个请求已经换代并接管了同一条 assistant。旧请求可以结束，
@@ -312,6 +315,17 @@ def _persist_stream_result(
     return True
 
 
+def _stream_citation_audit(context, *, content: str, status_value: str) -> dict:
+    """每次终态都记录引用质量，不修改原文或把标签问题混成传输失败。"""
+    audit = audit_answer_citations(content, sources=context.external_sources, generation_status=status_value,
+        smalltalk=context.context_details.get("citation_smalltalk", False))
+    context.context_details["citation_audit"] = audit
+    context.context_stats.update({"citation_audit_status": audit["status"],
+        "citation_unknown_count": len(audit["unknown_labels"]), "citation_excluded_count": len(audit["excluded_labels"]),
+        "citation_missing": int(audit["missing_citation"])})
+    return audit
+
+
 async def _persist_stream_result_nonblocking(
     context: ChatExecutionContext,
     *,
@@ -334,6 +348,7 @@ async def _persist_stream_result_nonblocking(
             reasoning_parts=reasoning_parts,
         )
 
+    audit = _stream_citation_audit(context, content="".join(content_parts), status_value=status_value)
     snapshot = ChatPersistenceSnapshot(
         assistant_message_id=assistant_message_id,
         conversation_id=conversation_id,
@@ -348,6 +363,7 @@ async def _persist_stream_result_nonblocking(
             json.dumps(context.external_sources, ensure_ascii=False) if context.external_sources else None
         ),
         context_stats=context.context_stats,
+        citation_audit=json.dumps(audit, ensure_ascii=False),
     )
     return await persist_stream_result(snapshot)
 
@@ -472,6 +488,7 @@ def _build_streaming_response(
                     )
                 return
             if event_stream:
+                yield _encode_stream_event("citation_audit", audit=context.context_details["citation_audit"])
                 yield _encode_stream_event("done", assistant_message_id=assistant_message_id)
         except asyncio.CancelledError:
             # 客户端主动停止或连接断开时，保存 partial content，前端用 cancelled 展示“已停止”。
@@ -522,6 +539,7 @@ def _build_streaming_response(
                 return
             if event_stream:
                 error_code, public_error = _public_stream_error(exc)
+                yield _encode_stream_event("citation_audit", audit=context.context_details["citation_audit"])
                 yield _encode_stream_event(
                     "model_error",
                     error=public_error,

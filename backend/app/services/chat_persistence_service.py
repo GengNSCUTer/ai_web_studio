@@ -41,6 +41,7 @@ class ChatPersistenceSnapshot:
     reasoning_content: str | None
     external_sources: str | None
     context_stats: dict[str, Any]
+    citation_audit: str | None = None
 
 
 _async_engine = None
@@ -78,6 +79,7 @@ async def _persist_async(session: AsyncSession, snapshot: ChatPersistenceSnapsho
             content=snapshot.content,
             reasoning_content=snapshot.reasoning_content,
             external_sources=snapshot.external_sources,
+            citation_audit=snapshot.citation_audit,
             status=snapshot.status,
             updated_at=datetime.now(timezone.utc),
         )

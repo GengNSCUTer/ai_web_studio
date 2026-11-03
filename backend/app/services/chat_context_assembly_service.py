@@ -30,6 +30,7 @@ from app.services.provider_capabilities import resolve_provider_capabilities
 from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.planner import PlannerRuntime
 from app.services.tools.run_policy import resolve_tool_run_policy
+from app.services.citation_audit_service import align_sources, is_smalltalk_query
 
 
 def clean_optional_str(value: str | None) -> str | None:
@@ -298,17 +299,36 @@ class ChatContextAssemblyService:
         )
         attachment_context_tokens = runtime.tokenizer.estimate_text_tokens(attachment_context_result.context_text or "")
         knowledge_context_tokens = runtime.tokenizer.estimate_text_tokens(knowledge_context_result.context_text or "")
-        combined_sources = [*external_context_result.sources, *knowledge_context_result.sources]
+        combined_sources = align_sources([*external_context_result.sources, *knowledge_context_result.sources],
+            original_layers={"external_context": external_context_result.context_text,
+                             "knowledge_context": knowledge_context_result.context_text},
+            retained_layers=governed_context.retained_reference_texts)
         provider_capabilities = resolve_provider_capabilities(
             provider_type=runtime.provider_type,
             base_url=runtime.base_url,
         )
         combined_public_sources = [source.to_public_dict() for source in combined_sources]
+        # 检索日志保留原候选/选择阶段；来源标记则更新为全局预算后的真实情况。
+        if retrieval_log_ids:
+            log_repo = KnowledgeRetrievalLogRepository(self.db)
+            for log_id in retrieval_log_ids:
+                log = log_repo.update_message_links(log_id=log_id, user_id=self.user_id,
+                    conversation_id=getattr(conversation, "id", None), user_message_id=getattr(user_message, "id", None),
+                    assistant_message_id=getattr(assistant_message, "id", None),
+                    sources=[source for source in combined_public_sources
+                        if (source.get("metadata") or {}).get("retrieval_log_id") == log_id])
+                if log:
+                    diagnostics = json.loads(log.diagnostics_json or "{}")
+                    diagnostics["knowledge_sources_in_final_prompt"] = sum(source.used_in_prompt for source in combined_sources
+                        if source.metadata.get("retrieval_log_id") == log_id)
+                    log.diagnostics_json = json.dumps(diagnostics, ensure_ascii=False)
+                    log_repo.save(log)
         context_details = {
+            "citation_smalltalk": is_smalltalk_query(query),
             "memory_retrieval": memory_diagnostics,
             "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
             "external_sources": combined_public_sources,
-            "knowledge_sources": knowledge_context_result.details.get("knowledge_sources", []),
+            "knowledge_sources": [source.to_public_dict() for source in combined_sources if source.source_type == "knowledge"],
             "knowledge_query_rewrite": knowledge_context_result.details.get("knowledge_query_rewrite"),
             "tool_plan": external_context_result.details.get("tool_plan"),
             "tool_events": external_context_result.details.get("tool_events", []),
@@ -406,6 +426,9 @@ class ChatContextAssemblyService:
                 **external_context_result.diagnostics,
                 **knowledge_context_result.diagnostics,
                 **prompt_result.diagnostics,
+                # 原阶段计数保留；另列最终预算之后实际可引用的证据数。
+                "citation_sources_in_final_prompt": sum(source.used_in_prompt for source in combined_sources),
+                "citation_sources_excluded": sum(not source.used_in_prompt for source in combined_sources),
             },
             context_details=context_details,
             context_summary=summary_bundle.summary or clean_optional_str(getattr(conversation, "context_summary", None)),

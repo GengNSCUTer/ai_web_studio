@@ -115,7 +115,8 @@ class KnowledgeChunker:
                 child_chunk_overlap,
                 len(children),
             )
-            for child in parent_children:
+            parent_chunk_index = len(children)
+            for child_offset, child in enumerate(parent_children):
                 children.append(
                     PreparedChunk(
                         content=child.content,
@@ -126,7 +127,9 @@ class KnowledgeChunker:
                             "chunk_mode": "parent_child",
                             "retrieval_unit": "child",
                             "parent_index": parent_index,
-                            "parent_content": parent.content,
+                            # 同一父块只由首个子块保存正文，其余通过索引版本内的下标引用。
+                            "parent_chunk_index": parent_chunk_index,
+                            **({"parent_content": parent.content} if child_offset == 0 else {}),
                             "parent_source_start": parent.source_start,
                             "parent_source_end": parent.source_end,
                             "parent_char_count": len(parent.content),

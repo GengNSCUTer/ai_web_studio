@@ -16,6 +16,7 @@ import {
 } from "@/lib/attachments";
 import type {
   ContextDiagnosticDetails,
+  CitationAudit,
   ContextGovernanceInfo,
   ExternalSource,
   KnowledgeBase,
@@ -62,6 +63,7 @@ type ThreadMessage = {
   content: string;
   reasoningContent?: string | null;
   externalSources?: ExternalSource[];
+  citationAudit?: CitationAudit | null;
   toolEvents?: ToolTraceEvent[];
   status: "done" | "streaming" | "failed" | "cancelled" | string;
   created_at: string;
@@ -458,11 +460,23 @@ function toThreadMessages(messages: Message[]): ThreadMessage[] {
       content: message.content,
       reasoningContent: message.reasoning_content ?? null,
       externalSources: parseExternalSources(message.external_sources),
+      citationAudit: parseCitationAudit(message.citation_audit),
       toolEvents: message.tool_events ?? [],
       status: message.status,
       created_at: message.created_at,
       attachments: message.attachments ?? [],
     }));
+}
+
+function parseCitationAudit(value: string | null | undefined): CitationAudit | null {
+  if (!value) return null;
+  try {
+    const audit = JSON.parse(value) as CitationAudit;
+    if (!["passed", "needs_review", "not_applicable", "incomplete"].includes(audit.status)
+      || !Array.isArray(audit.unknown_labels) || !Array.isArray(audit.excluded_labels)
+      || !Array.isArray(audit.reasons) || typeof audit.missing_citation !== "boolean") return null;
+    return audit;
+  } catch { return null; }
 }
 
 function parseExternalSources(value: string | null | undefined): ExternalSource[] {
@@ -558,6 +572,7 @@ type ChatStreamEvent =
   | { type: "answer_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_sources"; sources: ExternalSource[] }
+  | { type: "citation_audit"; audit: CitationAudit }
   | { type: "model_error"; error?: string; error_code?: string; assistant_message_id?: string }
   | { type: "stream_error"; error?: string }
   | ToolTraceEvent
@@ -1431,6 +1446,7 @@ export function ChatThread({
               content: "",
               reasoningContent: "",
               externalSources: [],
+              citationAudit: null,
               toolEvents: [],
               status: "streaming",
             }
@@ -1476,6 +1492,7 @@ export function ChatThread({
       let assistantText = "";
       let reasoningText = "";
       let externalSources: ExternalSource[] = [];
+      let citationAudit: CitationAudit | null = null;
       let toolEvents: ToolTraceEvent[] = [];
       let eventBuffer = "";
       let streamErrorReason: string | null = null;
@@ -1499,6 +1516,8 @@ export function ChatThread({
             assistantText += streamEvent.text;
           } else if (streamEvent.type === "reasoning_delta") {
             reasoningText += streamEvent.text;
+          } else if (streamEvent.type === "citation_audit") {
+            citationAudit = streamEvent.audit;
           } else if (streamEvent.type === "tool_sources") {
             externalSources = streamEvent.sources ?? [];
           } else if (isToolTraceEvent(streamEvent)) {
@@ -1515,6 +1534,7 @@ export function ChatThread({
                   content: assistantText,
                   reasoningContent: reasoningText,
                   externalSources,
+                  citationAudit,
                   toolEvents,
                   status: "streaming",
                 }
@@ -1532,6 +1552,8 @@ export function ChatThread({
           assistantText += streamEvent.text;
         } else if (streamEvent.type === "reasoning_delta") {
           reasoningText += streamEvent.text;
+        } else if (streamEvent.type === "citation_audit") {
+          citationAudit = streamEvent.audit;
         } else if (streamEvent.type === "tool_sources") {
           externalSources = streamEvent.sources ?? [];
         } else if (isToolTraceEvent(streamEvent)) {
@@ -1551,6 +1573,7 @@ export function ChatThread({
                 content: assistantText,
                 reasoningContent: reasoningText,
                 externalSources,
+                citationAudit,
                 toolEvents,
                 status: "done",
               }
@@ -1828,6 +1851,7 @@ export function ChatThread({
       let assistantText = "";
       let reasoningText = "";
       let externalSources: ExternalSource[] = [];
+      let citationAudit: CitationAudit | null = null;
       let toolEvents: ToolTraceEvent[] = [];
       let eventBuffer = "";
       let streamErrorReason: string | null = null;
@@ -1853,6 +1877,8 @@ export function ChatThread({
             assistantText += streamEvent.text;
           } else if (streamEvent.type === "reasoning_delta") {
             reasoningText += streamEvent.text;
+          } else if (streamEvent.type === "citation_audit") {
+            citationAudit = streamEvent.audit;
           } else if (streamEvent.type === "tool_sources") {
             externalSources = streamEvent.sources ?? [];
           } else if (isToolTraceEvent(streamEvent)) {
@@ -1871,6 +1897,7 @@ export function ChatThread({
                   content: assistantText,
                   reasoningContent: reasoningText,
                   externalSources,
+                  citationAudit,
                   toolEvents,
                   status: "streaming",
                 }
@@ -1888,6 +1915,8 @@ export function ChatThread({
           assistantText += streamEvent.text;
         } else if (streamEvent.type === "reasoning_delta") {
           reasoningText += streamEvent.text;
+        } else if (streamEvent.type === "citation_audit") {
+          citationAudit = streamEvent.audit;
         } else if (streamEvent.type === "tool_sources") {
           externalSources = streamEvent.sources ?? [];
         } else if (isToolTraceEvent(streamEvent)) {
@@ -1910,6 +1939,7 @@ export function ChatThread({
                 content: assistantText,
                 reasoningContent: reasoningText,
                 externalSources,
+                citationAudit,
                 toolEvents,
                 status: "done",
               }

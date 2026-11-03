@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, update, tuple_
 from sqlalchemy.orm import Session
 
 from app.models.knowledge import (
@@ -117,6 +117,16 @@ class KnowledgeDocumentRepository:
 class KnowledgeChunkRepository:
     def __init__(self, db: Session):
         self.db = db
+
+    def parent_anchors(self, *, user_id: str, keys: list[tuple]) -> list[KnowledgeChunk]:
+        """批量解析父块引用，归属、知识库、文档和索引版本必须同时一致。"""
+        if not keys:
+            return []
+        return list(self.db.scalars(select(KnowledgeChunk).where(
+            KnowledgeChunk.user_id == user_id,
+            tuple_(KnowledgeChunk.knowledge_base_id, KnowledgeChunk.document_id,
+                   KnowledgeChunk.index_generation, KnowledgeChunk.chunk_index).in_(keys),
+        )))
 
     def list_by_document(
         self,

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { ExternalSourceCard } from "@/components/external-source-card";
 import { MessageMarkdown } from "@/components/message-markdown";
 import { ToolTracePanel } from "@/components/tool-trace-panel";
+import { CitationAuditNotice } from "@/components/citation-audit-notice";
 import {
   attachmentKindLabel,
   buildAttachmentUrl,
@@ -13,7 +14,7 @@ import {
   isImageAttachment,
 } from "@/lib/attachments";
 import type { UILanguage } from "@/lib/settings";
-import type { ExternalSource, ToolTraceEvent, UploadItem } from "@/lib/types";
+import type { CitationAudit, ExternalSource, ToolTraceEvent, UploadItem } from "@/lib/types";
 
 type ThreadMessage = {
   id: string;
@@ -22,6 +23,7 @@ type ThreadMessage = {
   content: string;
   reasoningContent?: string | null;
   externalSources?: ExternalSource[];
+  citationAudit?: CitationAudit | null;
   toolEvents?: ToolTraceEvent[];
   status: "done" | "streaming" | "failed" | "cancelled" | string;
   created_at: string;
@@ -379,6 +381,8 @@ function MessageItem({
           isStreaming={Boolean(shouldShowStreamingIndicator && isLatestStreamingAssistant)}
         />
       )}
+
+      {!isUser ? <CitationAuditNotice audit={message.citationAudit} english={uiLanguage === "en-US"} /> : null}
 
       {!isUser && message.reasoningContent?.trim() ? (
         <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">

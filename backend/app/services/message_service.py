@@ -98,6 +98,7 @@ class MessageService:
         reasoning_content: str | None,
         external_sources: str | None,
         status: str,
+        citation_audit: str | None = None,
     ) -> bool:
         """Persist a stream result only if this request still owns the generation."""
 
@@ -107,6 +108,7 @@ class MessageService:
             content=content,
             reasoning_content=reasoning_content,
             external_sources=external_sources,
+            citation_audit=citation_audit,
             status=status,
         )
         if not persisted:
@@ -329,6 +331,7 @@ class MessageService:
         message.content = ""
         message.reasoning_content = None
         message.external_sources = None
+        message.citation_audit = None
         message.status = "streaming"
 
     def _serialize_message(self, message: Message) -> MessageResponse:
@@ -340,6 +343,7 @@ class MessageService:
             content=message.content,
             reasoning_content=message.reasoning_content,
             external_sources=message.external_sources,
+            citation_audit=message.citation_audit,
             status=message.status,
             created_at=message.created_at,
             updated_at=message.updated_at,
