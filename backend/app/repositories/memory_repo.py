@@ -88,6 +88,10 @@ class UserMemoryRepository:
         return list(self.db.scalars(stmt))
 
     def expire_due(self, user_id: str) -> int:
+        # 到期也是记忆状态变更，必须与激活/替换使用同一用户锁。
+        if not self._mutating:
+            with self.mutation(user_id):
+                return self.expire_due(user_id)
         now = datetime.now(timezone.utc)
         result = self.db.execute(
             update(UserMemory).where(UserMemory.user_id == user_id, UserMemory.status == "active",
@@ -95,8 +99,6 @@ class UserMemoryRepository:
             .values(status="expired", is_enabled=False, version=UserMemory.version + 1)
             .execution_options(synchronize_session=False)
         )
-        if result.rowcount:
-            self.db.commit()
         return result.rowcount
 
     def list_others(self, user_id: str, memory_id: str | None) -> list[UserMemory]:

@@ -30,6 +30,8 @@ class UserMemory(Base):
     sensitivity: Mapped[str] = mapped_column(String(24), default="normal")
     risk_level: Mapped[str] = mapped_column(String(32), default="safe")
     candidate_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 仅保存服务端生成的关系判断与版本快照，模型不能据此直接激活。
+    conflict_review_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # 标识由服务端生成；旧记录按需识别，不在升级时猜测或覆盖用户内容。
     fact_key: Mapped[str | None] = mapped_column(String(180), nullable=True)

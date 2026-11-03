@@ -14,6 +14,8 @@ class UserMemoryCreate(BaseModel):
     expires_at: datetime | None = None
     project_id: str | None = Field(default=None, max_length=36)
     supersedes_memory_id: str | None = Field(default=None, max_length=36)
+    expected_target_version: int | None = Field(default=None, ge=1)
+    acknowledge_conflicts: bool = False
 
 
 class UserMemoryUpdate(BaseModel):
@@ -49,6 +51,7 @@ class UserMemoryResponse(BaseModel):
     sensitivity: str = "normal"
     risk_level: str = "safe"
     candidate_reason: str | None = None
+    conflict_review: dict | None = None
     supersedes_memory_id: str | None = None
     fact_key: str | None = None
     fact_value: str | None = None
@@ -80,6 +83,7 @@ class MemorySuggestion(BaseModel):
     source_message_id: str | None = None
     evidence_quote: str | None = None
     evidence_verified: bool = False
+    conflict_review: dict | None = None
 
 
 class MemorySuggestResponse(BaseModel):
@@ -90,6 +94,12 @@ class MemoryReviewRequest(BaseModel):
     expires_at: datetime | None = None
     supersedes_memory_id: str | None = Field(default=None, max_length=36)
     expected_version: int | None = Field(default=None, ge=1)
+    expected_target_version: int | None = Field(default=None, ge=1)
+    acknowledge_conflicts: bool = False
+
+
+class MemoryConflictCheckRequest(BaseModel):
+    expected_version: int = Field(ge=1)
 
 
 class MemoryExtractionJobResponse(BaseModel):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import asyncio
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,7 @@ from app.services.memory_extraction_policy import (
     redact_source, source_digest, source_snapshot, verify_evidence,
 )
 from app.services.setting_service import SettingService
+from app.services.memory_conflict_service import MemoryConflictService
 
 
 def utcnow() -> datetime:
@@ -167,10 +169,12 @@ class MemoryCandidateWorker:
         session_factory: Callable[[], Session] = SessionLocal,
         owner: str | None = None,
         provider_service: ChatProviderService | None = None,
+        conflict_service: MemoryConflictService | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.owner = owner or f"memory-worker-{socket.gethostname()}-{id(self)}"
         self.provider = provider_service or ChatProviderService()
+        self.conflicts = conflict_service or MemoryConflictService(session_factory=session_factory, provider_service=self.provider)
 
     async def run_once(self) -> bool:
         claimed = self._claim()
@@ -181,7 +185,7 @@ class MemoryCandidateWorker:
             snapshot = self._load_snapshot(job_id, lease_version)
             if snapshot is None:
                 return True
-            raw = await self.provider.complete_chat(**snapshot["provider_call"])
+            raw = await asyncio.wait_for(self.provider.complete_chat(**snapshot["provider_call"]), 45)
             # 非法输出不能冒充“没有记忆”，否则游标推进后该批消息永远丢失。
             normalized = raw.strip()
             fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", normalized, re.S)
@@ -200,6 +204,7 @@ class MemoryCandidateWorker:
                 source_conversation_id=snapshot["conversation_id"],
                 source_message_ids=snapshot["source_message_ids"],
             )
+            suggestions = await self.conflicts.assess(user_id=snapshot['user_id'], project_id=snapshot['project_id'], suggestions=suggestions)
             self._complete(job_id, lease_version, suggestions)
             self._enqueue_backlog(job_id)
         except Exception as exc:
@@ -253,6 +258,8 @@ class MemoryCandidateWorker:
                 UserMemoryRepository(db), ConversationRepository(db)
             ).build_existing_memory_text(job.user_id, project_id=job.project_id)
             return {
+                "user_id": job.user_id,
+                "project_id": job.project_id,
                 "conversation_id": job.conversation_id,
                 "source_message_ids": job.source_message_ids,
                 "provider_call": {
@@ -304,12 +311,14 @@ class MemoryCandidateWorker:
         settings = db.scalar(select(UserSetting).where(UserSetting.user_id == job.user_id).with_for_update())
         service = MemoryService(repo, ConversationRepository(db))
         verified = [verify_evidence(item, messages) for item in suggestions]
-        enriched = service.enrich_suggestion_risks(
-            suggestions=[item.model_copy(update={"project_id": job.project_id}) for item in verified if item],
+        checked = [item.model_copy(update={"project_id": job.project_id}) for item in verified if item]
+        legacy_enriched = service.enrich_suggestion_risks(
+            suggestions=checked,
             existing_memories=[item for item in repo.list_by_user(job.user_id)
                                if service._memory_scope(item, job.user_id) == job.project_id],
             scoped=True,
         )
+        enriched = [original if original.conflict_review else legacy for original, legacy in zip(checked, legacy_enriched)]
         created = 0
         for suggestion in enriched:
             if contains_credential(suggestion.title, suggestion.content) or REDACTED in suggestion.content:
@@ -325,7 +334,8 @@ class MemoryCandidateWorker:
             source = next((item for item in messages if item.id == suggestion.source_message_id), None)
             automatic = bool(job.source_snapshot and settings and settings.memory_enabled
                 and settings.memory_auto_candidate_enabled and settings.memory_auto_activate_enabled
-                and allows_automatic(suggestion, source))
+                and allows_automatic(suggestion, source)
+                and not (suggestion.conflict_review or {}).get('requires_review', False))
             memory = UserMemory(
                 user_id=job.user_id,
                 memory_type=suggestion.memory_type,
@@ -344,6 +354,7 @@ class MemoryCandidateWorker:
                 sensitivity="sensitive" if suggestion.risk_level == "sensitive" else "normal",
                 risk_level=suggestion.risk_level,
                 candidate_reason=suggestion.risk_reason or suggestion.reason,
+                conflict_review_json=json.dumps(suggestion.conflict_review, ensure_ascii=False) if suggestion.conflict_review else None,
                 content_hash=content_hash,
                 supersedes_memory_id=suggestion.conflict_memory_id,
             )
@@ -371,7 +382,10 @@ class MemoryCandidateWorker:
                     memory.status = "pending"
                     memory.source = "auto_candidate"
                     memory.risk_level = "review_required"
-                    memory.candidate_reason = "保存时发现事实冲突，需用户确认"
+                    memory.candidate_reason = "保存时记忆版本变化或出现冲突，需重新检查后确认"
+                    if suggestion.conflict_review:
+                        memory.conflict_review_json = json.dumps({**suggestion.conflict_review,
+                            'status': 'stale', 'requires_review': True}, ensure_ascii=False)
                 else:
                     memory.review_at = utcnow()
             repo.flush(memory)

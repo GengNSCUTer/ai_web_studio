@@ -11,6 +11,7 @@ from app.repositories.memory_repo import UserMemoryRepository
 from app.schemas.memory import MemorySuggestion, UserMemoryCreate, UserMemoryResponse, UserMemoryUpdate
 from app.services.memory_policy import contains_credential, equivalent_content, lifetime, memory_identity, requested_response_language
 from app.services.memory_extraction_policy import redact_source
+from app.services.memory_conflict_policy import load_review, validate_review, coexist_ids, has_structured_conflict, CONFIDENCE_MIN
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ class MemoryService:
 
     def _memory_response(self, memory: UserMemory, user_id: str) -> UserMemoryResponse:
         response = UserMemoryResponse.model_validate(memory)
+        response.conflict_review = load_review(memory)
         if memory.source_conversation_id and self.conversation_repo:
             conversation = self.conversation_repo.get_by_user(memory.source_conversation_id, user_id)
             if conversation:
@@ -63,7 +65,7 @@ class MemoryService:
             expire_due(user_id)
         return [self._memory_response(item, user_id) for item in self.repo.list_by_user(user_id)]
 
-    def create_memory(self, user_id: str, payload: UserMemoryCreate) -> UserMemoryResponse:
+    def create_memory(self, user_id: str, payload: UserMemoryCreate, *, assessment: MemorySuggestion | None = None) -> UserMemoryResponse:
         with self.repo.mutation(user_id):
             project_id = self._resolve_source_scope(user_id, payload.source_conversation_id, payload.project_id)
             memory = UserMemory(
@@ -76,7 +78,17 @@ class MemoryService:
                 expires_at=self._normalize_expiry(payload.expires_at), version=1,
             )
             self._validate_persistence(memory)
-            self._validate_activation(memory, payload.supersedes_memory_id)
+            if assessment and assessment.conflict_review:
+                memory.conflict_review_json = json.dumps(assessment.conflict_review, ensure_ascii=False)
+                memory.risk_level = assessment.risk_level
+                memory.sensitivity = 'sensitive' if assessment.risk_level == 'sensitive' else 'normal'
+                memory.candidate_reason = assessment.risk_reason
+                memory.supersedes_memory_id = assessment.conflict_memory_id
+                if assessment.conflict_review['requires_review'] and not payload.acknowledge_conflicts:
+                    memory.status, memory.is_enabled, memory.source = 'pending', False, 'manual_candidate'
+            if memory.status == 'active':
+                self._validate_activation(memory, payload.supersedes_memory_id,
+                    acknowledged=payload.acknowledge_conflicts, expected_target_version=payload.expected_target_version)
             self._set_identity(memory)
             return self._memory_response(self.repo.save(memory), user_id)
 
@@ -125,7 +137,8 @@ class MemoryService:
         conversation = self.conversation_repo.get_by_user(source, user_id) if self.conversation_repo else None
         return getattr(conversation, "project_id", None) if conversation else "__unresolved__"
 
-    def _validate_activation(self, memory: UserMemory, target_id: str | None = None) -> None:
+    def _validate_activation(self, memory: UserMemory, target_id: str | None = None, *,
+                             acknowledged: bool = False, expected_target_version: int | None = None) -> None:
         """锁内按最新 active 版本重新判断，不能信任提取时的旧风险标签。"""
         scope = self._memory_scope(memory, memory.user_id)
         if scope == "__unresolved__":
@@ -135,28 +148,44 @@ class MemoryService:
                     if item.id != memory.id and item.status == "active"
                     and (item.expires_at is None or self._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))
                     and self._memory_scope(item, memory.user_id) == scope]
+        review = validate_review(memory, existing, scope, acknowledged=acknowledged)
+        coexist = coexist_ids(review, acknowledged=acknowledged)
+        rule_existing = [item for item in existing if item.id not in coexist or has_structured_conflict(memory, item)]
         suggestion = MemorySuggestion(memory_type=memory.memory_type, title=memory.title,
                                       content=memory.content, project_id=scope)
         # 已限定范围的旧行按当前解析范围比较，包括升级前只带来源会话的记录。
-        current = self.enrich_suggestion_risks(suggestions=[suggestion], existing_memories=existing,
+        current = self.enrich_suggestion_risks(suggestions=[suggestion], existing_memories=rule_existing,
                                              scoped=True)[0]
-        if current.duplicate_memory_id:
+        pairs = (review or {}).get('pairs', [])
+        individual = [self.enrich_suggestion_risks(suggestions=[suggestion], existing_memories=[row], scoped=True)[0]
+                      for row in rule_existing]
+        if any(item.duplicate_memory_id for item in individual) or any(p['relation'] == 'duplicate' and p['confidence'] >= CONFIDENCE_MIN for p in pairs):
             raise ValueError("重复候选没有激活价值，请使用已有记忆")
+        conflicts = {p['memory_id'] for p in pairs if p['relation'] == 'contradiction' and p['confidence'] >= CONFIDENCE_MIN}
+        conflicts.update(item.conflict_memory_id for item in individual if item.conflict_memory_id)
         time_kind = lifetime(memory.title, memory.content)
         if time_kind != "durable" and target_id:
             raise ValueError("短期记忆不能替换长期版本")
         # 有效期明确的短期事实可并存，不销毁长期基线，过期后自然恢复基线。
-        if current.conflict_memory_id and time_kind == "durable" and not target_id:
+        if conflicts and time_kind == "durable" and not target_id:
             raise ValueError("冲突候选必须明确 supersedes_memory_id 才能确认")
+        if time_kind == 'durable' and conflicts - {target_id}:
+            raise ValueError('存在多个冲突目标，请先逐条处理并重新检查冲突')
         if target_id:
             previous = self.repo.get_by_user(target_id, memory.user_id)
             if not previous or previous.id == memory.id or previous.status != "active":
                 raise ValueError("要替换的旧记忆不存在或不是 active 版本")
             if self._memory_scope(previous, memory.user_id) != scope:
                 raise ValueError("不能替换其他项目范围的记忆")
+            if expected_target_version is not None and previous.version != expected_target_version:
+                raise ValueError('要替换的记忆版本已变化，请重新检查冲突')
+            if review and expected_target_version is None:
+                raise ValueError('替换必须明确 expected_target_version')
             old_identity = memory_identity(previous.memory_type, previous.title, previous.content)
             new_identity = memory_identity(memory.memory_type, memory.title, memory.content)
-            if old_identity.key != new_identity.key:
+            semantic_target = next((p for p in pairs if p['memory_id'] == target_id
+                                    and p['relation'] in {'contradiction', 'uncertain'}), None)
+            if old_identity.key != new_identity.key and not (acknowledged and semantic_target):
                 raise ValueError("只能替换同一事实的旧版本")
             if current.conflict_memory_id and current.conflict_memory_id != target_id:
                 raise ValueError("冲突目标已变化，请重新审核")
@@ -186,6 +215,8 @@ class MemoryService:
         expires_at: datetime | None = None,
         supersedes_memory_id: str | None = None,
         expected_version: int | None = None,
+        expected_target_version: int | None = None,
+        acknowledge_conflicts: bool = False,
     ) -> UserMemoryResponse:
         with self.repo.mutation(memory.user_id):
             memory = self.repo.fresh(memory, expected_version, idempotent_status="active")
@@ -197,11 +228,17 @@ class MemoryService:
             if expires_at is not None:
                 memory.expires_at = self._normalize_expiry(expires_at)
             self._validate_persistence(memory)
-            target = supersedes_memory_id or memory.supersedes_memory_id
+            review = load_review(memory)
+            target = supersedes_memory_id if review else supersedes_memory_id or memory.supersedes_memory_id
             # 旧标签保留审核意义；即使旧冲突目标已失效也不能静默变成新增。
             if memory.risk_level == "conflict" and not target:
                 raise ValueError("冲突候选必须明确 supersedes_memory_id 才能确认")
-            self._validate_activation(memory, target)
+            self._validate_activation(memory, target, acknowledged=acknowledge_conflicts,
+                                      expected_target_version=expected_target_version)
+            if review:
+                memory.conflict_review_json = json.dumps({**review, 'human_resolution': {
+                    'acknowledged': acknowledge_conflicts, 'replacement_id': target,
+                    'target_version': expected_target_version, 'reviewed_at': datetime.now(timezone.utc).isoformat()}}, ensure_ascii=False)
             self._set_identity(memory)
             memory.status, memory.is_enabled = "active", True
             memory.review_at = datetime.now(timezone.utc)
@@ -231,6 +268,7 @@ class MemoryService:
         *,
         memory: UserMemory,
         payload: UserMemoryUpdate,
+        assessment: MemorySuggestion | None = None,
     ) -> UserMemoryResponse:
         with self.repo.mutation(memory.user_id):
             memory = self.repo.fresh(memory, payload.expected_version)
@@ -259,6 +297,14 @@ class MemoryService:
             self._validate_persistence(proposed)
             changed = any(getattr(proposed, field) != getattr(memory, field) for field in ("title", "content", "memory_type"))
             if memory.status == "active" and changed:
+                if assessment and assessment.conflict_review:
+                    proposed.conflict_review_json = json.dumps(assessment.conflict_review, ensure_ascii=False)
+                    existing = [item for item in self.repo.list_others(memory.user_id, memory.id)
+                        if self._memory_scope(item, memory.user_id) == self._memory_scope(memory, memory.user_id)
+                        and (item.expires_at is None or self._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))]
+                    validate_review(proposed, existing, self._memory_scope(memory, memory.user_id))
+                    if assessment.conflict_review['requires_review']:
+                        raise ValueError('该修改需要关系审核，请先创建待审候选并明确替换')
                 if lifetime(proposed.title, proposed.content) != "durable":
                     raise ValueError("短期记忆不能替换长期版本，请单独创建并设置有效期")
                 # 编辑已生效内容产生后继版本，旧内容和来源保留，状态切换与新行一起提交。
@@ -282,6 +328,15 @@ class MemoryService:
                 for field, value in values.items():
                     setattr(memory, field, value)
                 memory.version += 1
+                if changed:
+                    if assessment and assessment.conflict_review:
+                        memory.conflict_review_json = json.dumps(assessment.conflict_review, ensure_ascii=False)
+                        memory.risk_level, memory.candidate_reason = assessment.risk_level, assessment.risk_reason
+                        memory.supersedes_memory_id = assessment.conflict_memory_id
+                    elif memory.conflict_review_json:
+                        memory.conflict_review_json = json.dumps({'status': 'stale'})
+                    memory.evidence_quote = None
+                    memory.source = 'manual_candidate'
                 target = memory
             self._set_identity(target)
             return self._memory_response(self.repo.save(target), target.user_id)

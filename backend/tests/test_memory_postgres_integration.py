@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+import json
 from types import SimpleNamespace
 import os
 from threading import Barrier
@@ -21,12 +22,13 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user_memory import MemoryExtractionJob
 from app.repositories.memory_repo import UserMemoryRepository
-from app.schemas.memory import UserMemoryCreate, UserMemoryUpdate
+from app.schemas.memory import UserMemoryCreate, UserMemoryUpdate, MemorySuggestion
 from app.services.memory_service import MemoryService
 from app.services.memory_candidate_runtime import MemoryExtractionJobService
 from app.services.memory_retrieval_service import MemoryRetrievalService
 from app.services.setting_service import SettingService
 from app.repositories.setting_repo import UserSettingRepository
+from app.services.memory_conflict_service import MemoryConflictService
 
 
 TEST_POSTGRES_URL = os.getenv("TEST_POSTGRES_URL")
@@ -84,6 +86,34 @@ class MemoryPostgresIntegrationTest(unittest.TestCase):
                     return ("conflict", memory_id)
         with ThreadPoolExecutor(max_workers=2) as pool:
             return list(pool.map(approve, ids))
+
+    def test_analyzed_conflict_concurrent_approvals_allow_only_one_replacement(self):
+        resolver = MemoryConflictService(session_factory=sessionmaker(self.engine))
+        assessed, = asyncio.run(resolver.assess(user_id=self.user_id, project_id=None,
+            suggestions=[MemorySuggestion(memory_type='profile', title='回答语言', content='默认英文回答')]))
+        with Session(self.engine) as db:
+            for candidate in db.scalars(select(UserMemory).where(UserMemory.id.in_(self.candidate_ids))):
+                candidate.conflict_review_json = json.dumps(assessed.conflict_review)
+            db.commit()
+        barrier = Barrier(2)
+        def approve(memory_id):
+            with Session(self.engine) as db:
+                repo = UserMemoryRepository(db)
+                row = repo.get_by_user(memory_id, self.user_id)
+                barrier.wait(timeout=10)
+                try:
+                    MemoryService(repo).approve_candidate(memory=row, expected_version=1,
+                        supersedes_memory_id=self.old_id, expected_target_version=1, acknowledge_conflicts=True)
+                    return 'ok'
+                except ValueError:
+                    return 'rejected'
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(approve, self.candidate_ids))
+        self.assertEqual(sorted(results), ['ok', 'rejected'])
+        with Session(self.engine) as db:
+            self.assertEqual(db.get(UserMemory, self.old_id).status, 'superseded')
+            self.assertEqual(len(list(db.scalars(select(UserMemory).where(UserMemory.user_id == self.user_id,
+                                                                        UserMemory.status == 'active')))), 1)
 
     def test_concurrent_enqueue_creates_one_incremental_job(self):
         with Session(self.engine) as db:

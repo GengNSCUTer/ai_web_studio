@@ -1,3 +1,6 @@
+import asyncio
+from types import SimpleNamespace
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
@@ -11,11 +14,12 @@ from app.schemas.memory import (
     MemoryExtractionJobResponse,
     MemoryActivityResponse,
     MemoryReviewRequest,
+    MemoryConflictCheckRequest,
     UserMemoryCreate,
     UserMemoryResponse,
     UserMemoryUpdate,
 )
-from app.schemas.memory import MemorySuggestRequest, MemorySuggestResponse
+from app.schemas.memory import MemorySuggestRequest, MemorySuggestResponse, MemorySuggestion
 from app.services.chat_provider_service import ChatProviderService, resolve_provider_base_url
 from app.services.memory_service import MemoryService
 from app.services.memory_activity_service import MemoryActivityService
@@ -23,6 +27,7 @@ from app.services.memory_candidate_runtime import MemoryExtractionJobService, _s
 from app.services.memory_extraction_policy import extraction_prompt, verify_evidence
 from app.repositories.memory_job_repo import MemoryExtractionJobRepository
 from app.services.setting_service import SettingService
+from app.services.memory_conflict_service import MemoryConflictService
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
@@ -73,14 +78,23 @@ def list_memories(
 
 @router.post("", response_model=UserMemoryResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/remember", response_model=UserMemoryResponse, status_code=status.HTTP_201_CREATED)
-def create_memory(
+async def create_memory(
     payload: UserMemoryCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserMemoryResponse:
     service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
+    user_id = current_user.id
     try:
-        return service.create_memory(current_user.id, payload)
+        def scope_snapshot():
+            scope = service._resolve_source_scope(user_id, payload.source_conversation_id, payload.project_id)
+            db.commit()
+            return scope
+        scope = await asyncio.to_thread(scope_snapshot)
+        assessed, = await MemoryConflictService().assess(user_id=user_id, project_id=scope,
+            suggestions=[MemorySuggestion(memory_type=service.normalize_memory_type(payload.memory_type),
+                title=service.normalize_text(payload.title), content=service.normalize_text(payload.content))])
+        return await asyncio.to_thread(service.create_memory, user_id, payload, assessment=assessed)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -142,25 +156,43 @@ def get_memory_activity(
 
 
 @router.post("/{memory_id}/approve", response_model=UserMemoryResponse)
-def approve_memory_candidate(
+async def approve_memory_candidate(
     memory_id: str,
     payload: MemoryReviewRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserMemoryResponse:
+    user_id = current_user.id
     repo = UserMemoryRepository(db)
-    memory = repo.get_by_user(memory_id, current_user.id)
+    memory = await asyncio.to_thread(repo.get_by_user, memory_id, user_id)
     if not memory:
         raise HTTPException(status_code=404, detail="Memory not found")
     try:
-        return MemoryService(repo, ConversationRepository(db)).approve_candidate(
+        if not memory.conflict_review_json:
+            version = memory.version
+            await asyncio.to_thread(db.commit)
+            await MemoryConflictService().recheck(user_id=user_id, memory_id=memory_id, expected_version=version)
+            raise ValueError('已补充关系检查，请刷新后确认分析结果')
+        return await asyncio.to_thread(MemoryService(repo, ConversationRepository(db)).approve_candidate,
             memory=memory,
             expires_at=payload.expires_at,
             supersedes_memory_id=payload.supersedes_memory_id,
             expected_version=payload.expected_version,
+            expected_target_version=payload.expected_target_version,
+            acknowledge_conflicts=payload.acknowledge_conflicts,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post('/{memory_id}/check-conflicts', response_model=UserMemoryResponse)
+async def check_memory_conflicts(memory_id: str, payload: MemoryConflictCheckRequest,
+    current_user: User = Depends(get_current_user)):
+    try:
+        return await MemoryConflictService().recheck(user_id=current_user.id,
+            memory_id=memory_id, expected_version=payload.expected_version)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/{memory_id}/reject", response_model=UserMemoryResponse)
@@ -202,41 +234,31 @@ async def suggest_memories(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MemorySuggestResponse:
-    conversation = ConversationRepository(db).get_by_user(payload.conversation_id, current_user.id)
-    if not conversation:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-
-    messages = MessageRepository(db).list_by_conversation(conversation.id)
-    recent_messages_text = _build_recent_messages_text(messages)
-    source_message_ids = _build_source_message_ids(messages)
-    if not recent_messages_text:
+    user_id = current_user.id
+    def snapshot():
+        conversation = ConversationRepository(db).get_by_user(payload.conversation_id, user_id)
+        if not conversation:
+            raise HTTPException(404, 'Conversation not found')
+        project_id = conversation.project_id
+        rows = MessageRepository(db).list_by_conversation(conversation.id)
+        messages = [SimpleNamespace(id=row.id, role=row.role, content=row.content) for row in rows]
+        settings_service = SettingService(UserSettingRepository(db))
+        setting = settings_service.get_or_create_user_settings(user_id)
+        existing = MemoryService(UserMemoryRepository(db), ConversationRepository(db)).build_existing_memory_text(user_id, project_id=project_id)
+        call = dict(provider_type=setting.provider_type,
+            base_url=resolve_provider_base_url(provider_type=setting.provider_type,
+                configured_ollama_base_url=setting.ollama_base_url, configured_api_base_url=setting.api_base_url),
+            api_key=settings_service.resolve_provider_api_key(user_id), model_name=setting.default_model,
+            messages=_build_suggestion_prompt(recent_messages_text=_build_recent_messages_text(messages),
+                existing_memory_text=existing, max_candidates=payload.max_candidates),
+            temperature=.1, top_p=.8, max_tokens=1600)
+        db.commit()
+        return project_id, messages, call
+    project_id, messages, call = await asyncio.to_thread(snapshot)
+    if not _build_recent_messages_text(messages):
         return MemorySuggestResponse(suggestions=[])
-
-    memory_service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
-    setting_service = SettingService(UserSettingRepository(db))
-    settings = setting_service.get_or_create_user_settings(current_user.id)
-    provider_type = settings.provider_type or "ollama"
-    base_url = resolve_provider_base_url(
-        provider_type=provider_type,
-        configured_ollama_base_url=settings.ollama_base_url,
-        configured_api_base_url=getattr(settings, "api_base_url", None),
-    )
-
     try:
-        raw = await ChatProviderService().complete_chat(
-            provider_type=provider_type,
-            base_url=base_url,
-            api_key=setting_service.resolve_provider_api_key(current_user.id),
-            model_name=settings.default_model,
-            messages=_build_suggestion_prompt(
-                recent_messages_text=recent_messages_text,
-                existing_memory_text=memory_service.build_existing_memory_text(current_user.id, project_id=conversation.project_id),
-                max_candidates=payload.max_candidates,
-            ),
-            temperature=0.1,
-            top_p=0.8,
-            max_tokens=1600,
-        )
+        raw = await asyncio.wait_for(ChatProviderService().complete_chat(**call), 45)
     except Exception as exc:
         # Provider/SDK 异常可能包含 URL、响应正文或鉴权信息，不回显原始异常。
         raise HTTPException(
@@ -247,34 +269,40 @@ async def suggest_memories(
     suggestions = MemoryService.parse_suggestion_json(
         raw,
         max_candidates=payload.max_candidates,
-        source_conversation_id=conversation.id,
-        source_message_ids=source_message_ids,
+        source_conversation_id=payload.conversation_id,
+        source_message_ids=_build_source_message_ids(messages),
     )
-    suggestions = memory_service.enrich_suggestion_risks(
-        suggestions=[verified.model_copy(update={"project_id": conversation.project_id})
-                     for item in suggestions if (verified := verify_evidence(item, messages[-24:]))],
-        existing_memories=[item for item in UserMemoryRepository(db).list_by_user(current_user.id)
-                           if memory_service._memory_scope(item, current_user.id) == conversation.project_id],
-        scoped=True,
-    )
+    suggestions = await MemoryConflictService().assess(user_id=user_id, project_id=project_id,
+        suggestions=[verified for item in suggestions if (verified := verify_evidence(item, messages[-24:]))])
     return MemorySuggestResponse(suggestions=suggestions)
 
 
 @router.patch("/{memory_id}", response_model=UserMemoryResponse)
-def update_memory(
+async def update_memory(
     memory_id: str,
     payload: UserMemoryUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserMemoryResponse:
     repo = UserMemoryRepository(db)
-    memory = repo.get_by_user(memory_id, current_user.id)
+    user_id = current_user.id
+    memory = await asyncio.to_thread(repo.get_by_user, memory_id, user_id)
     if not memory:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
 
     service = MemoryService(repo, ConversationRepository(db))
     try:
-        return service.update_memory(memory=memory, payload=payload)
+        assessment = None
+        if any(name in payload.model_fields_set for name in ('title', 'content', 'memory_type')):
+            scope = await asyncio.to_thread(service._memory_scope, memory, user_id)
+            suggestion = MemorySuggestion(memory_type=service.normalize_memory_type(payload.memory_type or memory.memory_type),
+                title=service.normalize_text(payload.title if payload.title is not None else memory.title),
+                content=service.normalize_text(payload.content if payload.content is not None else memory.content))
+            payload = payload.model_copy(update={'expected_version': payload.expected_version or memory.version})
+            await asyncio.to_thread(db.commit)
+            assessment, = await MemoryConflictService().assess(user_id=user_id, project_id=scope,
+                suggestions=[suggestion], exclude_id=memory_id)
+        return await asyncio.to_thread(service.update_memory, memory=memory, payload=payload, assessment=assessment)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

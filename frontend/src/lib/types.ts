@@ -755,6 +755,17 @@ export type UserMemory = {
   sensitivity: string;
   risk_level: string;
   candidate_reason: string | null;
+  conflict_review?: {
+    status: string;
+    requires_review?: boolean;
+    coverage_complete?: boolean;
+    pairs?: Array<{
+      memory_id: string; version: number; existing_title: string; existing_content: string;
+      relation: "duplicate" | "contradiction" | "complement" | "different_scope" | "uncertain";
+      confidence: number; impact: "low" | "high"; reason: string; via: string;
+      decision_source?: "rules" | "model" | "unavailable" | "pending";
+    }>;
+  } | null;
   supersedes_memory_id: string | null;
   expires_at: string | null;
   review_at: string | null;

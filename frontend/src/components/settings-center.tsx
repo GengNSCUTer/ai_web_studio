@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { MemoryConflictReview, type MemoryApprovalOptions } from "@/components/memory-conflict-review";
 
 import {
   buildProviderPreset,
@@ -703,7 +704,7 @@ export function SettingsCenter({
     }
   }
 
-  async function reviewMemory(memory: UserMemory, action: "approve" | "reject" | "revoke") {
+  async function reviewMemory(memory: UserMemory, action: "approve" | "reject" | "revoke", options?: MemoryApprovalOptions) {
     setReviewingMemoryId(memory.id);
     setErrorMessage(null);
     try {
@@ -721,7 +722,7 @@ export function SettingsCenter({
           }
           expiresAt = input;
         }
-        body = JSON.stringify({ expires_at: expiresAt, expected_version: memory.version });
+        body = JSON.stringify({ expires_at: expiresAt, expected_version: memory.version, ...options });
       }
       await requestJson<UserMemory>(`/api/backend/memories/${memory.id}/${action}`, {
         method: "POST",
@@ -746,6 +747,24 @@ export function SettingsCenter({
       );
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Memory review failed");
+      const latest = await requestJson<UserMemory[]>("/api/backend/memories").catch(() => null);
+      if (latest) setMemories(latest);
+    } finally {
+      setReviewingMemoryId(null);
+    }
+  }
+
+  async function recheckMemory(memory: UserMemory) {
+    setReviewingMemoryId(memory.id);
+    setErrorMessage(null);
+    try {
+      await requestJson<UserMemory>(`/api/backend/memories/${memory.id}/check-conflicts`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expected_version: memory.version ?? 1 }),
+      });
+      setMemories(await requestJson<UserMemory[]>("/api/backend/memories"));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Memory analysis failed");
     } finally {
       setReviewingMemoryId(null);
     }
@@ -1836,14 +1855,10 @@ export function SettingsCenter({
                             ) : null}
                             {memory.status === "pending" ? (
                               <div className="mt-3 flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  disabled={reviewingMemoryId === memory.id}
-                                  onClick={() => void reviewMemory(memory, "approve")}
-                                  className="rounded-full bg-[var(--accent-strong)] px-3 py-1 text-xs text-white disabled:opacity-50"
-                                >
-                                  {uiLanguage === "zh-CN" ? "确认启用" : "Approve"}
-                                </button>
+                                <MemoryConflictReview key={`${memory.id}:${memory.version}`} memory={memory}
+                                  disabled={reviewingMemoryId === memory.id} chinese={uiLanguage === "zh-CN"}
+                                  onApprove={(options) => void reviewMemory(memory, "approve", options)}
+                                  onRecheck={() => void recheckMemory(memory)} />
                                 <button
                                   type="button"
                                   disabled={reviewingMemoryId === memory.id}
