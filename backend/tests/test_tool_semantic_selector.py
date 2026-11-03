@@ -1,4 +1,4 @@
-"""混合候选筛选的故障、权限边界与模型缓存行为。"""
+"""混合候选筛选的故障、权限边界与索引复用行为。"""
 
 import asyncio
 import math
@@ -9,17 +9,19 @@ from unittest.mock import AsyncMock
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.selector import ToolCandidateSelector
 from app.services.tools.semantic_retrieval import ToolEmbeddingConfig, ToolSemanticRetriever
+from backend.tests.tool_search_helpers import MemoryToolSearchIndex
 
 
 class ToolSemanticSelectorTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        ToolSemanticRetriever._cache.clear()
+        self.index = MemoryToolSearchIndex()
         self.catalog = ToolCatalog()
         self.config = ToolEmbeddingConfig('user-a', 'siliconflow', 'test-embedding', 2, 'https://example.org/v1', 'test-key')
         self.adapter = AsyncMock()
 
     def retriever(self, config=None, timeout=.3):
-        return ToolSemanticRetriever(config=config or self.config, embedding_service=self.adapter, timeout_seconds=timeout)
+        return ToolSemanticRetriever(config=config or self.config, embedding_service=self.adapter,
+                                     timeout_seconds=timeout, index_store=self.index)
 
     async def test_real_vector_path_recalls_weather_without_keyword(self):
         weather = self.catalog.get('amap.maps.weather')
@@ -78,7 +80,7 @@ class ToolSemanticSelectorTest(unittest.IsolatedAsyncioTestCase):
                 self.adapter.embed_texts.side_effect = lambda **kwargs: [vector for _ in kwargs['texts']]
                 _, trace = await ToolCandidateSelector(self.catalog, semantic_retriever=self.retriever()).select_async(
                     query='深圳天气', enabled=True)
-                self.assertEqual(trace['retrieval']['fallback_reason'], 'embedding_unavailable')
+                self.assertEqual(trace['retrieval']['fallback_reason'], 'index_or_embedding_unavailable')
         self.adapter.embed_texts.side_effect = None
         self.adapter.embed_texts.return_value = []
         scores, _ = await self.retriever().scores(query='天气', definitions=[self.catalog.get('amap.maps.weather')])
@@ -96,23 +98,23 @@ class ToolSemanticSelectorTest(unittest.IsolatedAsyncioTestCase):
         retriever = self.retriever()
         await retriever.scores(query='第一问', definitions=[tool])
         _, diag = await retriever.scores(query='第二问', definitions=[tool])
-        self.assertEqual(diag['cache_hits'], 1)
+        self.assertEqual(diag['persistent_hits'], 1)
         self.assertEqual(self.adapter.embed_texts.call_args.kwargs['texts'], ['第二问'])
         for config in (replace(self.config,user_id='user-b'), replace(self.config,model='new-model'),
                        replace(self.config,api_key='rotated'), replace(self.config,base_url='https://other.org/v1')):
             _, diag = await self.retriever(config).scores(query='第三问', definitions=[tool])
-            self.assertEqual(diag['cache_hits'], 0)
+            self.assertEqual(diag['persistent_hits'], 0)
         _, diag = await retriever.scores(query='第三问', definitions=[replace(tool,description='new capability')])
-        self.assertEqual(diag['cache_hits'], 0)
+        self.assertEqual(diag['persistent_hits'], 0)
 
-    async def test_cache_capacity_and_expiration_are_bounded(self):
-        with unittest.mock.patch.object(ToolSemanticRetriever, 'CACHE_SIZE', 2):
-            for i in range(3):
-                ToolSemanticRetriever._put(str(i), [1., 0.])
-            self.assertEqual(len(ToolSemanticRetriever._cache), 2)
-            self.assertIsNone(ToolSemanticRetriever._get('0'))
-        with unittest.mock.patch.object(ToolSemanticRetriever, 'CACHE_TTL_SECONDS', -1):
-            self.assertIsNone(ToolSemanticRetriever._get('2'))
+    async def test_new_retriever_reuses_store_without_process_cache(self):
+        self.adapter.embed_texts.side_effect = lambda **kwargs: [[1., 0.] for _ in kwargs['texts']]
+        tool = self.catalog.get('amap.maps.weather')
+        await self.retriever().warmup([tool])
+        _, diag = await self.retriever().scores(query='第二问', definitions=[tool])
+        self.assertEqual(diag['persistent_hits'], 1)
+        self.assertEqual(diag['embedded_tools'], 0)
+        self.assertEqual(self.adapter.embed_texts.call_args.kwargs['texts'], ['第二问'])
 
     async def test_new_category_works_without_rule_keyword_table(self):
         new = replace(self.catalog.get('workspace.files.read'), tool_key='mcp.language.detect', category='language_analysis',
@@ -149,10 +151,42 @@ class ToolSemanticSelectorTest(unittest.IsolatedAsyncioTestCase):
         scores, trace = await ToolSemanticRetriever().scores(query='天气', definitions=[])
         self.assertEqual(trace['fallback_reason'], 'online_embedding_not_configured')
 
-    async def test_bounded_catalog_degrades_without_network(self):
+    async def test_large_cold_catalog_is_bounded_and_can_be_prebuilt(self):
         self.adapter.embed_texts.side_effect = lambda **kwargs: [[1., 0.] for _ in kwargs['texts']]
         tools = [replace(self.catalog.get('workspace.files.read'), tool_key=f'mcp.read.{i}') for i in range(129)]
         scores, trace = await self.retriever().scores(query='read', definitions=tools)
-        self.assertEqual(trace['fallback_reason'], 'catalog_exceeds_semantic_limit')
-        self.assertEqual(scores, {})
-        self.adapter.embed_texts.assert_not_awaited()
+        self.assertEqual(trace['embedded_tools'], 31)
+        self.assertEqual(trace['pending_tools'], 98)
+        self.assertFalse(trace['index_complete'])
+        self.assertLessEqual(len(scores), 30)
+        result = await self.retriever().warmup(tools)
+        self.assertTrue(result['index_complete'])
+        _, diag = await self.retriever().scores(query='read', definitions=tools)
+        self.assertEqual(diag['persistent_hits'], 129)
+        self.assertEqual(diag['embedded_tools'], 0)
+        self.assertEqual(len(self.adapter.embed_texts.call_args.kwargs['texts']), 1)
+
+    async def test_only_thirty_coarse_tools_receive_detailed_scores(self):
+        base = self.catalog.get('workspace.files.read')
+        tools = [replace(base, tool_key=f'mcp.reader.{i}', category='reader',
+                         display_name='read note', description='read note', input_schema={}) for i in range(200)]
+        self.catalog._definitions = {tool.tool_key: tool for tool in tools}
+        self.adapter.embed_texts.side_effect = lambda **kwargs: [[1., 0.] for _ in kwargs['texts']]
+        await self.retriever().warmup(tools)
+        selector = ToolCandidateSelector(self.catalog, semantic_retriever=self.retriever())
+        with unittest.mock.patch.object(selector, '_score_tool', wraps=selector._score_tool) as detailed:
+            selected, trace = await selector.select_async(query='read note', enabled=True)
+        self.assertEqual(detailed.call_count, 30)
+        self.assertEqual(trace['stages']['eligible_count'], 200)
+        self.assertEqual(trace['stages']['coarse_count'], 30)
+        self.assertEqual(len(trace['retrieval']['coarse_tool_keys']), 30)
+        self.assertEqual(len(selected), 6)
+
+    async def test_stale_or_foreign_index_key_cannot_enter_final_candidates(self):
+        retriever = AsyncMock()
+        retriever.scores.return_value = ({'foreign.secret': .99, 'amap.maps.weather': .8},
+            {'coarse_tool_keys': ['foreign.secret', 'amap.maps.weather']})
+        selected, trace = await ToolCandidateSelector(self.catalog, semantic_retriever=retriever).select_async(
+            query='天气', enabled=True, allowed_tool_keys={'amap.maps.weather'})
+        self.assertEqual([tool.tool_key for tool in selected], ['amap.maps.weather'])
+        self.assertEqual(trace['retrieval']['coarse_tool_keys'], ['amap.maps.weather'])

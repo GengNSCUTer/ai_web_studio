@@ -1,0 +1,140 @@
+{
+  "passed": 3,
+  "browser_errors": 0,
+  "model": "deepseek-ai/DeepSeek-V3.2",
+  "cases": [
+    {
+      "scenario": "semantic_weather",
+      "answer_status": "done",
+      "tool_keys": [
+        "amap.maps.weather"
+      ],
+      "source_checked": true,
+      "elapsed_ms": 4846,
+      "selector": "tool_candidate_selector_v4",
+      "retrieval": {
+        "mode": "hybrid",
+        "fallback_reason": null,
+        "persistent_hits": 13,
+        "embedded_tools": 0,
+        "eligible_count": 13,
+        "coarse_limit": 30,
+        "lexical_tool_keys": [
+          "workspace.files.read",
+          "agent.artifacts.list",
+          "amap.maps.around_search",
+          "amap.maps.text_search",
+          "amap.maps.weather",
+          "workspace.files.search"
+        ],
+        "search_mode": "exact",
+        "exact_topup": false,
+        "ann_dimension_supported": true,
+        "model": "BAAI/bge-m3",
+        "index_backend": "postgres_pgvector",
+        "pending_tools": 0,
+        "index_complete": true,
+        "coarse_tool_keys": [
+          "amap.maps.weather",
+          "workspace.files.search",
+          "amap.maps.text_search",
+          "amap.maps.around_search",
+          "workspace.files.read",
+          "agent.artifacts.list",
+          "amap.maps.geo",
+          "amap.maps.distance",
+          "workspace.files.list",
+          "amap.maps.direction.transit",
+          "amap.maps.direction.walking",
+          "amap.maps.direction.driving"
+        ],
+        "elapsed_ms": 272.0
+      },
+      "candidates": [
+        "amap.maps.weather",
+        "workspace.files.search",
+        "workspace.files.read",
+        "amap.maps.geo",
+        "amap.maps.distance",
+        "amap.maps.text_search"
+      ],
+      "weather_answer": "根据当前可用的天气信息，深圳市目前天气晴朗，气温为 25 摄氏度。该信息更新于 2026年11月3日 20:30 [T1]。"
+    },
+    {
+      "scenario": "semantic_attachment",
+      "answer_status": "done",
+      "tool_keys": [
+        "workspace.files.search",
+        "workspace.files.search",
+        "workspace.files.read"
+      ],
+      "source_checked": true,
+      "elapsed_ms": 13918,
+      "selector": "tool_candidate_selector_v4",
+      "retrieval": {
+        "mode": "hybrid",
+        "fallback_reason": null,
+        "persistent_hits": 13,
+        "embedded_tools": 0,
+        "eligible_count": 13,
+        "coarse_limit": 30,
+        "lexical_tool_keys": [
+          "agent.artifacts.read",
+          "workspace.files.read",
+          "workspace.files.search",
+          "agent.artifacts.list",
+          "amap.maps.around_search",
+          "amap.maps.text_search",
+          "workspace.files.list"
+        ],
+        "search_mode": "exact",
+        "exact_topup": false,
+        "ann_dimension_supported": true,
+        "model": "BAAI/bge-m3",
+        "index_backend": "postgres_pgvector",
+        "pending_tools": 0,
+        "index_complete": true,
+        "coarse_tool_keys": [
+          "agent.artifacts.read",
+          "workspace.files.search",
+          "workspace.files.read",
+          "agent.artifacts.list",
+          "workspace.files.list",
+          "amap.maps.around_search",
+          "amap.maps.text_search",
+          "amap.maps.weather",
+          "amap.maps.direction.walking",
+          "amap.maps.geo",
+          "amap.maps.direction.driving",
+          "amap.maps.direction.transit"
+        ],
+        "elapsed_ms": 259.6
+      },
+      "candidates": [
+        "agent.artifacts.read",
+        "workspace.files.search",
+        "workspace.files.read",
+        "agent.artifacts.list",
+        "workspace.files.list",
+        "amap.maps.weather"
+      ],
+      "weather_answer": null
+    },
+    {
+      "scenario": "explicit_no_tools",
+      "answer_status": "done",
+      "tool_keys": [],
+      "source_checked": true,
+      "elapsed_ms": 2199,
+      "selector": "tool_candidate_selector_v2",
+      "retrieval": {
+        "mode": "skipped",
+        "elapsed_ms": 0,
+        "fallback_reason": "user_requested_no_tools"
+      },
+      "candidates": [],
+      "weather_answer": null
+    }
+  ],
+  "temporary_data_cleaned": true
+}

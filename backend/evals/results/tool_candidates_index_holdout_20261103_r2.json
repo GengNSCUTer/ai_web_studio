@@ -1,0 +1,5057 @@
+{
+  "version": "candidate-holdout-v1-20261011",
+  "gold_sha256": "7659b01649c069c445b79b3a5165f2fb3aa2e1618e3323b51c8fabf9fc06effc",
+  "baseline_commit": "574f4574c8b63b442a34e51795d360d407dfd05f",
+  "comparison_commit": "dc2dd1f",
+  "annotation": "主开发集调试完成后另行标注，冻结后单次验证；同一维护者标注，不是第三方盲测。",
+  "summaries": {
+    "baseline": {
+      "cases": 12,
+      "positive_cases": 11,
+      "required_groups": 13,
+      "coarse_recall_at_30": null,
+      "tool_group_recall_at_6": 0.6923,
+      "complete_coverage": 0.7273,
+      "empty_correct": 1,
+      "empty_cases": 1,
+      "forbidden_leak_cases": 1,
+      "mean_ms": 0.6,
+      "p95_ms": 2.83,
+      "semantic_successes": 0,
+      "semantic_errors": 0
+    },
+    "rules_fallback": {
+      "cases": 12,
+      "positive_cases": 11,
+      "required_groups": 13,
+      "coarse_recall_at_30": null,
+      "tool_group_recall_at_6": 0.6154,
+      "complete_coverage": 0.6364,
+      "empty_correct": 1,
+      "empty_cases": 1,
+      "forbidden_leak_cases": 0,
+      "mean_ms": 1.0,
+      "p95_ms": 1.71,
+      "semantic_successes": 0,
+      "semantic_errors": 0
+    },
+    "hybrid": {
+      "cases": 12,
+      "positive_cases": 11,
+      "required_groups": 13,
+      "coarse_recall_at_30": 1.0,
+      "tool_group_recall_at_6": 1.0,
+      "complete_coverage": 1.0,
+      "empty_correct": 1,
+      "empty_cases": 1,
+      "forbidden_leak_cases": 0,
+      "mean_ms": 237.1,
+      "p95_ms": 292.12,
+      "semantic_successes": 11,
+      "semantic_errors": 0
+    },
+    "previous_hybrid": {
+      "cases": 12,
+      "positive_cases": 11,
+      "required_groups": 13,
+      "coarse_recall_at_30": null,
+      "tool_group_recall_at_6": 1.0,
+      "complete_coverage": 1.0,
+      "empty_correct": 1,
+      "empty_cases": 1,
+      "forbidden_leak_cases": 0,
+      "mean_ms": 263.5,
+      "p95_ms": 767.03,
+      "semantic_successes": 11,
+      "semantic_errors": 0
+    }
+  },
+  "groups": {
+    "baseline": {
+      "english": {
+        "cases": 4,
+        "positive_cases": 4,
+        "required_groups": 5,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 0.4,
+        "complete_coverage": 0.5,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.5,
+        "p95_ms": 0.51,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "literal": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.5,
+        "p95_ms": 0.5,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "multi_intent": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 2,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.6,
+        "p95_ms": 0.56,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "negative": {
+        "cases": 2,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 1,
+        "empty_cases": 1,
+        "forbidden_leak_cases": 1,
+        "mean_ms": 0.3,
+        "p95_ms": 0.44,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "new_tool": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.5,
+        "p95_ms": 0.51,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "paraphrase": {
+        "cases": 2,
+        "positive_cases": 2,
+        "required_groups": 2,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 0.5,
+        "complete_coverage": 0.5,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 1.8,
+        "p95_ms": 2.83,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "scope": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.1,
+        "p95_ms": 0.1,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      }
+    },
+    "rules_fallback": {
+      "english": {
+        "cases": 4,
+        "positive_cases": 4,
+        "required_groups": 5,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 0.2,
+        "complete_coverage": 0.25,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 1.5,
+        "p95_ms": 1.71,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "literal": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.6,
+        "p95_ms": 0.58,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "multi_intent": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 2,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.7,
+        "p95_ms": 0.65,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "negative": {
+        "cases": 2,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 1,
+        "empty_cases": 1,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.4,
+        "p95_ms": 0.74,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "new_tool": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 1.7,
+        "p95_ms": 1.71,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "paraphrase": {
+        "cases": 2,
+        "positive_cases": 2,
+        "required_groups": 2,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 0.5,
+        "complete_coverage": 0.5,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.7,
+        "p95_ms": 0.93,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      },
+      "scope": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 0.4,
+        "p95_ms": 0.36,
+        "semantic_successes": 0,
+        "semantic_errors": 0
+      }
+    },
+    "hybrid": {
+      "english": {
+        "cases": 4,
+        "positive_cases": 4,
+        "required_groups": 5,
+        "coarse_recall_at_30": 1.0,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 256.4,
+        "p95_ms": 292.12,
+        "semantic_successes": 4,
+        "semantic_errors": 0
+      },
+      "literal": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": 1.0,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 273.8,
+        "p95_ms": 273.76,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      },
+      "multi_intent": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 2,
+        "coarse_recall_at_30": 1.0,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 273.5,
+        "p95_ms": 273.51,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      },
+      "negative": {
+        "cases": 2,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": 1.0,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 1,
+        "empty_cases": 1,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 118.6,
+        "p95_ms": 237.09,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      },
+      "new_tool": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": 1.0,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 260.5,
+        "p95_ms": 260.52,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      },
+      "paraphrase": {
+        "cases": 2,
+        "positive_cases": 2,
+        "required_groups": 2,
+        "coarse_recall_at_30": 1.0,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 258.2,
+        "p95_ms": 281.61,
+        "semantic_successes": 2,
+        "semantic_errors": 0
+      },
+      "scope": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": 1.0,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 258.3,
+        "p95_ms": 258.28,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      }
+    },
+    "previous_hybrid": {
+      "english": {
+        "cases": 4,
+        "positive_cases": 4,
+        "required_groups": 5,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 244.1,
+        "p95_ms": 284.81,
+        "semantic_successes": 4,
+        "semantic_errors": 0
+      },
+      "literal": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 235.1,
+        "p95_ms": 235.1,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      },
+      "multi_intent": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 2,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 276.0,
+        "p95_ms": 276.04,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      },
+      "negative": {
+        "cases": 2,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 1,
+        "empty_cases": 1,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 104.0,
+        "p95_ms": 207.91,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      },
+      "new_tool": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 222.0,
+        "p95_ms": 222.0,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      },
+      "paraphrase": {
+        "cases": 2,
+        "positive_cases": 2,
+        "required_groups": 2,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 495.3,
+        "p95_ms": 767.03,
+        "semantic_successes": 2,
+        "semantic_errors": 0
+      },
+      "scope": {
+        "cases": 1,
+        "positive_cases": 1,
+        "required_groups": 1,
+        "coarse_recall_at_30": null,
+        "tool_group_recall_at_6": 1.0,
+        "complete_coverage": 1.0,
+        "empty_correct": 0,
+        "empty_cases": 0,
+        "forbidden_leak_cases": 0,
+        "mean_ms": 253.4,
+        "p95_ms": 253.44,
+        "semantic_successes": 1,
+        "semantic_errors": 0
+      }
+    }
+  },
+  "cases": {
+    "baseline": [
+      {
+        "id": "h01",
+        "group": "paraphrase",
+        "query": "南京下午会不会淋雨？我准备出去跑步。",
+        "keys": [
+          "web.tavily.search"
+        ],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": false,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 2.83,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h02",
+        "group": "english",
+        "query": "Is Chengdu warm enough to go outside without a coat? Check the current conditions.",
+        "keys": [
+          "agent.artifacts.list",
+          "workspace.files.read",
+          "amap.maps.distance",
+          "amap.maps.weather",
+          "workspace.files.list",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.48,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.0,
+            "reasons": [
+              "metadata_hits:4",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.0,
+            "reasons": [
+              "metadata_hits:4",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.distance",
+            "display_name": "高德 MCP 距离测量",
+            "category": "map_distance",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h03",
+        "group": "paraphrase",
+        "query": "我想看看 analysis.md 里面提出了哪些限制。",
+        "keys": [
+          "workspace.files.read",
+          "workspace.files.search",
+          "workspace.files.list",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.77,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 2.0,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 2.0,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.8,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h04",
+        "group": "english",
+        "query": "Find the uploaded notes mentioning backup retention.",
+        "keys": [
+          "agent.artifacts.list",
+          "amap.maps.weather",
+          "workspace.files.read",
+          "web.tavily.search"
+        ],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": false,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.46,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h05",
+        "group": "english",
+        "query": "Check the official library documentation for httpx timeouts.",
+        "keys": [
+          "agent.artifacts.list",
+          "amap.maps.weather",
+          "workspace.files.read",
+          "web.tavily.search"
+        ],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 2,
+        "complete": false,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.49,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.5,
+            "reasons": [
+              "metadata_hits:2",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.5,
+            "reasons": [
+              "metadata_hits:2",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h06",
+        "group": "literal",
+        "query": "打开 https://example.net/manual 并读取页面内容",
+        "keys": [
+          "workspace.files.read",
+          "web.exa.fetch",
+          "workspace.files.search",
+          "workspace.files.list",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.5,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 3.4,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.exa.fetch",
+            "display_name": "Exa 网页正文读取",
+            "category": "web_fetch",
+            "provider": "exa",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.4,
+            "reasons": [
+              "category_match:web_fetch",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 3.4,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 3.2,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h07",
+        "group": "english",
+        "query": "Find a walking route from the railway station to the museum.",
+        "keys": [
+          "workspace.files.read",
+          "agent.artifacts.list",
+          "amap.maps.direction.walking",
+          "amap.maps.weather",
+          "amap.maps.direction.driving",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.51,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.0,
+            "reasons": [
+              "metadata_hits:4",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.75,
+            "reasons": [
+              "metadata_hits:3",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.5,
+            "reasons": [
+              "metadata_hits:2",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.5,
+            "reasons": [
+              "metadata_hits:2",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.direction.driving",
+            "display_name": "高德 MCP 驾车路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h08",
+        "group": "multi_intent",
+        "query": "查武汉气温，然后帮我读一下 report.md",
+        "keys": [
+          "workspace.files.read",
+          "amap.maps.weather",
+          "workspace.files.search",
+          "workspace.files.list",
+          "web.tavily.search"
+        ],
+        "hits": 2,
+        "coarse_hits": null,
+        "required_groups": 2,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.56,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 2.0,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.4,
+            "reasons": [
+              "category_match:weather",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 2.0,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.8,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h09",
+        "group": "negative",
+        "query": "不用使用任何工具，就说好的",
+        "keys": [],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 0,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": true,
+        "elapsed_ms": 0.09,
+        "retrieval": null,
+        "candidates": [],
+        "stages": null
+      },
+      {
+        "id": "h10",
+        "group": "scope",
+        "query": "Find a file and search the internet",
+        "keys": [
+          "workspace.files.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.1,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.5,
+            "reasons": [
+              "metadata_hits:2",
+              "read_only"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h11",
+        "group": "negative",
+        "query": "Read checklist.md. Don't search the web.",
+        "keys": [
+          "workspace.files.read",
+          "agent.artifacts.list",
+          "amap.maps.text_search",
+          "amap.maps.weather",
+          "agent.artifacts.read",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [
+          "web.tavily.search"
+        ],
+        "empty_correct": null,
+        "elapsed_ms": 0.44,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.5,
+            "reasons": [
+              "metadata_hits:2",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.text_search",
+            "display_name": "高德 MCP 关键词搜索",
+            "category": "map_poi",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h12",
+        "group": "new_tool",
+        "query": "How long would it take to read this passage aloud?",
+        "keys": [
+          "workspace.files.read",
+          "mcp.text.duration",
+          "agent.artifacts.list",
+          "amap.maps.direction.transit",
+          "agent.artifacts.read",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.51,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.75,
+            "reasons": [
+              "metadata_hits:3",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "mcp.text.duration",
+            "display_name": "朗读耗时估计",
+            "category": "speech_estimation",
+            "provider": "test_mcp",
+            "source_type": "mcp_server",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.65,
+            "reasons": [
+              "metadata_hits:2",
+              "user_enabled_mcp_tool",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.direction.transit",
+            "display_name": "高德 MCP 公共交通路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      }
+    ],
+    "rules_fallback": [
+      {
+        "id": "h01",
+        "group": "paraphrase",
+        "query": "南京下午会不会淋雨？我准备出去跑步。",
+        "keys": [
+          "web.tavily.search"
+        ],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": false,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.93,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h02",
+        "group": "english",
+        "query": "Is Chengdu warm enough to go outside without a coat? Check the current conditions.",
+        "keys": [
+          "agent.artifacts.list",
+          "workspace.files.read",
+          "web.tavily.search"
+        ],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": false,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 1.53,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h03",
+        "group": "paraphrase",
+        "query": "我想看看 analysis.md 里面提出了哪些限制。",
+        "keys": [
+          "workspace.files.read",
+          "workspace.files.search",
+          "workspace.files.list",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.41,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 2.0,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 2.0,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.8,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h04",
+        "group": "english",
+        "query": "Find the uploaded notes mentioning backup retention.",
+        "keys": [
+          "web.tavily.search"
+        ],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": false,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 1.71,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h05",
+        "group": "english",
+        "query": "Check the official library documentation for httpx timeouts.",
+        "keys": [
+          "agent.artifacts.list",
+          "web.tavily.search"
+        ],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 2,
+        "complete": false,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 1.7,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h06",
+        "group": "literal",
+        "query": "打开 https://example.net/manual 并读取页面内容",
+        "keys": [
+          "workspace.files.read",
+          "web.exa.fetch",
+          "workspace.files.search",
+          "workspace.files.list",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.58,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 3.4,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.exa.fetch",
+            "display_name": "Exa 网页正文读取",
+            "category": "web_fetch",
+            "provider": "exa",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.4,
+            "reasons": [
+              "category_match:web_fetch",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 3.4,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 3.2,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h07",
+        "group": "english",
+        "query": "Find a walking route from the railway station to the museum.",
+        "keys": [
+          "amap.maps.direction.walking",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 1.2,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h08",
+        "group": "multi_intent",
+        "query": "查武汉气温，然后帮我读一下 report.md",
+        "keys": [
+          "workspace.files.read",
+          "amap.maps.weather",
+          "workspace.files.search",
+          "workspace.files.list",
+          "web.tavily.search"
+        ],
+        "hits": 2,
+        "coarse_hits": null,
+        "required_groups": 2,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.65,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 2.0,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.4,
+            "reasons": [
+              "category_match:weather",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 2.0,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 1.8,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h09",
+        "group": "negative",
+        "query": "不用使用任何工具，就说好的",
+        "keys": [],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 0,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": true,
+        "elapsed_ms": 0.09,
+        "retrieval": null,
+        "candidates": [],
+        "stages": null
+      },
+      {
+        "id": "h10",
+        "group": "scope",
+        "query": "Find a file and search the internet",
+        "keys": [
+          "workspace.files.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.36,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h11",
+        "group": "negative",
+        "query": "Read checklist.md. Don't search the web.",
+        "keys": [
+          "agent.artifacts.read",
+          "workspace.files.read",
+          "workspace.files.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 0.74,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h12",
+        "group": "new_tool",
+        "query": "How long would it take to read this passage aloud?",
+        "keys": [
+          "agent.artifacts.read",
+          "mcp.text.duration",
+          "workspace.files.read",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 1.71,
+        "retrieval": null,
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "mcp.text.duration",
+            "display_name": "朗读耗时估计",
+            "category": "speech_estimation",
+            "provider": "test_mcp",
+            "source_type": "mcp_server",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.25,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only"
+            ]
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.35,
+            "reasons": [
+              "web_search_fallback"
+            ]
+          }
+        ],
+        "stages": null
+      }
+    ],
+    "hybrid": [
+      {
+        "id": "h01",
+        "group": "paraphrase",
+        "query": "南京下午会不会淋雨？我准备出去跑步。",
+        "keys": [
+          "amap.maps.weather",
+          "amap.maps.direction.walking",
+          "amap.maps.around_search",
+          "amap.maps.distance",
+          "amap.maps.direction.transit",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": 1,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 281.61,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 18,
+          "embedded_tools": 0,
+          "eligible_count": 18,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "amap.maps.weather",
+            "amap.maps.direction.walking",
+            "amap.maps.around_search",
+            "amap.maps.distance",
+            "amap.maps.direction.transit",
+            "web.tavily.search"
+          ],
+          "elapsed_ms": 281.0
+        },
+        "candidates": [
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.4324
+          },
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4146
+          },
+          {
+            "tool_key": "amap.maps.around_search",
+            "display_name": "高德 MCP 周边搜索",
+            "category": "map_poi",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "around_search_needs_center_location",
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.3804
+          },
+          {
+            "tool_key": "amap.maps.distance",
+            "display_name": "高德 MCP 距离测量",
+            "category": "map_distance",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015625,
+            "reasons": [
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.3778
+          },
+          {
+            "tool_key": "amap.maps.direction.transit",
+            "display_name": "高德 MCP 公共交通路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.3709
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.2995
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 18,
+          "coarse_count": 6,
+          "reranked_count": 6,
+          "planner_count": 6
+        }
+      },
+      {
+        "id": "h02",
+        "group": "english",
+        "query": "Is Chengdu warm enough to go outside without a coat? Check the current conditions.",
+        "keys": [
+          "amap.maps.weather",
+          "amap.maps.distance",
+          "amap.maps.direction.walking",
+          "amap.maps.direction.transit",
+          "amap.maps.around_search",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": 1,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 292.12,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 18,
+          "embedded_tools": 0,
+          "eligible_count": 18,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [
+            "web.tavily.search",
+            "workspace.files.read",
+            "agent.artifacts.list"
+          ],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "amap.maps.weather",
+            "web.tavily.search",
+            "amap.maps.distance",
+            "workspace.files.read",
+            "agent.artifacts.list",
+            "amap.maps.direction.walking",
+            "amap.maps.direction.transit",
+            "amap.maps.around_search",
+            "amap.maps.geo",
+            "amap.maps.text_search",
+            "amap.maps.direction.driving"
+          ],
+          "elapsed_ms": 289.8
+        },
+        "candidates": [
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5625
+          },
+          {
+            "tool_key": "amap.maps.distance",
+            "display_name": "高德 MCP 距离测量",
+            "category": "map_distance",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4052
+          },
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.4012
+          },
+          {
+            "tool_key": "amap.maps.direction.transit",
+            "display_name": "高德 MCP 公共交通路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015625,
+            "reasons": [
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.3943
+          },
+          {
+            "tool_key": "amap.maps.around_search",
+            "display_name": "高德 MCP 周边搜索",
+            "category": "map_poi",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "around_search_needs_center_location",
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.3938
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.3416
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 18,
+          "coarse_count": 11,
+          "reranked_count": 11,
+          "planner_count": 6
+        }
+      },
+      {
+        "id": "h03",
+        "group": "paraphrase",
+        "query": "我想看看 analysis.md 里面提出了哪些限制。",
+        "keys": [
+          "workspace.files.read",
+          "workspace.files.search",
+          "workspace.files.list",
+          "agent.artifacts.list",
+          "agent.artifacts.read",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": 1,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 234.82,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 18,
+          "embedded_tools": 0,
+          "eligible_count": 18,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [
+            "workspace.files.list",
+            "workspace.files.read",
+            "workspace.files.search",
+            "amap.maps.text_search"
+          ],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "workspace.files.read",
+            "amap.maps.text_search",
+            "workspace.files.search",
+            "workspace.files.list",
+            "agent.artifacts.list",
+            "agent.artifacts.read",
+            "web.exa.fetch",
+            "amap.maps.direction.walking",
+            "amap.maps.around_search",
+            "web.tavily.search",
+            "amap.maps.weather",
+            "amap.maps.direction.driving",
+            "amap.maps.distance",
+            "amap.maps.direction.transit",
+            "docs.context7.query",
+            "amap.maps.geo",
+            "docs.context7.resolve",
+            "web.exa.search"
+          ],
+          "elapsed_ms": 234.3
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04891591750396616,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.5218
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04718343765045739,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:7"
+            ],
+            "semantic_score": 0.465
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04507936507936508,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:15"
+            ],
+            "semantic_score": 0.4237
+          },
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5539
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.5208
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.4439
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 18,
+          "coarse_count": 18,
+          "reranked_count": 18,
+          "planner_count": 6
+        }
+      },
+      {
+        "id": "h04",
+        "group": "english",
+        "query": "Find the uploaded notes mentioning backup retention.",
+        "keys": [
+          "agent.artifacts.list",
+          "workspace.files.search",
+          "workspace.files.list",
+          "docs.context7.query",
+          "amap.maps.around_search",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": 1,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 240.97,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 18,
+          "embedded_tools": 0,
+          "eligible_count": 18,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "agent.artifacts.list",
+            "workspace.files.search",
+            "workspace.files.list",
+            "web.tavily.search",
+            "docs.context7.query",
+            "amap.maps.around_search",
+            "amap.maps.text_search",
+            "docs.context7.resolve",
+            "web.exa.search",
+            "workspace.files.read",
+            "web.exa.fetch",
+            "agent.artifacts.read",
+            "amap.maps.direction.driving",
+            "amap.maps.geo",
+            "amap.maps.direction.walking",
+            "amap.maps.weather",
+            "amap.maps.direction.transit"
+          ],
+          "elapsed_ms": 239.3
+        },
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.4728
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4708
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.4563
+          },
+          {
+            "tool_key": "docs.context7.query",
+            "display_name": "Context7 技术文档查询",
+            "category": "documentation",
+            "provider": "context7",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.4517
+          },
+          {
+            "tool_key": "amap.maps.around_search",
+            "display_name": "高德 MCP 周边搜索",
+            "category": "map_poi",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015151515151515152,
+            "reasons": [
+              "around_search_needs_center_location",
+              "read_only",
+              "semantic_rank:6"
+            ],
+            "semantic_score": 0.4367
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.4526
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 18,
+          "coarse_count": 17,
+          "reranked_count": 17,
+          "planner_count": 6
+        }
+      },
+      {
+        "id": "h05",
+        "group": "english",
+        "query": "Check the official library documentation for httpx timeouts.",
+        "keys": [
+          "agent.artifacts.list",
+          "web.exa.fetch",
+          "docs.context7.query",
+          "docs.context7.resolve",
+          "workspace.files.search",
+          "web.tavily.search"
+        ],
+        "hits": 2,
+        "coarse_hits": 2,
+        "required_groups": 2,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 251.8,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 18,
+          "embedded_tools": 0,
+          "eligible_count": 18,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [
+            "docs.context7.resolve",
+            "docs.context7.query",
+            "web.tavily.search"
+          ],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "docs.context7.resolve",
+            "docs.context7.query",
+            "web.tavily.search",
+            "web.exa.fetch",
+            "web.exa.search",
+            "agent.artifacts.list",
+            "workspace.files.search",
+            "workspace.files.read",
+            "agent.artifacts.read",
+            "amap.maps.weather",
+            "workspace.files.list",
+            "amap.maps.around_search",
+            "amap.maps.direction.walking",
+            "amap.maps.text_search",
+            "amap.maps.direction.driving",
+            "amap.maps.direction.transit",
+            "amap.maps.geo",
+            "amap.maps.distance"
+          ],
+          "elapsed_ms": 250.0
+        },
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.020889220069547937,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:6"
+            ],
+            "semantic_score": 0.4731
+          },
+          {
+            "tool_key": "web.exa.fetch",
+            "display_name": "Exa 网页正文读取",
+            "category": "web_fetch",
+            "provider": "exa",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5401
+          },
+          {
+            "tool_key": "docs.context7.query",
+            "display_name": "Context7 技术文档查询",
+            "category": "documentation",
+            "provider": "context7",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.52
+          },
+          {
+            "tool_key": "docs.context7.resolve",
+            "display_name": "Context7 技术库定位",
+            "category": "documentation",
+            "provider": "context7",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.5012
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.014925373134328358,
+            "reasons": [
+              "read_only",
+              "semantic_rank:7"
+            ],
+            "semantic_score": 0.4726
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.496
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 18,
+          "coarse_count": 18,
+          "reranked_count": 18,
+          "planner_count": 6
+        }
+      },
+      {
+        "id": "h06",
+        "group": "literal",
+        "query": "打开 https://example.net/manual 并读取页面内容",
+        "keys": [
+          "workspace.files.read",
+          "workspace.files.search",
+          "web.exa.fetch",
+          "workspace.files.list",
+          "docs.context7.query",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": 1,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 273.76,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 18,
+          "embedded_tools": 0,
+          "eligible_count": 18,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [
+            "web.exa.fetch",
+            "workspace.files.read",
+            "workspace.files.search",
+            "workspace.files.list",
+            "agent.artifacts.read",
+            "web.exa.search",
+            "web.tavily.search"
+          ],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "web.exa.fetch",
+            "workspace.files.read",
+            "workspace.files.search",
+            "workspace.files.list",
+            "web.exa.search",
+            "agent.artifacts.read",
+            "web.tavily.search",
+            "docs.context7.query",
+            "agent.artifacts.list",
+            "docs.context7.resolve",
+            "amap.maps.direction.driving",
+            "amap.maps.direction.walking",
+            "amap.maps.weather",
+            "amap.maps.text_search",
+            "amap.maps.direction.transit",
+            "amap.maps.geo",
+            "amap.maps.around_search",
+            "amap.maps.distance"
+          ],
+          "elapsed_ms": 272.9
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04891591750396616,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.5845
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04788306451612903,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.5705
+          },
+          {
+            "tool_key": "web.exa.fetch",
+            "display_name": "Exa 网页正文读取",
+            "category": "web_fetch",
+            "provider": "exa",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.047643442622950824,
+            "reasons": [
+              "category_match:web_fetch",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.6279
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.046897546897546896,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only",
+              "semantic_rank:6"
+            ],
+            "semantic_score": 0.5578
+          },
+          {
+            "tool_key": "docs.context7.query",
+            "display_name": "Context7 技术文档查询",
+            "category": "documentation",
+            "provider": "context7",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.5706
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.5232
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 18,
+          "coarse_count": 18,
+          "reranked_count": 18,
+          "planner_count": 6
+        }
+      },
+      {
+        "id": "h07",
+        "group": "english",
+        "query": "Find a walking route from the railway station to the museum.",
+        "keys": [
+          "amap.maps.direction.walking",
+          "amap.maps.direction.transit",
+          "amap.maps.direction.driving",
+          "agent.artifacts.list",
+          "amap.maps.distance",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": 1,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 240.69,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 18,
+          "embedded_tools": 0,
+          "eligible_count": 18,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [
+            "amap.maps.direction.walking",
+            "amap.maps.direction.driving",
+            "amap.maps.direction.transit",
+            "web.tavily.search"
+          ],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "amap.maps.direction.walking",
+            "amap.maps.direction.driving",
+            "amap.maps.direction.transit",
+            "agent.artifacts.list",
+            "web.tavily.search",
+            "amap.maps.distance",
+            "amap.maps.around_search",
+            "amap.maps.geo",
+            "agent.artifacts.read",
+            "workspace.files.read",
+            "amap.maps.weather"
+          ],
+          "elapsed_ms": 239.7
+        },
+        "candidates": [
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.02213114754098361,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.4878
+          },
+          {
+            "tool_key": "amap.maps.direction.transit",
+            "display_name": "高德 MCP 公共交通路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4645
+          },
+          {
+            "tool_key": "amap.maps.direction.driving",
+            "display_name": "高德 MCP 驾车路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.4199
+          },
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015625,
+            "reasons": [
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.4125
+          },
+          {
+            "tool_key": "amap.maps.distance",
+            "display_name": "高德 MCP 距离测量",
+            "category": "map_distance",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.3957
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.3248
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 18,
+          "coarse_count": 11,
+          "reranked_count": 11,
+          "planner_count": 6
+        }
+      },
+      {
+        "id": "h08",
+        "group": "multi_intent",
+        "query": "查武汉气温，然后帮我读一下 report.md",
+        "keys": [
+          "workspace.files.read",
+          "amap.maps.weather",
+          "workspace.files.search",
+          "workspace.files.list",
+          "amap.maps.direction.walking",
+          "web.tavily.search"
+        ],
+        "hits": 2,
+        "coarse_hits": 2,
+        "required_groups": 2,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 273.51,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 18,
+          "embedded_tools": 0,
+          "eligible_count": 18,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [
+            "amap.maps.weather",
+            "workspace.files.list",
+            "workspace.files.read",
+            "workspace.files.search"
+          ],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "amap.maps.weather",
+            "workspace.files.read",
+            "workspace.files.search",
+            "workspace.files.list",
+            "amap.maps.direction.walking",
+            "amap.maps.distance",
+            "amap.maps.geo",
+            "amap.maps.direction.transit",
+            "web.exa.fetch",
+            "amap.maps.around_search",
+            "agent.artifacts.read",
+            "amap.maps.direction.driving",
+            "web.tavily.search",
+            "docs.context7.query",
+            "docs.context7.resolve",
+            "agent.artifacts.list",
+            "amap.maps.text_search",
+            "web.exa.search"
+          ],
+          "elapsed_ms": 272.6
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04793840039741679,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:6"
+            ],
+            "semantic_score": 0.428
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.047643442622950824,
+            "reasons": [
+              "category_match:weather",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5664
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04696394686907021,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:8"
+            ],
+            "semantic_score": 0.4251
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04525954525954526,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:14"
+            ],
+            "semantic_score": 0.4059
+          },
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4793
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.4097
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 18,
+          "coarse_count": 18,
+          "reranked_count": 18,
+          "planner_count": 6
+        }
+      },
+      {
+        "id": "h09",
+        "group": "negative",
+        "query": "不用使用任何工具，就说好的",
+        "keys": [],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 0,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": true,
+        "elapsed_ms": 0.07,
+        "retrieval": {
+          "mode": "skipped",
+          "elapsed_ms": 0,
+          "fallback_reason": "user_requested_no_tools"
+        },
+        "candidates": [],
+        "stages": null
+      },
+      {
+        "id": "h10",
+        "group": "scope",
+        "query": "Find a file and search the internet",
+        "keys": [
+          "workspace.files.search"
+        ],
+        "hits": 1,
+        "coarse_hits": 1,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 258.28,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 1,
+          "embedded_tools": 0,
+          "eligible_count": 1,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [
+            "workspace.files.search"
+          ],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "workspace.files.search"
+          ],
+          "elapsed_ms": 257.8
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.02213114754098361,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.6208
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 1,
+          "coarse_count": 1,
+          "reranked_count": 1,
+          "planner_count": 1
+        }
+      },
+      {
+        "id": "h11",
+        "group": "negative",
+        "query": "Read checklist.md. Don't search the web.",
+        "keys": [
+          "workspace.files.search",
+          "workspace.files.read",
+          "agent.artifacts.read",
+          "workspace.files.list",
+          "amap.maps.weather",
+          "amap.maps.around_search"
+        ],
+        "hits": 1,
+        "coarse_hits": 1,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 237.09,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 13,
+          "embedded_tools": 0,
+          "eligible_count": 13,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [
+            "agent.artifacts.read",
+            "amap.maps.around_search",
+            "amap.maps.text_search",
+            "workspace.files.read",
+            "workspace.files.search"
+          ],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "workspace.files.search",
+            "amap.maps.around_search",
+            "workspace.files.read",
+            "amap.maps.text_search",
+            "agent.artifacts.read",
+            "workspace.files.list",
+            "amap.maps.weather",
+            "amap.maps.direction.transit",
+            "amap.maps.direction.walking",
+            "amap.maps.geo",
+            "amap.maps.direction.driving",
+            "agent.artifacts.list",
+            "amap.maps.distance"
+          ],
+          "elapsed_ms": 235.5
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.021948998178506374,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5291
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.021518177163338453,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.493
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.019822211960286308,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:11"
+            ],
+            "semantic_score": 0.403
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.5048
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015625,
+            "reasons": [
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.4812
+          },
+          {
+            "tool_key": "amap.maps.around_search",
+            "display_name": "高德 MCP 周边搜索",
+            "category": "map_poi",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "around_search_needs_center_location",
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.4786
+          }
+        ],
+        "stages": {
+          "catalog_count": 20,
+          "eligible_count": 13,
+          "coarse_count": 13,
+          "reranked_count": 13,
+          "planner_count": 6
+        }
+      },
+      {
+        "id": "h12",
+        "group": "new_tool",
+        "query": "How long would it take to read this passage aloud?",
+        "keys": [
+          "mcp.text.duration",
+          "workspace.files.read",
+          "agent.artifacts.read",
+          "web.exa.fetch",
+          "amap.maps.direction.walking",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": 1,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 260.52,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "persistent_hits": 19,
+          "embedded_tools": 0,
+          "eligible_count": 19,
+          "coarse_limit": 30,
+          "lexical_tool_keys": [
+            "agent.artifacts.read",
+            "mcp.text.duration",
+            "web.tavily.search",
+            "workspace.files.read"
+          ],
+          "search_mode": "exact",
+          "exact_topup": false,
+          "ann_dimension_supported": true,
+          "model": "BAAI/bge-m3",
+          "index_backend": "postgres_pgvector",
+          "pending_tools": 0,
+          "index_complete": true,
+          "coarse_tool_keys": [
+            "mcp.text.duration",
+            "agent.artifacts.read",
+            "workspace.files.read",
+            "web.exa.fetch",
+            "web.tavily.search",
+            "amap.maps.direction.walking"
+          ],
+          "elapsed_ms": 259.4
+        },
+        "candidates": [
+          {
+            "tool_key": "mcp.text.duration",
+            "display_name": "朗读耗时估计",
+            "category": "speech_estimation",
+            "provider": "test_mcp",
+            "source_type": "mcp_server",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0220386039132734,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5782
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.021684587813620072,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4598
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.021362704918032785,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.3861
+          },
+          {
+            "tool_key": "web.exa.fetch",
+            "display_name": "Exa 网页正文读取",
+            "category": "web_fetch",
+            "provider": "exa",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.4115
+          },
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.3507
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.3406
+          }
+        ],
+        "stages": {
+          "catalog_count": 21,
+          "eligible_count": 19,
+          "coarse_count": 6,
+          "reranked_count": 6,
+          "planner_count": 6
+        }
+      }
+    ],
+    "previous_hybrid": [
+      {
+        "id": "h01",
+        "group": "paraphrase",
+        "query": "南京下午会不会淋雨？我准备出去跑步。",
+        "keys": [
+          "amap.maps.weather",
+          "amap.maps.direction.walking",
+          "amap.maps.around_search",
+          "amap.maps.direction.transit",
+          "amap.maps.distance",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 767.03,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 0,
+          "embedded_tools": 18,
+          "elapsed_ms": 765.9,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.4256
+          },
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.419
+          },
+          {
+            "tool_key": "amap.maps.around_search",
+            "display_name": "高德 MCP 周边搜索",
+            "category": "map_poi",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "around_search_needs_center_location",
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.3826
+          },
+          {
+            "tool_key": "amap.maps.direction.transit",
+            "display_name": "高德 MCP 公共交通路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015625,
+            "reasons": [
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.376
+          },
+          {
+            "tool_key": "amap.maps.distance",
+            "display_name": "高德 MCP 距离测量",
+            "category": "map_distance",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.3741
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.3045
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h02",
+        "group": "english",
+        "query": "Is Chengdu warm enough to go outside without a coat? Check the current conditions.",
+        "keys": [
+          "amap.maps.weather",
+          "amap.maps.distance",
+          "amap.maps.direction.walking",
+          "amap.maps.direction.transit",
+          "amap.maps.geo",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 284.81,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 18,
+          "embedded_tools": 0,
+          "elapsed_ms": 281.5,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5638
+          },
+          {
+            "tool_key": "amap.maps.distance",
+            "display_name": "高德 MCP 距离测量",
+            "category": "map_distance",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4056
+          },
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.4045
+          },
+          {
+            "tool_key": "amap.maps.direction.transit",
+            "display_name": "高德 MCP 公共交通路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015625,
+            "reasons": [
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.3973
+          },
+          {
+            "tool_key": "amap.maps.geo",
+            "display_name": "高德 MCP 地理编码",
+            "category": "map_geo",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.3966
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.3418
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h03",
+        "group": "paraphrase",
+        "query": "我想看看 analysis.md 里面提出了哪些限制。",
+        "keys": [
+          "workspace.files.read",
+          "workspace.files.search",
+          "workspace.files.list",
+          "agent.artifacts.list",
+          "agent.artifacts.read",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 223.59,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 18,
+          "embedded_tools": 0,
+          "elapsed_ms": 222.5,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04891591750396616,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.5266
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04718343765045739,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:7"
+            ],
+            "semantic_score": 0.4699
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04507936507936508,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:15"
+            ],
+            "semantic_score": 0.4302
+          },
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5743
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.5248
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.4411
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h04",
+        "group": "english",
+        "query": "Find the uploaded notes mentioning backup retention.",
+        "keys": [
+          "agent.artifacts.list",
+          "workspace.files.search",
+          "workspace.files.list",
+          "docs.context7.query",
+          "amap.maps.around_search",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 233.61,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 18,
+          "embedded_tools": 0,
+          "elapsed_ms": 231.3,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.4924
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4682
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.4487
+          },
+          {
+            "tool_key": "docs.context7.query",
+            "display_name": "Context7 技术文档查询",
+            "category": "documentation",
+            "provider": "context7",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.4459
+          },
+          {
+            "tool_key": "amap.maps.around_search",
+            "display_name": "高德 MCP 周边搜索",
+            "category": "map_poi",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015151515151515152,
+            "reasons": [
+              "around_search_needs_center_location",
+              "read_only",
+              "semantic_rank:6"
+            ],
+            "semantic_score": 0.4384
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.4467
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h05",
+        "group": "english",
+        "query": "Check the official library documentation for httpx timeouts.",
+        "keys": [
+          "agent.artifacts.list",
+          "web.exa.fetch",
+          "docs.context7.query",
+          "docs.context7.resolve",
+          "workspace.files.search",
+          "web.tavily.search"
+        ],
+        "hits": 2,
+        "coarse_hits": null,
+        "required_groups": 2,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 233.84,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 18,
+          "embedded_tools": 0,
+          "elapsed_ms": 231.3,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.020889220069547937,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:6"
+            ],
+            "semantic_score": 0.4843
+          },
+          {
+            "tool_key": "web.exa.fetch",
+            "display_name": "Exa 网页正文读取",
+            "category": "web_fetch",
+            "provider": "exa",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.01639344262295082,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5325
+          },
+          {
+            "tool_key": "docs.context7.query",
+            "display_name": "Context7 技术文档查询",
+            "category": "documentation",
+            "provider": "context7",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.5135
+          },
+          {
+            "tool_key": "docs.context7.resolve",
+            "display_name": "Context7 技术库定位",
+            "category": "documentation",
+            "provider": "context7",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.5001
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.014925373134328358,
+            "reasons": [
+              "read_only",
+              "semantic_rank:7"
+            ],
+            "semantic_score": 0.4784
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.4866
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h06",
+        "group": "literal",
+        "query": "打开 https://example.net/manual 并读取页面内容",
+        "keys": [
+          "workspace.files.read",
+          "workspace.files.search",
+          "web.exa.fetch",
+          "workspace.files.list",
+          "agent.artifacts.read",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 235.1,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 18,
+          "embedded_tools": 0,
+          "elapsed_ms": 233.6,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04891591750396616,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.5819
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.048131080389144903,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.5782
+          },
+          {
+            "tool_key": "web.exa.fetch",
+            "display_name": "Exa 网页正文读取",
+            "category": "web_fetch",
+            "provider": "exa",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.047643442622950824,
+            "reasons": [
+              "category_match:web_fetch",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.6282
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.046897546897546896,
+            "reasons": [
+              "category_match:workspace_file",
+              "file_hint:current_file_intent",
+              "read_only",
+              "semantic_rank:6"
+            ],
+            "semantic_score": 0.5668
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.572
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.5161
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h07",
+        "group": "english",
+        "query": "Find a walking route from the railway station to the museum.",
+        "keys": [
+          "amap.maps.direction.walking",
+          "amap.maps.direction.transit",
+          "agent.artifacts.list",
+          "amap.maps.direction.driving",
+          "agent.artifacts.read",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 224.13,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 18,
+          "embedded_tools": 0,
+          "elapsed_ms": 222.1,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.02213114754098361,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.4752
+          },
+          {
+            "tool_key": "amap.maps.direction.transit",
+            "display_name": "高德 MCP 公共交通路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4403
+          },
+          {
+            "tool_key": "agent.artifacts.list",
+            "display_name": "Agent 运行产物列表",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.4021
+          },
+          {
+            "tool_key": "amap.maps.direction.driving",
+            "display_name": "高德 MCP 驾车路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015625,
+            "reasons": [
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.3982
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.3808
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.3149
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h08",
+        "group": "multi_intent",
+        "query": "查武汉气温，然后帮我读一下 report.md",
+        "keys": [
+          "workspace.files.read",
+          "amap.maps.weather",
+          "workspace.files.search",
+          "workspace.files.list",
+          "amap.maps.direction.walking",
+          "web.tavily.search"
+        ],
+        "hits": 2,
+        "coarse_hits": null,
+        "required_groups": 2,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 276.04,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 18,
+          "embedded_tools": 0,
+          "elapsed_ms": 274.8,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04771225838023,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:7"
+            ],
+            "semantic_score": 0.4283
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.047643442622950824,
+            "reasons": [
+              "category_match:weather",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5502
+          },
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04740957966764418,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:6"
+            ],
+            "semantic_score": 0.4295
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.04490392648287385,
+            "reasons": [
+              "file_hint:current_file_name",
+              "read_only",
+              "semantic_rank:16"
+            ],
+            "semantic_score": 0.4033
+          },
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4739
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.4071
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h09",
+        "group": "negative",
+        "query": "不用使用任何工具，就说好的",
+        "keys": [],
+        "hits": 0,
+        "coarse_hits": null,
+        "required_groups": 0,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": true,
+        "elapsed_ms": 0.07,
+        "retrieval": {
+          "mode": "skipped",
+          "fallback_reason": "user_requested_no_tools",
+          "elapsed_ms": 0
+        },
+        "candidates": [],
+        "stages": null
+      },
+      {
+        "id": "h10",
+        "group": "scope",
+        "query": "Find a file and search the internet",
+        "keys": [
+          "workspace.files.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 253.44,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 1,
+          "embedded_tools": 0,
+          "elapsed_ms": 253.1,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.02213114754098361,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.6193
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h11",
+        "group": "negative",
+        "query": "Read checklist.md. Don't search the web.",
+        "keys": [
+          "workspace.files.search",
+          "workspace.files.read",
+          "agent.artifacts.read",
+          "workspace.files.list",
+          "amap.maps.around_search",
+          "amap.maps.weather"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 207.91,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 13,
+          "embedded_tools": 0,
+          "elapsed_ms": 206.6,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "workspace.files.search",
+            "display_name": "工作区文件搜索",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.021948998178506374,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.5302
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.021518177163338453,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.4904
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.019626593806921673,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:12"
+            ],
+            "semantic_score": 0.4111
+          },
+          {
+            "tool_key": "workspace.files.list",
+            "display_name": "工作区文件列表",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.016129032258064516,
+            "reasons": [
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.5041
+          },
+          {
+            "tool_key": "amap.maps.around_search",
+            "display_name": "高德 MCP 周边搜索",
+            "category": "map_poi",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015625,
+            "reasons": [
+              "around_search_needs_center_location",
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.4771
+          },
+          {
+            "tool_key": "amap.maps.weather",
+            "display_name": "高德 MCP 天气",
+            "category": "weather",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.475
+          }
+        ],
+        "stages": null
+      },
+      {
+        "id": "h12",
+        "group": "new_tool",
+        "query": "How long would it take to read this passage aloud?",
+        "keys": [
+          "mcp.text.duration",
+          "workspace.files.read",
+          "agent.artifacts.read",
+          "web.exa.fetch",
+          "amap.maps.direction.walking",
+          "web.tavily.search"
+        ],
+        "hits": 1,
+        "coarse_hits": null,
+        "required_groups": 1,
+        "complete": true,
+        "forbidden": [],
+        "empty_correct": null,
+        "elapsed_ms": 222.0,
+        "retrieval": {
+          "mode": "hybrid",
+          "fallback_reason": null,
+          "cache_hits": 18,
+          "embedded_tools": 1,
+          "elapsed_ms": 219.7,
+          "model": "BAAI/bge-m3"
+        },
+        "candidates": [
+          {
+            "tool_key": "mcp.text.duration",
+            "display_name": "朗读耗时估计",
+            "category": "speech_estimation",
+            "provider": "test_mcp",
+            "source_type": "mcp_server",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0220386039132734,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:1"
+            ],
+            "semantic_score": 0.589
+          },
+          {
+            "tool_key": "workspace.files.read",
+            "display_name": "工作区文件分段读取",
+            "category": "workspace_file",
+            "provider": "workspace",
+            "source_type": "local_workspace",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.021684587813620072,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:2"
+            ],
+            "semantic_score": 0.4676
+          },
+          {
+            "tool_key": "agent.artifacts.read",
+            "display_name": "Agent 运行产物按需读取",
+            "category": "agent_artifact",
+            "provider": "agent_runtime",
+            "source_type": "agent_runtime",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.021362704918032785,
+            "reasons": [
+              "metadata_hits:1",
+              "read_only",
+              "semantic_rank:4"
+            ],
+            "semantic_score": 0.4
+          },
+          {
+            "tool_key": "web.exa.fetch",
+            "display_name": "Exa 网页正文读取",
+            "category": "web_fetch",
+            "provider": "exa",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015873015873015872,
+            "reasons": [
+              "public_lookup_intent_absent",
+              "semantic_rank:3"
+            ],
+            "semantic_score": 0.4188
+          },
+          {
+            "tool_key": "amap.maps.direction.walking",
+            "display_name": "高德 MCP 步行路线",
+            "category": "map_route",
+            "provider": "amap",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.015384615384615385,
+            "reasons": [
+              "read_only",
+              "semantic_rank:5"
+            ],
+            "semantic_score": 0.3518
+          },
+          {
+            "tool_key": "web.tavily.search",
+            "display_name": "Tavily Search",
+            "category": "web_search",
+            "provider": "tavily",
+            "source_type": "mcp",
+            "risk_level": "low",
+            "read_only": true,
+            "score": 0.0,
+            "reasons": [
+              "web_search_fallback"
+            ],
+            "semantic_score": 0.3355
+          }
+        ],
+        "stages": null
+      }
+    ]
+  }
+}

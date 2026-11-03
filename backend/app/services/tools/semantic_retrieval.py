@@ -1,4 +1,4 @@
-"""工具元数据的异步语义召回；短数据库快照与在线调用分开。"""
+"""持久化工具粗召回；短数据库事务与在线Embedding分开。"""
 
 from __future__ import annotations
 
@@ -6,9 +6,7 @@ import asyncio
 import hashlib
 import json
 import math
-import threading
 import time
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
@@ -21,6 +19,7 @@ from app.services.knowledge_index_service import KnowledgeEmbeddingService
 from app.services.memory_extraction_policy import redact_source
 from app.services.setting_service import SettingService
 from app.services.tools.schemas import ToolDefinition
+from app.services.tools.search_index import PostgresToolSearchIndex, ToolSearchDocument
 
 
 @dataclass(frozen=True)
@@ -33,7 +32,7 @@ class ToolEmbeddingConfig:
     api_key: str | None = field(default=None, repr=False)
 
     def scope(self) -> str:
-        # 凭据只参与哈希，轮换后不能沿用旧配置；哈希也不写入 Trace。
+        # 沿用旧缓存隔离语义：凭据只参与哈希，不保存明文或写入Trace。
         return hashlib.sha256(json.dumps([self.user_id, self.provider, self.model,
             self.dimensions, self.base_url.rstrip('/'), self.api_key], ensure_ascii=False).encode()).hexdigest()
 
@@ -50,22 +49,21 @@ class _FrozenSettings:
 
 
 class ToolSemanticRetriever:
-    """工具向量按账号/模型/正文隔离缓存；不缓存用户问题或结果正文。"""
+    """粗召回最多30个，Chat有界补索引；大目录上线前用独立命令预建。"""
 
-    MAX_TOOLS = 128
+    MAX_TOOLS = 10000
     BATCH_SIZE = 32
-    CACHE_SIZE = 512
-    CACHE_TTL_SECONDS = 3600
-    _cache: OrderedDict[str, tuple[float, tuple[float, ...]]] = OrderedDict()
-    _cache_lock = threading.Lock()
+    COARSE_LIMIT = 30
 
     def __init__(self, *, user_id: str | None = None, config: ToolEmbeddingConfig | None = None,
-                 embedding_service=None, session_factory=SessionLocal, timeout_seconds: float = 6):
+                 embedding_service=None, session_factory=SessionLocal, timeout_seconds: float = 6,
+                 index_store=None):
         self.user_id = user_id
         self.config = config
         self.embedding_service = embedding_service
         self.sessions = session_factory
         self.timeout_seconds = timeout_seconds
+        self.index = index_store if index_store is not None else PostgresToolSearchIndex(session_factory)
 
     def _snapshot(self) -> ToolEmbeddingConfig | None:
         if not self.user_id:
@@ -74,18 +72,17 @@ class ToolSemanticRetriever:
             row = db.scalar(select(UserSetting).where(UserSetting.user_id == self.user_id))
             if row is None or row.knowledge_embedding_provider == 'ollama':
                 return None
-            setting_service = SettingService(UserSettingRepository(db))
+            service = SettingService(UserSettingRepository(db))
             return ToolEmbeddingConfig(self.user_id, row.knowledge_embedding_provider,
                 row.knowledge_embedding_model, row.knowledge_embedding_dimensions,
-                row.knowledge_embedding_base_url,
-                setting_service.resolve_knowledge_model_api_key(self.user_id, 'embedding'))
+                row.knowledge_embedding_base_url, service.resolve_knowledge_model_api_key(self.user_id, 'embedding'))
 
     @staticmethod
     def tool_text(tool: ToolDefinition) -> str:
-        # 不含 adapter、负向适用场景及返回内容；新工具仅需已有元数据，无新增类别规则。
+        # 不含负向适用场景、adapter、凭据或工具返回；类别变化也使旧说明失效。
         inputs = ' '.join(f'{name}: {value.get("description", "")}'
             for name, value in tool.input_schema.get('properties', {}).items() if isinstance(value, dict))
-        return redact_source('\n'.join([tool.display_name, tool.description,
+        return redact_source('\n'.join([tool.category, tool.display_name, tool.description,
             ' '.join(tool.when_to_use), inputs]))[:1800]
 
     @staticmethod
@@ -95,68 +92,83 @@ class ToolSemanticRetriever:
                     and math.isfinite(value) for value in vector)
             and 0 < math.hypot(*vector) < math.inf)
 
-    @classmethod
-    def _get(cls, key: str):
-        with cls._cache_lock:
-            item = cls._cache.get(key)
-            if item and time.monotonic() - item[0] < cls.CACHE_TTL_SECONDS:
-                cls._cache.move_to_end(key)
-                return item[1]
-            cls._cache.pop(key, None)
-        return None
+    def _documents(self, definitions):
+        return [ToolSearchDocument(tool.tool_key, tool.category, self.tool_text(tool)) for tool in definitions]
 
-    @classmethod
-    def _put(cls, key: str, vector):
-        with cls._cache_lock:
-            cls._cache[key] = (time.monotonic(), tuple(vector))
-            cls._cache.move_to_end(key)
-            while len(cls._cache) > cls.CACHE_SIZE:
-                cls._cache.popitem(last=False)
+    async def _embed(self, config, texts):
+        adapter = self.embedding_service or KnowledgeEmbeddingService(_FrozenSettings(config))
+        vectors = await adapter.embed_texts(user_id=config.user_id,
+            knowledge_base=SimpleNamespace(embedding_provider=config.provider, embedding_model=config.model), texts=texts)
+        if len(vectors) != len(texts) or not all(self._valid(v, config.dimensions) for v in vectors):
+            raise ValueError('invalid_embeddings')
+        return vectors
 
-    async def scores(self, *, query: str, definitions: list[ToolDefinition]) -> tuple[dict[str, float], dict]:
+    @staticmethod
+    def _coarse(lexical, semantic, limit):
+        ranks = {}
+        for keys in (lexical, sorted(semantic, key=lambda k: (-semantic[k], k))):
+            for rank, key in enumerate(keys, 1):
+                ranks[key] = ranks.get(key, 0) + 1 / (60 + rank)
+        return sorted(ranks, key=lambda k: (-ranks[k], k))[:limit]
+
+    async def scores(self, *, query: str, definitions: list[ToolDefinition], categories=()) -> tuple[dict[str, float], dict]:
         start = time.perf_counter()
-        diagnostics = dict(mode='rules', fallback_reason=None, cache_hits=0, embedded_tools=0)
+        diag = dict(mode='rules', fallback_reason=None, persistent_hits=0, embedded_tools=0,
+                    eligible_count=len(definitions), coarse_limit=self.COARSE_LIMIT)
+
         async def retrieve():
             config = self.config or await asyncio.to_thread(self._snapshot)
             if not config or config.provider == 'ollama':
-                return {}, {**diagnostics, 'fallback_reason': 'online_embedding_not_configured',
-                            'elapsed_ms': round((time.perf_counter()-start)*1000, 1)}
+                diag['fallback_reason'] = 'online_embedding_not_configured'
+                return {}
             if len(definitions) > self.MAX_TOOLS:
-                return {}, {**diagnostics, 'fallback_reason': 'catalog_exceeds_semantic_limit', 'elapsed_ms': 0}
-            adapter = self.embedding_service or KnowledgeEmbeddingService(_FrozenSettings(config))
-            texts = [self.tool_text(tool) for tool in definitions]
-            scope = config.scope()
-            keys = [hashlib.sha256(f'{scope}:{tool.tool_key}:{text}'.encode()).hexdigest()
-                    for tool, text in zip(definitions, texts)]
-            vectors = [self._get(key) for key in keys]
-            missing = [index for index, vector in enumerate(vectors) if vector is None]
-            diagnostics['cache_hits'] = len(vectors)-len(missing)
-            kb = SimpleNamespace(embedding_provider=config.provider, embedding_model=config.model)
-            # 首批合并 query，暖缓存只调用一次 query embedding；原问题不写缓存。
-            query_vector = None
-            for offset in range(0, max(1, len(missing)), self.BATCH_SIZE):
-                batch = missing[offset:offset+self.BATCH_SIZE]
-                input_texts = ([redact_source(query)[:2000]] if query_vector is None else []) + [texts[i] for i in batch]
-                response = await adapter.embed_texts(user_id=config.user_id, knowledge_base=kb, texts=input_texts)
-                if len(response) != len(input_texts) or not all(self._valid(v, config.dimensions) for v in response):
-                    raise ValueError('invalid_embeddings')
-                if query_vector is None:
-                    query_vector, response = response[0], response[1:]
-                for index, vector in zip(batch, response):
-                    vectors[index] = tuple(vector)
-                    self._put(keys[index], vector)
-                diagnostics['embedded_tools'] += len(batch)
-            qnorm = math.hypot(*query_vector)
-            scores = {}
-            for tool, vector in zip(definitions, vectors):
-                norm = math.hypot(*vector)
-                scores[tool.tool_key] = math.fsum((a/qnorm)*(b/norm) for a, b in zip(query_vector, vector))
-            diagnostics['mode'] = 'hybrid'
-            return scores, {**diagnostics, 'elapsed_ms': round((time.perf_counter()-start)*1000, 1),
-                            'model': config.model}
+                diag['fallback_reason'] = 'catalog_exceeds_index_safety_limit'
+                return {}
+            documents = self._documents(definitions)
+            ready = await asyncio.to_thread(self.index.prepare, config, documents)
+            diag['persistent_hits'] = len(ready)
+            lexical = await asyncio.to_thread(self.index.lexical, config, documents, query, categories, self.COARSE_LIMIT)
+            diag['lexical_tool_keys'] = lexical
+            by_key = {d.tool_key: d for d in documents}
+            # 冷目录优先补当前关键词命中的条目；一次Chat不为千工具无限等待。
+            pending = [by_key[key] for key in dict.fromkeys([*lexical, *sorted(by_key)]) if key not in ready]
+            batch = pending[:self.BATCH_SIZE - 1]
+            vectors = await self._embed(config, [redact_source(query)[:2000]] + [d.text for d in batch])
+            if batch:
+                saved = await asyncio.to_thread(self.index.save, config, batch, vectors[1:])
+                ready.update(saved)
+                diag['embedded_tools'] = len(saved)
+            semantic, details = await asyncio.to_thread(self.index.semantic, config, documents, vectors[0], self.COARSE_LIMIT)
+            diag.update(details, mode='hybrid', model=config.model, index_backend='postgres_pgvector',
+                        pending_tools=len(documents) - len(ready), index_complete=len(ready) == len(documents))
+            diag['coarse_tool_keys'] = self._coarse(lexical, {k: v for k, v in semantic.items() if v >= .35}, self.COARSE_LIMIT)
+            return semantic
+
         try:
-            return await asyncio.wait_for(retrieve(), timeout=self.timeout_seconds)
+            semantic = await asyncio.wait_for(retrieve(), timeout=self.timeout_seconds)
         except Exception as exc:
-            # CancelledError 不在 Exception 内，取消必须向上游传播；错误正文可能含密钥，禁止输出。
-            diagnostics['fallback_reason'] = 'embedding_timeout' if isinstance(exc, (asyncio.TimeoutError, TimeoutError)) else 'embedding_unavailable'
-            return {}, {**diagnostics, 'elapsed_ms': round((time.perf_counter()-start)*1000, 1)}
+            # CancelledError必须向上传播；不在Trace暴露远端错误、端点或密钥。
+            diag['fallback_reason'] = ('embedding_timeout' if isinstance(exc, (asyncio.TimeoutError, TimeoutError))
+                                       else 'index_or_embedding_unavailable')
+            semantic = {}
+        diag['elapsed_ms'] = round((time.perf_counter() - start) * 1000, 1)
+        return semantic, diag
+
+    async def warmup(self, definitions: list[ToolDefinition]) -> dict:
+        """供管理命令预建全目录；不持有数据库事务等待Embedding。"""
+        config = self.config or await asyncio.to_thread(self._snapshot)
+        if not config or config.provider == 'ollama':
+            raise RuntimeError('未配置在线Embedding，工具索引未创建。')
+        if len(definitions) > self.MAX_TOOLS:
+            raise RuntimeError('工具目录超过当前安全数量上限。')
+        documents = self._documents(definitions)
+        ready = await asyncio.to_thread(self.index.prepare, config, documents)
+        pending = [d for d in documents if d.tool_key not in ready]
+        saved_count = 0
+        for offset in range(0, len(pending), self.BATCH_SIZE):
+            batch = pending[offset:offset + self.BATCH_SIZE]
+            vectors = await asyncio.wait_for(self._embed(config, [d.text for d in batch]), 30)
+            saved_count += len(await asyncio.to_thread(self.index.save, config, batch, vectors))
+        current = await asyncio.to_thread(self.index.prepare, config, documents)
+        return dict(total=len(documents), ready=len(current), embedded_tools=saved_count,
+                    index_complete=len(current) == len(documents), model=config.model)

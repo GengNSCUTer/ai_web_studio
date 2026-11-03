@@ -79,17 +79,24 @@ class ToolCandidateSelector:
     async def select_async(self, *, query: str, enabled: bool,
                            allowed_tool_keys: set[str] | None = None,
                            recent_messages: list[object] | None = None) -> tuple[list[ToolDefinition], dict]:
-        """代码融合规则排名与模型语义排名，返回候选而不是执行请求。"""
+        """先硬过滤和有界粗召回，再精排；仅最终候选的Schema交给Planner。"""
         start = time.perf_counter()
-        rules, trace = self.select(query=query, enabled=enabled, allowed_tool_keys=allowed_tool_keys,
-                                   recent_messages=recent_messages)
-        if not rules:
-            trace['retrieval'] = dict(mode='skipped', fallback_reason=trace['reason'], elapsed_ms=0)
-            return rules, trace
-        if self.semantic_retriever is None:
-            trace['retrieval'] = dict(mode='rules', fallback_reason='semantic_not_configured', elapsed_ms=0)
-            return rules, trace
+        def rule_fallback(diagnostics):
+            tools, trace = self.select(query=query, enabled=enabled, allowed_tool_keys=allowed_tool_keys,
+                                       recent_messages=recent_messages)
+            trace['retrieval'] = diagnostics
+            return tools, trace
+        if not enabled or self.NO_TOOL_PATTERN.search(query) or self.SMALLTALK_PATTERN.fullmatch(query):
+            tools, trace = rule_fallback(dict(mode='skipped', elapsed_ms=0))
+            trace['retrieval']['fallback_reason'] = trace['reason']
+            return tools, trace
         definitions = self._eligible(query, allowed_tool_keys)
+        if not definitions:
+            tools, trace = rule_fallback(dict(mode='skipped', elapsed_ms=0))
+            trace['retrieval']['fallback_reason'] = trace['reason']
+            return tools, trace
+        if self.semantic_retriever is None:
+            return rule_fallback(dict(mode='rules', fallback_reason='semantic_not_configured', elapsed_ms=0))
         file_hint = self._file_hint(query=query, recent_messages=recent_messages or [])
         semantic_query = query
         if file_hint == 'recent_user_file_followup':
@@ -99,12 +106,26 @@ class ToolCandidateSelector:
                 if role == 'user' and str(content).strip() != query.strip():
                     semantic_query = f'{str(content)[:600]}\n{query}'
                     break
-        semantic, diagnostics = await self.semantic_retriever.scores(query=semantic_query, definitions=definitions)
+        categories = {name for name, pattern in self.CATEGORY_PATTERNS.items() if pattern.search(query)}
+        if file_hint:
+            categories.add('workspace_file')
+        semantic, diagnostics = await self.semantic_retriever.scores(query=semantic_query, definitions=definitions,
+                                                                   categories=sorted(categories))
         if not semantic:
-            trace['retrieval'] = diagnostics
-            return rules, trace
+            return rule_fallback(diagnostics)
+        # 即使索引有历史条目，也必须与本次硬过滤的集合求交，不让旧权限复活。
+        by_key = {tool.tool_key: tool for tool in definitions}
+        coarse_keys = diagnostics.get('coarse_tool_keys')
+        if coarse_keys is None:
+            coarse_keys = sorted(semantic, key=lambda key: (-semantic[key], key))[:30]
+        coarse_keys = list(dict.fromkeys(key for key in coarse_keys if key in by_key))[:30]
+        web = by_key.get('web.tavily.search')
+        if web and web.tool_key not in coarse_keys:
+            coarse_keys = coarse_keys[:29] + [web.tool_key]
+        diagnostics['coarse_tool_keys'] = coarse_keys
+        pool = [by_key[key] for key in coarse_keys]
         scored = [self._score_tool(tool=tool, query=query, file_hint=file_hint,
-                                  skill_scope=allowed_tool_keys is not None) for tool in definitions]
+                                  skill_scope=allowed_tool_keys is not None) for tool in pool]
         lexical = sorted((c for c in scored if c.score > 0), key=lambda c: (-c.score, c.definition.tool_key))
         rule_ranks = {c.definition.tool_key: rank for rank, c in enumerate(lexical, 1)}
         semantic_order = sorted((key for key, value in semantic.items() if value >= self.SEMANTIC_MIN),
@@ -121,7 +142,6 @@ class ToolCandidateSelector:
                 fused.append(ToolCandidate(candidate.definition, score,
                     candidate.reasons + ([f'semantic_rank:{semantic_ranks[key]}'] if key in semantic_ranks else [])))
         fused.sort(key=lambda c: (-c.score, c.definition.tool_key))
-        web = next((tool for tool in definitions if tool.tool_key == 'web.tavily.search'), None)
         capacity = self.max_candidates - int(web is not None)
         selected = []
         # 不为类别多样性强塞无关工具：搜索→读取、库定位→查正文可以同类共存。
@@ -137,11 +157,13 @@ class ToolCandidateSelector:
         if web:
             selected.append(ToolCandidate(web, 0.0, ['web_search_fallback']))
         if not selected:
-            trace['retrieval'] = {**diagnostics, 'fallback_reason': 'semantic_below_threshold'}
-            return rules, trace
+            return rule_fallback({**diagnostics, 'fallback_reason': 'semantic_below_threshold'})
         result_trace = self._trace(query=query, candidates=selected, reason='ranked_by_rule_and_semantic_rrf',
                                    allowed_tool_keys=allowed_tool_keys)
-        result_trace.update(selector='tool_candidate_selector_v3', retrieval=diagnostics,
+        result_trace.update(selector='tool_candidate_selector_v4', retrieval=diagnostics,
+                            stages={'catalog_count': len(self.catalog.list_definitions()),
+                                    'eligible_count': len(definitions), 'coarse_count': len(pool),
+                                    'reranked_count': len(scored), 'planner_count': len(selected)},
                             elapsed_ms=round((time.perf_counter()-start)*1000, 1))
         for item in result_trace['candidates']:
             item['semantic_score'] = round(semantic.get(item['tool_key'], 0), 4)

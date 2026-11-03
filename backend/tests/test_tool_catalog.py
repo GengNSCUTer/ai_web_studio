@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.models.tool_config import McpServer, McpTool, WorkspaceToolSetting
+from app.models.tool_config import McpServer, McpTool, WorkspaceToolSetting, WorkspaceAgentPolicy, UserToolCredential
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.adapters import ToolAdapterRunner
 from app.services.tools.onboarding import (
@@ -391,6 +391,25 @@ class ToolCatalogTest(unittest.TestCase):
         finally:
             db.close()
             Base.metadata.drop_all(bind=engine)
+            engine.dispose()
+
+
+    def test_disabled_credential_and_readonly_project_filtered_before_indexing(self):
+        engine = create_engine("sqlite:///:memory:")
+        sessions = sessionmaker(engine)
+        Base.metadata.create_all(engine)
+        try:
+            with sessions() as db:
+                db.add(UserToolCredential(user_id="user-1", provider_key="tavily", is_enabled=False))
+                db.add(WorkspaceAgentPolicy(project_id="project-a", permission_mode="read_only"))
+                db.commit()
+                catalog = ToolCatalog(db=db, user_id="user-1", project_id="project-a")
+                self.assertFalse(catalog.get("web.tavily.search").enabled_by_default)
+                self.assertFalse(catalog.get("workspace.files.apply_edit").enabled_by_default)
+                self.assertTrue(catalog.get("workspace.files.read").enabled_by_default)
+                other = ToolCatalog(db=db, user_id="user-2", project_id="project-b")
+                self.assertTrue(other.get("web.tavily.search").enabled_by_default)
+        finally:
             engine.dispose()
 
 

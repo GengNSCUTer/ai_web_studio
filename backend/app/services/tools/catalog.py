@@ -45,6 +45,11 @@ class ToolCatalog:
             )
             if project_id:
                 self._apply_workspace_tool_settings(db=db, project_id=project_id)
+            disabled_providers = {row.provider_key for row in ToolConfigRepository(db).list_credentials(user_id)
+                                  if not row.is_enabled}
+            for definition in self._definitions.values():
+                if (definition.credential_required or definition.credential_optional) and definition.credential_provider in disabled_providers:
+                    definition.enabled_by_default = False
 
     @staticmethod
     def _default_manifest_path() -> Path:
@@ -207,6 +212,12 @@ class ToolCatalog:
             definition = self._definitions.get(tool_key)
             if definition and not setting.is_enabled:
                 definition.enabled_by_default = False
+        policy = ToolConfigRepository(db).get_workspace_policy(project_id)
+        if policy and policy.permission_mode == "read_only":
+            # 初筛不能提升项目写入权限；执行时仍会重新读取当前策略。
+            for definition in self._definitions.values():
+                if not definition.read_only or definition.risk_level == "high":
+                    definition.enabled_by_default = False
 
     @staticmethod
     def _json_loads(value: str | None, fallback: Any) -> Any:

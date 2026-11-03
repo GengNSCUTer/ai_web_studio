@@ -15,7 +15,7 @@ from stage46a_real_e2e import cleanup, prepare_fixture
 from app.core.database import SessionLocal
 from app.models import Conversation, Message, ProjectFile, ToolCallRun, ToolRouteRun
 
-BASE_URL = os.getenv('AIWS_E2E_BASE_URL', 'http://127.0.0.1:32018')
+BASE_URL = os.getenv('AIWS_E2E_BASE_URL', 'http://127.0.0.1:32008')
 TIMEOUT_MS = int(os.getenv('AIWS_E2E_TIMEOUT_MS', '240000'))
 CASES = (
     ('semantic_weather', "Is it raining in 深圳 right now? Look up current weather and temperature. Don't search the web.", 'amap.maps.weather'),
@@ -74,7 +74,7 @@ def run():
     # 服务重启需完成 Schema 初始化，不能把短暂未就绪误判成登录失效。
     for attempt in range(20):
         try:
-            response = httpx.get(os.getenv('AIWS_E2E_BACKEND_URL','http://127.0.0.1:32017')+'/health', timeout=2)
+            response = httpx.get(os.getenv('AIWS_E2E_BACKEND_URL','http://127.0.0.1:32007')+'/health', timeout=2)
             if response.status_code == 200:
                 break
         except httpx.RequestError:

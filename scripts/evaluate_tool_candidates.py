@@ -27,10 +27,19 @@ from app.services.tools.semantic_retrieval import ToolSemanticRetriever  # noqa:
 
 def baseline_class(commit: str):
     code = subprocess.check_output(['git', 'show', f'{commit}:backend/app/services/tools/selector.py'], cwd=ROOT, text=True)
-    module = types.ModuleType('candidate_baseline')
+    module = types.ModuleType('candidate_baseline_' + commit[:10])
     sys.modules[module.__name__] = module
     exec(compile(code, 'baseline_selector.py', 'exec'), module.__dict__)
     return module.ToolCandidateSelector
+
+
+def previous_retriever(commit, user_id):
+    """直接执行指定Git版本的独立检索类，保留真实旧实现作同题对照。"""
+    code = subprocess.check_output(['git', 'show', f'{commit}:backend/app/services/tools/semantic_retrieval.py'], cwd=ROOT, text=True)
+    module = types.ModuleType('semantic_baseline_' + commit[:10])
+    sys.modules[module.__name__] = module
+    exec(compile(code, 'baseline_semantic.py', 'exec'), module.__dict__)
+    return module.ToolSemanticRetriever(user_id=user_id)
 
 
 def catalog_for(case: dict):
@@ -45,31 +54,39 @@ def measure(case: dict, tools: list, trace: dict, elapsed: float) -> dict:
     keys = {tool.tool_key for tool in tools}
     required = case.get('required', [])
     hits = sum(bool(keys.intersection(group)) for group in required)
+    coarse_keys = (trace.get('retrieval') or {}).get('coarse_tool_keys')
+    coarse_hits = (sum(bool(set(coarse_keys).intersection(group)) for group in required)
+                   if coarse_keys is not None else None)
     forbidden = keys.intersection(case.get('forbidden', []))
     forbidden.update(tool.tool_key for tool in tools if tool.category in case.get('forbidden_categories', []))
     if 'allowed' in case:
         forbidden.update(keys-set(case['allowed']))
     return dict(id=case['id'], group=case['group'], query=case['query'], keys=[tool.tool_key for tool in tools],
-                hits=hits, required_groups=len(required), complete=hits == len(required),
+                hits=hits, coarse_hits=coarse_hits, required_groups=len(required), complete=hits == len(required),
                 forbidden=sorted(forbidden), empty_correct=not keys if case.get('empty') else None,
-                elapsed_ms=round(elapsed, 2), retrieval=trace.get('retrieval'), candidates=trace.get('candidates'))
+                elapsed_ms=round(elapsed, 2), retrieval=trace.get('retrieval'), candidates=trace.get('candidates'),
+                stages=trace.get('stages'))
 
 
 def summary(rows: list[dict]) -> dict:
     positive = [row for row in rows if row['required_groups']]
     negative = [row for row in rows if row['empty_correct'] is not None]
     elapsed = sorted(row['elapsed_ms'] for row in rows)
+    coarse = [row for row in positive if row.get('coarse_hits') is not None]
     return dict(cases=len(rows), positive_cases=len(positive), required_groups=sum(row['required_groups'] for row in positive),
+        coarse_recall_at_30=(round(sum(row['coarse_hits'] for row in coarse) / sum(row['required_groups'] for row in coarse), 4)
+                             if coarse else None),
         tool_group_recall_at_6=round(sum(row['hits'] for row in positive)/sum(row['required_groups'] for row in positive), 4),
         complete_coverage=round(sum(row['complete'] for row in positive)/len(positive), 4),
         empty_correct=sum(row['empty_correct'] for row in negative), empty_cases=len(negative),
         forbidden_leak_cases=sum(bool(row['forbidden']) for row in rows),
         mean_ms=round(statistics.mean(elapsed), 1), p95_ms=elapsed[min(len(elapsed)-1, int(len(elapsed)*.95))],
         semantic_successes=sum((row.get('retrieval') or {}).get('mode') == 'hybrid' for row in rows),
-        semantic_errors=sum((row.get('retrieval') or {}).get('fallback_reason') in {'embedding_timeout','embedding_unavailable'} for row in rows))
+        semantic_errors=sum((row.get('retrieval') or {}).get('fallback_reason') in {
+            'embedding_timeout','embedding_unavailable','index_or_embedding_unavailable'} for row in rows))
 
 
-async def evaluate(output: Path, gold_path: Path):
+async def evaluate(output: Path, gold_path: Path, comparison_commit: str | None = None):
     gold = json.loads(gold_path.read_text())
     old_class = baseline_class(gold['baseline_commit'])
     with SessionLocal() as db:
@@ -78,19 +95,26 @@ async def evaluate(output: Path, gold_path: Path):
         raise RuntimeError('固定测试账号不存在。')
     semantic = ToolSemanticRetriever(user_id=user_id)
     rows = {name: [] for name in ('baseline', 'rules_fallback', 'hybrid')}
+    if comparison_commit:
+        previous_class = baseline_class(comparison_commit)
+        previous_semantic = previous_retriever(comparison_commit, user_id)
+        rows['previous_hybrid'] = []
     for case in gold['cases']:
         catalog = catalog_for(case)
         args = dict(query=case['query'], enabled=case.get('enabled', True),
             allowed_tool_keys=set(case['allowed']) if 'allowed' in case else None, recent_messages=case.get('history', []))
-        for name, selector in [('baseline', old_class(catalog)), ('rules_fallback', ToolCandidateSelector(catalog)),
-                               ('hybrid', ToolCandidateSelector(catalog, semantic_retriever=semantic))]:
+        selectors = [('baseline', old_class(catalog)), ('rules_fallback', ToolCandidateSelector(catalog)),
+                     ('hybrid', ToolCandidateSelector(catalog, semantic_retriever=semantic))]
+        if comparison_commit:
+            selectors.insert(2, ('previous_hybrid', previous_class(catalog, semantic_retriever=previous_semantic)))
+        for name, selector in selectors:
             start = time.perf_counter()
-            tools, trace = await selector.select_async(**args) if name == 'hybrid' else selector.select(**args)
+            tools, trace = await selector.select_async(**args) if name in {'hybrid', 'previous_hybrid'} else selector.select(**args)
             rows[name].append(measure(case, tools, trace, (time.perf_counter()-start)*1000))
         print(json.dumps({'completed':case['id'], 'old_hit':rows['baseline'][-1]['complete'],
                           'new_hit':rows['hybrid'][-1]['complete']}, ensure_ascii=False), flush=True)
     result = dict(version=gold['version'], gold_sha256=hashlib.sha256(gold_path.read_bytes()).hexdigest(),
-                  baseline_commit=gold['baseline_commit'], annotation=gold['annotation'],
+                  baseline_commit=gold['baseline_commit'], comparison_commit=comparison_commit, annotation=gold['annotation'],
                   summaries={name: summary(values) for name, values in rows.items()},
                   groups={name: {group: summary([row for row in values if row['group']==group])
                            for group in sorted({row['group'] for row in values}) if any(row['required_groups'] for row in values if row['group']==group)}
@@ -104,5 +128,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, default=ROOT/'backend/evals/results/tool_candidate_v3_2026-10-11.json')
     parser.add_argument('--gold', type=Path, default=ROOT/'backend/evals/tool_candidate_gold_set.json')
+    parser.add_argument('--comparison-commit', help='额外执行此版本的真实旧语义检索，与本轮同题对照')
     arguments = parser.parse_args()
-    asyncio.run(evaluate(arguments.output, arguments.gold))
+    asyncio.run(evaluate(arguments.output, arguments.gold, arguments.comparison_commit))
