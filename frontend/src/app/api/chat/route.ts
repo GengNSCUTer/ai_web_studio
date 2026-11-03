@@ -33,6 +33,7 @@ type ChatRequestPayload = {
   webSearchEnabled?: boolean;
   knowledgeBaseId?: string | null;
   knowledgeBaseIds?: string[];
+  mcpResources?: Array<{ server_id: string; uri: string }>;
   skillKey?: string | null;
   toolRunMode?: "quick_chat" | "guided_research" | "workspace_review" | "edit_proposal";
 };
@@ -85,6 +86,7 @@ export async function POST(request: NextRequest) {
     web_search_enabled: Boolean(payload.webSearchEnabled),
     knowledge_base_id: payload.knowledgeBaseId || null,
     knowledge_base_ids: payload.knowledgeBaseIds ?? [],
+    mcp_resources: payload.mcpResources ?? [],
     skill_key: payload.skillKey || null,
     tool_run_mode: payload.toolRunMode || "quick_chat",
   }, request.signal);

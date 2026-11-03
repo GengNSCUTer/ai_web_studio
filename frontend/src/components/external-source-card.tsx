@@ -13,6 +13,7 @@ function sourceMeta(source: ExternalSource, key: string) {
 }
 
 function sourceKindLabel(source: ExternalSource) {
+  if (source.source_type === "mcp_resource") return "MCP资料";
   if (source.source_type === "durable_run") {
     return "后台任务";
   }
@@ -93,6 +94,14 @@ export function ExternalSourceCard({
           {rerankScore && rerankScore !== "None" ? rerankScore : vectorScore || source.score?.toFixed(4) || "--"}
         </div>
         <div className="line-clamp-3 leading-5">{contentPreview}</div>
+      </div>
+    ) : source.source_type === "mcp_resource" ? (
+      <div className="mt-2 grid gap-1.5">
+        <div>服务：{sourceMeta(source, "mcp_resource_server_name")}</div>
+        <div className="break-all">资源：{sourceMeta(source, "resource_uri")}</div>
+        <details><summary className="cursor-pointer">查看本轮使用的正文</summary>
+          <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans">{contentPreview}</pre>
+        </details>
       </div>
     ) : source.source_type === "weather" ? (
       <div className="mt-2 grid gap-1.5 sm:grid-cols-2">

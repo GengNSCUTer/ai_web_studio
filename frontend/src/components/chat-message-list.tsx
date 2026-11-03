@@ -18,6 +18,7 @@ import type { UILanguage } from "@/lib/settings";
 import type { CitationAudit, ExternalSource, ToolTraceEvent, UploadItem } from "@/lib/types";
 
 type ThreadMessage = {
+  mcpResources?: Array<{ server_id: string; uri: string }>;
   id: string;
   conversation_id?: string;
   role: "user" | "assistant" | "system" | string;
@@ -386,6 +387,9 @@ function MessageItem({
         />
       )}
 
+      {isUser && message.mcpResources?.length ? <p className="mt-2 break-all text-xs text-[var(--ink-muted)]">
+        MCP资料：{message.mcpResources.map((item) => item.uri).join("、")}
+      </p> : null}
       {!isUser ? <CitationAuditNotice audit={message.citationAudit} english={uiLanguage === "en-US"} /> : null}
 
       {!isUser && message.reasoningContent?.trim() ? (

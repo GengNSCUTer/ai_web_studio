@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 from types import SimpleNamespace
@@ -31,6 +32,8 @@ from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.planner import PlannerRuntime
 from app.services.tools.run_policy import resolve_tool_run_policy
 from app.services.citation_audit_service import is_smalltalk_query
+from app.services.mcp_resource_service import McpResourceService
+from app.services.tools.formatter import ExternalContextAssembler
 
 
 def clean_optional_str(value: str | None) -> str | None:
@@ -148,6 +151,8 @@ class ChatContextAssemblyService:
     ) -> ChatExecutionContext:
         # 这是 Chat prepare 阶段的核心方法：收集所有上下文来源，构造最终 prompt，并返回给流式执行层。
         query = getattr(user_message, "content", "") or ""
+        # 选择只保存标识；本轮和重生成均重新读取，不能用上一轮已撤销授权的正文。
+        resource_selections = json.loads(getattr(user_message, "mcp_resources_json", None) or "[]")
         # Prepare 过程中会有外部调用和多次 commit；必须固定本次 generation 的 token，
         # 避免 ORM 刷新后读到后来 generation 的新 token，削弱流式收口的 CAS 保护。
         assistant_generation_id = getattr(assistant_message, "generation_id", None)
@@ -182,6 +187,13 @@ class ChatContextAssemblyService:
             max_chars=runtime.budget.max_attachment_chars,
         )
         # 外部上下文包括联网搜索、地图、天气等工具。只有 web_search_enabled=True 时才会真正规划/调用工具。
+        resource_sources, resource_notices = [], []
+        resource_service = None
+        if resource_selections:
+            resource_project_id = getattr(conversation, "project_id", None)
+            self.db.commit()
+            resource_service = McpResourceService(user_id=self.user_id, project_id=resource_project_id)
+            resource_sources, resource_notices = await resource_service.build_sources(resource_selections)
         external_context_result = await self._build_external_context(
             conversation=conversation,
             assistant_message=assistant_message,
@@ -194,6 +206,16 @@ class ChatContextAssemblyService:
             skill_context=skill_context,
             tool_run_mode=tool_run_mode,
         )
+        if resource_selections:
+            all_sources = [*external_context_result.sources, *resource_sources]
+            status_text = str(external_context_result.details.get("execution_status_text") or "")
+            if resource_notices:
+                status_text += "\n所选MCP资料未成功读取。不要声称已查阅这些资料，相关问题应说明资料不足。"
+            section = ExternalContextAssembler.build_section(all_sources,
+                max_chars=max(1200, min(runtime.budget.max_attachment_chars, 6000)), execution_status=status_text)
+            external_context_result = replace(external_context_result, sources=all_sources,
+                evidence_section=section, context_text=section.render() or None,
+                notices=[*external_context_result.notices, *resource_notices])
         # 证据充分性是代码侧的最终回答约束。它仅依据已通过执行边界的 Tool
         # 来源类型和状态生成，不读取自由文本，也不授予模型额外权限。
         evidence_sufficiency = assess_evidence_sufficiency(
@@ -255,7 +277,10 @@ class ChatContextAssemblyService:
             generation_id=assistant_generation_id,
         )
 
-        # PromptBuilder 负责把各层上下文转成 provider chat messages；Governance 再按预算做截断。
+        if resource_service:
+            self.db.commit()
+            await resource_service.revalidate()
+        # PromptBuilder携带结构化证据；Governance按保留单元渲染最终输入。
         prompt_result = ContextPromptBuilder().build_chat_messages(
             messages=history_rows,
             system_prompt=clean_optional_str(conversation.system_prompt)

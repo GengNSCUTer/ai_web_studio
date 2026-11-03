@@ -4,6 +4,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.upload import UploadItemReference
+from app.schemas.mcp_resource import McpResourceSelection
 
 
 MessageId = Annotated[str, Field(min_length=1, max_length=64)]
@@ -35,6 +36,7 @@ class MessageResponse(BaseModel):
     reasoning_content: str | None = None
     external_sources: str | None = None
     citation_audit: str | None = None
+    mcp_resources: list[McpResourceSelection] = Field(default_factory=list)
     tool_events: list[dict[str, Any]] = Field(default_factory=list)
     status: str
     created_at: datetime
@@ -61,6 +63,7 @@ class ChatStreamRequest(BaseModel):
     skill_key: str | None = Field(default=None, max_length=128)
     # 同步 Chat 只允许显式选择四种模式；durable_task 由异步任务入口单独承接。
     tool_run_mode: ToolRunMode = "quick_chat"
+    mcp_resources: list[McpResourceSelection] = Field(default_factory=list, max_length=5)
 
     @field_validator("content")
     @classmethod

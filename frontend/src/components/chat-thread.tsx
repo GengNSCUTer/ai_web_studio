@@ -4,6 +4,7 @@ import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { AttachmentPreviewModal } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
+import { McpResourcePicker, type McpResourceSelection } from "@/components/mcp-resource-picker";
 import { ChatMessageList } from "@/components/chat-message-list";
 import { MemoryActivityPanel } from "@/components/memory-activity-panel";
 import {
@@ -58,6 +59,7 @@ type ChatThreadProps = {
 };
 
 type ThreadMessage = {
+  mcpResources?: McpResourceSelection[];
   id: string;
   role: "user" | "assistant" | "system" | string;
   content: string;
@@ -461,6 +463,7 @@ function toThreadMessages(messages: Message[]): ThreadMessage[] {
       reasoningContent: message.reasoning_content ?? null,
       externalSources: parseExternalSources(message.external_sources),
       citationAudit: parseCitationAudit(message.citation_audit),
+      mcpResources: message.mcp_resources || [],
       toolEvents: message.tool_events ?? [],
       status: message.status,
       created_at: message.created_at,
@@ -621,6 +624,8 @@ export function ChatThread({
   onConversationMessagesChanged,
 }: ChatThreadProps) {
   const [composer, setComposer] = useState("");
+  const [resourceSelection, setResourceSelection] = useState<{ scope: string | null; items: McpResourceSelection[] }>({ scope: projectId, items: [] });
+  const selectedMcpResources = resourceSelection.scope === projectId ? resourceSelection.items : [];
   const [uploadedItems, setUploadedItems] = useState<UploadItem[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -1757,6 +1762,7 @@ export function ChatThread({
     setStreamingElapsedSeconds(0);
     setComposer("");
     setUploadedItems([]);
+    setResourceSelection({ scope: projectId, items: [] });
     setExpandedChunkKeys([]);
     setIsGenerating(true);
     onContextInfoChange(null, requestConversationId);
@@ -1770,6 +1776,7 @@ export function ChatThread({
         status: "done",
         created_at: nowIso,
         attachments: pendingUploads,
+        mcpResources: selectedMcpResources,
         isEphemeral: true,
       },
       {
@@ -1806,6 +1813,7 @@ export function ChatThread({
           webSearchEnabled: isWebSearchEnabled,
           knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
           knowledgeBaseIds: selectedKnowledgeBaseIds,
+          mcpResources: selectedMcpResources,
           skillKey: selectedSkillKey,
           toolRunMode,
           messages: [
@@ -2085,6 +2093,9 @@ export function ChatThread({
         ) : null}
 
         <ChatComposer
+          resourcePicker={<McpResourcePicker key={projectId || "user"} projectId={projectId}
+            selected={selectedMcpResources} disabled={isGenerating || Boolean(editingUserMessageId)}
+            onChange={(items) => setResourceSelection({ scope: projectId, items })} />}
           text={text}
           uiLanguage={uiLanguage}
           composer={composer}

@@ -69,8 +69,10 @@ from app.services.tools.catalog import ToolCatalog
 from app.services.secret_service import SecretService
 from app.services.skill_catalog import SkillCatalog, SkillCatalogError
 from app.services.skill_recommendation_service import SkillGoldSetEvaluator, SkillRecommendationService
+from app.api.routes.mcp_resources import router as resource_router
 
 router = APIRouter(prefix="/tools", tags=["tools"])
+router.include_router(resource_router)
 secret_service = SecretService()
 
 
@@ -1077,6 +1079,7 @@ async def test_mcp_tool(
             tool_name=tool.raw_name,
             arguments=effective_arguments,
             output_schema=_json_loads(tool.output_schema_json, {}) or None,
+            input_schema=_json_loads(tool.input_schema_json, {}),
         )
     except Exception as exc:
         raise HTTPException(

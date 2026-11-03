@@ -628,6 +628,7 @@ class ExternalContextService:
             },
             details={
                 "external_sources": public_sources,
+                "execution_status_text": execution_status_text,
                 "tool_plan": last_plan.to_public_dict() if last_plan else None,
                 "tool_events": public_events,
                 "active_skill": skill_context.to_public_dict() if skill_context else None,

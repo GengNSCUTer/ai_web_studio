@@ -611,6 +611,7 @@ export type CitationAudit = {
 };
 
 export type Message = {
+  mcp_resources?: Array<{ server_id: string; uri: string }>;
   id: string;
   conversation_id: string;
   role: "user" | "assistant" | "system" | string;

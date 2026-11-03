@@ -36,6 +36,8 @@ class Message(Base):
     external_sources: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 与本次生成同事务保存标签审计；不代表证据语义支持性已经验证。
     citation_audit: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 用户本轮显式选择的MCP资源；重生成时重新授权读取，不重用过期正文。
+    mcp_resources_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # status 至少包含 done/streaming/failed/cancelled 等状态；前端依赖它区分流式中、失败和停止。
     status: Mapped[str] = mapped_column(String(32), default="done")
     # 应用侧先生成高精度 UTC 时间；数据库默认值保留给 SQL 直写/旧迁移路径兜底。

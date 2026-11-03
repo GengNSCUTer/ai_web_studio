@@ -348,13 +348,14 @@ class ToolIntegrationTest(unittest.TestCase):
                 requests = list(RecordingMcpHandler.requests)
             self.assertEqual(
                 [request["method"] for request in requests],
-                ["initialize", "notifications/initialized", "tools/call"],
+                ["server/discover", "initialize", "notifications/initialized", "tools/call"],
             )
             self.assertIsNone(requests[0]["session_id"])
-            self.assertEqual(requests[1]["session_id"], RecordingMcpHandler.session_id)
+            self.assertIsNone(requests[1]["session_id"])
             self.assertEqual(requests[2]["session_id"], RecordingMcpHandler.session_id)
-            self.assertEqual(requests[2]["params"]["name"], "weather_lookup")
-            self.assertEqual(requests[2]["params"]["arguments"], {"city": "深圳"})
+            self.assertEqual(requests[3]["session_id"], RecordingMcpHandler.session_id)
+            self.assertEqual(requests[3]["params"]["name"], "weather_lookup")
+            self.assertEqual(requests[3]["params"]["arguments"], {"city": "深圳"})
         finally:
             server.shutdown()
             server.server_close()

@@ -150,7 +150,7 @@ class McpHttpClientTest(unittest.TestCase):
                     return httpx.Response(
                         200,
                         headers={"content-type": "application/json"},
-                        json={"jsonrpc": "2.0", "id": 1, "result": {}},
+                        json={"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}}},
                         request=request,
                     )
                 return httpx.Response(500, request=request)
@@ -181,7 +181,7 @@ class McpHttpClientTest(unittest.TestCase):
                             "content-type": "application/json",
                             "Mcp-Session-Id": "session-123",
                         },
-                        json={"jsonrpc": "2.0", "id": 1, "result": {}},
+                        json={"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}}},
                         request=request,
                     )
                 return httpx.Response(202, request=request)
@@ -212,7 +212,7 @@ class McpHttpClientTest(unittest.TestCase):
                     },
                 }
 
-            client._initialize = fake_initialize  # type: ignore[method-assign]
+            client._connect = fake_initialize  # type: ignore[method-assign]
             client._post_jsonrpc = fake_post_jsonrpc  # type: ignore[method-assign]
 
             with self.assertRaisesRegex(RuntimeError, "MCP 工具执行失败"):
@@ -237,7 +237,7 @@ class McpHttpClientTest(unittest.TestCase):
                     },
                 }
 
-            client._initialize = fake_initialize  # type: ignore[method-assign]
+            client._connect = fake_initialize  # type: ignore[method-assign]
             client._post_jsonrpc = fake_post_jsonrpc  # type: ignore[method-assign]
 
             with self.assertRaisesRegex(RuntimeError, "不符合 outputSchema"):

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 from uuid import uuid4
 
 from app.core.config import settings
@@ -344,6 +345,7 @@ class MessageService:
             reasoning_content=message.reasoning_content,
             external_sources=message.external_sources,
             citation_audit=message.citation_audit,
+            mcp_resources=json.loads(message.mcp_resources_json or "[]"),
             status=message.status,
             created_at=message.created_at,
             updated_at=message.updated_at,

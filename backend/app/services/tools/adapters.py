@@ -107,6 +107,7 @@ class ToolAdapterRunner:
             tool_name=mcp_tool_name,
             arguments=arguments,
             output_schema=definition.output_schema or None,
+            input_schema=definition.input_schema,
         )
         sources = map_mcp_result(
             mapper=str(definition.adapter.get("result_mapper") or ""),

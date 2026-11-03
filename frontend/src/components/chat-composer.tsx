@@ -58,6 +58,7 @@ type ChatComposerText = {
 };
 
 type ChatComposerProps = {
+  resourcePicker?: React.ReactNode;
   text: ChatComposerText;
   uiLanguage: UILanguage;
   composer: string;
@@ -104,6 +105,7 @@ type ChatComposerProps = {
 };
 
 export function ChatComposer({
+  resourcePicker,
   text,
   uiLanguage,
   composer,
@@ -199,6 +201,7 @@ export function ChatComposer({
       />
 
       <div className="chat-composer rounded-[22px] border px-3 py-2 backdrop-blur">
+        {resourcePicker}
         {uploadedItems.length > 0 ? (
           <div className="mb-2 flex flex-wrap gap-2">
             {uploadedItems.map((item) => (

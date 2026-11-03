@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
 from fastapi import HTTPException, status
@@ -181,6 +182,7 @@ class ChatTurnBootstrapper:
             status="done",
             commit=False,
         )
+        user_message.mcp_resources_json = json.dumps([item.model_dump() for item in payload.mcp_resources], ensure_ascii=False)
         attachments = self.message_service.attach_uploaded_items(
             message_id=user_message.id,
             uploads=payload.attachments,

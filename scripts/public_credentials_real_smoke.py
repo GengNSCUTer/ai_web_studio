@@ -10,6 +10,7 @@ import argparse
 import asyncio
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -41,7 +42,7 @@ async def run(*, configure: bool) -> None:
         user_id = user.id
         token = AuthService(UserRepository(db)).create_access_token(user)
     keys = {"exa": settings.exa_api_key.strip(), "context7": settings.context7_api_key.strip()}
-    base_url = "http://127.0.0.1:32017"
+    base_url = os.getenv("AIWS_API_BASE_URL", "http://127.0.0.1:32007").rstrip("/")
     report = {"env_sharing_enabled": settings.allow_env_tool_credential_fallback, "connections": [], "tools": []}
     async with httpx.AsyncClient(base_url=base_url, headers={"Authorization": "Bearer " + token}, timeout=60) as client:
         for provider in keys:
