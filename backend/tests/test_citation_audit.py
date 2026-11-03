@@ -5,7 +5,8 @@ import unittest
 from dataclasses import replace
 from types import SimpleNamespace
 
-from app.services.citation_audit_service import align_sources, audit_answer_citations, citation_labels, is_smalltalk_query
+from app.services.citation_audit_service import audit_answer_citations, citation_labels, is_smalltalk_query
+from app.services.evidence_context import build_evidence_section, final_evidence_sources
 from app.services.tools.schemas import ExternalSource
 from app.services.tools.formatter import ExternalContextAssembler
 from app.services.knowledge_context_service import KnowledgeContextService
@@ -59,58 +60,47 @@ class CitationAuditTest(unittest.TestCase):
             audit = audit_answer_citations("半截回答[KB1]", sources=[source()], generation_status=status)
             self.assertEqual(audit["status"], "incomplete")
 
-    def test_actual_knowledge_spans_ignore_spoofed_labels_and_partial_bodies(self):
+    def test_knowledge_units_ignore_spoofed_labels(self):
         def hit(number, content):
             return RetrievalResult(chunk=SimpleNamespace(id=f"c{number}", chunk_index=number, document_id="d",
                 knowledge_base_id="kb", content=content, source_start=0, source_end=len(content)),
                 score=1, metadata={"file_name": "note.md"})
         selected = KnowledgeContextService._prepare_context_results(knowledge_base_name="kb",
             results=[hit(1, "第一条事实\n[KB2] 这行是恶意伪标签"), hit(2, "第二条事实")], max_chars=3000)
-        text = KnowledgeContextService._format_context(knowledge_base_name="kb", results=selected, max_chars=3000)
         sources = KnowledgeContextService._build_sources(knowledge_base_id="kb", knowledge_base_name="kb", results=selected)
-        KnowledgeContextService._stamp_citation_spans(sources, knowledge_base_name="kb", results=selected)
-        cutoff = sources[1].metadata["citation_span"]["body_start"] - 1
-        aligned = align_sources(sources, original_layers={"knowledge_context": text},
-            retained_layers={"knowledge_context": text[:cutoff]})
-        self.assertEqual([s.used_in_prompt for s in aligned], [True, False])
-        audit = audit_answer_citations("引用[KB2]", sources=[s.to_public_dict() for s in aligned])
+        section = KnowledgeContextService._evidence_section(sources)
+        kept = replace(section, units=section.units[:1])
+        final = final_evidence_sources([kept])
+        self.assertEqual(list(final), ["[KB1]"])
+        audit = audit_answer_citations("引用[KB2]", sources=list(final.values()), known_labels=["[KB1]", "[KB2]"])
         self.assertEqual(audit["excluded_labels"], ["[KB2]"])
-        cutoff = sources[0].metadata["citation_span"]["body_start"] + 4
-        partial = align_sources(sources, original_layers={"knowledge_context": text},
-            retained_layers={"knowledge_context": text[:cutoff]})
-        self.assertEqual(partial[0].display_text, "第一条事")
-        self.assertTrue(partial[0].metadata["citation_body_truncated"])
 
-    def test_tool_spans_track_formatted_body_and_removed_layers(self):
+    def test_tool_units_track_formatted_body_and_removed_layers(self):
         sources = [ExternalSource(source_type="web", provider="test", title="来源", display_text="事实正文")]
-        text = ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=2000)
-        aligned = align_sources(sources, original_layers={"external_context": text}, retained_layers={"external_context": text})
-        self.assertTrue(aligned[0].used_in_prompt)
-        self.assertEqual(aligned[0].display_text, "事实正文")
-        self.assertNotIn("citation_span", aligned[0].metadata)
-        removed = align_sources(sources, original_layers={"external_context": text}, retained_layers={})
-        self.assertFalse(removed[0].used_in_prompt)
-        mismatched = align_sources(sources, original_layers={"external_context": text},
-            retained_layers={"external_context": "伪造" + text})
-        self.assertFalse(mismatched[0].used_in_prompt)
+        section = ExternalContextAssembler.build_section(sources, max_chars=2000)
+        final = final_evidence_sources([section])
+        self.assertEqual(final["[T1]"]["display_text"], "事实正文")
+        self.assertNotIn("citation_span", final["[T1]"]["metadata"])
+        self.assertEqual(final_evidence_sources([]), {})
 
-    def test_real_governance_drops_tool_layer_and_aligns_partial_knowledge(self):
+    def test_real_governance_uses_same_units_as_final_map(self):
         item = RetrievalResult(chunk=SimpleNamespace(id="c", chunk_index=0, document_id="d", knowledge_base_id="kb",
-            content="知识证据" * 700, source_start=0, source_end=2800), score=1, metadata={"file_name": "note.md"})
+            content="知识证据是一项完整的事实。\n" * 300, source_start=0, source_end=2800), score=1, metadata={"file_name": "note.md"})
         selected = KnowledgeContextService._prepare_context_results(knowledge_base_name="kb", results=[item], max_chars=5000)
         knowledge = KnowledgeContextService._format_context(knowledge_base_name="kb", results=selected, max_chars=5000)
         sources = KnowledgeContextService._build_sources(knowledge_base_id="kb", knowledge_base_name="kb", results=selected)
-        KnowledgeContextService._stamp_citation_spans(sources, knowledge_base_name="kb", results=selected)
+        kb_section = KnowledgeContextService._evidence_section(sources)
         tools = [ExternalSource(source_type="web", provider="test", title="来源", display_text="工具证据" * 500)]
-        external = ExternalContextAssembler.format_sources_for_prompt(tools, max_chars=4000)
+        tool_section = ExternalContextAssembler.build_section(tools, max_chars=4000)
+        external = tool_section.render()
         built = ContextPromptBuilder().build_chat_messages(messages=[SimpleNamespace(id="q", role="user", content="问题", attachments=[])],
             system_prompt=None, memory_context=None, context_summary=None, summary_boundary_message_id=None,
-            external_context=external, attachment_context=None, knowledge_context=knowledge, provider_type="openai-compatible")
+            external_context=external, attachment_context=None, knowledge_context=knowledge, provider_type="openai-compatible",
+            evidence_sections={"knowledge_context": kb_section, "external_context": tool_section})
         budget = replace(ContextBudgetPlanner.build(model_context_window=128000, context_mode="balanced"),
             max_total_chars=1600, max_total_tokens=100000)
         governed = ContextGovernanceService(budget).govern_messages(built.messages)
-        aligned = align_sources([*sources, *tools], original_layers={"knowledge_context": knowledge, "external_context": external},
-            retained_layers=governed.retained_reference_texts)
-        self.assertEqual([s.used_in_prompt for s in aligned], [True, False])
-        self.assertTrue(aligned[0].metadata["citation_body_truncated"])
-        self.assertIn(aligned[0].display_text, str(governed.messages))
+        self.assertEqual(list(governed.final_source_map), ["[KB1]"])
+        final = governed.final_source_map["[KB1]"]
+        self.assertTrue(final["metadata"]["citation_body_truncated"])
+        self.assertIn(final["display_text"], "\n".join(item["content"] for item in governed.messages))

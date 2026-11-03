@@ -587,11 +587,9 @@ class ExternalContextService:
                 "只可使用下列已有证据；没有取得的原文、行内容或外部事实应明确说明无法核实，"
                 "不得根据文件名、历史摘要或模型记忆编造，也不得声称已读取或已完成。"
             )[:max(0, max_chars)]
-        evidence_text = self.assembler.format_sources_for_prompt(
-            sources,
-            max_chars=max(0, max_chars - len(execution_status_text)),
-        )
-        context_text = "\n\n".join(part for part in (execution_status_text, evidence_text) if part) or None
+        evidence_section = self.assembler.build_section(sources, max_chars=max_chars,
+                                                       execution_status=execution_status_text)
+        context_text = evidence_section.render() or None
         included_sources = [source for source in sources if source.used_in_prompt]
         public_sources = [source.to_public_dict() for source in sources]
         public_events = [event.to_public_dict() for event in events]
@@ -641,6 +639,7 @@ class ExternalContextService:
             },
             tool_plan=last_plan,
             tool_events=events,
+            evidence_section=evidence_section,
         )
 
     @staticmethod

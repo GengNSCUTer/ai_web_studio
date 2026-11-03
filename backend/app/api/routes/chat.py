@@ -318,7 +318,8 @@ def _persist_stream_result(
 def _stream_citation_audit(context, *, content: str, status_value: str) -> dict:
     """每次终态都记录引用质量，不修改原文或把标签问题混成传输失败。"""
     audit = audit_answer_citations(content, sources=context.external_sources, generation_status=status_value,
-        smalltalk=context.context_details.get("citation_smalltalk", False))
+        smalltalk=context.context_details.get("citation_smalltalk", False),
+        known_labels=context.context_details.get("known_source_labels", ()))
     context.context_details["citation_audit"] = audit
     context.context_stats.update({"citation_audit_status": audit["status"],
         "citation_unknown_count": len(audit["unknown_labels"]), "citation_excluded_count": len(audit["excluded_labels"]),

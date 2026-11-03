@@ -4,7 +4,10 @@ from dataclasses import asdict, dataclass, field
 import hashlib
 import json
 import re
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.evidence_context import EvidenceSection
 
 
 SENSITIVE_ARGUMENT_PATTERN = re.compile(
@@ -318,3 +321,4 @@ class ExternalContextResult:
     details: dict[str, Any]
     tool_plan: ToolPlan | None = None
     tool_events: list[ToolTraceEvent] = field(default_factory=list)
+    evidence_section: EvidenceSection | None = None

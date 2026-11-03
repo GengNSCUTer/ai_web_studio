@@ -126,6 +126,7 @@ export function ExternalSourceCard({
   return (
     <div
       id={sourceId}
+      tabIndex={-1}
       className="rounded-xl border border-[var(--hairline)] bg-[var(--control-bg)] px-3 py-2 text-xs text-[var(--ink-soft)] transition hover:border-[var(--accent-strong)]"
     >
       <div className="flex items-center justify-between gap-3">
@@ -142,6 +143,9 @@ export function ExternalSourceCard({
         </span>
       </div>
       {cardBody}
+      {source.metadata?.citation_body_truncated === true ? (
+        <p className="mt-2 text-[var(--ink-muted)]">此来源为预算治理后的节选，未向模型提供完整原文。</p>
+      ) : null}
       <div className="mt-2 flex flex-wrap gap-2">
         {runHref ? <Link href={runHref} className="text-[var(--accent-strong)] hover:underline">查看任务详情</Link> : null}
         {toolDisplayName ? (

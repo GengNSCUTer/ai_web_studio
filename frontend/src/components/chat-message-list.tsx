@@ -7,6 +7,7 @@ import { ExternalSourceCard } from "@/components/external-source-card";
 import { MessageMarkdown } from "@/components/message-markdown";
 import { ToolTracePanel } from "@/components/tool-trace-panel";
 import { CitationAuditNotice } from "@/components/citation-audit-notice";
+import { citationAnchorId, visibleEvidenceSources } from "@/lib/citations";
 import {
   attachmentKindLabel,
   buildAttachmentUrl,
@@ -303,6 +304,7 @@ function MessageItem({
   message: ThreadMessage;
 }) {
   const isUser = message.role === "user";
+  const evidenceSources = visibleEvidenceSources(message.externalSources);
   const isEditingThisUser = isUser && editingUserMessageId === message.id;
   const isStreamingAssistant = message.role === "assistant" && message.status === "streaming";
   const isLatestStreamingAssistant = message.id === activeStreamingAssistantMessageId;
@@ -379,6 +381,8 @@ function MessageItem({
         <MessageMarkdown
           content={message.content || (shouldShowWaitingPlaceholder ? text.waitPlaceholder : "")}
           isStreaming={Boolean(shouldShowStreamingIndicator && isLatestStreamingAssistant)}
+          citationMessageId={message.id}
+          citationLabels={evidenceSources.flatMap((source) => source.citation_label ? [source.citation_label] : [])}
         />
       )}
 
@@ -403,26 +407,23 @@ function MessageItem({
           projectId={projectId}
           conversationId={conversationId}
           assistantMessageId={message.id}
+          finalSources={evidenceSources}
           onConversationMessagesChanged={onConversationMessagesChanged}
         />
       ) : null}
 
-      {!isUser && message.externalSources && message.externalSources.length > 0 ? (
+      {!isUser && evidenceSources.length > 0 ? (
         <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">
           <summary className="cursor-pointer select-none font-medium text-[var(--ink-strong)]">
-            {text.sourcesTitle} · {message.externalSources.length}
+            {text.sourcesTitle} · {evidenceSources.length}
           </summary>
           <div className="mt-2 grid gap-2">
-            {message.externalSources.slice(0, 6).map((source, index) => (
+            {evidenceSources.map((source, index) => (
               <ExternalSourceCard
                 key={`${source.provider}-${source.title}-${index}`}
                 source={source}
                 index={index}
-                sourceId={
-                  typeof source.metadata?.call_id === "string"
-                    ? `source-call-${source.metadata.call_id}-${index + 1}`
-                    : `source-${message.id}-${index + 1}`
-                }
+                sourceId={source.citation_label ? citationAnchorId(message.id, source.citation_label) : undefined}
                 onOpenKnowledgeSource={onOpenKnowledgeSource}
               />
             ))}

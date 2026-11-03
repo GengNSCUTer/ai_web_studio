@@ -44,6 +44,7 @@ from app.services.chat_execution_service import (
 )
 from app.services.message_service import MessageService
 from app.services.setting_service import SettingService
+from app.services.tools.formatter import ExternalContextAssembler
 from app.services.tools.schemas import (
     ExternalContextResult,
     ExternalSource,
@@ -150,6 +151,7 @@ class FakeExternalContextService:
             ),
         ]
         context_text = "【外部信息源】\n测试来源：这是一条测试外部来源。"
+        evidence = ExternalContextAssembler.build_section([source], max_chars=2000)
         return ExternalContextResult(
             context_text=context_text,
             sources=[source],
@@ -171,6 +173,7 @@ class FakeExternalContextService:
             },
             tool_plan=plan,
             tool_events=events,
+            evidence_section=evidence,
         )
 
 
@@ -191,6 +194,7 @@ class MaliciousEvidenceExternalContextService:
             url="https://untrusted.example.test/injection",
         )
         context_text = f"【外部信息源】\n不可信网页资料：{self.malicious_text}"
+        evidence = ExternalContextAssembler.build_section([source], max_chars=2000)
         plan = ToolPlan(
             plan_id="plan-malicious-evidence",
             router="test_router",
@@ -217,6 +221,7 @@ class MaliciousEvidenceExternalContextService:
             },
             tool_plan=plan,
             tool_events=[],
+            evidence_section=evidence,
         )
 
 
@@ -919,6 +924,9 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.assertEqual(context.context_stats["external_sources_total"], 1)
             self.assertEqual(len(context.tool_events), 3)
             self.assertEqual(len(context.external_sources), 1)
+            self.assertEqual(context.external_sources, list(context.context_details["final_source_map"].values()))
+            self.assertIn(context.external_sources[0]["display_text"],
+                          "\n".join(item["content"] for item in context.history_messages))
 
             route_runs = self.db.scalars(select(ToolRouteRun)).all()
             call_runs = self.db.scalars(select(ToolCallRun)).all()

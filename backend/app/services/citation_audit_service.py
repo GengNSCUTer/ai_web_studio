@@ -1,7 +1,6 @@
 """线上引用标签审计；不判断证据是否在语义上支持结论。"""
 
 import re
-from dataclasses import replace
 
 
 _CITATION = re.compile(r"(?<!\\)\[(KB|T)\s*(\d{1,9})\]", re.IGNORECASE)
@@ -33,36 +32,12 @@ def citation_labels(text):
     return list(dict.fromkeys(f"[{kind.upper()}{int(number)}]" for kind, number in _CITATION.findall(without_markdown_code(text))))
 
 
-def align_sources(sources, *, original_layers, retained_layers):
-    """用服务端格式化位置和保留前缀对齐来源；正文伪标签不能创造注入资格。"""
-    aligned = []
-    for source in sources:
-        meta = dict(source.metadata or {})
-        span = meta.pop("citation_span", None)
-        included, body, partial = False, "", False
-        if isinstance(span, dict):
-            original = original_layers.get(span.get("layer"), "") or ""
-            retained = retained_layers.get(span.get("layer"), "") or ""
-            start, body_start, end = (span.get(key) for key in ("start", "body_start", "end"))
-            if (all(isinstance(value, int) for value in (start, body_start, end))
-                    and 0 <= start < body_start < end <= len(original)
-                    and original.startswith(retained) and len(retained) > body_start):
-                body = retained[body_start:min(end, len(retained))].strip()
-                included = bool(body)
-                partial = len(retained) < end
-        meta.update({"citation_scope": "final_prompt", "citation_body_chars": len(body),
-                     "citation_body_truncated": partial})
-        aligned.append(replace(source, used_in_prompt=included,
-            display_text=body if included else source.display_text, metadata=meta))
-    return aligned
-
-
-def audit_answer_citations(answer, *, sources, generation_status="done", smalltalk=False):
+def audit_answer_citations(answer, *, sources, generation_status="done", smalltalk=False, known_labels=()):
     """对每次终态强制审计标签，生成状态与引用质量分开保存。"""
     available = {source["citation_label"] for source in sources
         if source.get("used_in_prompt") is True and (source.get("metadata") or {}).get("citation_scope") == "final_prompt"
         and (source.get("metadata") or {}).get("citation_body_chars", 0) > 0 and source.get("citation_label")}
-    known = {source["citation_label"] for source in sources if source.get("citation_label")}
+    known = {source["citation_label"] for source in sources if source.get("citation_label")} | set(known_labels)
     labels = citation_labels(answer)
     unknown = [label for label in labels if label not in known]
     excluded = [label for label in labels if label in known and label not in available]

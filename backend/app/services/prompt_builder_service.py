@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.services.evidence_context import EvidenceSection
+
 
 @dataclass(frozen=True)
 class PromptBuildResult:
@@ -14,7 +16,7 @@ class PromptBuildResult:
 
 
 class ContextPromptBuilder:
-    TEMPLATE_VERSION = "context_prompt_v6_citations"
+    TEMPLATE_VERSION = "context_prompt_v7_evidence_units"
     BEHAVIOR_CONTRACT_VERSION = "knowledge_workspace_behavior_v2"
     REFERENCE_CONTEXT_LAYER = "reference_context_prefix"
     # Governance 从 reference 尾部裁剪，因此这里按业务优先级从高到低排列。
@@ -49,6 +51,7 @@ class ContextPromptBuilder:
         model_name: str | None = None,
         skill_instructions: str | None = None,
         evidence_guidance: str | None = None,
+        evidence_sections: dict[str, EvidenceSection] | None = None,
     ) -> PromptBuildResult:
         prompt_messages: list[dict[str, Any]] = []
         layers: list[str] = []
@@ -81,6 +84,13 @@ class ContextPromptBuilder:
                 self._reference_section("external_context", "外部信息源", external_context)
             )
             layers.append("external_context")
+
+        # 生产链路由结构化单元渲染，不使用另一份预拼接文本作为最终证据。
+        for section in current_evidence_sections:
+            evidence = (evidence_sections or {}).get(section["layer"])
+            if evidence is not None:
+                section["_evidence_section"] = evidence
+                section["text"] = evidence.render()
 
         if context_summary:
             summary_sections.append(

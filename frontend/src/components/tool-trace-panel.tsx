@@ -3,7 +3,8 @@
 import { useState } from "react";
 
 import type { UILanguage } from "@/lib/settings";
-import type { ToolTraceEvent } from "@/lib/types";
+import type { ExternalSource, ToolTraceEvent } from "@/lib/types";
+import { citationAnchorId, revealCitationTarget } from "@/lib/citations";
 
 function valueToText(value: unknown) {
   if (value === null || value === undefined || value === "") {
@@ -541,6 +542,7 @@ export function ToolTracePanel({
   projectId,
   conversationId,
   assistantMessageId,
+  finalSources = [],
   onConversationMessagesChanged,
 }: {
   events: ToolTraceEvent[];
@@ -549,6 +551,7 @@ export function ToolTracePanel({
   projectId: string | null;
   conversationId: string | null;
   assistantMessageId: string;
+  finalSources?: ExternalSource[];
   onConversationMessagesChanged?: (conversationId: string | null) => Promise<void>;
 }) {
   if (events.length === 0) {
@@ -556,6 +559,13 @@ export function ToolTracePanel({
   }
   const activatedSkill = events.find((event) => event.type === "skill_activation");
   const traceSkillKey = typeof activatedSkill?.skill_key === "string" ? activatedSkill.skill_key : null;
+  const sourceTargets = new Map<string, string>();
+  for (const source of finalSources) {
+    const callId = source.metadata?.call_id;
+    if (typeof callId === "string" && source.citation_label && !sourceTargets.has(callId)) {
+      sourceTargets.set(callId, `#${citationAnchorId(assistantMessageId, source.citation_label)}`);
+    }
+  }
 
   return (
     <details className="reasoning-panel mt-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-3 py-2 text-xs text-[var(--ink-soft)]">
@@ -574,9 +584,12 @@ export function ToolTracePanel({
                 {event.type}
               </span>
               <span>{formatToolEvent(event, uiLanguage)}</span>
-              {event.call_id && (event.type === "tool_call_end" || event.type === "tool_call_error") ? (
+              {event.call_id && sourceTargets.has(event.call_id) && (event.type === "tool_call_end" || event.type === "tool_call_error") ? (
                 <a
-                  href={`#source-call-${event.call_id}-1`}
+                  href={sourceTargets.get(event.call_id)}
+                  onClick={(click) => {
+                    if (revealCitationTarget(sourceTargets.get(event.call_id!)!)) click.preventDefault();
+                  }}
                   className="rounded-full bg-[var(--soft-bg)] px-2 py-0.5 text-[10px] text-[var(--ink-muted)] hover:text-[var(--accent-strong)]"
                 >
                   {uiLanguage === "zh-CN" ? "看来源" : "Source"}

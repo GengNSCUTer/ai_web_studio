@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services.tokenizer_service import TokenizerEstimator
+from app.services.evidence_context import EvidenceSection, final_evidence_sources
 
 REFERENCE_CONTEXT_LAYER = "reference_context_prefix"
 
@@ -34,6 +35,7 @@ class GovernedContext:
     summary_boundary_message_id: str | None = None
     # 仅供组装层核对实际注入，不发送给 Provider 或把原文作为指标保存。
     retained_reference_texts: dict[str, str] = field(default_factory=dict)
+    final_source_map: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -209,6 +211,11 @@ class ContextGovernanceService:
                     for section in self._reference_sections(message) if section["layer"] == layer)
                 for layer in self._reference_layers(governed_messages)
             },
+            final_source_map=final_evidence_sources([
+                section["_evidence_section"] for message in governed_messages
+                for section in self._reference_sections(message)
+                if isinstance(section.get("_evidence_section"), EvidenceSection)
+            ]),
         )
 
     @staticmethod
@@ -411,14 +418,18 @@ class ContextGovernanceService:
             # Keep the final remaining layer as evidence whenever possible and
             # compress it to fit instead of unnecessarily deleting it.
             all_layers = self._reference_layers(current)
-            if len(all_layers) == 1:
+            structured = any(isinstance(self._reference_sections(current[i])[j].get("_evidence_section"), EvidenceSection)
+                             for i, j in matching)
+            if len(all_layers) == 1 or structured:
                 current, clipped_delta, retained = self._truncate_one_reference_layer(current, layer)
                 clipped_chars += clipped_delta
                 if retained and clipped_delta:
                     truncated.append(layer)
                 elif not retained:
                     dropped.append(layer)
-                break
+                if not self._exceeds_budget(current):
+                    break
+                continue
             before = self._estimate_messages_chars(current)
             current = self._remove_reference_layer(current, layer)
             clipped_chars += max(0, before - self._estimate_messages_chars(current))
@@ -438,6 +449,18 @@ class ContextGovernanceService:
         message = messages[message_index]
         sections = self._reference_sections(message)
         original_text = str(sections[section_index].get("text") or "")
+        evidence = sections[section_index].get("_evidence_section")
+        if isinstance(evidence, EvidenceSection):
+            def replacement(value):
+                revised = [dict(section) for section in sections]
+                revised[section_index] = {**revised[section_index], "text": value.render(), "_evidence_section": value}
+                candidate = self._replace_reference_sections(message, revised)
+                return [*messages[:message_index], *([candidate] if candidate else []), *messages[message_index + 1:]]
+            kept = evidence.fit(lambda value: not self._exceeds_budget(replacement(value)))
+            updated = replacement(kept)
+            if not kept.units or self._exceeds_budget(updated):
+                return self._remove_reference_layer(messages, layer), len(original_text), False
+            return updated, max(0, len(original_text) - len(kept.render())), True
         low, high, best = 0, len(original_text), ""
         while low <= high:
             middle = (low + high) // 2
@@ -485,7 +508,10 @@ class ContextGovernanceService:
                     return [{"layer": "legacy_reference_context", "title": "", "text": text}]
             return []
         return [
-            {"layer": str(item.get("layer") or ""), "title": str(item.get("title") or "资料"), "text": str(item.get("text") or "")}
+            {"layer": str(item.get("layer") or ""), "title": str(item.get("title") or "资料"),
+             "text": item["_evidence_section"].render() if isinstance(item.get("_evidence_section"), EvidenceSection)
+                     else str(item.get("text") or ""),
+             **({"_evidence_section": item["_evidence_section"]} if "_evidence_section" in item else {})}
             for item in raw
             if isinstance(item, dict) and item.get("layer") and item.get("text")
         ]

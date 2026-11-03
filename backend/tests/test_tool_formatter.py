@@ -34,19 +34,20 @@ class ExternalContextAssemblerTest(unittest.TestCase):
 
         ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=80)
 
-        self.assertTrue(sources[0].used_in_prompt)
+        # 80字符连说明和完整标题都放不下，不能再把半个标题标为已注入。
+        self.assertFalse(sources[0].used_in_prompt)
         self.assertFalse(sources[1].used_in_prompt)
 
     def test_long_first_result_does_not_starve_later_source(self) -> None:
         sources = [
-            ExternalSource(source_type="web", provider="test", title="long", display_text="A" * 2000),
+            ExternalSource(source_type="web", provider="test", title="long", display_text="完整的一段来源说明。\n" * 200),
             ExternalSource(source_type="web", provider="test", title="later", display_text="SECOND_SOURCE"),
         ]
 
         context = ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=800)
 
         self.assertIn("SECOND_SOURCE", context or "")
-        self.assertIn("结果已按上下文预算压缩", context or "")
+        self.assertIn("此来源仅保留节选", context or "")
         self.assertTrue(all(source.used_in_prompt for source in sources))
 
     def test_library_descriptions_do_not_crowd_out_documentation_conditions(self) -> None:
@@ -74,7 +75,7 @@ class ExternalContextAssemblerTest(unittest.TestCase):
         sources = [ExternalSource(source_type="web", provider="a", title=str(i), display_text="evidence" * 40) for i in range(3)]
         ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=2000)
         ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=80)
-        self.assertEqual([source.used_in_prompt for source in sources], [True, False, False])
+        self.assertEqual([source.used_in_prompt for source in sources], [False, False, False])
         self.assertIsNone(ExternalContextAssembler.format_sources_for_prompt(sources, max_chars=0))
         self.assertFalse(any(source.used_in_prompt for source in sources))
 

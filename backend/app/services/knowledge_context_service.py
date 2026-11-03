@@ -30,6 +30,7 @@ from app.services.knowledge_error import (
 from app.services.setting_service import SettingService
 from app.services.tools.schemas import ExternalSource
 from app.services.knowledge_parent_context import unique_parent_results, bounded_evidence
+from app.services.evidence_context import EvidenceSection, build_evidence_section, complete_excerpt
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class KnowledgeContextResult:
     details: dict[str, Any] = field(default_factory=dict)
     retrieval_log_id: str | None = None
     retrieval_log_ids: list[str] = field(default_factory=list)
+    evidence_section: EvidenceSection | None = None
 
 
 class KnowledgeContextService:
@@ -121,16 +123,16 @@ class KnowledgeContextService:
         )
         max_context_chars = self._multi_context_char_budget(resolved_ids)
         all_results = self._prepare_multi_sources(self._relabel_sources(ranked_sources), max_context_chars)
-        context_text = self._format_multi_context(results=all_results, max_chars=max_context_chars)
-        injected_sources = all_results[: len(self._extract_context_labels(context_text))]
-        self._stamp_citation_spans(injected_sources, knowledge_base_name=None)
+        injected_sources = all_results
+        evidence_section = self._evidence_section(injected_sources).fit(lambda value: len(value.render()) <= max_context_chars)
+        context_text = evidence_section.render() if evidence_section.units else None
         retrieval_log_ids = [partial.retrieval_log_id for partial in partials if partial.retrieval_log_id]
         diagnostics = self._merge_multi_diagnostics(
             partials=partials,
             knowledge_base_ids=resolved_ids,
             latency_ms=latency_ms,
             context_text=context_text,
-            injected_count=len(injected_sources),
+            injected_count=len(evidence_section.units),
             retrieval_log_ids=retrieval_log_ids,
             rewrite=rewrite,
         )
@@ -147,6 +149,7 @@ class KnowledgeContextService:
             },
             retrieval_log_id=retrieval_log_ids[0] if retrieval_log_ids else None,
             retrieval_log_ids=retrieval_log_ids,
+            evidence_section=evidence_section,
         )
 
     async def _build_single_context(
@@ -242,12 +245,7 @@ class KnowledgeContextService:
             results=unique_results[:max(1, knowledge_base.max_context_chunks)],
             max_chars=knowledge_base.max_context_chars,
         )
-        context_text = self._format_context(
-            knowledge_base_name=knowledge_base.name,
-            results=selected,
-            max_chars=knowledge_base.max_context_chars,
-        )
-        injected_count = len(self._extract_context_labels(context_text))
+        injected_count = len(selected)
         injected_results = selected[:injected_count]
         base_diagnostics = {
             "knowledge_retrieval_enabled": 1,
@@ -258,7 +256,7 @@ class KnowledgeContextService:
             "knowledge_parent_duplicates_removed": len(results) - len(unique_results),
             "knowledge_parent_expansions_truncated": sum(bool(item.metadata.get("parent_expansion_truncated")) for item in injected_results),
             "knowledge_chunks_injected": len(injected_results),
-            "knowledge_context_chars": len(context_text or ""),
+            "knowledge_context_chars": 0,
             "knowledge_rerank_enabled": int(bool(knowledge_base.rerank_enabled)),
             "knowledge_rerank_used": int(any(result.rerank_score is not None for result in injected_results)),
             "knowledge_retrieval_latency_ms": latency_ms,
@@ -293,9 +291,15 @@ class KnowledgeContextService:
             results=injected_results,
             retrieval_log_id=retrieval_log.id,
         )
-        self._stamp_citation_spans(sources, knowledge_base_name=knowledge_base.name, results=injected_results)
+        evidence_section = self._evidence_section(sources).fit(
+            lambda value: len(value.render()) <= knowledge_base.max_context_chars)
+        base_diagnostics.update({"knowledge_chunks_selected": len(injected_results),
+                                 "knowledge_chunks_injected": len(evidence_section.units),
+                                 "knowledge_context_chars": len(evidence_section.render()) if evidence_section.units else 0})
+        retrieval_log.diagnostics_json = json.dumps({**log_diagnostics, **base_diagnostics}, ensure_ascii=False)
+        self.retrieval_log_repo.save(retrieval_log)
         return KnowledgeContextResult(
-            context_text=context_text,
+            context_text=evidence_section.render() if evidence_section.units else None,
             sources=sources,
             notices=[],
             diagnostics={**base_diagnostics, "knowledge_retrieval_log_id": retrieval_log.id},
@@ -307,6 +311,7 @@ class KnowledgeContextService:
             },
             retrieval_log_id=retrieval_log.id,
             retrieval_log_ids=[retrieval_log.id],
+            evidence_section=evidence_section,
         )
 
     @staticmethod
@@ -354,22 +359,10 @@ class KnowledgeContextService:
         return list(dict.fromkeys(values))[:10]
 
     @staticmethod
-    def _stamp_citation_spans(sources: list[ExternalSource], *, knowledge_base_name: str | None,
-                             results: list[RetrievalResult] | None = None) -> None:
-        """从格式化结构计算来源位置，不在不可信正文里搜索伪造标签。"""
-        title = knowledge_base_name if knowledge_base_name is not None else "多知识库检索"
-        cursor = len(f"知识库：{title}\n请优先依据以下知识库片段回答；若片段不足以回答，请明确说明不确定。")
-        for index, source in enumerate(sources, 1):
-            if results is not None:
-                header = KnowledgeContextService._context_header(index, results[index - 1])
-            else:
-                meta = source.metadata
-                header = f"\n[KB{index}] 知识库：{meta.get('knowledge_base_name') or 'unknown'}；文件：{meta.get('file_name') or 'unknown'}；chunk：{meta.get('chunk_index', '')}；score：{float(source.score or 0):.4f}"
-            start = cursor + 1
-            body_start = start + len(header) + 1
-            cursor = body_start + len(source.display_text.strip())
-            source.metadata["citation_span"] = {"layer": "knowledge_context", "start": start,
-                "body_start": body_start, "end": cursor}
+    def _evidence_section(sources: list[ExternalSource]) -> EvidenceSection:
+        multi = len({source.metadata.get("knowledge_base_id") for source in sources}) > 1
+        return build_evidence_section("knowledge_context", sources,
+            intro=("多知识库检索。" if multi else "") + "请依据以下知识库证据回答；不足时说明不确定，引用保留的[KBn]来源。")
 
     @staticmethod
     def _context_header(index: int, result: RetrievalResult) -> str:
@@ -397,7 +390,20 @@ class KnowledgeContextService:
             existing = result.metadata.get("context_content")
             content = existing[:capacity] if isinstance(existing, str) else bounded_evidence(result, capacity)
             content = content.strip()
+            original = (result.metadata.get("parent_content") if KnowledgeContextService._is_parent_child_result(result)
+                        else result.chunk.content).strip()
+            if len(content) < len(original) and (not isinstance(existing, str) or len(existing) > capacity):
+                safe = complete_excerpt(content, len(content) - 1)
+                child = result.chunk.content.strip()
+                # 父块取窗无法保留完整命中区时，退回完整Child，而不是保留半个句子/代码。
+                if child in content and child not in safe and len(child) <= capacity:
+                    safe = child
+                content = safe
+            if not content:
+                continue
             selected.append(replace(result, metadata={**result.metadata, "context_content": content,
+                "evidence_original_body_chars": len(original), "evidence_body_start": max(0, original.find(content)),
+                "evidence_pretruncated": len(content) < len(original),
                 "parent_expansion_truncated": bool(KnowledgeContextService._is_parent_child_result(result)
                     and len(content) < len(result.metadata["parent_content"]))}))
             remaining -= len(header) + 2 + len(content)
@@ -442,7 +448,15 @@ class KnowledgeContextService:
             start = min(max(0, anchor - capacity // 3), max(0, len(text) - capacity))
             raw_content = text[start:start + capacity]
             content = raw_content.strip()
+            if len(content) < len(text):
+                content = complete_excerpt(content, len(content) - 1)
+            if not content:
+                continue
             selected.append(replace(source, display_text=content, metadata={**meta,
+                "evidence_pretruncated": bool(meta.get("evidence_pretruncated") or len(content) < len(text)),
+                "evidence_original_body_chars": max(len(text), int(meta.get("evidence_original_body_chars") or 0)),
+                "evidence_body_start": int(meta.get("evidence_body_start") or 0) + start
+                                       + len(raw_content) - len(raw_content.lstrip()),
                 "context_child_offset": max(0, anchor - start - (len(raw_content) - len(raw_content.lstrip()))),
                 "parent_expansion_truncated": bool(meta.get("parent_expansion_truncated") or (has_parents and len(content) < len(text)))}))
             remaining -= len(header) + 2 + len(content)
@@ -471,12 +485,6 @@ class KnowledgeContextService:
             lines.append(f"{header}\n{content}")
             used_chars += len(header) + len(content)
         return "\n".join(lines).strip() if len(lines) > 2 else None
-
-    @staticmethod
-    def _extract_context_labels(context_text: str | None) -> list[str]:
-        if not context_text:
-            return []
-        return [line for line in context_text.splitlines() if line.startswith("[KB")]
 
     def _multi_context_char_budget(self, knowledge_base_ids: list[str]) -> int:
         budgets: list[int] = []

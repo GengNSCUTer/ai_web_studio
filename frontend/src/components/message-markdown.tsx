@@ -6,10 +6,13 @@ import rehypeKatex from "rehype-katex";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { citationAnchorId, remarkEvidenceCitations, revealCitationTarget } from "@/lib/citations";
 
 type MessageMarkdownProps = {
   content: string;
   isStreaming?: boolean;
+  citationMessageId?: string;
+  citationLabels?: string[];
 };
 
 type CodeBlockProps = {
@@ -163,13 +166,15 @@ function CodeBlock({ className, children }: CodeBlockProps) {
 export function MessageMarkdown({
   content,
   isStreaming = false,
+  citationMessageId = "",
+  citationLabels = [],
 }: MessageMarkdownProps) {
   const normalizedContent = normalizeHtmlTables(normalizeMathDelimiters(content));
 
   return (
     <div className="chat-markdown text-sm leading-7 sm:text-[15px]">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, [remarkEvidenceCitations, { messageId: citationMessageId, labels: citationLabels }]]}
         rehypePlugins={[rehypeKatex]}
         components={{
           h1: ({ children }) => (
@@ -207,8 +212,12 @@ export function MessageMarkdown({
           a: ({ href, children }) => (
             <a
               href={href}
-              target="_blank"
+              target={citationLabels.some((label) => href === `#${citationAnchorId(citationMessageId, label)}`) ? undefined : "_blank"}
               rel="noreferrer"
+              onClick={(event) => {
+                if (!citationLabels.some((label) => href === `#${citationAnchorId(citationMessageId, label)}`)) return;
+                if (revealCitationTarget(href!)) event.preventDefault();
+              }}
               className="font-medium text-[var(--accent-strong)] underline decoration-[var(--accent-ring)] underline-offset-4 transition hover:text-[var(--accent-hover)]"
             >
               {children}
