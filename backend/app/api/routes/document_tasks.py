@@ -53,6 +53,11 @@ def cancel_task(run_id: str, db: Session = Depends(get_db), user: User = Depends
     return guarded(db, lambda: DocumentTaskService(db).cancel(user.id, run_id))
 
 
+@router.post("/{run_id}/workspace-save")
+def request_workspace_save(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return guarded(db, lambda: DocumentTaskService(db).request_workspace_save(user.id, run_id))
+
+
 @router.post("/{run_id}/resume")
 def resume_task(run_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return guarded(db, lambda: DocumentTaskService(db).resume(user.id, run_id))

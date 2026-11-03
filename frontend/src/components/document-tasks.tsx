@@ -6,7 +6,7 @@ import { MessageMarkdown } from "@/components/message-markdown";
 import type { Project } from "@/lib/types";
 
 export type DocumentTask = { id: string; project_id: string; conversation_id: string | null; file_name: string;
-  status: string; current_step: number;
+  status: string; current_step: number; generation_status: string; workspace_save_status: string;
   steps: { id: string; stage: string; status: string; attempts: number; error_message: string | null }[];
   artifacts: { id: string; stage: string; preview: string; download_url: string | null }[];
   approvals: { id: string; status: string; action: string }[] };
@@ -19,7 +19,8 @@ async function request<T>(path: string, method = "GET", body?: unknown): Promise
   return data as T;
 }
 const BTN = "rounded-xl border border-[var(--hairline)] px-3 py-2 text-sm hover:bg-[var(--soft-bg)] disabled:opacity-40";
-const STAGES: Record<string, string> = { evidence: "取证", draft: "生成草稿", export: "导出", delivery: "审批交付" };
+const STAGES: Record<string, string> = { evidence: "取证", draft: "生成草稿", export: "导出", delivery: "保存到工作区（可选）" };
+const SAVE_STATES: Record<string, string> = { planned: "未保存（可选）", waiting_approval: "等待保存确认", pending: "保存排队中", running: "正在保存", succeeded: "已保存", failed: "保存失败，仍可下载", dead_letter: "保存失败，待处理", cancelled: "保存已取消，仍可下载" };
 
 export function DocumentTasks({ initialTasks, projects, initialRunId }: { initialTasks: DocumentTask[]; projects: Project[]; initialRunId: string | null }) {
   const [tasks, setTasks] = useState(initialTasks);
@@ -33,6 +34,7 @@ export function DocumentTasks({ initialTasks, projects, initialRunId }: { initia
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [confirmSaveId, setConfirmSaveId] = useState<string | null>(null);
   const selected = tasks.find((x) => x.id === selectedId);
   const active = tasks.some((x) => ["queued", "running"].includes(x.status));
 
@@ -57,7 +59,7 @@ export function DocumentTasks({ initialTasks, projects, initialRunId }: { initia
   return <main className="min-h-screen bg-[var(--page-bg)] px-4 py-8 text-[var(--ink-strong)]">
     <div className="mx-auto max-w-6xl space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">文档任务与产物</h1>
-        <p className="mt-2 text-sm text-[var(--ink-muted)]">分阶段保存进度，断线后可回看；保存工作区需再次批准，已生成产物可先下载。</p></div>
+        <p className="mt-2 text-sm text-[var(--ink-muted)]">生成成功即可预览下载。需要在项目中保留时，再选择保存到工作区；不会自动创建项目文件。</p></div>
         <nav className="flex gap-4 text-sm"><Link href="/chat">问答台</Link><Link href="/plugins">插件中心</Link><Link href="/tasks">工具任务</Link></nav></header>
       {error ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}
       <details className="rounded-2xl border border-[var(--hairline)] p-4"><summary className="cursor-pointer font-medium">从工作区资料创建文档任务</summary>
@@ -79,18 +81,39 @@ export function DocumentTasks({ initialTasks, projects, initialRunId }: { initia
       <div className="grid gap-5 md:grid-cols-[240px_minmax(0,1fr)]"><aside className="space-y-2">
         <button className={BTN} disabled={busy} onClick={() => void act(refresh)}>刷新任务</button>
         {tasks.map((t) => <button key={t.id} className={`block w-full break-words rounded-xl border p-3 text-left text-sm ${selectedId === t.id ? "border-[var(--accent-strong)]" : "border-[var(--hairline)]"}`} onClick={() => { setSelectedId(t.id); setPreview(null); }}>
-          {t.file_name}<span className="mt-1 block text-xs text-[var(--ink-muted)]">{t.status} · {t.current_step}/4</span></button>)}</aside>
+          {t.file_name}<span className="mt-1 block text-xs text-[var(--ink-muted)]">{t.generation_status === "succeeded" ? "文档已生成" : t.status} · {SAVE_STATES[t.workspace_save_status] || t.workspace_save_status}</span></button>)}</aside>
         <section className="min-w-0 rounded-2xl border border-[var(--hairline)] p-4">
-          {selected ? <><h2 className="font-semibold">{selected.file_name}</h2><p className="mt-2 text-sm">状态：{selected.status}</p>
+          {selected ? <><h2 className="font-semibold">{selected.file_name}</h2>
+            <p className="mt-2 text-sm">文档：{selected.generation_status === "succeeded" ? "已生成，可预览下载" : selected.generation_status}</p>
+            <p className="mt-1 text-sm">工作区：{SAVE_STATES[selected.workspace_save_status] || selected.workspace_save_status}</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">{selected.steps.map((s) => <div key={s.id} className="rounded-xl bg-[var(--soft-bg)] p-3 text-sm"><p>{STAGES[s.stage] || s.stage} · {s.status}</p>
               <p className="mt-1 text-xs">尝试 {s.attempts} 次</p>{s.error_message ? <p className="mt-1 break-words text-xs text-red-800">{s.error_message}</p> : null}</div>)}</div>
             <div className="mt-4 flex flex-wrap gap-2">{!["succeeded", "failed", "dead_letter", "cancelled"].includes(selected.status) ? <button className={BTN} disabled={busy} onClick={() => void act(async () => { await request(`/document-tasks/${selected.id}/cancel`, "POST"); await refresh(); })}>取消文档任务</button> : null}
               {["failed", "dead_letter"].includes(selected.status) ? <button className={BTN} disabled={busy} onClick={() => void act(async () => { await request(`/document-tasks/${selected.id}/resume`, "POST"); await refresh(); })}>确认重试失败阶段</button> : null}
-              {selected.status === "waiting_approval" ? selected.approvals.filter((a) => a.status === "pending").map((a) => <button key={a.id} className={BTN} disabled={busy} onClick={() => void act(async () => {
-                const challenge = await request<{ approval_token: string }>(`/agent-runtime/approvals/${a.id}/challenge`, "POST");
-                await request(`/agent-runtime/approvals/${a.id}/apply`, "POST", { approval_token: challenge.approval_token }); await refresh();
-              })}>批准保存到工作区（创建新文件）</button>) : null}
+              {selected.generation_status === "succeeded" && ["planned", "waiting_approval"].includes(selected.workspace_save_status) && ["succeeded", "waiting_approval"].includes(selected.status) ?
+                <button className={BTN} disabled={busy} onClick={() => setConfirmSaveId(selected.id)}>保存到工作区</button> : null}
             </div>
+            {confirmSaveId === selected.id ? <div className="mt-3 rounded-xl border border-[var(--hairline)] p-4 text-sm">
+              <p>确认在此任务所属工作区创建“{selected.file_name}”？不会覆盖原资料。只需下载时，无需保存。</p>
+              <div className="mt-3 flex flex-wrap gap-2"><button className={BTN} disabled={busy} onClick={() => void act(async () => {
+                const prepared = await request<DocumentTask>(`/document-tasks/${selected.id}/workspace-save`, "POST");
+                const approval = prepared.approvals.find((a) => a.status === "pending");
+                if (approval) {
+                  const challenge = await request<{ approval_token: string }>(`/agent-runtime/approvals/${approval.id}/challenge`, "POST");
+                  await request(`/agent-runtime/approvals/${approval.id}/apply`, "POST", { approval_token: challenge.approval_token });
+                }
+                setConfirmSaveId(null); await refresh();
+              })}>确认新建项目文件</button>
+                <button className={BTN} disabled={busy} onClick={() => void act(async () => {
+                  // 确认请求可能已到达服务端但响应丢失，撤回前读取真实审批状态。
+                  const latest = await request<DocumentTask>(`/document-tasks/${selected.id}`);
+                  const approval = latest.approvals.find((a) => a.status === "pending");
+                  if (latest.status === "waiting_approval" && approval) {
+                    await request(`/agent-runtime/approvals/${approval.id}/reject`, "POST"); await refresh();
+                  }
+                  setConfirmSaveId(null);
+                })}>暂不保存</button></div>
+            </div> : null}
             <div className="mt-5 space-y-3">{selected.artifacts.map((a) => <article key={a.id} className="rounded-xl border border-[var(--hairline)] p-3 text-sm"><p>{a.stage.replace("document_", "")} · 已保存产物</p>
               <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-xs text-[var(--ink-muted)]">{a.preview}</p>
               <div className="mt-2 flex gap-3"><button className="text-[var(--accent-strong)]" disabled={busy} onClick={() => void act(async () => {

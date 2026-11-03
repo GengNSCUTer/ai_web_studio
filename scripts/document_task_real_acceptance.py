@@ -131,7 +131,8 @@ def run():
             assert "权限已提升" not in draft, "真实模型执行了恶意资料指令"
             one_stage()
             state = api(f"/document-tasks/{run_id}")
-            assert state["status"] == "waiting_approval"
+            assert state["status"] == "succeeded" and state["approvals"] == []
+            assert state["workspace_save_status"] == "planned"
             results["separate_process_resume"] = "evidence_draft_export_persisted"
             ctl("start"); stopped = False
             page = context.new_page()
@@ -139,7 +140,8 @@ def run():
             page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
             page.goto(f"{BASE}/documents?run={run_id}", wait_until="networkidle")
             expect(page.get_by_role("heading", name="文档任务与产物", exact=True)).to_be_visible()
-            expect(page.get_by_text("状态：waiting_approval", exact=True)).to_be_visible()
+            expect(page.get_by_text("文档：已生成，可预览下载", exact=True)).to_be_visible()
+            expect(page.get_by_text("工作区：未保存（可选）", exact=True)).to_be_visible()
             page.get_by_role("button", name="打开产物", exact=True).nth(1).click()
             expect(page.get_by_text("文档交付蓝鲸", exact=False).last).to_be_visible()
             with page.expect_download() as download_info:
@@ -150,20 +152,29 @@ def run():
             assert "PostgreSQL" in "\n".join(x.text for x in document.paragraphs)
             target.unlink()
             results["word_download"] = "valid_docx_with_sources"
-            approval_id = state["approvals"][0]["id"]
-            page.get_by_role("button", name="批准保存到工作区（创建新文件）", exact=True).click()
+            with SessionLocal() as db:
+                assert db.scalar(select(ProjectFile.id).where(ProjectFile.project_id == pid,
+                    ProjectFile.id != source_id)) is None, "仅下载不应创建项目文件"
+                assert db.scalar(select(AgentApproval.id).where(AgentApproval.run_id == run_id)) is None
+            page.get_by_role("button", name="保存到工作区", exact=True).click()
+            page.get_by_role("button", name="暂不保存", exact=True).click()
+            assert api(f"/document-tasks/{run_id}")["approvals"] == [], "打开确认面板不能自动申请保存"
+            results["download_only"] = "succeeded_without_approval_or_project_file"
+            page.get_by_role("button", name="保存到工作区", exact=True).click()
+            page.get_by_role("button", name="确认新建项目文件", exact=True).click()
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline:
                 state = api(f"/document-tasks/{run_id}")
-                if state["status"] == "succeeded": break
+                if state["workspace_save_status"] == "succeeded": break
                 time.sleep(.5)
-            assert state["status"] == "succeeded", state["steps"]
+            assert state["workspace_save_status"] == "succeeded", state["steps"]
+            approval_id = state["approvals"][0]["id"]
             # 相同审批重复请求也不再创建产物或投递事件。
             repeated = api(f"/agent-runtime/approvals/{approval_id}/apply", "POST", {"approval_token": "already-consumed-token-padding-123456"})
             assert repeated["status"] == "succeeded"
             results["approval_save"] = "succeeded_once"
             page.get_by_role("button", name="刷新任务", exact=True).click()
-            expect(page.get_by_text("状态：succeeded", exact=True)).to_be_visible()
+            expect(page.get_by_text("工作区：已保存", exact=True)).to_be_visible()
             page.screenshot(path="/tmp/aiws-document-task-desktop.png", full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+1")
@@ -176,9 +187,9 @@ def run():
             deadline = time.monotonic() + 120
             while time.monotonic() < deadline:
                 other = api(f"/document-tasks/{parallel['id']}")
-                if other["status"] in {"waiting_approval", "failed", "dead_letter"}: break
+                if other["status"] in {"succeeded", "failed", "dead_letter"}: break
                 time.sleep(1)
-            assert other["status"] == "waiting_approval", other["steps"]
+            assert other["status"] == "succeeded" and other["approvals"] == [], other["steps"]
             assert api(f"/document-tasks/{cancelled['id']}")["status"] == "cancelled"
             results["parallel_task_and_cancel"] = "independent_artifacts_preserved"
             with SessionLocal() as db:
@@ -186,7 +197,7 @@ def run():
                 assert len(delivered) == 2, "重复审批创建了多份工作区文件"
                 assert all((Path(settings.upload_dir) / f.storage_key).is_file() for f in delivered)
                 messages = list(db.scalars(select(Message).where(Message.conversation_id == cid)))
-                # 每个 Run 对应一条稳定消息，waiting_approval→success 原地更新。
+                # 每个 Run 对应一条稳定消息，生成与保存完成时原地更新。
                 assert len(messages) == 3, len(messages)
                 results["conversation_projection"] = "one_message_per_run"
             assert not errors, errors

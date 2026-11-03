@@ -71,7 +71,9 @@ class DocumentTasksTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await worker.run_once())
 
     def approve(self, run_id):
-        approval = self.snapshot(run_id)["approvals"][0]
+        with self.sessions() as db:
+            prepared = DocumentTaskService(db).request_workspace_save("u", run_id)
+        approval = prepared["approvals"][0]
         with self.sessions() as db:
             token = AgentRuntimeService(db).issue_approval_challenge(approval_id=approval["id"], user_id="u")
         with self.sessions() as db:
@@ -81,7 +83,10 @@ class DocumentTasksTest(unittest.IsolatedAsyncioTestCase):
         task = self.create()
         await self.advance(3)
         state = self.snapshot(task["id"])
-        self.assertEqual(state["status"], "waiting_approval")
+        self.assertEqual(state["status"], "succeeded")
+        self.assertEqual(state["generation_status"], "succeeded")
+        self.assertEqual(state["workspace_save_status"], "planned")
+        self.assertEqual(state["approvals"], [])
         self.assertEqual(len(state["artifacts"]), 3)
         with self.sessions() as db:
             self.assertEqual(db.scalar(select(func.count()).select_from(ProjectFile)), 1)
@@ -123,7 +128,7 @@ class DocumentTasksTest(unittest.IsolatedAsyncioTestCase):
             restored = DurableToolRunService(db).reconcile_orphaned_steps(runtime_kind=KIND)
             self.assertEqual(restored, 1)
         await self.advance(3)
-        self.assertEqual(self.snapshot(task["id"])["status"], "waiting_approval")
+        self.assertEqual(self.snapshot(task["id"])["status"], "succeeded")
 
     async def test_repeated_approval_creates_one_delivery_event_and_one_file(self):
         task = self.create()
@@ -149,7 +154,7 @@ class DocumentTasksTest(unittest.IsolatedAsyncioTestCase):
             DocumentTaskService(db).resume("u", task["id"])
         await self.advance()
         self.assertEqual(self.complete.await_count, 1)
-        self.assertEqual(self.snapshot(task["id"])["status"], "waiting_approval")
+        self.assertEqual(self.snapshot(task["id"])["status"], "succeeded")
 
     async def test_model_timeout_is_recorded_separately_and_keeps_evidence(self):
         task = self.create()
@@ -171,6 +176,7 @@ class DocumentTasksTest(unittest.IsolatedAsyncioTestCase):
         task = self.create()
         await self.advance(3)
         with self.sessions() as db:
+            DocumentTaskService(db).request_workspace_save("u", task["id"])
             DocumentTaskService(db).cancel("u", task["id"])
         self.assertEqual(self.snapshot(task["id"])["status"], "cancelled")
         self.assertEqual(len(self.snapshot(task["id"])["artifacts"]), 3)
@@ -310,7 +316,16 @@ class DocumentTasksTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(downloaded.status_code, 200)
             self.assertIn("PostgreSQL", downloaded.text)
             self.assertEqual(downloaded.headers["x-content-type-options"], "nosniff")
-            approval_id = state["approvals"][0]["id"]
+            self.assertEqual(state["status"], "succeeded")
+            self.assertEqual(state["approvals"], [])
+            prepared = client.post(f"/api/document-tasks/{run_id}/workspace-save").json()
+            self.assertEqual(prepared["status"], "waiting_approval")
+            approval_id = prepared["approvals"][0]["id"]
+            declined = client.post(f"/api/agent-runtime/approvals/{approval_id}/reject")
+            self.assertEqual(declined.status_code, 200)
+            self.assertEqual(declined.json()["status"], "succeeded")
+            self.assertEqual(client.get(artifact["download_url"]).status_code, 200)
+            self.assertEqual(client.post(f"/api/document-tasks/{run_id}/workspace-save").status_code, 200)
             token = client.post(f"/api/agent-runtime/approvals/{approval_id}/challenge").json()["approval_token"]
             result = client.post(f"/api/agent-runtime/approvals/{approval_id}/apply", json={"approval_token": token})
             self.assertEqual(result.status_code, 200)
@@ -320,6 +335,81 @@ class DocumentTasksTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(client.get(f"/api/document-tasks/{run_id}").json()["status"], "succeeded")
             app.dependency_overrides[get_current_user] = lambda: db.get(User, "other")
             self.assertEqual(client.get(artifact["download_url"]).status_code, 409)
+            self.assertEqual(client.post(f"/api/document-tasks/{run_id}/workspace-save").status_code, 409)
+
+    async def test_generated_document_needs_no_approval_or_reconciliation(self):
+        task = self.create()
+        await self.advance(3)
+        with self.sessions() as db:
+            self.assertEqual(DurableToolRunService(db).reconcile_orphaned_steps(runtime_kind=KIND), 0)
+            self.assertEqual(db.scalar(select(func.count()).select_from(AgentApproval)), 0)
+        self.assertFalse(await DurableToolWorker(session_factory=self.sessions).run_once())
+        self.assertEqual(self.snapshot(task["id"])["status"], "succeeded")
+
+    async def test_save_request_is_idempotent_expiry_renewable_and_reject_optional(self):
+        task = self.create()
+        with self.assertRaises(DocumentTaskError), self.sessions() as db:
+            DocumentTaskService(db).request_workspace_save("u", task["id"])
+        await self.advance(3)
+        with self.sessions() as db:
+            service = DocumentTaskService(db)
+            first = service.request_workspace_save("u", task["id"])
+            second = service.request_workspace_save("u", task["id"])
+            self.assertEqual(first["approvals"], second["approvals"])
+            self.assertEqual(db.scalar(select(func.count()).select_from(AgentOutboxEvent)), 3)
+            approval = db.get(AgentApproval, first["approvals"][0]["id"])
+            approval.expires_at = utcnow() - timedelta(seconds=1)
+            approval.nonce_hash = "obsolete"
+            db.commit()
+            service.request_workspace_save("u", task["id"])
+            db.refresh(approval)
+            self.assertIsNone(approval.nonce_hash)
+            rejected = service.reject_workspace_save("u", approval.id)
+            self.assertEqual(rejected["status"], "succeeded")
+            self.assertEqual(rejected["generation_status"], "succeeded")
+            self.assertEqual(rejected["workspace_save_status"], "planned")
+            self.assertEqual(len(rejected["artifacts"]), 3)
+        self.approve(task["id"])
+        await self.advance()
+        self.assertEqual(self.snapshot(task["id"])["workspace_save_status"], "succeeded")
+
+    async def test_readonly_save_denial_does_not_fail_generation(self):
+        task = self.create()
+        await self.advance(3)
+        with self.sessions() as db:
+            db.add(WorkspaceAgentPolicy(project_id="p", permission_mode="read_only")); db.commit()
+            with self.assertRaises(DocumentTaskError):
+                DocumentTaskService(db).request_workspace_save("u", task["id"])
+            db.rollback()
+        state = self.snapshot(task["id"])
+        self.assertEqual(state["status"], "succeeded")
+        self.assertEqual(state["approvals"], [])
+
+    async def test_old_waiting_task_and_invalid_confirmation_still_require_approval(self):
+        task = self.create()
+        await self.advance(3)
+        # 构造旧版本导出后自动等待审批的记录，不要求迁移已有任务。
+        with self.sessions() as db:
+            run = db.get(AgentRun, task["id"])
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == run.id, AgentStep.call_id == "delivery"))
+            run.status, run.finished_at, step.status = "waiting_approval", None, "waiting_approval"
+            db.add(AgentApproval(run_id=run.id, step_id=step.id, user_id="u", action="documents.save_to_workspace",
+                arguments_hash=step.arguments_hash, status="pending", expires_at=utcnow() + timedelta(hours=1)))
+            db.commit()
+            prepared = DocumentTaskService(db).request_workspace_save("u", run.id)
+            self.assertEqual(len(prepared["approvals"]), 1)
+            approval_id = prepared["approvals"][0]["id"]
+        with self.sessions() as db:
+            with self.assertRaises(DocumentTaskError):
+                DocumentTaskService(db).approve("u", approval_id, "forged-token")
+            db.rollback()
+        self.approve(task["id"])
+        with self.sessions() as db:
+            with self.assertRaises(DocumentTaskError):
+                DocumentTaskService(db).reject_workspace_save("u", approval_id)
+            db.rollback()
+        await self.advance()
+        self.assertEqual(self.snapshot(task["id"])["workspace_save_status"], "succeeded")
 
     async def test_model_call_runs_without_open_database_transaction(self):
         # 在模型调用入口检查实际借出的数据库连接，不能只检查 async 关键字。

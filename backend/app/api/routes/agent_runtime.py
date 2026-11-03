@@ -353,7 +353,7 @@ def reject_approval(
     if approval and approval.action == "documents.save_to_workspace":
         from app.services.document_task_service import DocumentTaskService, DocumentTaskError
         try:
-            return DocumentTaskService(db).cancel(current_user.id, approval.run_id)
+            return DocumentTaskService(db).reject_workspace_save(current_user.id, approval_id)
         except DocumentTaskError as exc:
             db.rollback()
             raise HTTPException(409, str(exc)) from exc

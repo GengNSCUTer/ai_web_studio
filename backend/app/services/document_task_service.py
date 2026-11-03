@@ -193,12 +193,10 @@ class DocumentTaskService:
         if step.sequence < 4:
             next_step = self.db.scalar(select(AgentStep).where(AgentStep.run_id == run.id, AgentStep.sequence == step.sequence + 1))
             if step.sequence == 3:
-                # 不占 Worker、不保持租约或数据库事务来等待用户。
-                next_step.status, run.status = "waiting_approval", "waiting_approval"
-                self.db.add(AgentApproval(run_id=run.id, step_id=next_step.id, user_id=run.user_id,
-                    action="documents.save_to_workspace", arguments_hash=next_step.arguments_hash,
-                    status="pending", expires_at=utcnow() + timedelta(hours=24)))
-                self.project_message(run, "文档已导出，等待确认保存", "可预览下载；尚未写入工作区。")
+                # 生成到此结束；保存是用户主动发起的可选操作，不预占审批或执行资源。
+                next_step.status = "planned"
+                run.status, run.finished_at = "succeeded", utcnow()
+                self.project_message(run, "文档已生成", "可预览下载；保存到工作区为可选操作，尚未创建项目文件。")
             else:
                 run.status = "queued"
                 next_step.status = "pending"
@@ -213,8 +211,12 @@ class DocumentTaskService:
         artifacts = list(self.db.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run.id, AgentArtifact.user_id == user_id)
                                            .order_by(AgentArtifact.created_at)))
         state = json.loads(run.planner_state_json)
+        delivery = self.db.scalar(select(AgentStep).where(AgentStep.run_id == run.id, AgentStep.call_id == "delivery"))
+        generated = any(a.artifact_type == "document_export" for a in artifacts)
         return {"id": run.id, "project_id": run.project_id, "conversation_id": run.conversation_id,
                 "status": run.status, "current_step": run.current_step, "file_name": json.loads(run.input_json)["file_name"],
+                "generation_status": "succeeded" if generated else run.status,
+                "workspace_save_status": delivery.status if delivery else "planned",
                 "result_message_id": state.get("document_result_message_id"),
                 "steps": [{"id": s.id, "stage": s.call_id, "status": s.status, "attempts": s.attempts,
                            "error_code": s.error_code, "error_message": s.error_message}
@@ -224,6 +226,57 @@ class DocumentTaskService:
                               for a in artifacts],
                 "approvals": [{"id": a.id, "status": a.status, "action": a.action} for a in self.db.scalars(
                     select(AgentApproval).where(AgentApproval.run_id == run.id))]}
+
+    def request_workspace_save(self, user_id, run_id):
+        """仅在用户主动保存时准备审批；重复请求不重复创建审批或执行事件。"""
+        run = self.get(user_id, run_id, lock=True)
+        step = self.db.scalar(select(AgentStep).where(AgentStep.run_id == run.id, AgentStep.call_id == "delivery"))
+        self.artifact(run.id, "export")
+        approval = self.db.scalar(select(AgentApproval).where(AgentApproval.step_id == step.id))
+        if step.status == "succeeded" or (approval and approval.status == "consumed" and step.status in {"pending", "running"}):
+            self.db.commit()
+            return self.snapshot(user_id, run.id)
+        if run.status not in {"succeeded", "waiting_approval"} or step.status not in {"planned", "waiting_approval"}:
+            raise DocumentTaskError("当前任务不能发起保存，请先完成生成或处理失败阶段。")
+        policy = self.db.get(WorkspaceAgentPolicy, run.project_id)
+        if policy and policy.permission_mode == "read_only":
+            raise DocumentTaskError("工作区只读，报告可下载但不能保存为项目文件。")
+        if not approval:
+            approval = AgentApproval(run_id=run.id, step_id=step.id, user_id=user_id,
+                action="documents.save_to_workspace", arguments_hash=step.arguments_hash,
+                status="pending", expires_at=utcnow() + timedelta(hours=24))
+            self.db.add(approval)
+        else:
+            expiry = approval.expires_at.replace(tzinfo=approval.expires_at.tzinfo or utcnow().tzinfo)
+            if approval.status != "pending" or expiry <= utcnow():
+                approval.status, approval.nonce_hash, approval.consumed_at = "pending", None, None
+                approval.expires_at = utcnow() + timedelta(hours=24)
+        step.status, run.status, run.finished_at = "waiting_approval", "waiting_approval", None
+        run.state_version += 1
+        self.checkpoint(run, step, "workspace_save_requested")
+        self.db.commit()
+        return self.snapshot(user_id, run.id)
+
+    def reject_workspace_save(self, user_id, approval_id):
+        """撤回可选保存不取消已完成的文档生成。"""
+        approval = self.db.scalar(select(AgentApproval).where(AgentApproval.id == approval_id, AgentApproval.user_id == user_id))
+        if not approval or approval.action != "documents.save_to_workspace":
+            raise DocumentTaskError("文档审批不存在。")
+        run = self.get(user_id, approval.run_id, lock=True)
+        self.db.refresh(approval, with_for_update=True)
+        step = self.db.get(AgentStep, approval.step_id)
+        if approval.status == "rejected":
+            self.db.commit()
+            return self.snapshot(user_id, run.id)
+        if approval.status not in {"pending", "expired"} or run.status != "waiting_approval":
+            raise DocumentTaskError("保存已执行或任务状态已变化，不能撤回审批。")
+        approval.status, approval.nonce_hash = "rejected", None
+        step.status, run.status, run.finished_at = "planned", "succeeded", utcnow()
+        run.state_version += 1
+        self.checkpoint(run, step, "workspace_save_rejected")
+        self.project_message(run, "文档已生成", "已放弃保存到工作区，仍可预览下载。")
+        self.db.commit()
+        return self.snapshot(user_id, run.id)
 
     def approve(self, user_id, approval_id, token):
         # 与 Worker 保持 event→run→step 的写入顺序；审批不能锁完对象再等待网络。
