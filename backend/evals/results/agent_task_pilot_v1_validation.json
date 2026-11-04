@@ -1,0 +1,15 @@
+{
+  "status": "validated_only",
+  "dataset": "agent_business_pilot_v1",
+  "available_cases": 12,
+  "target_total": 200,
+  "category_counts": {
+    "fault_security": 0,
+    "file_approval": 0,
+    "knowledge_evidence": 3,
+    "multi_tool": 5,
+    "no_tool": 2,
+    "single_tool": 2
+  },
+  "note": "题本结构有效，但没有执行任务；不能把validated_only当作成功率。"
+}

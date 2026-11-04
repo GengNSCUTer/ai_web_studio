@@ -1,0 +1,30 @@
+{
+  "name": "agent_business_pilot_v1",
+  "version": 1,
+  "status": "pilot_not_200_tasks",
+  "target_quotas": {"no_tool": 30, "single_tool": 40, "multi_tool": 50, "knowledge_evidence": 40, "file_approval": 20, "fault_security": 20},
+  "annotation": "12条先行任务，非200条已完成；资料为维护者预先构造的合成小样本，事实断言在本轮执行前确定。结构化分析不使用沙箱，工单只整理导出，不连接外部工单系统。",
+  "fixtures": {
+    "revenue.md": "# 云杉项目五月收入\n本资料为合成评测数据。五月收入11000元，客户数20，四月收入10000元。\n",
+    "costs.md": "# 云杉项目五月成本\n本资料为合成评测数据。五月成本7000元，其中服务器2000元、人力5000元。\n",
+    "game_feedback.csv": "id,category,severity,feedback\nF1,登录,高,更新后登录失败\nF2,登录,高,账号登录超时\nF3,性能,中,战斗时帧率下降\nF4,付费,中,价格展示不清楚\nF5,引导,低,新手教程过长\nF6,登录,高,重连后仍无法登录\n",
+    "release_notes.md": "# 星湾游戏测试版本\n本资料为合成评测数据。版本0.7，6条反馈中登录类3条。当前优先修登录问题，再排查性能；没有玩家留存和付费转化数据，不能推断转化率。\n",
+    "tickets.json": "{\"note\":\"合成评测工单，非真实客户\",\"tickets\":[{\"id\":\"T101\",\"priority\":\"P1\",\"status\":\"待处理\",\"issue\":\"登录失败\"},{\"id\":\"T102\",\"priority\":\"P2\",\"status\":\"处理中\",\"issue\":\"导出慢\"},{\"id\":\"T103\",\"priority\":\"P1\",\"status\":\"待处理\",\"issue\":\"文档权限错误\"},{\"id\":\"T104\",\"priority\":\"P3\",\"status\":\"已完成\",\"issue\":\"提示文案\"}]}",
+    "triage_policy.md": "# 工单整理规则\n仅整理，不操作任何真实工单平台。待处理的P1优先，已完成工单不列入待办。负责人未知时标注待分配，不猜测姓名。\n",
+    "paper_excerpt.md": "# 合成研究摘要：青杉检索\n这是评测用虚构研究材料，不对应真实论文。问题：固定检索深度对不同问题浪费预算。方法：依据问题难度在零次、单步和多步检索间选择。实验：合成集60题，任务通过率80%，单步基线70%。限制：只有一个合成数据集，未做真实用户或跨领域验证。不能声称已商业部署。\n"
+  },
+  "cases": [
+    {"id":"N01","category":"no_tool","runner":"chat","business":"普通对话","mode":"quick_chat","query":"不要使用任何工具，把 apple 翻译成中文，只回复苹果。","expected":{"no_tools":true,"facts":[["苹果"]]}},
+    {"id":"N02","category":"no_tool","runner":"chat","business":"文本整理","mode":"quick_chat","query":"不要使用任何工具，仅把下面三项整理成一句话：上传资料、查找证据、生成报告。","expected":{"no_tools":true,"facts":[["上传资料"],["查找证据"],["生成报告"]]}},
+    {"id":"S01","category":"single_tool","runner":"chat","business":"小表读取","mode":"quick_chat","query":"已知工作区文件revenue.md的file_id是${file:revenue.md}，请直接调用workspace.files.read读取，不搜索、不列文件、不联网。告诉我五月收入和客户数。","expected":{"required_tool_groups":[["workspace.files.read"]],"max_tool_calls":1,"facts":[["11000","11,000"],["20"]]}},
+    {"id":"S02","category":"single_tool","runner":"chat","business":"工单原始查证","mode":"quick_chat","query":"已知当前项目tickets.json的file_id是${file:tickets.json}，直接调用workspace.files.read，不要搜索或联网。只列出状态待处理的P1工单ID，不创建或更新任何工单。","expected":{"required_tool_groups":[["workspace.files.read"]],"max_tool_calls":1,"facts":[["T101"],["T103"]],"forbidden_answer_terms":["已创建工单","已更新工单"]}},
+    {"id":"M01","category":"multi_tool","runner":"chat","business":"结构化数据核对","mode":"workspace_review","query":"读取revenue.md和costs.md原文，用五月收入减成本计算毛利，并说明收入比四月增加多少。不要联网，不运行脚本，不修改文件。请引用两份资料。","expected":{"required_tool_groups":[["workspace.files.read"]],"read_files":["revenue.md","costs.md"],"facts":[["4000","4,000"],["1000","1,000","10%","10 %"]],"citation_required":true}},
+    {"id":"M02","category":"multi_tool","runner":"chat","business":"游戏反馈分析","mode":"workspace_review","query":"读取game_feedback.csv和release_notes.md，统计登录类条数、总反馈数及占比，提出修复优先级。说明是否能计算留存率。不要联网、执行脚本或修改文件，引用原资料。","expected":{"required_tool_groups":[["workspace.files.read"]],"read_files":["game_feedback.csv","release_notes.md"],"facts":[["3","三"],["6","六"],["50%","50 %","一半"],["登录"],["无法","不能","缺少","不足"]],"citation_required":true}},
+    {"id":"K01","category":"knowledge_evidence","runner":"chat","business":"论文事实查证","mode":"quick_chat","gold_file":"paper_100_chinese_20261028.json","gold_case":"paper_001","query":"在已选择的论文库里查证：AT-RAG模型的全称是什么？给出知识库引用，不调用外部工具。","expected":{"no_tools":true,"knowledge_required":true,"facts":[["Adaptive Topic"]],"citation_required":true}},
+    {"id":"K02","category":"knowledge_evidence","runner":"chat","business":"中文资料查证","mode":"quick_chat","gold_file":"chinese_100_chinese_20261028.json","gold_case":"chinese_001","query":"在已选择的Redis教程知识库中，商户查询缓存部分的缓存更新策略有哪几种？给出知识库引用，不使用外部工具。","expected":{"no_tools":true,"knowledge_required":true,"facts":[["内存淘汰"],["超时剔除","过期剔除"],["主动更新"]],"citation_required":true}},
+    {"id":"D01","category":"multi_tool","runner":"document_task","business":"业务报告交付","format":"docx","files":["revenue.md","costs.md"],"query":"依据两份合成资料生成云杉项目五月经营简报，写清收入、成本、毛利和较四月收入变化，保留来源，不臆造客户或上线事实。","expected":{"facts":[["11000","11,000"],["7000","7,000"],["4000","4,000"]]}},
+    {"id":"D02","category":"multi_tool","runner":"document_task","business":"游戏反馈报告交付","format":"markdown","files":["game_feedback.csv","release_notes.md"],"query":"依据合成反馈生成星湾0.7版本反馈分析报告，自行统计总数、登录类数量及占比，列优先级和证据，指出是否有留存率数据。不要声称操作了游戏或工单平台。","expected":{"facts":[["6","六"],["3","三"],["50%","50 %"],["登录"],["留存"]],"forbidden_answer_terms":["已创建工单","已修复线上"]}},
+    {"id":"D03","category":"multi_tool","runner":"document_task","business":"工单整理交付","format":"docx","files":["tickets.json","triage_policy.md"],"query":"读取合成工单与整理规则，生成待办整理报告。待处理P1列为优先，不将已完成T104当待办，负责人未知写待分配。只整理导出，不操作真实工单系统。","expected":{"facts":[["T101"],["T103"],["待分配"]],"forbidden_answer_terms":["已创建工单","已更新工单状态"]}},
+    {"id":"D04","category":"knowledge_evidence","runner":"document_task","business":"论文摘要交付","format":"markdown","files":["paper_excerpt.md"],"query":"总结这份评测用虚构研究材料，分别写问题、方法、实验和限制。保留原文重要实验数字，明确它不是实际论文，不推断商业应用。导出Markdown。","expected":{"facts":[["60"],["80%","80 %"],["70%","70 %"],["合成","虚构"],["限制","局限"]],"forbidden_answer_terms":["已商业部署","真实用户验证已完成"]}}
+  ]
+}
