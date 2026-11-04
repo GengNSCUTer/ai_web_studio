@@ -14,10 +14,13 @@ import re
 from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import PlannedToolCall, ToolPlan
+from app.services.tools.edit_preview_completion import preview_requirement, missing_preview_tools
 
 
 def infer_read_completion(query: str) -> dict[str, Any] | None:
     """普通 Chat 的明确只读查证意图也需要正文；不因此安装 Skill 或扩大工具权限。"""
+    if preview_requirement(query):
+        return preview_requirement(query)
     if re.search(r"\bcontext7\b", query, re.I):
         return {"completion_strategy": "required_tools", "required_tool_keys": ["docs.context7.query"],
                 "prerequisite_tool_keys": ["docs.context7.resolve"]}
@@ -74,7 +77,7 @@ def _explicit_replacement(query: str) -> tuple[str, str] | None:
         match = re.search(pattern, normalized, flags=re.IGNORECASE | re.DOTALL)
         if not match:
             continue
-        old_string, new_string = (item.strip() for item in match.groups())
+        old_string, new_string = match.groups()
         if old_string and old_string != new_string and len(old_string) <= 12_000 and len(new_string) <= 12_000:
             return old_string, new_string
     return None
@@ -103,6 +106,8 @@ def needs_followup(
 
     if not contract_applies(query=query, contract=contract):
         return False
+    if preview_requirement(query):
+        return bool(missing_preview_tools(query, observations))
     observed_tools = {
         str(item.get("metadata", {}).get("tool_key"))
         for item in observations

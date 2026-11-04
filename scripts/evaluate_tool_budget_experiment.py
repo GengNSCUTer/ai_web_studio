@@ -131,6 +131,14 @@ def cleanup(user_id: str, project_id: str) -> None:
         db.commit()
 
 
+def evaluation_sources(calls: list) -> list[dict]:
+    """预览成功会阻断写入依赖并记waiting_approval；该状态不代表Diff生成失败。"""
+
+    return [source for item in calls
+        if item.status == "success" or (item.tool_key == "workspace.files.propose_edit" and item.status == "waiting_approval")
+        for source in json.loads(item.sources_json or "[]")]
+
+
 def check_task(name: str, query: str, answer: str, sources: list[dict], calls: list[dict], unchanged: bool) -> dict[str, bool]:
     """只检查预先规定的业务断言，不把 done 或 HTTP 200 当成任务完成。"""
 
@@ -165,8 +173,10 @@ def check_task(name: str, query: str, answer: str, sources: list[dict], calls: l
         checks["documentation_body"] = "docs.context7.query" in successful and any(item.get("source_type") == "documentation" for item in sources)
         checks["doc_terms"] = ("StreamingResponse" in answer if name == "documentation" else all(term in answer.lower() for term in ("connect", "read", "write", "pool")))
     if name in {"edit_proposal", "edit_locate"}:
-        previews = [item for item in sources if item.get("source_type") == "workspace_file_edit_preview"]
-        checks["real_diff_preview"] = "workspace.files.propose_edit" in successful and bool(previews)
+        previews = [item for item in sources if item.get("source_type") == "workspace_file_edit_preview"
+                    and item.get("metadata", {}).get("raw", {}).get("applied") is False]
+        preview_call_completed = any(item["tool_key"] == "workspace.files.propose_edit" and item["status"] in {"success", "waiting_approval"} for item in calls)
+        checks["real_diff_preview"] = preview_call_completed and bool(previews)
         checks["requested_replacement"] = any(("21" if name == "edit_locate" else "评测笔记") in item.get("display_text", "") for item in previews)
         checks["file_unchanged"] = unchanged
         checks["not_claimed_written"] = bool(re.search(r"未|草稿|预览|提案|确认", answer))
@@ -220,7 +230,7 @@ def run_case(client: httpx.Client, *, project_id: str, mode: str, name: str, que
             raise RuntimeError("预算采集缺失，不可用于调参。")
         reason = stats.get("external_agent_terminal_reason") or next((event.get("reason") for event in reversed(trace) if event.get("type") == "tool_agent_terminal"), None)
         call_rows = [{"tool_key": item.tool_key, "status": item.status, "elapsed_ms": item.elapsed_ms} for item in calls]
-        sources = [source for item in calls if item.status == "success" for source in json.loads(item.sources_json or "[]")]
+        sources = evaluation_sources(calls)
         files = list(db.scalars(select(ProjectFile).where(ProjectFile.project_id == project_id)))
         unchanged = all("17 days" in item.parsed_text and "评测笔记" not in item.parsed_text for item in files)
         checks = check_task(name, query, answer.content or "", sources, call_rows, unchanged) if answer else {}
@@ -252,6 +262,11 @@ def run_case(client: httpx.Client, *, project_id: str, mode: str, name: str, que
             "final_answer_output_tokens": stats.get("provider_output_tokens"),
             "planner_token_usage": None,
             "calls_detail": call_rows,
+            "candidate_keys": list(dict.fromkeys(item["tool_key"] for event in trace if event.get("type") == "tool_candidate_selection" for item in event.get("candidates", []))),
+            "planned_keys": list(dict.fromkeys(item["tool_key"] for event in trace if event.get("type") == "tool_plan" for item in event.get("calls", []))),
+            "preview_planned_arguments": [item.get("arguments") for event in trace if event.get("type") == "tool_plan" for item in event.get("calls", []) if item.get("tool_key") == "workspace.files.propose_edit"],
+            "call_error_events": [event for event in trace if event.get("type") in {"tool_call_error", "tool_schema_validation"} and event.get("status") != "passed"],
+            "evidence_sufficiency_status": stats.get("evidence_sufficiency_status"),
             "sources_for_checks": sources,
             "fallback_reasons": [item.get("reason") for item in trace if item.get("type") == "tool_fallback"],
             "budget": budget,
@@ -278,7 +293,7 @@ def snapshot_checks(input_path: Path, output_path: Path) -> None:
                 continue
             calls = list(db.scalars(select(ToolCallRun).where(ToolCallRun.route_run_id == route.id)))
             row["query"] = route.query
-            row["sources_for_checks"] = [source for item in calls if item.status == "success" for source in json.loads(item.sources_json or "[]")]
+            row["sources_for_checks"] = evaluation_sources(calls)
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -302,7 +317,7 @@ def rescore(input_path: Path, evidence_path: Path, output_path: Path) -> None:
         if before != row["checks"]:
             changed.append(row["conversation_id"])
     payload["metrics"] = summarize(payload["rows"])
-    payload["rescoring"] = {"reason": "温度数值的Markdown反引号/加粗不再导致误判；按留存的同一工具证据和同一答案重算。原始分数保留在输入文件。", "changed_cases": changed}
+    payload["rescoring"] = {"reason": "按留存的同一工具证据和答案使用当前断言重算：温度接受Markdown；只读Diff可在waiting_approval状态展示，但必须有applied=false的真实预览来源。原始分数保留。", "changed_cases": changed}
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 

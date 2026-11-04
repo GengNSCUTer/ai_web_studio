@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.services.tools.completion_contract import contract_applies, required_tool_keys
+from app.services.tools.edit_preview_completion import PREVIEW_GUIDANCE, preview_requirement, missing_preview_tools
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,25 @@ def assess_evidence_sufficiency(
         )
     )
     direct_file_claim = any(term.lower() in normalized_query for term in _DIRECT_FILE_EVIDENCE_TERMS)
+    if preview_requirement(query):
+        observations = [
+            {"source_type": getattr(source, "source_type", ""), "metadata": getattr(source, "metadata", {})}
+            for source in sources
+            if getattr(source, "used_in_prompt", True) and str(getattr(source, "display_text", "") or "").strip()
+        ]
+        missing = missing_preview_tools(query, observations)
+        return EvidenceSufficiency(
+            status="insufficient" if missing else "sufficient",
+            required_source_types=("workspace_file_read", "workspace_file_edit_preview"),
+            available_source_types=source_types,
+            reasons=tuple(f"missing_required_tool:{key}" for key in missing),
+            required_tools=("workspace.files.read", "workspace.files.propose_edit"),
+            available_tools=tuple(dict.fromkeys(item["metadata"].get("tool_key", "") for item in observations)),
+            guidance=(
+                "未取得经服务端校验的目标Diff，任务仅部分完成。不得将自行编写的Diff冒充已验证提案；明确说明缺口。"
+                if missing else "已取得经服务端唯一替换校验的Diff预览，可展示真实变更；文件尚未写入。"
+            ) + PREVIEW_GUIDANCE,
+        )
     contract_active = contract_applies(query=query, contract=completion_contract)
     if contract_active and (completion_contract or {}).get("completion_strategy") == "required_tools":
         required = required_tool_keys(completion_contract)

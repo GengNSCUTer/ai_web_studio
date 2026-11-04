@@ -7,6 +7,7 @@ import time
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import ToolDefinition
 from app.services.tools.semantic_retrieval import ToolSemanticRetriever
+from app.services.tools.file_edit_intent import edit_requested, preview_requested
 
 
 @dataclass(frozen=True)
@@ -63,9 +64,7 @@ class ToolCandidateSelector:
 
     @classmethod
     def _edit_intent(cls, query: str) -> bool:
-        text = re.sub(r"(?:不要|不用|别|无需|不)(?:修改|编辑|替换|写入)", "", query)
-        text = re.sub(r"\b(?:do not|don't|never)\s+(?:edit|modify|replace|rewrite|write)(?:\s+files)?\b", "", text, flags=re.I)
-        return bool(cls.FILE_EDIT_PATTERN.search(text))
+        return edit_requested(query)
 
     def _eligible(self, query: str, allowed_tool_keys: set[str] | None) -> list[ToolDefinition]:
         """两路召回共用前置范围，语义排名不能复活被排除的工具。"""
@@ -73,6 +72,7 @@ class ToolCandidateSelector:
             if tool.enabled_by_default and (allowed_tool_keys is None or tool.tool_key in allowed_tool_keys)
             and not (tool.category in {'web_search', 'web_fetch', 'documentation'} and self.WEB_EXCLUSION_PATTERN.search(query))
             and not (tool.category == 'workspace_file' and self.FILE_EXCLUSION_PATTERN.search(query))
+            and not (preview_requested(query) and not tool.read_only)
             and not ((not tool.read_only or tool.quality_contract.get('semantic_profile') in {'approval_draft', 'file_revision'})
                      and not self._edit_intent(query))]
 
@@ -320,6 +320,9 @@ class ToolCandidateSelector:
                     skill_scope: bool = False) -> ToolCandidate:
         score = 0.0
         reasons: list[str] = []
+        if preview_requested(query) and tool.read_only and tool.quality_contract.get("semantic_profile") == "approval_draft":
+            score += 2.0
+            reasons.append("explicit_edit_preview")
         # 编辑预览虽不落正文、标为 read_only，也不应被普通文件追问一并召回。
         # 使用已有结果合同类型判断，避免只对某个工具名称写特例。
         if tool.category == "workspace_file" and tool.quality_contract.get("semantic_profile") in {"approval_draft", "file_revision"} \

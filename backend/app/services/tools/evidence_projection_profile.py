@@ -20,6 +20,7 @@ _PROFILE_KEYS = {
     "max_sources",
     "max_chars_per_source",
     "max_total_chars",
+    "preserve_whitespace",
 }
 _SOURCE_TYPE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 _FACT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
@@ -136,7 +137,10 @@ def validate_evidence_projection_profile(
         minimum=max_chars_per_source,
         maximum=6400,
     )
-    return {
+    preserve_whitespace = value.get("preserve_whitespace", False)
+    if not isinstance(preserve_whitespace, bool):
+        raise ValueError("evidence_projection.preserve_whitespace must be a boolean.")
+    profile = {
         "version": EVIDENCE_PROJECTION_PROFILE_VERSION,
         "mode": "bounded_excerpt",
         "allowed_source_types": source_types,
@@ -146,6 +150,9 @@ def validate_evidence_projection_profile(
         "max_chars_per_source": max_chars_per_source,
         "max_total_chars": max_total_chars,
     }
+    if preserve_whitespace:
+        profile["preserve_whitespace"] = True
+    return profile
 
 
 def _validate_source_types(value: Any) -> list[str]:

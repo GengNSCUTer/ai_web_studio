@@ -49,6 +49,10 @@ class ToolSchemaValidator:
             field_schema = properties.get(field)
             if not field_schema:
                 continue
+            if value is None and field not in required and field_schema.get("type") == "string":
+                # 模型常把未提供的可选过滤条件写null，不能变成字面"None"过滤掉真实文件。
+                normalized.pop(field)
+                continue
             normalized[field] = self._validate_value(
                 tool_key=definition.tool_key,
                 field=field,
@@ -76,11 +80,16 @@ class ToolSchemaValidator:
     def _validate_value(self, *, tool_key: str, field: str, value: Any, schema: dict[str, Any]) -> Any:
         expected_type = schema.get("type")
         if expected_type == "string":
-            if isinstance(value, list):
-                value = "|".join(str(item).strip() for item in value if str(item).strip())
-            if not isinstance(value, str):
-                value = str(value)
-            value = value.strip()
+            if schema.get("x-preserve-whitespace") is True:
+                # 编辑正文是逐字替换协议，归一化空白会改变目标或破坏代码缩进。
+                if not isinstance(value, str):
+                    raise ToolSchemaValidationError(f"{tool_key}.{field} 必须是原始字符串。")
+            else:
+                if isinstance(value, list):
+                    value = "|".join(str(item).strip() for item in value if str(item).strip())
+                if not isinstance(value, str):
+                    value = str(value)
+                value = value.strip()
         elif expected_type == "integer":
             try:
                 value = int(value)

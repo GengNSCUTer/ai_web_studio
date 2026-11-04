@@ -28,6 +28,7 @@ from app.services.tools.workflow import (
 )
 from app.services.tools.observation_projection import PlannerObservationProjection
 from app.services.tools.completion_contract import infer_read_completion, needs_followup, required_tool_keys
+from app.services.tools.edit_preview_completion import PREVIEW_GUIDANCE, preview_requirement, missing_preview_tools
 from app.services.tools.selector import ToolCandidateSelector
 from app.services.tools.semantic_retrieval import ToolSemanticRetriever
 
@@ -329,8 +330,17 @@ class ExternalContextService:
                         "preserved_sources_count": len(sources),
                     }))
                 else:
-                    terminal_reason = "no_tool_needed"
-                    next_action = "stop"
+                    if enabled and preview_requirement(routed_query) and missing_preview_tools(routed_query, observations):
+                        terminal_reason = "task_evidence_incomplete"
+                        next_action = "finalize_partial" if sources else "clarify"
+                        notices.append("尚未取得已校验的文件Diff预览，请明确目标文件与替换内容或重试；源文件未修改。")
+                        events.append(ToolTraceEvent(type="tool_agent_terminal", payload={
+                            "reason": terminal_reason, "round": round_index, "next_action": next_action,
+                            "missing_tool_keys": list(missing_preview_tools(routed_query, observations)),
+                        }))
+                    else:
+                        terminal_reason = "no_tool_needed"
+                        next_action = "stop"
                 break
 
             events.append(
@@ -447,7 +457,7 @@ class ExternalContextService:
                 observation.get("next_action") == "replan"
                 for observation in quality_observations
             )
-            completion = skill_context.completion_contract if skill_context else infer_read_completion(routed_query)
+            completion = preview_requirement(routed_query) or (skill_context.completion_contract if skill_context else infer_read_completion(routed_query))
             completion_replan_required = needs_followup(
                 query=routed_query,
                 observations=observations,
@@ -456,9 +466,10 @@ class ExternalContextService:
             if completion_replan_required:
                 # 这是代码根据用户意图生成的缺口说明，不读取外部资料中的任务指令。
                 observed = {item.get("metadata", {}).get("tool_key") for item in observations}
+                missing = list(missing_preview_tools(routed_query, observations)) if preview_requirement(routed_query) else [key for key in required_tool_keys(completion) if key not in observed]
                 observations.append({"source_type": "task_completion_feedback", "round": round_index,
-                    "metadata": {"missing_tool_keys": [key for key in required_tool_keys(completion) if key not in observed]},
-                    "display_text": "当前只有定位/搜索结果，尚缺正文核验。依据实际返回的ID继续读取；搜索未命中时可列出授权文件后定位，不能推断文件不存在。"})
+                    "metadata": {"missing_tool_keys": missing},
+                    "display_text": PREVIEW_GUIDANCE if preview_requirement(routed_query) else "当前只有定位/搜索结果，尚缺正文核验。依据实际返回的ID继续读取；搜索未命中时可列出授权文件后定位，不能推断文件不存在。"})
                 events.append(
                     ToolTraceEvent(
                         type="tool_agent_replan_required",

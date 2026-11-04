@@ -121,6 +121,23 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
         self.assertEqual(read_sources[0].display_text, "2: Durable checkpoint and tool approval design.")
         self.assertNotIn("storage_key", str(read_sources[0].metadata))
 
+    def test_preview_copies_exact_read_text_and_rejects_display_line_numbers(self) -> None:
+        item = self.db.get(ProjectFile, "file-current")
+        item.parsed_text = "  # Old\n\n    indented body\n"
+        self.db.commit()
+        read, _ = asyncio.run(self.provider.run(call=build_call("workspace.files.read", {"file_id": item.id})))
+        original = read[0].metadata["raw"]["content"]
+        self.assertEqual(original, "  # Old\n\n    indented body")
+        args = {"file_id": item.id, "expected_revision_id": read[0].metadata["revision_id"],
+                "old_string": original, "new_string": "  # New\n\n    indented body"}
+        preview, _ = asyncio.run(self.provider.run(call=build_call("workspace.files.propose_edit", args)))
+        self.assertIn("+  # New", preview[0].display_text)
+        self.db.refresh(item)
+        self.assertEqual(item.parsed_text, "  # Old\n\n    indented body\n")
+        args["old_string"] = read[0].display_text
+        with self.assertRaises(ToolExecutionFeedbackError):
+            asyncio.run(self.provider.run(call=build_call("workspace.files.propose_edit", args)))
+
     def test_file_source_binds_current_revision_and_rejects_stale_follow_up(self) -> None:
         read_sources, _ = asyncio.run(
             self.provider.run(call=build_call("workspace.files.read", {"file_id": "file-current"}))

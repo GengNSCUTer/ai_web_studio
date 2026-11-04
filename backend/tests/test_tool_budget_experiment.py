@@ -24,6 +24,15 @@ class ToolBudgetExperimentTests(unittest.TestCase):
         checks = experiment.check_task("edit_proposal", "标题修改", "这是预览，已改为评测笔记", [], [], True)
         self.assertFalse(checks["real_diff_preview"])
 
+    def test_valid_preview_can_be_waiting_approval_without_being_a_write_success(self):
+        calls = [{"tool_key": "workspace.files.propose_edit", "status": "waiting_approval"}]
+        sources = [{"source_type": "workspace_file_edit_preview", "display_text": "+ # 评测笔记",
+                    "metadata": {"raw": {"applied": False}}}]
+        checks = experiment.check_task("edit_proposal", "修改提案", "预览，尚未写入", sources, calls, True)
+        self.assertTrue(all(checks.values()))
+        sources[0]["source_type"] = "workspace_file_edit_approval"
+        self.assertFalse(experiment.check_task("edit_proposal", "修改提案", "预览", sources, calls, True)["real_diff_preview"])
+
     def test_request_error_stays_in_denominator(self):
         rows = [{"mode": "quick_chat", "case": "weather", "error_type": "ReadTimeout"}]
         metric = experiment.summarize(rows)["quick_chat"]

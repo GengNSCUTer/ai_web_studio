@@ -288,6 +288,7 @@ class PlannerObservationProjection:
         compact = cls._first_canonical_text(
             source_document=source_document,
             content_paths=profile["content_paths"],
+            preserve_whitespace=profile.get("preserve_whitespace", False),
         )
         if compact is None:
             return None, "missing_canonical_content"
@@ -298,6 +299,7 @@ class PlannerObservationProjection:
         excerpt = cls._truncate_excerpt(
             compact,
             max_chars=min(profile["max_chars_per_source"], remaining_chars),
+            preserve_whitespace=profile.get("preserve_whitespace", False),
         )
         if not excerpt:
             return None, "total_budget_exhausted"
@@ -306,7 +308,7 @@ class PlannerObservationProjection:
         return excerpt, "available"
 
     @staticmethod
-    def _truncate_excerpt(text: str, *, max_chars: int) -> str:
+    def _truncate_excerpt(text: str, *, max_chars: int, preserve_whitespace: bool = False) -> str:
         """在有界预算内尽量保留完整句子，避免截断成难以理解的半句话。
 
         这是可读性优化，不是安全过滤：调用方必须先对完整 canonical 文本执行
@@ -316,7 +318,7 @@ class PlannerObservationProjection:
 
         if max_chars <= 0:
             return ""
-        normalized = " ".join(str(text).split())
+        normalized = str(text) if preserve_whitespace else " ".join(str(text).split())
         if len(normalized) <= max_chars:
             return normalized
         candidate = normalized[:max_chars]
@@ -367,13 +369,14 @@ class PlannerObservationProjection:
         *,
         source_document: dict[str, Any],
         content_paths: list[str],
+        preserve_whitespace: bool = False,
     ) -> str | None:
         """按声明顺序读取第一个 canonical 字符串，不回退到展示正文。"""
 
         for pointer in content_paths:
             exists, value = resolve_json_pointer(source_document, pointer)
             if exists and isinstance(value, str):
-                return " ".join(value.split())
+                return value if preserve_whitespace else " ".join(value.split())
         return None
 
     @staticmethod

@@ -301,8 +301,8 @@ class WorkspaceFileToolProvider:
             expected_revision_id=call.arguments.get("expected_revision_id"),
             provenance=provenance,
         )
-        text = (item.parsed_text or "").strip()
-        if not text:
+        text = item.parsed_text or ""
+        if not text.strip():
             return (
                 [
                     ExternalSource(
@@ -337,6 +337,7 @@ class WorkspaceFileToolProvider:
         start_index = min(start_line - 1, len(lines))
         end_index = min(len(lines), start_index + max_lines)
         rendered_lines: list[str] = []
+        canonical_lines: list[str] = []
         chars = 0
         for index, line in enumerate(lines[start_index:end_index], start=start_index + 1):
             rendered = f"{index}: {self._redact_text(line)}"
@@ -344,6 +345,7 @@ class WorkspaceFileToolProvider:
                 rendered_lines.append("[文件片段已达安全输出上限]")
                 break
             rendered_lines.append(rendered)
+            canonical_lines.append(self._redact_text(line))
             chars += len(rendered) + 1
         display_text = "\n".join(rendered_lines) or "请求的行范围为空。"
         return (
@@ -356,11 +358,14 @@ class WorkspaceFileToolProvider:
                     metadata={
                         **provenance,
                         "mime_type": item.mime_type or item.kind,
+                        "file_name": item.file_name,
                         "line_start": start_index + 1,
                         "line_end": min(end_index, start_index + len(rendered_lines)),
                         "raw": {
                             **provenance,
                             "file_name": item.file_name,
+                            # 与展示的已读取行相同，但不包含展示行号，保留替换所需空白。
+                            "content": "\n".join(canonical_lines),
                             "line_start": start_index + 1,
                             "line_end": min(end_index, start_index + len(rendered_lines)),
                         },
