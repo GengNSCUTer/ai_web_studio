@@ -28,7 +28,7 @@ from app.services.tools.workflow import (
 )
 from app.services.tools.observation_projection import PlannerObservationProjection
 from app.services.tools.completion_contract import infer_read_completion, needs_followup, required_tool_keys
-from app.services.tools.edit_preview_completion import PREVIEW_GUIDANCE, preview_requirement, missing_preview_tools
+from app.services.tools.edit_preview_completion import PREVIEW_GUIDANCE, APPROVAL_GUIDANCE, preview_requirement, approval_requirement, missing_preview_tools
 from app.services.tools.selector import ToolCandidateSelector
 from app.services.tools.semantic_retrieval import ToolSemanticRetriever
 
@@ -457,7 +457,7 @@ class ExternalContextService:
                 observation.get("next_action") == "replan"
                 for observation in quality_observations
             )
-            completion = preview_requirement(routed_query) or (skill_context.completion_contract if skill_context else infer_read_completion(routed_query))
+            completion = preview_requirement(routed_query) or approval_requirement(routed_query) or (skill_context.completion_contract if skill_context else infer_read_completion(routed_query))
             completion_replan_required = needs_followup(
                 query=routed_query,
                 observations=observations,
@@ -469,7 +469,7 @@ class ExternalContextService:
                 missing = list(missing_preview_tools(routed_query, observations)) if preview_requirement(routed_query) else [key for key in required_tool_keys(completion) if key not in observed]
                 observations.append({"source_type": "task_completion_feedback", "round": round_index,
                     "metadata": {"missing_tool_keys": missing},
-                    "display_text": PREVIEW_GUIDANCE if preview_requirement(routed_query) else "当前只有定位/搜索结果，尚缺正文核验。依据实际返回的ID继续读取；搜索未命中时可列出授权文件后定位，不能推断文件不存在。"})
+                    "display_text": PREVIEW_GUIDANCE if preview_requirement(routed_query) else APPROVAL_GUIDANCE if approval_requirement(routed_query) else "当前只有定位/搜索结果，尚缺正文核验。依据实际返回的ID继续读取；搜索未命中时可列出授权文件后定位，不能推断文件不存在。"})
                 events.append(
                     ToolTraceEvent(
                         type="tool_agent_replan_required",

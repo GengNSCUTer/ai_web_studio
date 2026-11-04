@@ -7,7 +7,7 @@ import time
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import ToolDefinition
 from app.services.tools.semantic_retrieval import ToolSemanticRetriever
-from app.services.tools.file_edit_intent import edit_requested, preview_requested
+from app.services.tools.file_edit_intent import edit_requested, preview_requested, approval_requested
 
 
 @dataclass(frozen=True)
@@ -323,6 +323,9 @@ class ToolCandidateSelector:
         if preview_requested(query) and tool.read_only and tool.quality_contract.get("semantic_profile") == "approval_draft":
             score += 2.0
             reasons.append("explicit_edit_preview")
+        if approval_requested(query) and tool.tool_key == "workspace.files.apply_edit":
+            score += 2.0
+            reasons.append("explicit_file_approval_request")
         # 编辑预览虽不落正文、标为 read_only，也不应被普通文件追问一并召回。
         # 使用已有结果合同类型判断，避免只对某个工具名称写特例。
         if tool.category == "workspace_file" and tool.quality_contract.get("semantic_profile") in {"approval_draft", "file_revision"} \

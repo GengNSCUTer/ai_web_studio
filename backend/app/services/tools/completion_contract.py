@@ -14,13 +14,15 @@ import re
 from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import PlannedToolCall, ToolPlan
-from app.services.tools.edit_preview_completion import preview_requirement, missing_preview_tools
+from app.services.tools.edit_preview_completion import preview_requirement, approval_requirement, missing_preview_tools, missing_approval_tools
 
 
 def infer_read_completion(query: str) -> dict[str, Any] | None:
     """普通 Chat 的明确只读查证意图也需要正文；不因此安装 Skill 或扩大工具权限。"""
     if preview_requirement(query):
         return preview_requirement(query)
+    if approval_requirement(query):
+        return approval_requirement(query)
     if re.search(r"\bcontext7\b", query, re.I):
         return {"completion_strategy": "required_tools", "required_tool_keys": ["docs.context7.query"],
                 "prerequisite_tool_keys": ["docs.context7.resolve"]}
@@ -108,6 +110,8 @@ def needs_followup(
         return False
     if preview_requirement(query):
         return bool(missing_preview_tools(query, observations))
+    if approval_requirement(query):
+        return bool(missing_approval_tools(observations))
     observed_tools = {
         str(item.get("metadata", {}).get("tool_key"))
         for item in observations

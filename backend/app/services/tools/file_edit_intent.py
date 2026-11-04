@@ -24,3 +24,10 @@ def edit_requested(query: str) -> bool:
     text = re.sub(r"(?:不要|不用|别|无需|不)(?:实际|直接)?(?:修改|编辑|替换|写入)", "", query)
     text = re.sub(r"\b(?:do not|don't|never)\s+(?:edit|modify|replace|rewrite|write)(?:\s+files)?\b", "", text, flags=re.I)
     return bool(EDIT_ACTION.search(text))
+
+
+def approval_requested(query: str) -> bool:
+    """用户明确申请文件修改审批，不把上一轮只读预览自动变成写入授权。"""
+
+    return bool(FILE_HINT.search(query) and edit_requested(query) and not preview_requested(query)
+                and re.search(r"审批|正式申请|申请修改|受控修改|确认后.{0,8}(?:修改|写入)|\b(?:approval|approve)\b", query, re.I))

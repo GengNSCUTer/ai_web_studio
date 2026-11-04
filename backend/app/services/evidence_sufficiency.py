@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.services.tools.completion_contract import contract_applies, required_tool_keys
-from app.services.tools.edit_preview_completion import PREVIEW_GUIDANCE, preview_requirement, missing_preview_tools
+from app.services.tools.edit_preview_completion import PREVIEW_GUIDANCE, APPROVAL_GUIDANCE, preview_requirement, approval_requirement, missing_preview_tools, missing_approval_tools
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,15 @@ def assess_evidence_sufficiency(
         )
     )
     direct_file_claim = any(term.lower() in normalized_query for term in _DIRECT_FILE_EVIDENCE_TERMS)
+    if approval_requirement(query):
+        observations = [{"source_type": getattr(source, "source_type", ""), "metadata": getattr(source, "metadata", {})}
+                        for source in sources if getattr(source, "used_in_prompt", True) and str(getattr(source, "display_text", "") or "").strip()]
+        missing = missing_approval_tools(observations)
+        return EvidenceSufficiency(status="insufficient" if missing else "sufficient",
+            required_source_types=("workspace_file_read", "workspace_file_edit_approval"), available_source_types=source_types,
+            reasons=tuple(f"missing_required_tool:{key}" for key in missing),
+            guidance=("尚未产生真实修改审批，不能声称已创建审批、已申请或已写入；明确本轮未完成。" if missing else "根据实际工具状态回答：等待审批不是已写入，只有applied来源才可声称已修改。") + APPROVAL_GUIDANCE,
+            required_tools=("workspace.files.read", "workspace.files.apply_edit"))
     if preview_requirement(query):
         observations = [
             {"source_type": getattr(source, "source_type", ""), "metadata": getattr(source, "metadata", {})}

@@ -7,7 +7,7 @@ import unittest
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.completion_contract import infer_read_completion, needs_followup
 from app.services.tools.edit_preview_completion import missing_preview_tools
-from app.services.tools.file_edit_intent import preview_requested
+from app.services.tools.file_edit_intent import preview_requested, approval_requested
 from app.services.tools.observation_projection import PlannerObservationProjection
 from app.services.tools.planner import LLMToolPlanner, PlannerRuntime
 from app.services.tools.selector import ToolCandidateSelector
@@ -31,6 +31,37 @@ def observations(*sources):
 
 
 class EditPreviewCompletionTest(unittest.TestCase):
+    def test_formal_approval_requires_real_record_not_read_or_text_preview(self):
+        query = "正式申请修改guide.md，把旧标题替换为新标题，等待我审批。"
+        self.assertTrue(approval_requested(query))
+        self.assertFalse(preview_requested(query))
+        required = infer_read_completion(query)
+        self.assertIn("workspace.files.apply_edit", required["required_tool_keys"])
+        self.assertTrue(needs_followup(query=query, observations=observations(source()), contract=required))
+        result = assess_evidence_sufficiency(query=query, sources=[source(), source("workspace_file_edit_preview")])
+        self.assertEqual(result.status, "insufficient")
+        self.assertIn("不能声称已创建审批", result.guidance)
+        approval = ExternalSource(source_type="workspace_file_edit_approval", provider="workspace", title="审批",
+            display_text="真实Diff待确认", metadata={"tool_key": "workspace.files.apply_edit", "file_id": "file-a", "approval_id": "approval-a", "run_id": "run-a"})
+        self.assertEqual(assess_evidence_sufficiency(query=query, sources=[source(), approval]).status, "sufficient")
+        self.assertFalse(approval_requested(QUERY))
+
+    def test_formal_planner_targets_apply_but_does_not_execute_it(self):
+        class Provider:
+            async def complete_chat(self, **kwargs):
+                self.system = kwargs["messages"][0]["content"]
+                return json.dumps({"should_use_tools": True, "calls": [{"id": "apply", "tool_key": "workspace.files.apply_edit", "arguments": {
+                    "file_id": "file-a", "old_string": "# Old", "new_string": "# New", "expected_revision_id": "rev-a",
+                }}]})
+        query = "正式申请修改guide.md，把旧标题替换为新标题，等待我审批。"
+        provider = Provider()
+        planner = LLMToolPlanner(chat_provider=provider)
+        plan = asyncio.run(planner.plan(query=query, enabled=True, observations=observations(source()),
+            runtime=PlannerRuntime("openai-compatible", "https://example.invalid", "test", "test")))
+        self.assertEqual([item.tool_key for item in plan.calls], ["workspace.files.apply_edit"])
+        self.assertIn("不是再次索要只读预览", provider.system)
+        self.assertIn("文字建议、list/search或propose_edit不能代替审批", provider.system)
+
     def test_edit_schema_preserves_literal_whitespace_and_still_enforces_limits(self):
         validator = ToolSchemaValidator()
         for tool_key in ("workspace.files.propose_edit", "workspace.files.apply_edit"):
