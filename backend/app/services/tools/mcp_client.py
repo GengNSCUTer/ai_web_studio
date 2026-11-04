@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 from app.core.config import settings
 from app.services.tools.mcp_protocol import MODERN_VERSION, LEGACY_VERSIONS, CLIENT_INFO, header_value, parameter_headers
+from app.services.tools.pinned_http import PinnedMcpTransport
 
 
 @dataclass
@@ -59,6 +60,11 @@ class McpHttpClient:
         self.capabilities: dict[str, Any] = {}
         self._tool_schemas: dict[str, dict] = {}
 
+    def _http_client(self):
+        # 禁用环境代理，避免代理端重新解析绕过本地连接IP校验；重定向保持默认不跟随。
+        return httpx.AsyncClient(timeout=self.timeout_seconds, trust_env=False,
+            transport=PinnedMcpTransport(allow_private=settings.allow_private_mcp_servers))
+
     async def _connect(self, client: httpx.AsyncClient) -> None:
         # 只用无副作用发现请求判断协议，绝不因业务调用超时而换协议重放。
         self.session_id, self.mode, self.protocol_version = None, "modern", MODERN_VERSION
@@ -88,27 +94,27 @@ class McpHttpClient:
         self.capabilities = result.get("capabilities") if isinstance(result.get("capabilities"), dict) else {}
 
     async def discover(self) -> dict:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with self._http_client() as client:
             await self._connect(client)
         return {"protocol_version": self.protocol_version, "protocol_mode": self.mode,
                 "capabilities": self.capabilities}
 
     async def list_resources(self) -> list[dict]:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with self._http_client() as client:
             await self._connect(client)
             if "resources" not in self.capabilities:
                 return []
             return await self._paged(client, "resources/list", "resources")
 
     async def list_resource_templates(self) -> list[dict]:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with self._http_client() as client:
             await self._connect(client)
             if "resources" not in self.capabilities:
                 return []
             return await self._paged(client, "resources/templates/list", "resourceTemplates")
 
     async def read_resource(self, uri: str) -> dict:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with self._http_client() as client:
             await self._connect(client)
             if "resources" not in self.capabilities:
                 raise RuntimeError("MCP服务未声明Resources能力。")
@@ -139,7 +145,7 @@ class McpHttpClient:
         raise RuntimeError("MCP列表超过分页限制。")
 
     async def list_tools(self) -> list[McpTool]:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with self._http_client() as client:
             await self._connect(client)
             if "tools" not in self.capabilities:
                 return []
@@ -174,7 +180,7 @@ class McpHttpClient:
         output_schema: dict[str, Any] | None = None,
         input_schema: dict[str, Any] | None = None,
     ) -> McpCallResponse:
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with self._http_client() as client:
             await self._connect(client)
             if self.mode == "modern" and "tools" not in self.capabilities:
                 raise RuntimeError("MCP服务未声明Tools能力。")

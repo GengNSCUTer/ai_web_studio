@@ -28,6 +28,8 @@ class McpCompatibilityTest(unittest.IsolatedAsyncioTestCase):
     async def invoke(self, handler, action):
         original = httpx.AsyncClient
         def factory(**kwargs):
+            # 协议格式测试使用MockTransport，不执行真实连接后端；连接安全有独立测试。
+            kwargs.pop("transport", None)
             return original(transport=httpx.MockTransport(handler), **kwargs)
         with patch("app.services.tools.mcp_client.httpx.AsyncClient", side_effect=factory):
             return await action(McpHttpClient(endpoint="https://mcp.example.test/endpoint"))

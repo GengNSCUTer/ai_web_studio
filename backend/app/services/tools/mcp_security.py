@@ -14,6 +14,12 @@ class McpEndpointPolicyError(ValueError):
     pass
 
 
+def is_public_unicast_address(address: str) -> bool:
+    """公网目标必须是可路由单播地址，不能仅依赖is_global放过多播地址。"""
+    parsed = ipaddress.ip_address(address)
+    return parsed.is_global and not parsed.is_multicast and not parsed.is_reserved
+
+
 def validate_mcp_endpoint_url(endpoint: str, *, auth_type: str | None = None) -> None:
     """Reject malformed URL forms before persisting a user-added MCP Server."""
 
@@ -46,12 +52,10 @@ async def enforce_mcp_endpoint_target_policy(
     *,
     allow_private: bool | None = None,
 ) -> None:
-    """Best-effort SSRF guard immediately before an outbound MCP request.
+    """调用前检查当前全部A/AAAA；McpHttpClient在连接层再验证并绑定数值IP。
 
-    This resolves all current A/AAAA targets and fails closed if any address is
-    not globally routable. It reduces ordinary private-network/metadata SSRF,
-    while connection-level DNS pinning would still be needed to fully eliminate
-    DNS-rebinding TOCTOU attacks.
+    此函数单独使用仍是best-effort；远端网页读取服务如何解析用户URL不受本机
+    transport控制，不能把MCP端点连接保护宣传成远端厂商任意抓取URL均已pin。
     """
 
     validate_mcp_endpoint_url(endpoint)
@@ -77,7 +81,7 @@ async def enforce_mcp_endpoint_target_policy(
             raise McpEndpointPolicyError("MCP Server 主机名无法解析。") from exc
         addresses = {ipaddress.ip_address(record[4][0]) for record in records}
 
-    if not addresses or any(not address.is_global for address in addresses):
+    if not addresses or any(not is_public_unicast_address(str(address)) for address in addresses):
         raise McpEndpointPolicyError("MCP Server 不允许访问本机、私网、保留地址或云元数据地址。")
 
 

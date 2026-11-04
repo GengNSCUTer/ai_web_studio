@@ -152,7 +152,8 @@ class PublicResearchAdapterTest(unittest.IsolatedAsyncioTestCase):
             adapter = AsyncMock()
             adapter.run.return_value = ([ExternalSource(source_type="web", provider="exa", title="Docs",
                                                         display_text=BODY, url=URL)], {})
-            result, events = await ToolExecutor(credential_resolver=resolver, adapter_runner=adapter).execute(call)
+            result, events = await ToolExecutor(credential_resolver=resolver, adapter_runner=adapter,
+                                              original_task="搜索公开技术文档").execute(call)
             self.assertEqual(adapter.run.await_count, expected_calls)
             if expected_calls:
                 self.assertEqual(result.status, "success")

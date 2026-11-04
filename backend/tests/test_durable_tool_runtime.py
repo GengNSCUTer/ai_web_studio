@@ -4,7 +4,7 @@ import asyncio
 import json
 import unittest
 from datetime import timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -394,6 +394,40 @@ class DurableToolRuntimeTest(unittest.TestCase):
             self.assertEqual(snapshot["tool_key"], "workspace.files.list")
             self.assertTrue(len(snapshot["fingerprint"]) == 64)
             self.assertTrue(snapshot["read_only"])
+
+    def test_original_task_is_frozen_before_user_message_is_edited(self) -> None:
+        with self.SessionLocal() as db:
+            message = Message(conversation_id=self.conversation_id, sequence=0, role="user",
+                              content="只总结上传的玩家反馈，不要联网", status="done")
+            db.add(message)
+            db.commit()
+            message_id = message.id
+        run_id = self._enqueue([{"call_id": "list", "tool_key": "workspace.files.list", "arguments": {}}],
+                               with_conversation=True)
+        with self.SessionLocal() as db:
+            db.get(Message, message_id).content = "联网搜索公开资料"
+            db.commit()
+            scope = json.loads(db.get(AgentRun, run_id).input_json)["action_scope"]
+            self.assertEqual(scope["original_task"], "只总结上传的玩家反馈，不要联网")
+            self.assertEqual(scope["confirmed_tool_keys"], [])
+
+    def test_legacy_run_without_original_task_cannot_resume_network_request(self) -> None:
+        run_id = self._enqueue([{"call_id": "search", "tool_key": "web.tavily.search",
+                                "arguments": {"query": "public facts"}}], attempts=1)
+        with self.SessionLocal() as db:
+            run = db.get(AgentRun, run_id)
+            payload = json.loads(run.input_json)
+            payload.pop("action_scope")
+            run.input_json = json.dumps(payload)
+            db.commit()
+        adapter = AsyncMock()
+        worker = DurableToolWorker(session_factory=self.SessionLocal, owner="legacy-scope-test",
+            executor_factory=lambda **kwargs: ToolExecutor(**kwargs, adapter_runner=adapter))
+        self.assertTrue(asyncio.run(worker.run_once()))
+        adapter.run.assert_not_called()
+        with self.SessionLocal() as db:
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == run_id))
+            self.assertEqual(step.status, "skipped")
 
     def test_replay_fails_closed_when_tool_snapshot_changed(self) -> None:
         run_id = self._enqueue(

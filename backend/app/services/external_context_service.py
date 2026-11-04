@@ -16,6 +16,7 @@ from app.services.tools.formatter import ExternalContextAssembler
 from app.services.tools.planner import DeterministicToolPlanner, LLMToolPlanner, PlannerRuntime
 from app.services.tools.query_rewriter import QueryRewriteService
 from app.services.tools.run_policy import ToolRunBudget, ToolRunPolicy, resolve_tool_run_policy
+from app.services.tools.action_guard import ActionScope, ToolActionGuard
 from app.services.tools.schemas import (
     ExternalContextResult,
     ToolTraceEvent,
@@ -165,6 +166,8 @@ class ExternalContextService:
                 tool_events=[],
             )
 
+        # 原用户本轮输入固定为授权来源；rewrite、观察正文和Planner参数不能改写它。
+        self.executor.action_guard = ToolActionGuard(ActionScope(query))
         rewrite = self.query_rewriter.rewrite(query=query, recent_messages=recent_messages)
         routed_query = rewrite.rewritten_query
         observations: list[dict] = []

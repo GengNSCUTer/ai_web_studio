@@ -4,6 +4,9 @@ import asyncio
 import json
 import threading
 import unittest
+from unittest.mock import patch
+from dataclasses import replace
+from app.core.config import settings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -316,13 +319,15 @@ class ToolIntegrationTest(unittest.TestCase):
                 planner=FixedPlanner(definition),
             )
 
-            result = asyncio.run(
-                service.build_context(
-                    query="深圳现在多少度？",
-                    enabled=True,
-                    max_chars=4000,
+            # 只在本测试允许自建环回MCP；生产默认仍禁止私网目标。
+            with patch("app.services.tools.mcp_client.settings", replace(settings, allow_private_mcp_servers=True)):
+                result = asyncio.run(
+                    service.build_context(
+                        query="深圳现在多少度？",
+                        enabled=True,
+                        max_chars=4000,
+                    )
                 )
-            )
 
             self.assertEqual(result.diagnostics["external_tool_called"], "weather")
             self.assertEqual(result.diagnostics["external_sources_total"], 1)

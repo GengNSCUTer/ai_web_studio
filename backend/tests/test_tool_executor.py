@@ -5,9 +5,18 @@ import unittest
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.credentials import ToolCredential, ToolCredentialResolver
 from app.services.tools.adapters import ToolAdapterRunner
-from app.services.tools.executor import ToolExecutor
+from app.services.tools.executor import ToolExecutor as RealToolExecutor
+from app.services.tools.action_guard import ActionScope, ToolActionGuard
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.tools.schemas import ExternalSource, PlannedToolCall, ToolDefinition, ToolExecutionFeedbackError
+
+
+class ToolExecutor(RealToolExecutor):
+    """原Executor单元测试显式授权其测试目录，动作安全另由专项拒绝测试覆盖。"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.action_guard = ToolActionGuard(ActionScope("本测试显式请求目录内的工具", frozenset(tool.tool_key for tool in self.catalog.list_definitions())))
 
 
 class FakeCredentialResolver(ToolCredentialResolver):

@@ -20,6 +20,7 @@ from app.services.tools.schemas import (
 )
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.tools.providers.agent_artifacts import AgentArtifactToolProvider
+from app.services.tools.action_guard import ActionScope, ToolActionGuard
 
 
 class ToolExecutor:
@@ -34,6 +35,7 @@ class ToolExecutor:
         project_id: str | None = None,
         conversation_id: str | None = None,
         assistant_message_id: str | None = None,
+        original_task: str | None = None,
     ) -> None:
         self.catalog = catalog or ToolCatalog()
         self.adapter_runner = adapter_runner or ToolAdapterRunner(
@@ -54,6 +56,7 @@ class ToolExecutor:
         self.db = db
         self.conversation_id = conversation_id
         self.assistant_message_id = assistant_message_id
+        self.action_guard = ToolActionGuard(ActionScope(original_task) if original_task is not None else None)
 
     async def execute(self, call: PlannedToolCall) -> tuple[ToolCallResult, list[ToolTraceEvent]]:
         definition = self.catalog.get_or_none(call.tool_key)
@@ -108,14 +111,18 @@ class ToolExecutor:
                 *skipped_events,
             ]
 
-        permission_resolver = getattr(self.credential_resolver, "get_workspace_permission_mode", None)
-        permission_mode = (
-            permission_resolver(project_id=self.project_id)
-            if callable(permission_resolver)
-            else "ask"
-        )
-
         events: list[ToolTraceEvent] = []
+        decision = self.action_guard.check(definition, call.arguments)
+        events.append(ToolTraceEvent(type="tool_action_intent_check", payload={
+            "call_id": call.call_id, "tool_key": call.tool_key,
+            "status": "allowed" if decision.allowed else "denied", "reason": decision.reason,
+            "field_paths": list(decision.field_paths),
+        }))
+        if not decision.allowed:
+            result, skipped_events = self._skipped(call, "工具动作或外发数据未通过原始任务范围检查。")
+            return result, [*events, *skipped_events]
+        permission_resolver = getattr(self.credential_resolver, "get_workspace_permission_mode", None)
+        permission_mode = permission_resolver(project_id=self.project_id) if callable(permission_resolver) else "ask"
         events.append(
             ToolTraceEvent(
                 type="tool_schema_validation",
@@ -473,6 +480,7 @@ class ToolExecutor:
                 events=events,
                 request_context=quality_request_context,
             )
+            self.action_guard.remember_sources(sources)
             events.append(
                 ToolTraceEvent(
                     type="tool_call_end",

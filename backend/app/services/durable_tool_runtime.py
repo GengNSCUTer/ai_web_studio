@@ -28,6 +28,7 @@ from app.models.agent_runtime import AgentArtifact, AgentCheckpoint, AgentOutbox
 from app.models.conversation import Conversation
 from app.models.knowledge import KnowledgeRetrievalLog
 from app.models.message import Message
+from app.services.tools.action_guard import ActionScope, ToolActionGuard
 from app.models.observability import ChatRuntimeMetric
 from app.models.project import Project
 from app.models.tool_trace import ToolCallRun, ToolRouteRun
@@ -270,6 +271,15 @@ class DurableToolRunService:
                 )
             return existing
 
+        assistant = self.db.get(Message, assistant_message_id) if assistant_message_id else None
+        original_task = None
+        if assistant and assistant.sequence is not None:
+            original_task = self.db.scalar(select(Message.content).where(Message.conversation_id == assistant.conversation_id,
+                Message.role == "user", Message.sequence < assistant.sequence).order_by(Message.sequence.desc()).limit(1))
+        action_scope = {
+            "original_task": original_task or "用户显式提交固定只读工具计划",
+            "confirmed_tool_keys": [] if original_task else [item["tool_key"] for item in normalized_calls],
+        }
         run = AgentRun(
             user_id=user_id,
             project_id=project_id,
@@ -277,7 +287,7 @@ class DurableToolRunService:
             assistant_message_id=assistant_message_id,
             runtime_kind="durable_tool_workflow",
             status="queued",
-            input_json=self._json({"calls": normalized_calls}),
+            input_json=self._json({"calls": normalized_calls, "action_scope": action_scope}),
             planner_state_json=self._json(
                 {
                     "mode": "read_only_durable",
@@ -1136,6 +1146,18 @@ class DurableToolWorker:
             assistant_message_id=run.assistant_message_id,
             catalog=ToolCatalog(db=db, user_id=run.user_id, project_id=run.project_id),
         )
+        if isinstance(executor, ToolExecutor):
+            # 同会话已绑定的用户原消息优先；没有源会话的API计划是用户显式提交的固定能力范围。
+            saved = json.loads(run.input_json)
+            frozen_scope = saved.get("action_scope")
+            if not isinstance(frozen_scope, dict):
+                # 旧任务缺少冻结原任务时不恢复其网络授权，需由用户重新发起。
+                frozen_scope = {"original_task": "旧任务缺少动作范围，禁止对外调用", "confirmed_tool_keys": []}
+            scope = ActionScope(str(frozen_scope.get("original_task") or ""), frozenset(frozen_scope.get("confirmed_tool_keys") or []))
+            executor.action_guard = ToolActionGuard(scope)
+            for artifact in db.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run.id, AgentArtifact.user_id == run.user_id)):
+                executor.action_guard.remember_sources(json.loads(artifact.content_json).get("sources", []))
+            db.commit()
         result, events = await self._execute_with_heartbeat(executor, call, claim)
         if result.status == "success":
             if not is_usable_tool_result(result):
