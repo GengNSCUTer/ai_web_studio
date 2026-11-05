@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+from types import SimpleNamespace
 
-from sqlalchemy import func, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select, tuple_, update
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.models.conversation import Conversation
 from app.models.message import Message
@@ -15,6 +16,10 @@ class MessageGenerationConflict(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__("当前会话已有回答正在生成，请等待完成或停止后再试。")
+
+
+class ContextHistory(list):
+    """标记按摘要批次和近期窗口读取的历史，不改变列表调用接口。"""
 
 
 class MessageRepository:
@@ -40,6 +45,69 @@ class MessageRepository:
             )
         )
         return list(self.db.scalars(stmt).all())
+
+    RECENT_CONTEXT_LIMIT = 24
+    SUMMARY_BATCH_LIMIT = 48
+
+    @staticmethod
+    def freeze_context_history(rows):
+        """提交前复制值，避免 expire_on_commit 把有界批次变成逐条 ORM 重读。"""
+        frozen = ContextHistory(SimpleNamespace(id=row.id, role=row.role, content=row.content,
+            generation_id=row.generation_id, status=row.status,
+            attachments=[SimpleNamespace(kind=item.kind, storage_path=item.storage_path,
+                mime_type=item.mime_type) for item in row.attachments]) for row in rows)
+        frozen.through_message_id = getattr(rows, "through_message_id", None)
+        return frozen
+
+    @staticmethod
+    def _order_key(row):
+        created = row.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return created, row.sequence if row.sequence is not None else 2147483647, row.id
+
+    @staticmethod
+    def _sql_order_key():
+        return tuple_(Message.created_at, func.coalesce(Message.sequence, 2147483647), Message.id)
+
+    def list_for_context(self, conversation, *, exclude_message_id=None, attachments=True,
+                         through_message_id=None) -> ContextHistory:
+        """近期 24 条 + 最早待摘要 48 条 + 边界；不跳过积压、不加载整段正文。"""
+        cid = conversation.id
+        stmt = select(Message).where(Message.conversation_id == cid)
+        if through_message_id:
+            anchor = self.db.execute(select(Message.created_at, Message.sequence, Message.id).where(
+                Message.conversation_id == cid, Message.id == through_message_id)).first()
+            if anchor is None:
+                return ContextHistory()
+            stmt = stmt.where(self._sql_order_key() <= self._order_key(anchor))
+        if exclude_message_id:
+            stmt = stmt.where(Message.id != exclude_message_id)
+        stmt = stmt.options(load_only(Message.id, Message.conversation_id, Message.role, Message.content, Message.generation_id,
+                                     Message.status, Message.created_at, Message.sequence))
+        if attachments:
+            stmt = stmt.options(selectinload(Message.attachments))
+        recent = list(self.db.scalars(stmt.order_by(Message.created_at.desc(),
+            Message.sequence.desc().nulls_first(), Message.id.desc()).limit(self.RECENT_CONTEXT_LIMIT)))
+        if not recent:
+            return ContextHistory()
+        boundary_id = getattr(conversation, "context_summary_boundary_message_id", None)
+        boundary = self.db.scalar(stmt.where(Message.id == boundary_id)) if boundary_id else None
+        pending = stmt.where(self._sql_order_key() < self._order_key(recent[-1]))
+        if boundary:
+            pending = pending.where(self._sql_order_key() > self._order_key(boundary))
+        pending = list(self.db.scalars(pending.order_by(Message.created_at,
+            Message.sequence.asc().nulls_last(), Message.id).limit(self.SUMMARY_BATCH_LIMIT))) if len(recent) == self.RECENT_CONTEXT_LIMIT else []
+        rows = {row.id: row for row in [*pending, *recent, *([boundary] if boundary else [])]}
+        result = ContextHistory(sorted(rows.values(), key=self._order_key))
+        result.through_message_id = through_message_id
+        return result
+
+    def latest_user_before(self, assistant) -> Message | None:
+        """重生成不能把摘要批次中的旧用户误认成本轮问题；单独按顺序查最近用户。"""
+        return self.db.scalar(select(Message).where(Message.conversation_id == assistant.conversation_id,
+            Message.role == "user", self._sql_order_key() < self._order_key(assistant)).order_by(
+                Message.created_at.desc(), Message.sequence.desc().nulls_first(), Message.id.desc()).limit(1))
 
     def create(self, message: Message) -> Message:
         # Repository 只 flush；一轮聊天可能还要同时写会话、附件和 assistant 占位消息。
@@ -69,11 +137,14 @@ class MessageRepository:
             conversation.context_summary or conversation.context_summary_boundary_message_id
         ):
             return
-        ordered_ids = [row[0] for row in self.history_snapshot(conversation.id)]
-        boundary = conversation.context_summary_boundary_message_id
-        if boundary in ordered_ids:
-            covered_ids = set(ordered_ids[:ordered_ids.index(boundary) + 1])
-            if not covered_ids.intersection(message_ids):
+        boundary = self.db.execute(select(Message.created_at, Message.sequence, Message.id).where(
+            Message.conversation_id == conversation.id,
+            Message.id == conversation.context_summary_boundary_message_id)).first()
+        if boundary:
+            covered = self.db.scalar(select(Message.id).where(
+                Message.conversation_id == conversation.id, Message.id.in_(message_ids),
+                self._sql_order_key() <= self._order_key(boundary)).limit(1))
+            if covered is None:
                 return
         # 边界缺失时覆盖范围不可验证，也不能继续保留旧摘要。
         conversation.context_summary = None
@@ -213,7 +284,8 @@ class MessageRepository:
         stmt = select(Message).where(
             Message.conversation_id == conversation_id,
             Message.id.in_(message_ids),
-        )
+        ).order_by(Message.created_at, Message.sequence.asc().nulls_last(), Message.id).execution_options(
+            populate_existing=True)
         return list(self.db.scalars(stmt).all())
 
     def mark_stale_streaming_messages(self, conversation_id: str) -> int:

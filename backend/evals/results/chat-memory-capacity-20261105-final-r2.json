@@ -1,0 +1,678 @@
+{
+  "label": "final-repeat-without-other-test-load",
+  "commit": "8f74e8350a95554ded9cbea190d2e03f8ea54cd3",
+  "scope": "独立PG合成读取，不含HTTP/模型，不代表上线容量",
+  "requests_per_cell": 24,
+  "pool": {
+    "size": 5,
+    "max_overflow": 10
+  },
+  "cache": "on",
+  "cases": [
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 9.906,
+      "p95_ms": 10.399,
+      "p99_ms": 11.154,
+      "pool_wait_p95_ms": 0.289,
+      "sql_p95_ms": 3.56,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 97.85,
+      "process_cpu_seconds": 0.192,
+      "warmup_ms": 18.861,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 136.207,
+      "p95_ms": 184.977,
+      "p99_ms": 197.192,
+      "pool_wait_p95_ms": 21.238,
+      "sql_p95_ms": 123.641,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 46.42,
+      "process_cpu_seconds": 0.575,
+      "warmup_ms": 18.861,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 230.57,
+      "p95_ms": 325.048,
+      "p99_ms": 329.309,
+      "pool_wait_p95_ms": 49.81,
+      "sql_p95_ms": 244.73,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 52.23,
+      "process_cpu_seconds": 0.534,
+      "warmup_ms": 18.861,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 10.398,
+      "p95_ms": 10.668,
+      "p99_ms": 10.79,
+      "pool_wait_p95_ms": 0.377,
+      "sql_p95_ms": 3.782,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 92.15,
+      "process_cpu_seconds": 0.197,
+      "warmup_ms": 14.794,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 132.236,
+      "p95_ms": 158.486,
+      "p99_ms": 162.456,
+      "pool_wait_p95_ms": 28.38,
+      "sql_p95_ms": 120.484,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 56.54,
+      "process_cpu_seconds": 0.483,
+      "warmup_ms": 14.794,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 323.508,
+      "p95_ms": 380.108,
+      "p99_ms": 411.083,
+      "pool_wait_p95_ms": 47.28,
+      "sql_p95_ms": 303.912,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 45.18,
+      "process_cpu_seconds": 0.604,
+      "warmup_ms": 14.794,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 10.382,
+      "p95_ms": 10.53,
+      "p99_ms": 10.558,
+      "pool_wait_p95_ms": 0.366,
+      "sql_p95_ms": 3.649,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 93.1,
+      "process_cpu_seconds": 0.195,
+      "warmup_ms": 11.493,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 126.662,
+      "p95_ms": 156.072,
+      "p99_ms": 159.745,
+      "pool_wait_p95_ms": 20.312,
+      "sql_p95_ms": 115.941,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 57.1,
+      "process_cpu_seconds": 0.477,
+      "warmup_ms": 11.493,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 228.588,
+      "p95_ms": 286.589,
+      "p99_ms": 296.127,
+      "pool_wait_p95_ms": 38.462,
+      "sql_p95_ms": 228.308,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 54.71,
+      "process_cpu_seconds": 0.506,
+      "warmup_ms": 11.493,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 28.304,
+      "p95_ms": 30.02,
+      "p99_ms": 30.952,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 7.419,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 35.08,
+      "process_cpu_seconds": 0.548,
+      "warmup_ms": 98.621,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 289.148,
+      "p95_ms": 397.367,
+      "p99_ms": 416.908,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 212.763,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 24.82,
+      "process_cpu_seconds": 1.105,
+      "warmup_ms": 98.621,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 486.082,
+      "p95_ms": 629.458,
+      "p99_ms": 647.288,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 266.981,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 25.95,
+      "process_cpu_seconds": 1.066,
+      "warmup_ms": 98.621,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 33.895,
+      "p95_ms": 35.815,
+      "p99_ms": 37.258,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 8.868,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 29.38,
+      "process_cpu_seconds": 0.654,
+      "warmup_ms": 460.272,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 319.696,
+      "p95_ms": 367.199,
+      "p99_ms": 388.311,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 177.671,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 23.37,
+      "process_cpu_seconds": 1.17,
+      "warmup_ms": 460.272,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 662.565,
+      "p95_ms": 870.874,
+      "p99_ms": 875.816,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 435.799,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 20.45,
+      "process_cpu_seconds": 1.35,
+      "warmup_ms": 460.272,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 38.262,
+      "p95_ms": 39.936,
+      "p99_ms": 39.954,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 10.628,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 25.95,
+      "process_cpu_seconds": 0.724,
+      "warmup_ms": 797.43,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 400.139,
+      "p95_ms": 515.109,
+      "p99_ms": 528.343,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 237.69,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 18.89,
+      "process_cpu_seconds": 1.433,
+      "warmup_ms": 797.43,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 765.162,
+      "p95_ms": 948.44,
+      "p99_ms": 966.502,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 441.072,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 18.42,
+      "process_cpu_seconds": 1.489,
+      "warmup_ms": 797.43,
+      "read_cache_states": [
+        "hit"
+      ]
+    }
+  ],
+  "plans": [
+    {
+      "kind": "history",
+      "rows": 100,
+      "explain": [
+        {
+          "Plan": {
+            "Node Type": "Limit",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Startup Cost": 0.41,
+            "Total Cost": 95.68,
+            "Plan Rows": 24,
+            "Plan Width": 102,
+            "Actual Startup Time": 0.062,
+            "Actual Total Time": 0.086,
+            "Actual Rows": 24.0,
+            "Actual Loops": 1,
+            "Disabled": false,
+            "Shared Hit Blocks": 9,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Only Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Backward",
+                "Index Name": "ix_messages_context_order",
+                "Relation Name": "messages",
+                "Alias": "messages",
+                "Startup Cost": 0.41,
+                "Total Cost": 659.32,
+                "Plan Rows": 166,
+                "Plan Width": 102,
+                "Actual Startup Time": 0.06,
+                "Actual Total Time": 0.08,
+                "Actual Rows": 24.0,
+                "Actual Loops": 1,
+                "Disabled": false,
+                "Index Cond": "(conversation_id = '28c7206d-1ee4-4d68-be88-28e74dfd800e'::text)",
+                "Rows Removed by Index Recheck": 0,
+                "Heap Fetches": 24,
+                "Index Searches": 1,
+                "Shared Hit Blocks": 9,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 44,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.287,
+          "Triggers": [],
+          "Execution Time": 0.112
+        }
+      ]
+    },
+    {
+      "kind": "history",
+      "rows": 1000,
+      "explain": [
+        {
+          "Plan": {
+            "Node Type": "Limit",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Startup Cost": 0.41,
+            "Total Cost": 95.68,
+            "Plan Rows": 24,
+            "Plan Width": 102,
+            "Actual Startup Time": 0.117,
+            "Actual Total Time": 0.168,
+            "Actual Rows": 24.0,
+            "Actual Loops": 1,
+            "Disabled": false,
+            "Shared Hit Blocks": 9,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Only Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Backward",
+                "Index Name": "ix_messages_context_order",
+                "Relation Name": "messages",
+                "Alias": "messages",
+                "Startup Cost": 0.41,
+                "Total Cost": 659.32,
+                "Plan Rows": 166,
+                "Plan Width": 102,
+                "Actual Startup Time": 0.114,
+                "Actual Total Time": 0.16,
+                "Actual Rows": 24.0,
+                "Actual Loops": 1,
+                "Disabled": false,
+                "Index Cond": "(conversation_id = 'e7d5fcc9-76ad-4f58-a4ce-958903d30d71'::text)",
+                "Rows Removed by Index Recheck": 0,
+                "Heap Fetches": 24,
+                "Index Searches": 1,
+                "Shared Hit Blocks": 9,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 0,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.167,
+          "Triggers": [],
+          "Execution Time": 0.197
+        }
+      ]
+    },
+    {
+      "kind": "history",
+      "rows": 10000,
+      "explain": [
+        {
+          "Plan": {
+            "Node Type": "Limit",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Startup Cost": 0.41,
+            "Total Cost": 95.68,
+            "Plan Rows": 24,
+            "Plan Width": 102,
+            "Actual Startup Time": 0.084,
+            "Actual Total Time": 0.135,
+            "Actual Rows": 24.0,
+            "Actual Loops": 1,
+            "Disabled": false,
+            "Shared Hit Blocks": 10,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Only Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Backward",
+                "Index Name": "ix_messages_context_order",
+                "Relation Name": "messages",
+                "Alias": "messages",
+                "Startup Cost": 0.41,
+                "Total Cost": 659.32,
+                "Plan Rows": 166,
+                "Plan Width": 102,
+                "Actual Startup Time": 0.082,
+                "Actual Total Time": 0.129,
+                "Actual Rows": 24.0,
+                "Actual Loops": 1,
+                "Disabled": false,
+                "Index Cond": "(conversation_id = '76428489-4c8b-49bc-9776-ff55b5a935e7'::text)",
+                "Rows Removed by Index Recheck": 0,
+                "Heap Fetches": 24,
+                "Index Searches": 1,
+                "Shared Hit Blocks": 10,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 0,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.136,
+          "Triggers": [],
+          "Execution Time": 0.158
+        }
+      ]
+    }
+  ],
+  "unique_queries": false,
+  "service_pool_wait": "未单独插桩；null 表示未测，不是零等待",
+  "max_rss_mib": 205.3
+}

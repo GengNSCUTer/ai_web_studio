@@ -1,0 +1,500 @@
+{
+  "label": "after-bounded-and-redis",
+  "commit": "8f74e8350a95554ded9cbea190d2e03f8ea54cd3",
+  "scope": "独立PG合成读取，不含HTTP/模型，不代表上线容量",
+  "requests_per_cell": 24,
+  "pool": {
+    "size": 5,
+    "max_overflow": 10
+  },
+  "cache": "on",
+  "cases": [
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 9.806,
+      "p95_ms": 10.021,
+      "p99_ms": 10.417,
+      "pool_wait_p95_ms": 0.267,
+      "sql_p95_ms": 3.349,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 99.36
+    },
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 127.454,
+      "p95_ms": 153.058,
+      "p99_ms": 153.956,
+      "pool_wait_p95_ms": 16.6,
+      "sql_p95_ms": 124.744,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 58.77
+    },
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 305.203,
+      "p95_ms": 420.435,
+      "p99_ms": 454.879,
+      "pool_wait_p95_ms": 56.031,
+      "sql_p95_ms": 318.058,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 45.77
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 10.133,
+      "p95_ms": 12.364,
+      "p99_ms": 14.018,
+      "pool_wait_p95_ms": 0.428,
+      "sql_p95_ms": 3.679,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 90.92
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 132.423,
+      "p95_ms": 159.872,
+      "p99_ms": 160.786,
+      "pool_wait_p95_ms": 23.961,
+      "sql_p95_ms": 114.501,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 56.36
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 220.859,
+      "p95_ms": 304.532,
+      "p99_ms": 316.615,
+      "pool_wait_p95_ms": 76.783,
+      "sql_p95_ms": 221.163,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 53.45
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 10.146,
+      "p95_ms": 10.484,
+      "p99_ms": 10.684,
+      "pool_wait_p95_ms": 0.367,
+      "sql_p95_ms": 3.675,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 95.65
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 138.069,
+      "p95_ms": 232.511,
+      "p99_ms": 232.583,
+      "pool_wait_p95_ms": 32.768,
+      "sql_p95_ms": 191.522,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 48.15
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 220.581,
+      "p95_ms": 330.306,
+      "p99_ms": 341.283,
+      "pool_wait_p95_ms": 54.121,
+      "sql_p95_ms": 220.985,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 53.42
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 50,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 5.335,
+      "p95_ms": 6.975,
+      "p99_ms": 8.051,
+      "pool_wait_p95_ms": 0.499,
+      "sql_p95_ms": 3.913,
+      "read_rows": [
+        50
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 168.13
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 50,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 57.203,
+      "p95_ms": 65.683,
+      "p99_ms": 67.012,
+      "pool_wait_p95_ms": 10.566,
+      "sql_p95_ms": 52.291,
+      "read_rows": [
+        50
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 132.54
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 50,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 89.502,
+      "p95_ms": 129.559,
+      "p99_ms": 129.857,
+      "pool_wait_p95_ms": 29.062,
+      "sql_p95_ms": 91.646,
+      "read_rows": [
+        50
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 124.81
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 30.324,
+      "p95_ms": 31.426,
+      "p99_ms": 31.432,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 8.601,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 33.29
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 274.432,
+      "p95_ms": 327.578,
+      "p99_ms": 327.935,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 152.173,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 27.91
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 459.02,
+      "p95_ms": 623.694,
+      "p99_ms": 642.55,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 248.3,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 26.29
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 500,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 23.209,
+      "p95_ms": 28.129,
+      "p99_ms": 28.431,
+      "pool_wait_p95_ms": 0.469,
+      "sql_p95_ms": 13.088,
+      "read_rows": [
+        500
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 36.43
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 500,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 204.945,
+      "p95_ms": 293.159,
+      "p99_ms": 294.215,
+      "pool_wait_p95_ms": 17.008,
+      "sql_p95_ms": 265.248,
+      "read_rows": [
+        500
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 33.36
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 500,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 425.789,
+      "p95_ms": 560.278,
+      "p99_ms": 570.419,
+      "pool_wait_p95_ms": 23.084,
+      "sql_p95_ms": 485.856,
+      "read_rows": [
+        500
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 29.43
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 32.47,
+      "p95_ms": 36.348,
+      "p99_ms": 37.991,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 8.74,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 30.12
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 319.564,
+      "p95_ms": 364.121,
+      "p99_ms": 364.859,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 170.284,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 24.36
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 672.381,
+      "p95_ms": 840.01,
+      "p99_ms": 869.853,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 366.155,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 19.93
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 43.538,
+      "p95_ms": 53.894,
+      "p99_ms": 135.891,
+      "pool_wait_p95_ms": 0.587,
+      "sql_p95_ms": 20.232,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 18.47
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 511.617,
+      "p95_ms": 585.915,
+      "p99_ms": 615.943,
+      "pool_wait_p95_ms": 13.927,
+      "sql_p95_ms": 557.996,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 15.31
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 795.845,
+      "p95_ms": 1007.62,
+      "p99_ms": 1018.65,
+      "pool_wait_p95_ms": 31.212,
+      "sql_p95_ms": 885.048,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 15.65
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 37.488,
+      "p95_ms": 40.003,
+      "p99_ms": 41.258,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 10.81,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 26.71
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 412.312,
+      "p95_ms": 531.011,
+      "p99_ms": 535.036,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 302.923,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 18.0
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 750.719,
+      "p95_ms": 888.777,
+      "p99_ms": 927.947,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 434.923,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 18.24
+    }
+  ],
+  "max_rss_mib": 428.6
+}

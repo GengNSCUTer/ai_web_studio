@@ -1,0 +1,337 @@
+{
+  "label": "before",
+  "commit": "8f74e8350a95554ded9cbea190d2e03f8ea54cd3",
+  "scope": "独立PG合成读取，不含HTTP/模型，不代表上线容量",
+  "requests_per_cell": 24,
+  "pool": {
+    "size": 5,
+    "max_overflow": 10
+  },
+  "cases": [
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 3.382,
+      "p95_ms": 3.867,
+      "p99_ms": 3.879,
+      "pool_wait_p95_ms": 0.27,
+      "sql_p95_ms": 1.328,
+      "read_rows": [
+        100
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 267.28
+    },
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 39.945,
+      "p95_ms": 57.662,
+      "p99_ms": 58.105,
+      "pool_wait_p95_ms": 14.086,
+      "sql_p95_ms": 36.822,
+      "read_rows": [
+        100
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 168.19
+    },
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 86.553,
+      "p95_ms": 130.273,
+      "p99_ms": 134.653,
+      "pool_wait_p95_ms": 26.071,
+      "sql_p95_ms": 74.93,
+      "read_rows": [
+        100
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 121.22
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 22.19,
+      "p95_ms": 25.612,
+      "p99_ms": 28.371,
+      "pool_wait_p95_ms": 0.43,
+      "sql_p95_ms": 9.638,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 40.66
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 203.795,
+      "p95_ms": 240.582,
+      "p99_ms": 260.534,
+      "pool_wait_p95_ms": 10.553,
+      "sql_p95_ms": 207.651,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 35.32
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 380.068,
+      "p95_ms": 474.845,
+      "p99_ms": 484.789,
+      "pool_wait_p95_ms": 17.25,
+      "sql_p95_ms": 428.544,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 33.69
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 224.961,
+      "p95_ms": 261.293,
+      "p99_ms": 264.288,
+      "pool_wait_p95_ms": 0.599,
+      "sql_p95_ms": 70.394,
+      "read_rows": [
+        10000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 4.09
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 1799.896,
+      "p95_ms": 1929.33,
+      "p99_ms": 1947.448,
+      "pool_wait_p95_ms": 16.338,
+      "sql_p95_ms": 1668.652,
+      "read_rows": [
+        10000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 4.31
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 3454.823,
+      "p95_ms": 4247.622,
+      "p99_ms": 4667.558,
+      "pool_wait_p95_ms": 500.329,
+      "sql_p95_ms": 3706.264,
+      "read_rows": [
+        10000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 3.6
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 50,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 5.224,
+      "p95_ms": 7.246,
+      "p99_ms": 8.486,
+      "pool_wait_p95_ms": 0.445,
+      "sql_p95_ms": 3.487,
+      "read_rows": [
+        50
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 171.1
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 50,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 51.87,
+      "p95_ms": 65.357,
+      "p99_ms": 66.662,
+      "pool_wait_p95_ms": 14.982,
+      "sql_p95_ms": 45.593,
+      "read_rows": [
+        50
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 137.48
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 50,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 87.158,
+      "p95_ms": 134.113,
+      "p99_ms": 136.831,
+      "pool_wait_p95_ms": 26.762,
+      "sql_p95_ms": 97.943,
+      "read_rows": [
+        50
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 123.55
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 500,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 25.061,
+      "p95_ms": 27.609,
+      "p99_ms": 29.701,
+      "pool_wait_p95_ms": 0.444,
+      "sql_p95_ms": 14.336,
+      "read_rows": [
+        500
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 36.37
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 500,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 186.94,
+      "p95_ms": 209.744,
+      "p99_ms": 215.192,
+      "pool_wait_p95_ms": 11.081,
+      "sql_p95_ms": 188.053,
+      "read_rows": [
+        500
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 39.91
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 500,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 368.836,
+      "p95_ms": 465.463,
+      "p99_ms": 469.992,
+      "pool_wait_p95_ms": 34.002,
+      "sql_p95_ms": 404.376,
+      "read_rows": [
+        500
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 34.53
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 43.218,
+      "p95_ms": 80.267,
+      "p99_ms": 82.148,
+      "pool_wait_p95_ms": 0.502,
+      "sql_p95_ms": 21.802,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 20.13
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 322.285,
+      "p95_ms": 377.921,
+      "p99_ms": 384.75,
+      "pool_wait_p95_ms": 18.963,
+      "sql_p95_ms": 328.833,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 23.68
+    },
+    {
+      "kind": "memory",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 613.241,
+      "p95_ms": 709.655,
+      "p99_ms": 722.494,
+      "pool_wait_p95_ms": 80.191,
+      "sql_p95_ms": 628.592,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        1
+      ],
+      "requests_per_second": 20.88
+    }
+  ],
+  "max_rss_mib": 766.1
+}

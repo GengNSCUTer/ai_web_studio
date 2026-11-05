@@ -236,14 +236,6 @@ def _encode_stream_event(event_type: str, **payload: Any) -> str:
     return json.dumps({"type": event_type, **payload}, ensure_ascii=False) + "\n"
 
 
-def _find_latest_user_before(messages: list[object], *, assistant_index: int) -> object | None:
-    # 重生成/编辑重答只支持最后一轮：先定位最后 assistant 前面的最近 user 消息。
-    for message in reversed(messages[:assistant_index]):
-        if getattr(message, "role", None) == "user":
-            return message
-    return None
-
-
 def _persist_stream_result(
     context: ChatExecutionContext,
     *,
@@ -621,7 +613,7 @@ async def regenerate_last_answer_stream(
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
-    history_rows = message_repo.list_by_conversation(conversation.id)
+    history_rows = message_repo.list_for_context(conversation)
     if not history_rows:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前会话还没有可重生成的回答")
 
@@ -633,7 +625,7 @@ async def regenerate_last_answer_stream(
     ):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前仅支持重生成最后一条回答")
 
-    user_message = _find_latest_user_before(history_rows, assistant_index=assistant_index)
+    user_message = message_repo.latest_user_before(assistant_message)
     if not user_message:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未找到对应的上一条用户消息")
 
@@ -645,7 +637,8 @@ async def regenerate_last_answer_stream(
     context = await ChatExecutionService(db=db, current_user=current_user).prepare_existing_turn_execution(
         ExistingTurnExecutionInput(
             conversation=conversation,
-            history_rows=history_rows[:-1],
+            history_rows=message_repo.list_for_context(conversation, exclude_message_id=assistant_message.id,
+                                                      through_message_id=user_message.id),
             user_message=user_message,
             assistant_message=assistant_message,
             model_name=payload.model_name,
@@ -683,13 +676,13 @@ async def edit_last_user_stream(
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="消息内容不能为空")
 
-    history_rows = message_repo.list_by_conversation(conversation.id)
+    history_rows = message_repo.list_for_context(conversation)
     if len(history_rows) < 2:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前会话还没有可编辑重答的最后一轮")
 
     assistant_index = len(history_rows) - 1
     assistant_message = history_rows[assistant_index]
-    user_message = _find_latest_user_before(history_rows, assistant_index=assistant_index)
+    user_message = message_repo.latest_user_before(assistant_message)
     if (
         getattr(assistant_message, "role", None) != "assistant"
         or getattr(assistant_message, "id", None) != payload.assistant_message_id
@@ -714,7 +707,8 @@ async def edit_last_user_stream(
     context = await ChatExecutionService(db=db, current_user=current_user).prepare_existing_turn_execution(
         ExistingTurnExecutionInput(
             conversation=conversation,
-            history_rows=history_rows[:-1],
+            history_rows=message_repo.list_for_context(conversation, exclude_message_id=assistant_message.id,
+                                                      through_message_id=user_message.id),
             user_message=user_message,
             assistant_message=assistant_message,
             model_name=payload.model_name,

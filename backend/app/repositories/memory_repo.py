@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from contextlib import contextmanager
 
 from sqlalchemy import and_, or_, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.models.user_memory import UserMemory
 from app.models.user import User
@@ -67,7 +67,7 @@ class UserMemoryRepository:
         )
         return list(self.db.scalars(stmt).all())
 
-    def list_for_retrieval(self, user_id: str, project_id: str | None) -> list[UserMemory]:
+    def _retrieval_filter(self, user_id: str, project_id: str | None):
         """检索前在 SQL 中隔离范围；旧记录的来源会话也必须属于当前用户。"""
         source = select(Conversation.id).where(
             Conversation.id == UserMemory.source_conversation_id,
@@ -80,11 +80,33 @@ class UserMemoryRepository:
             and_(UserMemory.project_id.is_(None),
                  or_(UserMemory.source_conversation_id.is_(None), source)),
         )
-        stmt = select(UserMemory).where(
+        return (
             UserMemory.user_id == user_id, UserMemory.status == "active",
             UserMemory.is_enabled.is_(True), scope,
             or_(UserMemory.expires_at.is_(None), UserMemory.expires_at > datetime.now(timezone.utc)),
-        ).order_by(UserMemory.updated_at.desc(), UserMemory.id).execution_options(populate_existing=True)
+        )
+
+    def retrieval_metadata(self, user_id: str, project_id: str | None) -> list[list]:
+        """只取轻量版本清单；缓存不得依据 TTL 猜测记忆是否仍有效。"""
+        source_scope = select(Conversation.project_id).where(
+            Conversation.id == UserMemory.source_conversation_id,
+            Conversation.user_id == user_id).scalar_subquery()
+        rows = self.db.execute(select(UserMemory.id, UserMemory.version, UserMemory.updated_at,
+            UserMemory.expires_at, UserMemory.project_id, UserMemory.source_conversation_id, source_scope)
+            .where(*self._retrieval_filter(user_id, project_id)).order_by(UserMemory.id)).all()
+        return [[value.isoformat() if isinstance(value, datetime) else value for value in row] for row in rows]
+
+    def list_for_retrieval(self, user_id: str, project_id: str | None, *, memory_ids=None,
+                           include_vectors=True) -> list[UserMemory]:
+        stmt = select(UserMemory).where(*self._retrieval_filter(user_id, project_id))
+        if memory_ids is not None:
+            if not memory_ids:
+                return []
+            stmt = stmt.where(UserMemory.id.in_(memory_ids))
+        if not include_vectors:
+            stmt = stmt.options(defer(UserMemory.embedding_vector), defer(UserMemory.embedding_signature),
+                                defer(UserMemory.embedding_text_hash))
+        stmt = stmt.order_by(UserMemory.updated_at.desc(), UserMemory.id).execution_options(populate_existing=True)
         return list(self.db.scalars(stmt))
 
     def expire_due(self, user_id: str) -> int:

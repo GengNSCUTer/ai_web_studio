@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import sessionmaker
 
 from app.repositories.conversation_repo import ConversationRepository
-from app.repositories.message_repo import MessageRepository
+from app.repositories.message_repo import ContextHistory, MessageRepository
 from app.repositories.tool_trace_repo import ToolTraceRepository
 from app.repositories.knowledge_repo import KnowledgeRetrievalLogRepository
 from app.services.attachment_context_service import AttachmentContextService
@@ -158,6 +158,8 @@ class ChatContextAssemblyService:
         # 避免 ORM 刷新后读到后来 generation 的新 token，削弱流式收口的 CAS 保护。
         assistant_generation_id = getattr(assistant_message, "generation_id", None)
         assistant_id = assistant_message.id
+        bounded_history = isinstance(history_rows, ContextHistory)
+        history_through_message_id = getattr(history_rows, "through_message_id", None)
         # 重生成入口也可能传入当前空占位；它不属于可摘要、可发送的历史。
         history_rows = [row for row in history_rows if row.id != assistant_id]
         # 必须在任何 await/commit 之前固定原文，ORM 对象可能在后续提交后被刷新。
@@ -276,6 +278,8 @@ class ChatContextAssemblyService:
             expected_history=history_snapshot,
             assistant_id=assistant_id,
             generation_id=assistant_generation_id,
+            bounded_history=bounded_history,
+            history_through_message_id=history_through_message_id,
         )
 
         if resource_service:
@@ -413,6 +417,11 @@ class ChatContextAssemblyService:
                 "total_chars_estimate": governed_context.stats.total_chars_estimate,
                 "total_tokens_estimate": governed_context.stats.total_tokens_estimate,
                 "truncated_history_messages": governed_context.stats.truncated_history_messages,
+                # 裁剪计数针对本轮已加载窗口，不冒充整段会话的总消息统计。
+                "history_rows_loaded": len(history_rows),
+                "history_read_bounded": int(bounded_history),
+                "history_recent_read_limit": MessageRepository.RECENT_CONTEXT_LIMIT if bounded_history else 0,
+                "history_summary_batch_limit": MessageRepository.SUMMARY_BATCH_LIMIT if bounded_history else 0,
                 "dropped_reference_layers": governed_context.stats.dropped_reference_layers,
                 "truncated_reference_layers": governed_context.stats.truncated_reference_layers,
                 "retained_reference_tokens": governed_context.stats.retained_reference_tokens,
@@ -546,6 +555,8 @@ class ChatContextAssemblyService:
         expected_history: list[tuple[str, str, str, str | None]],
         assistant_id: str,
         generation_id: str | None,
+        bounded_history: bool = False,
+        history_through_message_id: str | None = None,
     ) -> SummaryRefreshBundle:
         repo = MessageRepository(self.db)
         conversation_id = conversation.id
@@ -553,12 +564,20 @@ class ChatContextAssemblyService:
         def lock_and_check_history() -> object:
             locked = repo.lock_conversation(conversation_id)
             assistant = repo.lock_message(assistant_id, conversation_id)
+            # 只复核实际参与本轮的有界证据；覆盖历史的改写仍由同事务摘要失效保护。
+            current_history = (
+                [(row.id, row.role, row.content, row.generation_id) for row in
+                 repo.list_for_context(locked, exclude_message_id=assistant_id, attachments=False,
+                                       through_message_id=history_through_message_id)]
+                if locked is not None and bounded_history else
+                repo.history_snapshot(conversation_id, exclude_message_id=assistant_id)
+            )
             if (
                 locked is None
                 or assistant is None
                 or assistant.generation_id != generation_id
                 or assistant.status != "streaming"
-                or repo.history_snapshot(conversation_id, exclude_message_id=assistant_id) != expected_history
+                or current_history != expected_history
             ):
                 self.db.rollback()
                 raise HTTPException(status_code=409, detail="会话历史已变化，请重试本轮回答。")
@@ -605,6 +624,7 @@ class ChatContextAssemblyService:
             summary_boundary_message_id=existing_boundary,
             conversation_messages=summary_rows,
             summarizer=summarize_with_model,
+            recent_history_limit=repo.RECENT_CONTEXT_LIMIT if bounded_history else None,
         )
         conversation = lock_and_check_history()
         if (conversation.context_summary, conversation.context_summary_boundary_message_id) != previous_state:

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -16,6 +16,10 @@ class Message(Base):
     """
 
     __tablename__ = "messages"
+    __table_args__ = (
+        Index("ix_messages_context_order", "conversation_id", "created_at", "sequence", "id"),
+        Index("ix_messages_extraction_cursor", "conversation_id", "role", "sequence"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     # conversation_id 是消息唯一的权限锚点；MessageRepository 的查询必须带上它。

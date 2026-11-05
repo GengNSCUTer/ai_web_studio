@@ -249,6 +249,7 @@ class ContextGovernanceService:
         summary_boundary_message_id: str | None,
         conversation_messages: list[object],
         summarizer: Any | None = None,
+        recent_history_limit: int | None = None,
     ) -> tuple[str | None, str | None, dict[str, int]]:
         source_messages = [
             message
@@ -282,7 +283,10 @@ class ContextGovernanceService:
                 boundary_reset = 1
 
         pending_messages = source_messages[start_index:]
-        pending_source = pending_messages[:-self.budget.max_history_messages]
+        # 数据库读取的近期窗口可以大于本模式最终注入数量；不得把窗口的一部分
+        # 拼进本批摘要，越过尚未读取的积压消息。边界只能推进至最早连续批次末尾。
+        retained = recent_history_limit if recent_history_limit is not None else self.budget.max_history_messages
+        pending_source = pending_messages[:-max(1, retained)]
         if not pending_source:
             return existing_summary, summary_boundary_message_id, {
                 "summary_refresh_triggered": 0,

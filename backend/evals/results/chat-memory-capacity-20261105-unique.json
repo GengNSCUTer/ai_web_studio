@@ -1,0 +1,40 @@
+{
+  "label": "final-unique-queries",
+  "commit": "8f74e8350a95554ded9cbea190d2e03f8ea54cd3",
+  "scope": "独立PG合成读取，不含HTTP/模型，不代表上线容量",
+  "requests_per_cell": 24,
+  "pool": {
+    "size": 5,
+    "max_overflow": 10
+  },
+  "cache": "on",
+  "cases": [
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 23950.148,
+      "p95_ms": 25157.028,
+      "p99_ms": 25871.128,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 5463.163,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 0.63,
+      "process_cpu_seconds": 44.152,
+      "warmup_ms": 817.799,
+      "read_cache_states": [
+        "miss"
+      ]
+    }
+  ],
+  "plans": [],
+  "unique_queries": true,
+  "service_pool_wait": "未单独插桩；null 表示未测，不是零等待",
+  "max_rss_mib": 679.4
+}

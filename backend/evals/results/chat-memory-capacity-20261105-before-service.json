@@ -1,0 +1,176 @@
+{
+  "label": "before-memory-service",
+  "instrumentation_note": "旧完整服务的跨线程SQL与池等待未采集；相关0为旧脚本占位，不代表无SQL/无等待。原始延迟未修改。",
+  "commit": "8f74e8350a95554ded9cbea190d2e03f8ea54cd3",
+  "scope": "独立PG合成读取，不含HTTP/模型，不代表上线容量",
+  "requests_per_cell": 24,
+  "pool": {
+    "size": 5,
+    "max_overflow": 10
+  },
+  "cases": [
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 105.92,
+      "p95_ms": 110.349,
+      "p99_ms": 111.732,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 0.0,
+      "read_rows": [
+        50
+      ],
+      "sql_queries": [
+        0
+      ],
+      "requests_per_second": 9.44
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 866.743,
+      "p95_ms": 931.662,
+      "p99_ms": 938.22,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 0.0,
+      "read_rows": [
+        50
+      ],
+      "sql_queries": [
+        0
+      ],
+      "requests_per_second": 8.96
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 1710.115,
+      "p95_ms": 2041.076,
+      "p99_ms": 2055.302,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 0.0,
+      "read_rows": [
+        50
+      ],
+      "sql_queries": [
+        0
+      ],
+      "requests_per_second": 7.76
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 636.289,
+      "p95_ms": 676.289,
+      "p99_ms": 677.067,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 0.0,
+      "read_rows": [
+        500
+      ],
+      "sql_queries": [
+        0
+      ],
+      "requests_per_second": 1.56
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 7321.313,
+      "p95_ms": 7949.825,
+      "p99_ms": 8313.868,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 0.0,
+      "read_rows": [
+        500
+      ],
+      "sql_queries": [
+        0
+      ],
+      "requests_per_second": 1.07
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 15852.027,
+      "p95_ms": 17818.65,
+      "p99_ms": 18092.155,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 0.0,
+      "read_rows": [
+        500
+      ],
+      "sql_queries": [
+        0
+      ],
+      "requests_per_second": 0.9
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 1185.295,
+      "p95_ms": 1281.31,
+      "p99_ms": 1291.171,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 0.0,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        0
+      ],
+      "requests_per_second": 0.83
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 12133.76,
+      "p95_ms": 20925.595,
+      "p99_ms": 25143.815,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 0.0,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        0
+      ],
+      "requests_per_second": 0.54
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 29868.447,
+      "p95_ms": 42281.495,
+      "p99_ms": 42410.675,
+      "pool_wait_p95_ms": 0,
+      "sql_p95_ms": 0.0,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        0
+      ],
+      "requests_per_second": 0.5
+    }
+  ],
+  "max_rss_mib": 1187.7
+}

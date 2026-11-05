@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
-from app.repositories.message_repo import MessageRepository
+from app.repositories.message_repo import ContextHistory, MessageRepository
 from app.repositories.message_repo import MessageGenerationConflict
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.setting_repo import UserSettingRepository
@@ -115,6 +115,8 @@ class ChatExecutionService:
         # 重生成/编辑重答入口：复用已存在的 user/assistant 消息，只重新组装上下文和模型运行时配置。
         generation_id = getattr(execution_input.assistant_message, "generation_id", None)
         try:
+            if isinstance(execution_input.history_rows, ContextHistory):
+                execution_input.history_rows = self.message_repo.freeze_context_history(execution_input.history_rows)
             self.turn_bootstrapper.apply_turn_overrides(
                 conversation=execution_input.conversation,
                 model_name=execution_input.model_name,

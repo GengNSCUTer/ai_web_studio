@@ -7,13 +7,14 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.core.database import SessionLocal
 from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.models.conversation import Conversation
+from app.models.message import Message
 from app.models.user_setting import UserSetting
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.memory_job_repo import MemoryExtractionJobRepository
@@ -82,23 +83,26 @@ class MemoryExtractionJobService:
         if not force and (not setting or not getattr(setting, "memory_auto_candidate_enabled", False)):
             return None
 
-        messages = MessageRepository(self.db).list_by_conversation(conversation_id)
-        assistant = next((item for item in messages if item.id == assistant_message_id
-                          and item.role == "assistant" and item.status == "done"), None)
+        assistant = self.db.scalar(select(Message).where(Message.conversation_id == conversation_id,
+            Message.id == assistant_message_id, Message.role == "assistant", Message.status == "done")
+            .options(load_only(Message.id, Message.role, Message.status, Message.sequence)))
         if not assistant:
             return None
-        # 混合旧数据首次提取按历史顺序补齐，避免旧消息放到末尾跳过后续新增消息。
-        if any(item.sequence is None for item in messages) and not conversation.memory_extraction_cursor:
-            for sequence, item in enumerate(messages, start=1):
-                item.sequence = sequence
-        else:
-            max_sequence = max((item.sequence or 0 for item in messages), default=0)
-            for item in messages:
-                if item.sequence is None:
-                    max_sequence += 1
-                    item.sequence = max_sequence
-        source = sorted(_source_messages(messages[:messages.index(assistant)]), key=lambda item: item.sequence)
-        source = [item for item in source if item.sequence > (conversation.memory_extraction_cursor or 0)]
+        # 只有旧数据存在空序号时才修复，读取列而非全部历史正文；会话锁仍覆盖此短事务。
+        missing_sequence = self.db.scalar(select(Message.id).where(
+            Message.conversation_id == conversation_id, Message.sequence.is_(None)).limit(1))
+        if missing_sequence:
+            ordered = self.db.execute(select(Message.id, Message.sequence).where(
+                Message.conversation_id == conversation_id).order_by(Message.created_at,
+                Message.sequence.asc().nulls_last(), Message.id)).all()
+            maximum = max((row.sequence or 0 for row in ordered), default=0)
+            for index, row in enumerate(ordered, 1):
+                if not conversation.memory_extraction_cursor or row.sequence is None:
+                    maximum += 1
+                    value = index if not conversation.memory_extraction_cursor else maximum
+                    self.db.execute(update(Message).where(Message.id == row.id).values(sequence=value))
+            self.db.flush()
+            self.db.refresh(assistant)
         repo = MemoryExtractionJobRepository(self.db)
         outstanding = self.db.scalar(select(MemoryExtractionJob).where(
             MemoryExtractionJob.conversation_id == conversation_id,
@@ -107,6 +111,11 @@ class MemoryExtractionJobService:
         if outstanding:
             self.db.commit()
             return outstanding
+        source = list(self.db.scalars(select(Message).where(Message.conversation_id == conversation_id,
+            Message.role == "user", Message.sequence > (conversation.memory_extraction_cursor or 0),
+            Message.sequence < assistant.sequence, func.trim(Message.content) != "")
+            .order_by(Message.sequence).limit(50)))
+        source = _source_messages(source)
         if not source:
             self.db.commit()
             return None
@@ -217,9 +226,9 @@ class MemoryCandidateWorker:
             job = db.get(MemoryExtractionJob, job_id)
             if not job or job.status != "succeeded":
                 return
-            messages = MessageRepository(db).list_by_conversation(job.conversation_id)
-            assistant = next((item for item in reversed(messages) if item.role == "assistant"
-                              and item.status == "done"), None)
+            assistant = db.scalar(select(Message).where(Message.conversation_id == job.conversation_id,
+                Message.role == "assistant", Message.status == "done").order_by(
+                    Message.created_at.desc(), Message.sequence.desc().nulls_first(), Message.id.desc()).limit(1))
             if assistant:
                 MemoryExtractionJobService(db).enqueue_after_turn(user_id=job.user_id,
                     conversation_id=job.conversation_id, assistant_message_id=assistant.id)
@@ -291,7 +300,7 @@ class MemoryCandidateWorker:
 
     def _load_sources(self, db: Session, job: MemoryExtractionJob) -> list:
         ids = set(job.source_message_ids.split(","))
-        messages = [item for item in MessageRepository(db).list_by_conversation(job.conversation_id)
+        messages = [item for item in MessageRepository(db).list_by_ids_and_conversation(job.conversation_id, list(ids))
                     if item.id in ids and item.role == "user"]
         if job.source_snapshot:
             snapshot = json.loads(job.source_snapshot)

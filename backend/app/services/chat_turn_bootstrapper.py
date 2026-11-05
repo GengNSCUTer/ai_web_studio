@@ -112,6 +112,7 @@ class ChatTurnBootstrapper:
 
         try:
             result = self._bootstrap_new_turn_uncommitted(payload=payload, default_settings=default_settings)
+            result.history_rows = self.message_repo.freeze_context_history(result.history_rows)
             self.conversation_repo.db.commit()
             self.conversation_repo.db.refresh(result.conversation)
             self.conversation_repo.db.refresh(result.user_message)
@@ -194,7 +195,7 @@ class ChatTurnBootstrapper:
 
         # 注意这里的 history_rows 包含刚创建的 user_message，但不包含下面即将创建的 assistant 占位消息。
         # 这保证 prompt 组装时当前用户问题会进入历史，而空 assistant 占位不会被发给模型。
-        history_rows = self.message_repo.list_by_conversation(conversation.id)
+        history_rows = self.message_repo.list_for_context(conversation)
         assistant_message = self.message_service.create_system_message(
             conversation_id=conversation.id,
             role="assistant",

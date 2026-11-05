@@ -128,6 +128,8 @@ class MemoryService:
                                                       content=memory.content, project_id=memory.project_id)
 
     def _memory_scope(self, memory: UserMemory, user_id: str) -> str | None:
+        if hasattr(memory, "_retrieval_scope"):
+            return memory._retrieval_scope
         explicit = getattr(memory, "project_id", None)
         if explicit:
             return explicit
@@ -359,6 +361,7 @@ class MemoryService:
         semantic_scores: dict[str, float] | None = None,
         ranking_scores: dict[str, float] | None = None,
         candidate_memories: list[UserMemory] | None = None,
+        lexical_scores: dict[str, float] | None = None,
     ) -> MemoryContextSelection:
         expire_due = getattr(self.repo, "expire_due", None)
         if expire_due and candidate_memories is None:
@@ -406,7 +409,8 @@ class MemoryService:
         for memory in memories:
             title = self.normalize_text(getattr(memory, "title", ""))
             content = self.normalize_text(getattr(memory, "content", ""))
-            relevance = self._query_relevance_score(normalized_query, f"{title}\n{content}")
+            relevance = (lexical_scores.get(memory.id, 0.) if lexical_scores is not None else
+                         self._query_relevance_score(normalized_query, f"{title}\n{content}"))
             # 语义相似度只是召回信号，不能覆盖范围、状态、版本或本轮明确要求。
             semantic = (semantic_scores or {}).get(getattr(memory, "id", ""), 0.0)
             if semantic >= 0.45:
@@ -514,10 +518,10 @@ class MemoryService:
         return scope is None or scope == project_id
 
     @classmethod
-    def _query_relevance_score(cls, query: str, candidate: str) -> float:
+    def _query_relevance_score(cls, query: str, candidate: str, *, query_terms: set[str] | None = None) -> float:
         """中文双字和英文标识符的确定性词法分数；语义由独立召回服务补充。"""
 
-        query_terms = cls._search_terms(query)
+        query_terms = cls._search_terms(query) if query_terms is None else query_terms
         candidate_terms = cls._search_terms(candidate)
         if not query_terms or not candidate_terms:
             return 0.0

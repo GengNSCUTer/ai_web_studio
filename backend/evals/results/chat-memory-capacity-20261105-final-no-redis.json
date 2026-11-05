@@ -1,0 +1,85 @@
+{
+  "label": "final-bounded-without-redis",
+  "commit": "8f74e8350a95554ded9cbea190d2e03f8ea54cd3",
+  "scope": "独立PG合成读取，不含HTTP/模型，不代表上线容量",
+  "requests_per_cell": 24,
+  "pool": {
+    "size": 5,
+    "max_overflow": 10
+  },
+  "cache": "off",
+  "cases": [
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 749.814,
+      "p95_ms": 796.91,
+      "p99_ms": 807.041,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 25.081,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        6
+      ],
+      "requests_per_second": 1.33,
+      "process_cpu_seconds": 17.864,
+      "warmup_ms": 790.889,
+      "read_cache_states": [
+        "disabled"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 9908.058,
+      "p95_ms": 10599.412,
+      "p99_ms": 10917.497,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 4459.839,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        6
+      ],
+      "requests_per_second": 0.79,
+      "process_cpu_seconds": 34.069,
+      "warmup_ms": 790.889,
+      "read_cache_states": [
+        "disabled"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 21275.383,
+      "p95_ms": 23461.415,
+      "p99_ms": 23520.816,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 5418.454,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        6
+      ],
+      "requests_per_second": 0.7,
+      "process_cpu_seconds": 39.148,
+      "warmup_ms": 790.889,
+      "read_cache_states": [
+        "disabled"
+      ]
+    }
+  ],
+  "unique_queries": false,
+  "service_pool_wait": "未单独插桩；null 表示未测，不是零等待",
+  "max_rss_mib": 833.6
+}

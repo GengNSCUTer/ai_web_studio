@@ -1,0 +1,430 @@
+{
+  "label": "final-bounded-and-redis",
+  "commit": "8f74e8350a95554ded9cbea190d2e03f8ea54cd3",
+  "scope": "独立PG合成读取，不含HTTP/模型，不代表上线容量",
+  "requests_per_cell": 24,
+  "pool": {
+    "size": 5,
+    "max_overflow": 10
+  },
+  "cache": "on",
+  "cases": [
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 9.815,
+      "p95_ms": 10.469,
+      "p99_ms": 10.53,
+      "pool_wait_p95_ms": 0.295,
+      "sql_p95_ms": 3.58,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 97.25,
+      "process_cpu_seconds": 0.197,
+      "warmup_ms": 31.219,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 128.522,
+      "p95_ms": 149.774,
+      "p99_ms": 153.817,
+      "pool_wait_p95_ms": 16.645,
+      "sql_p95_ms": 110.152,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 58.2,
+      "process_cpu_seconds": 0.462,
+      "warmup_ms": 31.219,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 100,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 251.989,
+      "p95_ms": 306.597,
+      "p99_ms": 306.597,
+      "pool_wait_p95_ms": 112.52,
+      "sql_p95_ms": 213.773,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 45.4,
+      "process_cpu_seconds": 0.585,
+      "warmup_ms": 31.219,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 10.499,
+      "p95_ms": 12.688,
+      "p99_ms": 14.678,
+      "pool_wait_p95_ms": 0.395,
+      "sql_p95_ms": 5.163,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 90.49,
+      "process_cpu_seconds": 0.196,
+      "warmup_ms": 14.836,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 127.324,
+      "p95_ms": 141.044,
+      "p99_ms": 151.073,
+      "pool_wait_p95_ms": 18.444,
+      "sql_p95_ms": 105.452,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 58.9,
+      "process_cpu_seconds": 0.457,
+      "warmup_ms": 14.836,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 258.997,
+      "p95_ms": 380.608,
+      "p99_ms": 396.98,
+      "pool_wait_p95_ms": 56.384,
+      "sql_p95_ms": 283.147,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 47.29,
+      "process_cpu_seconds": 0.565,
+      "warmup_ms": 14.836,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 10.038,
+      "p95_ms": 11.25,
+      "p99_ms": 14.496,
+      "pool_wait_p95_ms": 0.371,
+      "sql_p95_ms": 3.759,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 94.23,
+      "process_cpu_seconds": 0.204,
+      "warmup_ms": 11.66,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 119.318,
+      "p95_ms": 162.33,
+      "p99_ms": 163.829,
+      "pool_wait_p95_ms": 19.387,
+      "sql_p95_ms": 111.999,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 60.51,
+      "process_cpu_seconds": 0.444,
+      "warmup_ms": 11.66,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 10000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 218.154,
+      "p95_ms": 297.442,
+      "p99_ms": 297.853,
+      "pool_wait_p95_ms": 40.31,
+      "sql_p95_ms": 221.023,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 57.64,
+      "process_cpu_seconds": 0.473,
+      "warmup_ms": 11.66,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 28.265,
+      "p95_ms": 31.053,
+      "p99_ms": 32.138,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 7.519,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 35.17,
+      "process_cpu_seconds": 0.553,
+      "warmup_ms": 92.97,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 265.304,
+      "p95_ms": 294.475,
+      "p99_ms": 296.913,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 130.969,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 28.98,
+      "process_cpu_seconds": 0.937,
+      "warmup_ms": 92.97,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 50,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 515.352,
+      "p95_ms": 629.512,
+      "p99_ms": 646.437,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 266.232,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 25.22,
+      "process_cpu_seconds": 1.076,
+      "warmup_ms": 92.97,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 33.128,
+      "p95_ms": 35.791,
+      "p99_ms": 36.025,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 9.182,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 30.48,
+      "process_cpu_seconds": 0.623,
+      "warmup_ms": 465.601,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 315.652,
+      "p95_ms": 347.245,
+      "p99_ms": 347.99,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 176.837,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 24.29,
+      "process_cpu_seconds": 1.107,
+      "warmup_ms": 465.601,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 500,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 635.66,
+      "p95_ms": 789.202,
+      "p99_ms": 805.307,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 385.667,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 21.72,
+      "process_cpu_seconds": 1.233,
+      "warmup_ms": 465.601,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 38.681,
+      "p95_ms": 40.827,
+      "p99_ms": 41.648,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 10.803,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 25.89,
+      "process_cpu_seconds": 0.732,
+      "warmup_ms": 822.374,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 362.206,
+      "p95_ms": 460.644,
+      "p99_ms": 464.802,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 267.967,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 20.91,
+      "process_cpu_seconds": 1.28,
+      "warmup_ms": 822.374,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 734.91,
+      "p95_ms": 870.0,
+      "p99_ms": 891.913,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 421.661,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 20.14,
+      "process_cpu_seconds": 1.344,
+      "warmup_ms": 822.374,
+      "read_cache_states": [
+        "hit"
+      ]
+    }
+  ],
+  "unique_queries": false,
+  "service_pool_wait": "未单独插桩；null 表示未测，不是零等待",
+  "max_rss_mib": 197.4
+}
