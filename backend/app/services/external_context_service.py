@@ -30,7 +30,7 @@ from app.services.tools.workflow import (
 )
 from app.services.tools.observation_projection import PlannerObservationProjection
 from app.services.tools.completion_contract import infer_read_completion, needs_followup, required_tool_keys
-from app.services.tools.edit_preview_completion import PREVIEW_GUIDANCE, APPROVAL_GUIDANCE, preview_requirement, approval_requirement, missing_preview_tools
+from app.services.tools.edit_preview_completion import PREVIEW_GUIDANCE, APPROVAL_GUIDANCE, preview_requirement, approval_requirement, missing_preview_tools, missing_approval_tools
 from app.services.tools.selector import ToolCandidateSelector
 from app.services.tools.semantic_retrieval import ToolSemanticRetriever
 
@@ -334,13 +334,15 @@ class ExternalContextService:
                         "preserved_sources_count": len(sources),
                     }))
                 else:
-                    if enabled and preview_requirement(routed_query) and missing_preview_tools(routed_query, observations):
+                    missing_edit = (missing_preview_tools(routed_query, observations) if preview_requirement(routed_query)
+                                    else missing_approval_tools(observations) if approval_requirement(routed_query) else ())
+                    if enabled and missing_edit:
                         terminal_reason = "task_evidence_incomplete"
                         next_action = "finalize_partial" if sources else "clarify"
-                        notices.append("尚未取得已校验的文件Diff预览，请明确目标文件与替换内容或重试；源文件未修改。")
+                        notices.append("尚未完成本轮文件预览或修改审批，请核实目标与替换内容；不能视为已写入。")
                         events.append(ToolTraceEvent(type="tool_agent_terminal", payload={
                             "reason": terminal_reason, "round": round_index, "next_action": next_action,
-                            "missing_tool_keys": list(missing_preview_tools(routed_query, observations)),
+                            "missing_tool_keys": list(missing_edit),
                         }))
                     else:
                         terminal_reason = "no_tool_needed"

@@ -1,0 +1,29 @@
+{
+  "name": "edit_online_boundary_smoke_v1", "version": 1,
+  "annotation": "5条独立在线回归：2条非字面模板编辑必须使用真实LLM Planner，普通聊天/文件回答使用真实最终模型，后台文档使用独立Worker模型生成。不是原200题复跑，也不计入其成功率。",
+  "target_quotas": {"no_tool": 1, "single_tool": 1, "multi_tool": 1, "knowledge_evidence": 0, "file_approval": 2, "fault_security": 0},
+  "fixtures": {
+    "approval.md": "项目A保留7天\n其他设置不变。",
+    "preview.md": "重试上限：3次\n其他设置不变。",
+    "revenue.md": "五月收入11000元，客户数20，四月收入10000元。\n",
+    "costs.md": "五月成本7000元。\n"
+  },
+  "cases": [
+    {"id": "C01", "category": "file_approval", "runner": "file_approval", "business": "真实模型正式审批", "mode": "edit_proposal", "files": ["approval.md"],
+      "query": "读取approval.md。请正式申请修改文件的保留周期。原文参数old_string只使用7天，新文参数new_string只使用14天，其他内容保持不变。创建等待用户确认的真实审批，未确认前不要写入。",
+      "edit": {"action": "approve", "old": "7天", "new": "14天"},
+      "expected": {"required_tool_groups": [["workspace.files.read"], ["workspace.files.apply_edit"]], "facts": []}},
+    {"id": "C02", "category": "file_approval", "runner": "file_approval", "business": "真实模型只读预览", "mode": "edit_proposal", "files": ["preview.md"],
+      "query": "读取preview.md。请生成一份Diff预览：旧文本参数old_string是3次，新文本参数new_string是5次，其他内容不变。只生成预览，不要写入，也不要创建正式写入审批。",
+      "edit": {"action": "preview", "old": "3次", "new": "5次"},
+      "expected": {"required_tool_groups": [["workspace.files.read"], ["workspace.files.propose_edit"]], "facts": []}},
+    {"id": "N01", "category": "no_tool", "runner": "chat", "business": "普通最终模型回归", "mode": "quick_chat",
+      "query": "不要使用任何工具，把apple翻译成中文，只回复苹果。", "expected": {"no_tools": true, "facts": [["苹果"]]}},
+    {"id": "S01", "category": "single_tool", "runner": "chat", "business": "实际读取后模型回答", "mode": "quick_chat", "files": ["revenue.md"],
+      "query": "已知revenue.md的file_id为${file:revenue.md}。仅直接read一次，不搜索、不列文件、不联网。报告五月收入和客户数，引用本轮[Tn]来源。",
+      "expected": {"required_tool_groups": [["workspace.files.read"]], "max_tool_calls": 1, "read_files": ["revenue.md"], "citation_required": true, "facts": [["11000", "11,000"], ["20"]]}},
+    {"id": "D01", "category": "multi_tool", "runner": "document_task", "business": "独立Worker模型与Word交付", "mode": "quick_chat", "format": "docx", "files": ["revenue.md", "costs.md"],
+      "query": "根据两份合成资料生成五月经营简报，核对收入11000元、成本7000元、毛利4000元，保留来源，不推断线上客户。",
+      "expected": {"facts": [["11000", "11,000"], ["7000", "7,000"], ["4000", "4,000"]]}}
+  ]
+}

@@ -200,7 +200,7 @@ def render_html(payload):
                        stats['statuses'].get('failed', 0), stats['p50_ms'], stats['p95_ms'])) + '</tr>'
                      for name, stats in payload['by_runner'].items())
     return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'"><title>Agent业务评测</title><style>body{font:15px system-ui;max-width:1400px;margin:30px auto;padding:16px;color:#183042;background:#f7f9fc}table{border-collapse:collapse;width:100%;background:white;margin:20px 0}td,th{border:1px solid #dce2e8;padding:10px;text-align:left;vertical-align:top}th{background:#eef3f8}pre{white-space:pre-wrap;max-width:100%;overflow-wrap:anywhere}summary{cursor:pointer}</style><h1>Agent业务评测</h1><p>' \
-        + html.escape(payload["annotation"]) + '</p><p>目标200；现有题目' + str(payload["available_cases"]) + '；本次执行' + str(payload["summary"]["executed"]) \
+        + html.escape(payload["annotation"]) + '</p><p>目标' + str(payload['target_total']) + '；现有题目' + str(payload["available_cases"]) + '；本次执行' + str(payload["summary"]["executed"]) \
         + '；结果 ' + html.escape(json.dumps(payload['summary']['statuses'], ensure_ascii=False)) \
         + '</p><table><thead><tr><th>执行链</th><th>运行数</th><th>通过</th><th>部分</th><th>失败</th><th>P50 ms</th><th>经验P95 ms</th></tr></thead><tbody>' + groups \
         + '</tbody></table><details><summary>展开分层指标、分母和适用边界</summary><pre>' \

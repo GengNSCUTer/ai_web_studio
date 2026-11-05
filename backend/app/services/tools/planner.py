@@ -14,6 +14,7 @@ from app.services.tools.catalog import ToolCatalog
 from app.services.tools.completion_contract import augment_plan, infer_read_completion
 from app.services.tools.edit_preview_completion import PREVIEW_GUIDANCE, APPROVAL_GUIDANCE, missing_preview_tools, missing_approval_tools
 from app.services.tools.file_edit_intent import preview_requested, approval_requested
+from app.services.tools.literal_file_edit import parse_literal_edit, parse_edit_discovery, next_edit_step
 from app.services.tools.providers.amap import AmapToolProvider
 from app.services.tools.schemas import PlannedToolCall, ToolPlan, ToolResultBinding, redact_sensitive_arguments
 from app.services.tools.selector import ToolCandidateSelector
@@ -58,12 +59,14 @@ class LLMToolPlanner:
         skill_context: SkillExecutionContext | None = None,
     ) -> ToolPlan:
         skill_allowed_tool_keys = set(skill_context.allowed_tool_keys) if skill_context else None
-        candidate_tools, candidate_trace = await self.candidate_selector.select_async(
-            query=query,
-            enabled=enabled,
-            allowed_tool_keys=skill_allowed_tool_keys,
-            recent_messages=recent_messages,
-        )
+        literal_edit = parse_literal_edit(query) or parse_edit_discovery(query)
+        if literal_edit:
+            # 目标明确时由代码先定位和读取；复杂改写仍交给模型，并保留相同硬过滤。
+            candidate_tools, candidate_trace = self.candidate_selector.select(query=query, enabled=enabled,
+                allowed_tool_keys=skill_allowed_tool_keys, recent_messages=recent_messages)
+        else:
+            candidate_tools, candidate_trace = await self.candidate_selector.select_async(
+                query=query, enabled=enabled, allowed_tool_keys=skill_allowed_tool_keys, recent_messages=recent_messages)
         start_event = {
             "type": "tool_planner_start",
             "planner": "llm_tool_planner_v1",
@@ -96,6 +99,20 @@ class LLMToolPlanner:
                 should_use_tools=False, calls=[], original_query=query, trace_events=[start_event, candidate_trace,
                     {"type": "tool_planner_end", "planner": "empty_candidate_policy", "strategy": "no_eligible_tools",
                      "should_use_tools": False, "selected_tools": [], "reason": candidate_trace.get("reason")}])
+        if literal_edit and (step := next_edit_step(literal_edit, query, observations or [],
+                                                   {tool.tool_key for tool in candidate_tools})) is not None:
+            calls = []
+            if step.tool_key:
+                definition = self.catalog.get(step.tool_key)
+                calls = [PlannedToolCall(call_id=str(uuid4()), tool_key=step.tool_key, provider=definition.provider,
+                    category=definition.category, display_name=definition.display_name, confidence=1,
+                    reason='用户已明确目标文件，依据当前受控观察推进编辑步骤。', arguments=step.arguments)]
+            plan = ToolPlan(plan_id=str(uuid4()), router='literal_file_edit_v1', external_context_allowed=True,
+                should_use_tools=bool(calls), calls=calls, original_query=query, need_more_rounds=step.need_more)
+            self._attach_deterministic_trace(plan=plan, start_event=start_event, candidate_trace=candidate_trace,
+                strategy='explicit_literal_edit', fallback_reason=None)
+            plan.trace_events[-1]['reason'] = step.reason
+            return plan
         deterministic_plan = self.fallback_planner.plan(query=query, enabled=True)
         candidate_keys = {tool.tool_key for tool in candidate_tools}
         self._constrain_plan_to_allowed_tools(

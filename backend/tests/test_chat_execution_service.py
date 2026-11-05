@@ -333,6 +333,23 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_verified_edit_status_stream_persists_without_calling_final_model(self) -> None:
+        class ForbiddenProvider:
+            def stream_chat_events(self, **kwargs):
+                raise AssertionError('状态答复不应请求最终模型')
+
+        async def run_test():
+            context = self._create_stream_context()
+            context.verified_file_edit_answer = '本轮没有创建真实审批，也未执行文件写入。'
+            response = _build_streaming_response(context, ForbiddenProvider(), event_stream=True)
+            chunks = ''.join([part async for part in response.body_iterator])
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, 'done')
+            self.assertEqual(context.assistant_message.content, context.verified_file_edit_answer)
+            self.assertIn('"type": "done"', chunks)
+            self.assertEqual(context.context_stats['answer_origin'], 'verified_file_edit_status')
+        asyncio.run(run_test())
+
     def test_e2e_tool_evidence_stays_reference_and_final_answer_persists(self) -> None:
         """从上下文组装到流式落库，Tool 文本只能处于参考资料层。"""
 

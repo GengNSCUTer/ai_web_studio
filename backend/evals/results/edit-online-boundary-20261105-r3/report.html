@@ -1,0 +1,1045 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>Agent业务评测</title><style>body{font:15px system-ui;max-width:1400px;margin:30px auto;padding:16px;color:#183042;background:#f7f9fc}table{border-collapse:collapse;width:100%;background:white;margin:20px 0}td,th{border:1px solid #dce2e8;padding:10px;text-align:left;vertical-align:top}th{background:#eef3f8}pre{white-space:pre-wrap;max-width:100%;overflow-wrap:anywhere}summary{cursor:pointer}</style><h1>Agent业务评测</h1><p>5条独立在线回归：2条非字面模板编辑必须使用真实LLM Planner，普通聊天/文件回答使用真实最终模型，后台文档使用独立Worker模型生成。不是原200题复跑，也不计入其成功率。</p><p>目标5；现有题目5；本次执行5；结果 {&quot;passed&quot;: 4, &quot;partial&quot;: 1}</p><table><thead><tr><th>执行链</th><th>运行数</th><th>通过</th><th>部分</th><th>失败</th><th>P50 ms</th><th>经验P95 ms</th></tr></thead><tbody><tr><td>chat</td><td>2</td><td>2</td><td>0</td><td>0</td><td>2050.6</td><td>13937.8</td></tr><tr><td>document_task</td><td>1</td><td>1</td><td>0</td><td>0</td><td>16557.1</td><td>16557.1</td></tr><tr><td>file_approval</td><td>2</td><td>1</td><td>1</td><td>0</td><td>27550.2</td><td>35636.6</td></tr></tbody></table><details><summary>展开分层指标、分母和适用边界</summary><pre>{
+  &quot;summary&quot;: {
+    &quot;scheduled&quot;: 5,
+    &quot;executed&quot;: 5,
+    &quot;statuses&quot;: {
+      &quot;passed&quot;: 4,
+      &quot;partial&quot;: 1
+    },
+    &quot;task_success&quot;: {
+      &quot;numerator&quot;: 4,
+      &quot;denominator&quot;: 5,
+      &quot;value&quot;: 0.8
+    },
+    &quot;scheduled_task_success&quot;: {
+      &quot;numerator&quot;: 4,
+      &quot;denominator&quot;: 5,
+      &quot;value&quot;: 0.8
+    },
+    &quot;partial_success&quot;: {
+      &quot;numerator&quot;: 1,
+      &quot;denominator&quot;: 5,
+      &quot;value&quot;: 0.2
+    },
+    &quot;candidate_tool_group_recall&quot;: {
+      &quot;numerator&quot;: 5,
+      &quot;denominator&quot;: 5,
+      &quot;value&quot;: 1.0
+    },
+    &quot;candidate_task_full_coverage&quot;: {
+      &quot;numerator&quot;: 3,
+      &quot;denominator&quot;: 3,
+      &quot;value&quot;: 1.0
+    },
+    &quot;planner_tool_group_coverage_given_candidates&quot;: {
+      &quot;numerator&quot;: 4,
+      &quot;denominator&quot;: 5,
+      &quot;value&quot;: 0.8
+    },
+    &quot;parameter_schema_validity&quot;: {
+      &quot;numerator&quot;: 12,
+      &quot;denominator&quot;: 12,
+      &quot;value&quot;: 1.0
+    },
+    &quot;quality_pass&quot;: {
+      &quot;numerator&quot;: 5,
+      &quot;denominator&quot;: 5,
+      &quot;value&quot;: 1.0
+    },
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 5,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;call_execution_success&quot;: {
+      &quot;numerator&quot;: 5,
+      &quot;denominator&quot;: 6,
+      &quot;value&quot;: 0.8333333333333334
+    },
+    &quot;no_tool_task_success&quot;: {
+      &quot;numerator&quot;: 1,
+      &quot;denominator&quot;: 1,
+      &quot;value&quot;: 1.0
+    },
+    &quot;artifact_download_success&quot;: {
+      &quot;numerator&quot;: 1,
+      &quot;denominator&quot;: 1,
+      &quot;value&quot;: 1.0
+    },
+    &quot;missing_candidate_trace_cases&quot;: 0,
+    &quot;forbidden_candidates&quot;: 0,
+    &quot;p50_ms&quot;: 16557.1,
+    &quot;p95_ms&quot;: 35636.6,
+    &quot;sample_size&quot;: 5,
+    &quot;final_answer_token_usage_cases&quot;: 2,
+    &quot;complete_task_token_cost&quot;: null,
+    &quot;planner_dependency_correctness&quot;: null,
+    &quot;answer_semantic_faithfulness&quot;: null,
+    &quot;recovery_success&quot;: null
+  },
+  &quot;by_category&quot;: {
+    &quot;no_tool&quot;: {
+      &quot;scheduled&quot;: 1,
+      &quot;executed&quot;: 1,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 1
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 2050.6,
+      &quot;p95_ms&quot;: 2050.6,
+      &quot;sample_size&quot;: 1,
+      &quot;final_answer_token_usage_cases&quot;: 1,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;single_tool&quot;: {
+      &quot;scheduled&quot;: 1,
+      &quot;executed&quot;: 1,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 1
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 1
+      },
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 13937.8,
+      &quot;p95_ms&quot;: 13937.8,
+      &quot;sample_size&quot;: 1,
+      &quot;final_answer_token_usage_cases&quot;: 1,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;multi_tool&quot;: {
+      &quot;scheduled&quot;: 1,
+      &quot;executed&quot;: 1,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 1
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 16557.1,
+      &quot;p95_ms&quot;: 16557.1,
+      &quot;sample_size&quot;: 1,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;knowledge_evidence&quot;: {
+      &quot;scheduled&quot;: 0,
+      &quot;executed&quot;: 0,
+      &quot;statuses&quot;: {},
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: null,
+      &quot;p95_ms&quot;: null,
+      &quot;sample_size&quot;: 0,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;file_approval&quot;: {
+      &quot;scheduled&quot;: 2,
+      &quot;executed&quot;: 2,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 1,
+        &quot;partial&quot;: 1
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.5
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.5
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.5
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 0.75
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 10,
+        &quot;denominator&quot;: 10,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 4,
+        &quot;waiting_approval&quot;: 1
+      },
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 5,
+        &quot;value&quot;: 0.8
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 27550.2,
+      &quot;p95_ms&quot;: 35636.6,
+      &quot;sample_size&quot;: 2,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;fault_security&quot;: {
+      &quot;scheduled&quot;: 0,
+      &quot;executed&quot;: 0,
+      &quot;statuses&quot;: {},
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: null,
+      &quot;p95_ms&quot;: null,
+      &quot;sample_size&quot;: 0,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    }
+  },
+  &quot;by_runner&quot;: {
+    &quot;chat&quot;: {
+      &quot;scheduled&quot;: 2,
+      &quot;executed&quot;: 2,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 2
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 1
+      },
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 2050.6,
+      &quot;p95_ms&quot;: 13937.8,
+      &quot;sample_size&quot;: 2,
+      &quot;final_answer_token_usage_cases&quot;: 2,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;document_task&quot;: {
+      &quot;scheduled&quot;: 1,
+      &quot;executed&quot;: 1,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 1
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 16557.1,
+      &quot;p95_ms&quot;: 16557.1,
+      &quot;sample_size&quot;: 1,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;file_approval&quot;: {
+      &quot;scheduled&quot;: 2,
+      &quot;executed&quot;: 2,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 1,
+        &quot;partial&quot;: 1
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.5
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.5
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.5
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 0.75
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 10,
+        &quot;denominator&quot;: 10,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 4,
+        &quot;waiting_approval&quot;: 1
+      },
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 5,
+        &quot;value&quot;: 0.8
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 27550.2,
+      &quot;p95_ms&quot;: 35636.6,
+      &quot;sample_size&quot;: 2,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    }
+  },
+  &quot;measurement_limits&quot;: [
+    &quot;每个Tool组为OR，组间为AND；候选和规划为本次任务各轮集合，不是逐轮金标准。&quot;,
+    &quot;条件Planner指标仅指必需工具组覆盖，不代表参数/依赖/额外调用全部正确。&quot;,
+    &quot;Schema合法不等于业务参数正确；事实词组与引用标签合法不等于语义忠实。&quot;,
+    &quot;未测的恢复率/依赖正确率/完整任务Token成本为null，未运行和不支持不能记通过。&quot;,
+    &quot;小样本经验P95不是生产SLA；Chat、后台文档与受控故障必须分别比较。&quot;,
+    &quot;Schema/质量为Trace事件计数；调用成功分母含skipped审计行，不冒充实际网络请求成功率。&quot;,
+    &quot;本批为已启用用户记忆和既有工具配置的在线行为，非隔离关闭记忆的对照实验。&quot;,
+    &quot;只读/歧义/原文不存在的编辑负例不进入正向能力召回分母，但仍进入任务成功率。未标注禁止候选的0计数不代表已证明越权泄漏率为0。&quot;
+  ]
+}</pre></details><table id="cases"><thead><tr><th>任务</th><th>类别</th><th>业务</th><th>执行链</th><th>结果</th><th>毫秒</th><th>检查明细</th></tr></thead><tbody><tr><td>C01</td><td>file_approval</td><td>真实模型正式审批</td><td>file_approval</td><td>passed</td><td>27550.2</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;explicit_edit_arguments_match&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_consumed&quot;: true,
+    &quot;fresh_tool_read_matches&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>C02</td><td>file_approval</td><td>真实模型只读预览</td><td>file_approval</td><td>partial</td><td>35636.6</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;explicit_edit_arguments_match&quot;: false,
+    &quot;real_diff_preview&quot;: false,
+    &quot;preview_does_not_request_write_approval&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;agent.artifacts.read&quot;,
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 4,
+    &quot;schema_total&quot;: 4,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮未能完成所需工具步骤，请核对目标与替换内容后重试。 本轮未生成经过校验的 Diff 预览，也未写入文件。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>N01</td><td>no_tool</td><td>普通最终模型回归</td><td>chat</td><td>passed</td><td>2050.6</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;no_tool_calls&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 0,
+    &quot;candidate_group_hits&quot;: 0,
+    &quot;candidate_complete&quot;: false,
+    &quot;planner_group_hits&quot;: 0,
+    &quot;candidate_keys&quot;: [],
+    &quot;planned_keys&quot;: [],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 0,
+    &quot;schema_total&quot;: 0,
+    &quot;quality_valid&quot;: 0,
+    &quot;quality_total&quot;: 0,
+    &quot;call_statuses&quot;: {},
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;苹果&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>S01</td><td>single_tool</td><td>实际读取后模型回答</td><td>chat</td><td>passed</td><td>13937.8</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;citations_present_and_legal&quot;: true,
+    &quot;cited_file:revenue.md&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;call_count_within_limit&quot;: true,
+    &quot;required_group_executed_1&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;only_direct_file_read&quot;: true,
+    &quot;correct_file_argument&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 1,
+    &quot;candidate_group_hits&quot;: 1,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;agent.artifacts.list&quot;,
+      &quot;agent.artifacts.read&quot;,
+      &quot;amap.maps.weather&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 2,
+    &quot;schema_total&quot;: 2,
+    &quot;quality_valid&quot;: 1,
+    &quot;quality_total&quot;: 1,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;根据您提供的文件内容，五月收入为**11000元**，客户数为**20**。\n\n来源：[T1] workspace_file_read，文件 `revenue.md` 内容显示：“五月收入11000元，客户数20”。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>D01</td><td>multi_tool</td><td>独立Worker模型与Word交付</td><td>document_task</td><td>passed</td><td>16557.1</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;task_succeeded&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;download_does_not_save_workspace&quot;: true,
+    &quot;generation_stages_succeeded&quot;: true,
+    &quot;exactly_one_export&quot;: true,
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;download_valid&quot;: true,
+    &quot;references_match_inputs&quot;: true,
+    &quot;one_result_message_in_original_conversation&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: null,
+  &quot;answer&quot;: &quot;五月经营简报\n\n收入情况\n*   五月总收入：**11,000元**\n*   客户总数：20\n*   四月总收入：10,000元\n&gt; 来源：`project_file:a5596b9d-94f2-434d-bb34-a89c49aa738b / revenue.md`\n\n成本情况\n*   五月总成本：**7,000元**\n&gt; 来源：`project_file:d284441f-b9b3-42ae-960f-6a709f99ae66 / costs.md`\n\n核对结果\n根据提供的收入与成本数据进行核对：\n*   收入：11,000元\n*   成本：7,000元\n*   毛利（收入 - 成本）：**4,000元**\n*   核对结论：数据一致，毛利计算正确。\n\n备注\n*   本简报数据均来源于提供的授权资料。\n*   资料中未包含客户渠道信息，因此未对线上客户情况进行说明。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: {
+    &quot;id&quot;: &quot;4e90644b-1629-4d68-aa82-342759c95485&quot;,
+    &quot;project_id&quot;: &quot;c9a11610-2b9b-4c0c-8bbd-664e665dba82&quot;,
+    &quot;conversation_id&quot;: &quot;97a4ac95-2057-4747-9306-24c71b761239&quot;,
+    &quot;status&quot;: &quot;succeeded&quot;,
+    &quot;current_step&quot;: 3,
+    &quot;file_name&quot;: &quot;D01.docx&quot;,
+    &quot;generation_status&quot;: &quot;succeeded&quot;,
+    &quot;workspace_save_status&quot;: &quot;planned&quot;,
+    &quot;result_message_id&quot;: &quot;d445fa70-4cfa-4d5a-8318-953280cb65a7&quot;,
+    &quot;steps&quot;: [
+      {
+        &quot;id&quot;: &quot;851e1a31-e5da-4865-bc45-c93d549c12eb&quot;,
+        &quot;stage&quot;: &quot;evidence&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;3ecfab2d-407f-42af-ad33-c206ea048e6e&quot;,
+        &quot;stage&quot;: &quot;draft&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;825e13be-b752-4ff4-ade2-7b9fcd867c79&quot;,
+        &quot;stage&quot;: &quot;export&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;02e5b59e-a965-4085-8777-07792fec10e2&quot;,
+        &quot;stage&quot;: &quot;delivery&quot;,
+        &quot;status&quot;: &quot;planned&quot;,
+        &quot;attempts&quot;: 0,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      }
+    ],
+    &quot;artifacts&quot;: [
+      {
+        &quot;id&quot;: &quot;bdd1ef09-3fe6-4c51-bb3d-ec824b0f96c7&quot;,
+        &quot;stage&quot;: &quot;document_evidence&quot;,
+        &quot;preview&quot;: &quot;evidence 阶段完成&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;345d6b14-fea2-4159-963b-e055347ccc1b&quot;,
+        &quot;stage&quot;: &quot;document_draft&quot;,
+        &quot;preview&quot;: &quot;# 五月经营简报\n\n## 收入情况\n*   五月总收入：**11,000元**\n*   客户总数：20\n*   四月总收入：10,000元\n&gt; 来源：`project_file:a5596b9d-94f2-434d-bb34-a89c49aa738b / revenue.md`\n\n## 成本情况\n*   五月总成本：**7,000元**\n&gt; 来源：`project_file:d284441f-b9b3-42ae-960f-6a709f99ae66 / costs.md`\n\n## 核对结果\n根据提供的收入与成本数据进行核对：\n*   收入：11,000元\n*   成本：7,000元\n*   毛利（收入 - 成本）：**4,000元**\n*   核对结论：数据一致，毛利计算正确。\n\n## 备注\n*   本简报数据均来源于提供的授权资料。\n*   资料中未包含客户渠道信息，因此未对线上客户情况进行说明。&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;5dca44ed-1fbd-4956-9117-a70043a6236d&quot;,
+        &quot;stage&quot;: &quot;document_export&quot;,
+        &quot;preview&quot;: &quot;# 五月经营简报\n\n## 收入情况\n*   五月总收入：**11,000元**\n*   客户总数：20\n*   四月总收入：10,000元\n&gt; 来源：`project_file:a5596b9d-94f2-434d-bb34-a89c49aa738b / revenue.md`\n\n## 成本情况\n*   五月总成本：**7,000元**\n&gt; 来源：`project_file:d284441f-b9b3-42ae-960f-6a709f99ae66 / costs.md`\n\n## 核对结果\n根据提供的收入与成本数据进行核对：\n*   收入：11,000元\n*   成本：7,000元\n*   毛利（收入 - 成本）：**4,000元**\n*   核对结论：数据一致，毛利计算正确。\n\n## 备注\n*   本简报数据均来源于提供的授权资料。\n*   资料中未包含客户渠道信息，因此未对线上客户情况进行说明。\n\n## 来源\n\n- project_file:a5596b9d-94f2-434d-bb34-a89c49aa738b / revenue.md\n- project_file:d284441f-b9b3-42ae-960f-6a709f99ae66 / costs.md\n&quot;,
+        &quot;download_url&quot;: &quot;/api/document-tasks/4e90644b-1629-4d68-aa82-342759c95485/artifacts/5dca44ed-1fbd-4956-9117-a70043a6236d/download&quot;
+      }
+    ],
+    &quot;approvals&quot;: []
+  },
+  &quot;downloads&quot;: [
+    {
+      &quot;path&quot;: &quot;artifacts/D01.docx&quot;,
+      &quot;bytes&quot;: 37159,
+      &quot;references&quot;: [
+        &quot;project_file:a5596b9d-94f2-434d-bb34-a89c49aa738b / revenue.md&quot;,
+        &quot;project_file:d284441f-b9b3-42ae-960f-6a709f99ae66 / costs.md&quot;
+      ],
+      &quot;artifact_id&quot;: &quot;5dca44ed-1fbd-4956-9117-a70043a6236d&quot;
+    }
+  ],
+  &quot;result_messages&quot;: [
+    {
+      &quot;id&quot;: &quot;d445fa70-4cfa-4d5a-8318-953280cb65a7&quot;,
+      &quot;status&quot;: &quot;done&quot;,
+      &quot;content&quot;: &quot;文档已生成\n\n可预览下载；保存到工作区为可选操作，尚未创建项目文件。\n\n[打开文档任务与产物](/documents?run=4e90644b-1629-4d68-aa82-342759c95485)&quot;
+    }
+  ]
+}</pre></details><p><a href="artifacts/D01.docx">打开下载产物</a></p></td></tr></tbody></table></html>

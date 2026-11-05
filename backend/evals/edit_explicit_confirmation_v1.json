@@ -1,0 +1,13 @@
+{
+  "name":"edit_explicit_confirmation_v1", "version":1,
+  "annotation":"单独受控权限回归：只在本题临时项目设置full_workspace，原任务明确要求等待确认，真实浏览器确认前不得写入。不属于200题新成功率或LLM能力评测。",
+  "target_quotas":{"no_tool":0,"single_tool":0,"multi_tool":0,"knowledge_evidence":0,"file_approval":1,"fault_security":0},
+  "fixtures":{"permission.md":"保留期7天\n其他信息不变。"},
+  "cases":[{
+    "id":"P01","category":"file_approval","runner":"file_approval","business":"完整访问下仍尊重本次确认要求","mode":"edit_proposal",
+    "permission_mode":"full_workspace","files":["permission.md"],
+    "query":"读取permission.md，把“7天”替换为“14天”。正式申请修改，等待用户确认，未确认前不要写入。",
+    "edit":{"action":"approve","old":"7天","new":"14天"},
+    "expected":{"required_tool_groups":[["workspace.files.read"],["workspace.files.apply_edit"]],"facts":[]}
+  }]
+}

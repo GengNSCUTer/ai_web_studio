@@ -56,7 +56,8 @@ class EditPreviewCompletionTest(unittest.TestCase):
         query = "正式申请修改guide.md，把旧标题替换为新标题，等待我审批。"
         provider = Provider()
         planner = LLMToolPlanner(chat_provider=provider)
-        plan = asyncio.run(planner.plan(query=query, enabled=True, observations=observations(source()),
+        projected = PlannerObservationProjection.project_sources(round_index=1, sources=[source()], definition_resolver=planner.catalog.get_or_none)
+        plan = asyncio.run(planner.plan(query=query, enabled=True, observations=projected,
             runtime=PlannerRuntime("openai-compatible", "https://example.invalid", "test", "test")))
         self.assertEqual([item.tool_key for item in plan.calls], ["workspace.files.apply_edit"])
         self.assertIn("不是再次索要只读预览", provider.system)
@@ -172,7 +173,8 @@ class EditPreviewCompletionTest(unittest.TestCase):
                     "file_id": "file-a", "old_string": "# Old", "new_string": "# New",
                 }, "depends_on": ["finished-prior-round"], "result_bindings": {"old_string": "/excerpt"}}]})
         planner = LLMToolPlanner(chat_provider=Provider())
-        plan = asyncio.run(planner.plan(query=QUERY, enabled=True, observations=observations(source()),
+        projected = PlannerObservationProjection.project_sources(round_index=1, sources=[source()], definition_resolver=planner.catalog.get_or_none)
+        plan = asyncio.run(planner.plan(query=QUERY, enabled=True, observations=projected,
             runtime=PlannerRuntime("openai-compatible", "https://example.invalid", "test", "test")))
         self.assertEqual(plan.calls, [])
         self.assertTrue(any(event.get("type") == "tool_schema_validation" and event.get("status") == "failed" for event in plan.trace_events))

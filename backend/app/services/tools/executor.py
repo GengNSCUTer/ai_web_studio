@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import re
 
 from sqlalchemy.orm import Session
 
@@ -123,6 +124,11 @@ class ToolExecutor:
             return result, [*events, *skipped_events]
         permission_resolver = getattr(self.credential_resolver, "get_workspace_permission_mode", None)
         permission_mode = permission_resolver(project_id=self.project_id) if callable(permission_resolver) else "ask"
+        original_task = self.action_guard.scope.original_task if self.action_guard.scope else ''
+        if (call.tool_key == 'workspace.files.apply_edit' and permission_mode == 'full_workspace'
+                and re.search(r'未确认前|未经(?:我|用户)?确认|等待.{0,12}(?:确认|审批)|等我确认|先.{0,8}确认', original_task)):
+            # 全局允许自动应用不能覆盖本次明确的等待确认要求；只收紧本次执行，不改设置。
+            permission_mode = 'ask'
         events.append(
             ToolTraceEvent(
                 type="tool_schema_validation",
@@ -196,6 +202,12 @@ class ToolExecutor:
             if call.tool_key == "workspace.files.apply_edit" and self.db and self.user_id:
                 from app.services.agent_runtime_service import AgentRuntimeError, AgentRuntimeService
 
+                # 该工具在审批服务内执行，不经过普通适配器；同样记录实际尝试的脱敏参数。
+                events.append(ToolTraceEvent(type='tool_call_start', payload={
+                    'call_id': call.call_id, 'tool_key': call.tool_key, 'provider': call.provider,
+                    'category': call.category, 'display_name': call.display_name,
+                    'arguments': redact_sensitive_arguments(call.arguments),
+                }))
                 try:
                     runtime_service = AgentRuntimeService(self.db)
                     proposal = runtime_service.propose_file_edit(

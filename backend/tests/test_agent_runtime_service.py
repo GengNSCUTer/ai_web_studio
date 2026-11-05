@@ -207,6 +207,8 @@ class AgentRuntimeServiceTest(unittest.TestCase):
         self.assertEqual(len(result.sources), 1)
         self.assertIn("尚未写入", result.sources[0].display_text)
         self.assertIn("tool_confirmation_required", [event.type for event in events])
+        started = next(event for event in events if event.type == 'tool_call_start')
+        self.assertEqual(started.payload['arguments']['old_string'], 'old value')
         self.db.refresh(self.file)
         self.assertIn("old value", self.file.parsed_text)
 
@@ -284,6 +286,22 @@ class AgentRuntimeServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "skipped")
         self.assertEqual(self.db.query(AgentRun).count(), 0)
         self.assertTrue(any(event.payload.get("permission_mode") == "read_only" for event in events))
+
+    def test_explicit_wait_for_confirmation_overrides_full_workspace_for_this_call(self):
+        policy = WorkspaceAgentPolicy(project_id=self.project.id, permission_mode='full_workspace')
+        self.db.add(policy)
+        self.db.commit()
+        call = PlannedToolCall(call_id='explicit-confirm', tool_key='workspace.files.apply_edit', provider='workspace',
+            category='workspace_file', display_name='文件修改', confidence=1, reason='用户要求审批',
+            arguments={'file_id':self.file.id,'old_string':'old value','new_string':'new value'})
+        result,events = asyncio.run(ToolExecutor(db=self.db,user_id=self.user.id,project_id=self.project.id,
+            original_task='修改文件，等待用户确认，未确认前不要写入。').execute(call))
+        self.assertEqual(result.status,'confirmation_required')
+        self.db.refresh(self.file)
+        self.assertIn('old value',self.file.parsed_text)
+        self.db.refresh(policy)
+        self.assertEqual(policy.permission_mode,'full_workspace')
+        self.assertTrue(any(e.payload.get('permission_mode')=='ask' for e in events))
 
     def test_revision_restore_is_an_approval_proposal_not_a_direct_write(self) -> None:
         service = AgentRuntimeService(self.db)

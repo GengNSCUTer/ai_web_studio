@@ -23,6 +23,7 @@ from app.services.chat_execution_models import (
 from app.services.chat_provider_service import ChatProviderService
 from app.services.external_context_service import ExternalContextService
 from app.services.evidence_sufficiency import assess_evidence_sufficiency
+from app.services.file_edit_response import build_file_edit_response
 from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.message_service import MessageService
 from app.services.memory_retrieval_service import MemoryRetrievalResult, MemoryRetrievalService
@@ -333,6 +334,9 @@ class ChatContextAssemblyService:
             base_url=runtime.base_url,
         )
         combined_public_sources = list(final_source_map.values())
+        verified_file_edit_answer = build_file_edit_response(query=query, mode=tool_run_mode,
+            sources=external_context_result.sources, final_source_map=final_source_map,
+            events=external_context_result.tool_events)
         # 候选/选择记录不变；展示来源只取最终证据，另存排除原因而非伪装成可引用来源。
         if retrieval_log_ids:
             log_repo = KnowledgeRetrievalLogRepository(self.db)
@@ -460,6 +464,7 @@ class ChatContextAssemblyService:
                 "citation_sources_excluded": sum(source.citation_label not in final_source_map for source in original_sources),
             },
             context_details=context_details,
+            verified_file_edit_answer=verified_file_edit_answer,
             context_summary=summary_bundle.summary or clean_optional_str(getattr(conversation, "context_summary", None)),
             thinking_enabled=thinking_enabled,
             thinking_budget=thinking_budget,

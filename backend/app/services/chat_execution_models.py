@@ -44,6 +44,8 @@ class ChatExecutionContext:
     # Captured before external work; it must not be re-read from an expired ORM object
     # while closing a failed or cancelled request.
     generation_id: str | None = None
+    # 专门编辑模式直接展示真实执行状态，避免最终模型虚构审批或写入成功。
+    verified_file_edit_answer: str | None = None
 
 
 @dataclass

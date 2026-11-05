@@ -6,7 +6,6 @@ from pathlib import Path
 import re
 
 from sqlalchemy import select
-from playwright.sync_api import sync_playwright, expect
 
 from app.core.database import SessionLocal
 from app.models.agent_runtime import AgentApproval, FileRevision, PatchDraft
@@ -46,11 +45,24 @@ def verify_repeat(request, captured, file_id, after):
     return checks,response.status
 
 
+def draft_matches_target(draft, baseline, edit):
+    """以完整目标内容核对业务Diff；允许等价的上下文，不允许夹带其他修改。"""
+    old, new = draft.get('old'), draft.get('new')
+    if not isinstance(old, str) or not old or not isinstance(new, str) or baseline.count(old) != 1:
+        return False
+    if not edit['old'] or baseline.count(edit['old']) != 1:
+        return False
+    return baseline.replace(old, new, 1) == baseline.replace(edit['old'], edit['new'], 1)
+
+
 def run_approval(runner,case,project_id,file_ids,conversation_id):
     from agent_task_batch_runner import json_response
     action=case['edit']['action']
-    if action=='read_only':
-        json_response(runner.client.patch('/api/tools/workspace-policies/'+project_id,json={'permission_mode':'read_only'}))
+    permission_mode = 'read_only' if action=='read_only' else case.get('permission_mode')
+    if permission_mode:
+        if permission_mode not in {'read_only','ask','full_workspace'}:
+            raise ValueError('评测工作区权限模式不合法')
+        json_response(runner.client.patch('/api/tools/workspace-policies/'+project_id,json={'permission_mode':permission_mode}))
     row=runner.request_chat(case,file_ids,conversation_id)
     row['trace']=inspect_trace(row['events'],row['calls'],case['expected']['required_tool_groups'])
     # 拒绝/不存在/歧义是负例，不能以未召回被禁止写工具惩罚Selector。
@@ -60,7 +72,13 @@ def run_approval(runner,case,project_id,file_ids,conversation_id):
     before=snapshot(file_id)
     row['before_confirmation']=before
     checks={'chat_done':row['assistant_status']=='done','unchanged_before_confirmation':before['text']==baseline}
-    correct_diffs=[d for d in before['drafts'] if d['old']==case['edit']['old'] and d['new']==case['edit']['new']]
+    correct_diffs=[d for d in before['drafts'] if draft_matches_target(d,baseline,case['edit'])]
+    if 'old_string' in case['query'] and 'new_string' in case['query']:
+        # 明确要求参数字面值的题另验参数，不能用内容等价掩盖指令未跟随。
+        edit_key='workspace.files.propose_edit' if action=='preview' else 'workspace.files.apply_edit'
+        checks['explicit_edit_arguments_match']=any(c['tool_key']==edit_key
+            and c['arguments'].get('old_string')==case['edit']['old']
+            and c['arguments'].get('new_string')==case['edit']['new'] for c in row['calls'])
     previews=[s for s in row['source_map'] if s.get('source_type')=='workspace_file_edit_preview']
     if action=='preview':
         checks['real_diff_preview']=any(case['edit']['old'] in json.dumps(s,ensure_ascii=False)
@@ -75,6 +93,9 @@ def run_approval(runner,case,project_id,file_ids,conversation_id):
         pending=[a for a in before['approvals'] if a['status']=='pending']
         checks['one_pending_approval']=len(pending)==1
         if pending and correct_diffs:
+            # 后端纯分析/单测不依赖浏览器；只有实际审批交互才需要Playwright。
+            from playwright.sync_api import sync_playwright, expect
+
             errors=[]; captured={}
             token=runner.client.headers['Authorization'].removeprefix('Bearer ')
             with sync_playwright() as p:

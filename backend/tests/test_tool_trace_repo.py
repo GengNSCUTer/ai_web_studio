@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import json
 from unittest.mock import MagicMock
 
 from app.repositories.tool_trace_repo import ToolTraceRepository
@@ -8,6 +9,17 @@ from app.services.tools.schemas import ExternalContextResult, ToolPlan, ToolTrac
 
 
 class ToolTraceRepositoryTest(unittest.TestCase):
+    def test_waiting_edit_preserves_attempted_arguments_without_claiming_execution_success(self):
+        events = [
+            {'type':'tool_call_start','call_id':'edit','tool_key':'workspace.files.apply_edit',
+             'provider':'workspace','category':'workspace_file','arguments':{'old_string':'  old','new_string':'  new'}},
+            {'type':'tool_workflow_step_outcome','call_id':'edit','tool_key':'workspace.files.apply_edit',
+             'execution_status':'waiting_approval'},
+        ]
+        row = ToolTraceRepository._build_call_runs('route', events, [])[0]
+        self.assertEqual(row.status, 'waiting_approval')
+        self.assertEqual(json.loads(row.arguments_json), {'old_string':'  old','new_string':'  new'})
+
     def test_public_trace_preserves_only_known_credential_source_states(self) -> None:
         for event_type in ("tool_policy_check", "tool_call_start"):
             with self.subTest(event_type=event_type):

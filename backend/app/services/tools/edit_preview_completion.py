@@ -87,5 +87,6 @@ APPROVAL_GUIDANCE = (
     "再调用workspace.files.apply_edit。ask权限下首次调用只会创建持久Diff与审批卡片，不直接写入。"
     "必须收到实际approval_id/tool_confirmation_required才可声称已创建审批；文字建议、list/search或propose_edit不能代替审批。"
     "标题指正文标题，不是重命名文件。old_string/new_string逐字保留空白，不含展示行号；expected_revision_id来自同次read。"
+    "用户明确指定old_string/new_string字面参数时必须逐字沿用，不要擅自扩大为整行替换；原文不匹配则澄清。"
     "只有用户点击真实审批卡片，服务端通过权限与CAS，才能写入。用户聊天说‘确认’本身不是审批令牌。"
 )

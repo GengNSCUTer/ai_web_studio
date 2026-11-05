@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 import sys
+import subprocess
 from collections import Counter
 from types import SimpleNamespace
 import unittest
@@ -14,11 +15,37 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'scripts'))
 from build_agent_tasks_200 import build
 from evaluate_agent_tasks import validate_dataset
 from agent_task_fault_runner import run_probe
-from agent_task_approval_runner import verify_repeat
+from agent_task_approval_runner import verify_repeat,draft_matches_target
 from app.services.agent_task_evaluation import inspect_trace,summarize
 
 
 class Agent200DatasetTest(unittest.TestCase):
+    def test_business_diff_requires_exact_final_content_not_identical_parameter_granularity(self):
+        baseline='项目保留7天\n备注不变。'
+        edit={'old':'7天','new':'14天'}
+        self.assertTrue(draft_matches_target({'old':'项目保留7天','new':'项目保留14天'},baseline,edit))
+        self.assertFalse(draft_matches_target({'old':baseline,'new':'项目保留14天\n备注被改。'},baseline,edit))
+        self.assertFalse(draft_matches_target({'old':'','new':'anything'},baseline,edit))
+        self.assertFalse(draft_matches_target({'old':'7天','new':'14天'},'7天\n7天',edit))
+
+    def test_pure_approval_checks_import_without_optional_browser_dependency(self):
+        script = '''
+import builtins, sys
+sys.path.insert(0, "scripts")
+original = builtins.__import__
+def no_browser(name, *args, **kwargs):
+    if name == "playwright" or name.startswith("playwright."):
+        raise ModuleNotFoundError("browser dependency is intentionally unavailable")
+    return original(name, *args, **kwargs)
+builtins.__import__ = no_browser
+from agent_task_approval_runner import verify_repeat
+checks, status = verify_repeat(None, {}, "f", {})
+assert checks == {"repeat_confirmation_attempted": False} and status is None
+'''
+        result = subprocess.run([sys.executable, '-c', script], cwd=Path(__file__).resolve().parents[2],
+                                text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_all_200_cases_have_the_frozen_category_counts_and_unique_queries(self):
         dataset=build()
         self.assertEqual(validate_dataset(dataset),[])

@@ -1,0 +1,1577 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>Agent业务评测</title><style>body{font:15px system-ui;max-width:1400px;margin:30px auto;padding:16px;color:#183042;background:#f7f9fc}table{border-collapse:collapse;width:100%;background:white;margin:20px 0}td,th{border:1px solid #dce2e8;padding:10px;text-align:left;vertical-align:top}th{background:#eef3f8}pre{white-space:pre-wrap;max-width:100%;overflow-wrap:anywhere}summary{cursor:pointer}</style><h1>Agent业务评测</h1><p>200条内部业务回归题，先标注后执行；工作区为合成输入，RAG40题只读复用既有Gold。不是外部盲测；不同runner的失败/控制注入及耗时分组统计。 本次仅显式题号子集冒烟。</p><p>目标200；现有题目20；本次执行20；结果 {&quot;passed&quot;: 20}</p><table><thead><tr><th>执行链</th><th>运行数</th><th>通过</th><th>部分</th><th>失败</th><th>P50 ms</th><th>经验P95 ms</th></tr></thead><tbody><tr><td>file_approval</td><td>20</td><td>20</td><td>0</td><td>0</td><td>3563.8</td><td>4282.1</td></tr></tbody></table><details><summary>展开分层指标、分母和适用边界</summary><pre>{
+  &quot;summary&quot;: {
+    &quot;scheduled&quot;: 20,
+    &quot;executed&quot;: 20,
+    &quot;statuses&quot;: {
+      &quot;passed&quot;: 20
+    },
+    &quot;task_success&quot;: {
+      &quot;numerator&quot;: 20,
+      &quot;denominator&quot;: 20,
+      &quot;value&quot;: 1.0
+    },
+    &quot;scheduled_task_success&quot;: {
+      &quot;numerator&quot;: 20,
+      &quot;denominator&quot;: 20,
+      &quot;value&quot;: 1.0
+    },
+    &quot;partial_success&quot;: {
+      &quot;numerator&quot;: 0,
+      &quot;denominator&quot;: 20,
+      &quot;value&quot;: 0.0
+    },
+    &quot;candidate_tool_group_recall&quot;: {
+      &quot;numerator&quot;: 34,
+      &quot;denominator&quot;: 34,
+      &quot;value&quot;: 1.0
+    },
+    &quot;candidate_task_full_coverage&quot;: {
+      &quot;numerator&quot;: 17,
+      &quot;denominator&quot;: 17,
+      &quot;value&quot;: 1.0
+    },
+    &quot;planner_tool_group_coverage_given_candidates&quot;: {
+      &quot;numerator&quot;: 34,
+      &quot;denominator&quot;: 34,
+      &quot;value&quot;: 1.0
+    },
+    &quot;parameter_schema_validity&quot;: {
+      &quot;numerator&quot;: 114,
+      &quot;denominator&quot;: 114,
+      &quot;value&quot;: 1.0
+    },
+    &quot;quality_pass&quot;: {
+      &quot;numerator&quot;: 44,
+      &quot;denominator&quot;: 44,
+      &quot;value&quot;: 1.0
+    },
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 40,
+      &quot;waiting_approval&quot;: 17
+    },
+    &quot;call_execution_success&quot;: {
+      &quot;numerator&quot;: 40,
+      &quot;denominator&quot;: 57,
+      &quot;value&quot;: 0.7017543859649122
+    },
+    &quot;no_tool_task_success&quot;: {
+      &quot;numerator&quot;: 0,
+      &quot;denominator&quot;: 0,
+      &quot;value&quot;: null
+    },
+    &quot;artifact_download_success&quot;: {
+      &quot;numerator&quot;: 0,
+      &quot;denominator&quot;: 0,
+      &quot;value&quot;: null
+    },
+    &quot;missing_candidate_trace_cases&quot;: 0,
+    &quot;forbidden_candidates&quot;: 0,
+    &quot;p50_ms&quot;: 3563.8,
+    &quot;p95_ms&quot;: 4282.1,
+    &quot;sample_size&quot;: 20,
+    &quot;final_answer_token_usage_cases&quot;: 0,
+    &quot;complete_task_token_cost&quot;: null,
+    &quot;planner_dependency_correctness&quot;: null,
+    &quot;answer_semantic_faithfulness&quot;: null,
+    &quot;recovery_success&quot;: null
+  },
+  &quot;by_category&quot;: {
+    &quot;no_tool&quot;: {
+      &quot;scheduled&quot;: 0,
+      &quot;executed&quot;: 0,
+      &quot;statuses&quot;: {},
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: null,
+      &quot;p95_ms&quot;: null,
+      &quot;sample_size&quot;: 0,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;single_tool&quot;: {
+      &quot;scheduled&quot;: 0,
+      &quot;executed&quot;: 0,
+      &quot;statuses&quot;: {},
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: null,
+      &quot;p95_ms&quot;: null,
+      &quot;sample_size&quot;: 0,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;multi_tool&quot;: {
+      &quot;scheduled&quot;: 0,
+      &quot;executed&quot;: 0,
+      &quot;statuses&quot;: {},
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: null,
+      &quot;p95_ms&quot;: null,
+      &quot;sample_size&quot;: 0,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;knowledge_evidence&quot;: {
+      &quot;scheduled&quot;: 0,
+      &quot;executed&quot;: 0,
+      &quot;statuses&quot;: {},
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: null,
+      &quot;p95_ms&quot;: null,
+      &quot;sample_size&quot;: 0,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;file_approval&quot;: {
+      &quot;scheduled&quot;: 20,
+      &quot;executed&quot;: 20,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 20
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 20,
+        &quot;denominator&quot;: 20,
+        &quot;value&quot;: 1.0
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 20,
+        &quot;denominator&quot;: 20,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 20,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 34,
+        &quot;denominator&quot;: 34,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 17,
+        &quot;denominator&quot;: 17,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 34,
+        &quot;denominator&quot;: 34,
+        &quot;value&quot;: 1.0
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 114,
+        &quot;denominator&quot;: 114,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 44,
+        &quot;denominator&quot;: 44,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 40,
+        &quot;waiting_approval&quot;: 17
+      },
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 40,
+        &quot;denominator&quot;: 57,
+        &quot;value&quot;: 0.7017543859649122
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 3563.8,
+      &quot;p95_ms&quot;: 4282.1,
+      &quot;sample_size&quot;: 20,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;fault_security&quot;: {
+      &quot;scheduled&quot;: 0,
+      &quot;executed&quot;: 0,
+      &quot;statuses&quot;: {},
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: null,
+      &quot;p95_ms&quot;: null,
+      &quot;sample_size&quot;: 0,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    }
+  },
+  &quot;by_runner&quot;: {
+    &quot;file_approval&quot;: {
+      &quot;scheduled&quot;: 20,
+      &quot;executed&quot;: 20,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 20
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 20,
+        &quot;denominator&quot;: 20,
+        &quot;value&quot;: 1.0
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 20,
+        &quot;denominator&quot;: 20,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 20,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 34,
+        &quot;denominator&quot;: 34,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 17,
+        &quot;denominator&quot;: 17,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 34,
+        &quot;denominator&quot;: 34,
+        &quot;value&quot;: 1.0
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 114,
+        &quot;denominator&quot;: 114,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 44,
+        &quot;denominator&quot;: 44,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 40,
+        &quot;waiting_approval&quot;: 17
+      },
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 40,
+        &quot;denominator&quot;: 57,
+        &quot;value&quot;: 0.7017543859649122
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 3563.8,
+      &quot;p95_ms&quot;: 4282.1,
+      &quot;sample_size&quot;: 20,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    }
+  },
+  &quot;measurement_limits&quot;: [
+    &quot;每个Tool组为OR，组间为AND；候选和规划为本次任务各轮集合，不是逐轮金标准。&quot;,
+    &quot;条件Planner指标仅指必需工具组覆盖，不代表参数/依赖/额外调用全部正确。&quot;,
+    &quot;Schema合法不等于业务参数正确；事实词组与引用标签合法不等于语义忠实。&quot;,
+    &quot;未测的恢复率/依赖正确率/完整任务Token成本为null，未运行和不支持不能记通过。&quot;,
+    &quot;小样本经验P95不是生产SLA；Chat、后台文档与受控故障必须分别比较。&quot;,
+    &quot;Schema/质量为Trace事件计数；调用成功分母含skipped审计行，不冒充实际网络请求成功率。&quot;,
+    &quot;本批为已启用用户记忆和既有工具配置的在线行为，非隔离关闭记忆的对照实验。&quot;,
+    &quot;只读/歧义/原文不存在的编辑负例不进入正向能力召回分母，但仍进入任务成功率。未标注禁止候选的0计数不代表已证明越权泄漏率为0。&quot;
+  ]
+}</pre></details><table id="cases"><thead><tr><th>任务</th><th>类别</th><th>业务</th><th>执行链</th><th>结果</th><th>毫秒</th><th>检查明细</th></tr></thead><tbody><tr><td>E01</td><td>file_approval</td><td>标题</td><td>file_approval</td><td>passed</td><td>1894.4</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;real_diff_preview&quot;: true,
+    &quot;preview_does_not_request_write_approval&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 3,
+    &quot;quality_total&quot;: 3,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;已生成经服务端校验的 Diff 预览；本轮未修改文件，预览也不代表批准写入。 [T3]\n\n```diff\n以下内容只是经过服务端唯一匹配校验的 Diff 预览，未修改源文件：\n--- a/E01.md\n+++ b/E01.md\n@@ -1,2 +1,2 @@\n-# 春季笔记\n+# 春季资料\n 保留7天。\n```&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E02</td><td>file_approval</td><td>数值</td><td>file_approval</td><td>passed</td><td>1881.3</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;real_diff_preview&quot;: true,
+    &quot;preview_does_not_request_write_approval&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 3,
+    &quot;quality_total&quot;: 3,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;已生成经服务端校验的 Diff 预览；本轮未修改文件，预览也不代表批准写入。 [T3]\n\n```diff\n以下内容只是经过服务端唯一匹配校验的 Diff 预览，未修改源文件：\n--- a/E02.md\n+++ b/E02.md\n@@ -1,2 +1,2 @@\n-重试上限：3次\n+重试上限：5次\n 不执行修改。\n```&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E03</td><td>file_approval</td><td>术语</td><td>file_approval</td><td>passed</td><td>837.8</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;real_diff_preview&quot;: true,
+    &quot;preview_does_not_request_write_approval&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 3,
+    &quot;quality_total&quot;: 3,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;已生成经服务端校验的 Diff 预览；本轮未修改文件，预览也不代表批准写入。 [T3]\n\n```diff\n以下内容只是经过服务端唯一匹配校验的 Diff 预览，未修改源文件：\n--- a/E03.md\n+++ b/E03.md\n@@ -1 +1 @@\n-流程：检索-&gt;回答。\n+流程：检索-&gt;核对-&gt;回答。\n```&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E04</td><td>file_approval</td><td>中文标点</td><td>file_approval</td><td>passed</td><td>915.1</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;real_diff_preview&quot;: true,
+    &quot;preview_does_not_request_write_approval&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 3,
+    &quot;quality_total&quot;: 3,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;已生成经服务端校验的 Diff 预览；本轮未修改文件，预览也不代表批准写入。 [T3]\n\n```diff\n以下内容只是经过服务端唯一匹配校验的 Diff 预览，未修改源文件：\n--- a/E04.md\n+++ b/E04.md\n@@ -1,2 +1,2 @@\n-状态:待整理\n+状态：待整理\n 附件齐全。\n```&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E05</td><td>file_approval</td><td>保留期</td><td>file_approval</td><td>passed</td><td>4282.1</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_consumed&quot;: true,
+    &quot;fresh_tool_read_matches&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E06</td><td>file_approval</td><td>负责人</td><td>file_approval</td><td>passed</td><td>4014.6</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_consumed&quot;: true,
+    &quot;fresh_tool_read_matches&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E07</td><td>file_approval</td><td>标题行</td><td>file_approval</td><td>passed</td><td>3805.8</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_consumed&quot;: true,
+    &quot;fresh_tool_read_matches&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E08</td><td>file_approval</td><td>错字</td><td>file_approval</td><td>passed</td><td>3840.1</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_consumed&quot;: true,
+    &quot;fresh_tool_read_matches&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E09</td><td>file_approval</td><td>路径文字</td><td>file_approval</td><td>passed</td><td>3544.4</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_consumed&quot;: true,
+    &quot;fresh_tool_read_matches&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E10</td><td>file_approval</td><td>空白保留</td><td>file_approval</td><td>passed</td><td>3667.4</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_consumed&quot;: true,
+    &quot;fresh_tool_read_matches&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E11</td><td>file_approval</td><td>待办状态</td><td>file_approval</td><td>passed</td><td>3356.8</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_decision_persisted&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E12</td><td>file_approval</td><td>发布状态</td><td>file_approval</td><td>passed</td><td>3563.8</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_decision_persisted&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E13</td><td>file_approval</td><td>成本</td><td>file_approval</td><td>passed</td><td>3566.4</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_decision_persisted&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E14</td><td>file_approval</td><td>旧版本</td><td>file_approval</td><td>passed</td><td>4260.9</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_decision_persisted&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E15</td><td>file_approval</td><td>旧标题</td><td>file_approval</td><td>passed</td><td>3765.4</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_decision_persisted&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E16</td><td>file_approval</td><td>重复确认</td><td>file_approval</td><td>passed</td><td>3829.6</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;repeat_confirmation_attempted&quot;: true,
+    &quot;repeat_confirmation_idempotent_response&quot;: true,
+    &quot;repeated_confirmation_no_extra_revision&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_consumed&quot;: true,
+    &quot;fresh_tool_read_matches&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E17</td><td>file_approval</td><td>重复数字</td><td>file_approval</td><td>passed</td><td>4295.2</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;correct_diff&quot;: true,
+    &quot;one_pending_approval&quot;: true,
+    &quot;repeat_confirmation_attempted&quot;: true,
+    &quot;repeat_confirmation_idempotent_response&quot;: true,
+    &quot;repeated_confirmation_no_extra_revision&quot;: true,
+    &quot;browser_no_errors&quot;: true,
+    &quot;exact_target_content_after_decision&quot;: true,
+    &quot;expected_revision_count&quot;: true,
+    &quot;approval_consumed&quot;: true,
+    &quot;fresh_tool_read_matches&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 2,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 6,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2,
+      &quot;waiting_approval&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: true
+  },
+  &quot;answer&quot;: &quot;本轮已创建真实的修改审批，尚未因这份审批写入文件。请核对工具卡片中的 Diff，再点击“确认并应用 Diff”或“拒绝”。 [T3]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E18</td><td>file_approval</td><td>只读策略</td><td>file_approval</td><td>passed</td><td>697.9</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;no_write_approval&quot;: true,
+    &quot;no_changed_revision&quot;: true,
+    &quot;honest_refusal_or_incomplete&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 1,
+    &quot;candidate_complete&quot;: false,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 4,
+    &quot;schema_total&quot;: 4,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: false
+  },
+  &quot;answer&quot;: &quot;本轮未能完成所需工具步骤，请核对目标与替换内容后重试。 本轮没有创建真实审批，也未执行文件写入；聊天中的修改请求不能代替审批确认。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E19</td><td>file_approval</td><td>重复文本</td><td>file_approval</td><td>passed</td><td>753.6</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;no_write_approval&quot;: true,
+    &quot;no_changed_revision&quot;: true,
+    &quot;honest_refusal_or_incomplete&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 4,
+    &quot;schema_total&quot;: 4,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: false
+  },
+  &quot;answer&quot;: &quot;目标文件或原文存在多处匹配，请提供足以唯一定位的上下文。 本轮没有创建真实审批，也未执行文件写入；聊天中的修改请求不能代替审批确认。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>E20</td><td>file_approval</td><td>未命中</td><td>file_approval</td><td>passed</td><td>692.8</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;chat_done&quot;: true,
+    &quot;unchanged_before_confirmation&quot;: true,
+    &quot;no_write_approval&quot;: true,
+    &quot;no_changed_revision&quot;: true,
+    &quot;honest_refusal_or_incomplete&quot;: true,
+    &quot;only_scoped_file_tools&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 2,
+    &quot;candidate_group_hits&quot;: 2,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 4,
+    &quot;schema_total&quot;: 4,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2
+    },
+    &quot;fallback_count&quot;: 0,
+    &quot;capability_metrics_applicable&quot;: false
+  },
+  &quot;answer&quot;: &quot;未找到目标文件或指定的原文片段，请核实文件名与原文。 本轮没有创建真实审批，也未执行文件写入；聊天中的修改请求不能代替审批确认。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr></tbody></table></html>

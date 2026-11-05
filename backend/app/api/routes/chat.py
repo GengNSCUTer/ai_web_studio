@@ -25,7 +25,7 @@ from app.services.chat_execution_service import (
     ChatExecutionService,
     ExistingTurnExecutionInput,
 )
-from app.services.chat_provider_service import ChatProviderService
+from app.services.chat_provider_service import ChatProviderService, ChatStreamEvent
 from app.services.chat_persistence_service import ChatPersistenceSnapshot, persist_stream_result
 from app.services.message_service import MessageService
 from app.services.citation_audit_service import audit_answer_citations
@@ -388,6 +388,8 @@ def _build_streaming_response(
     conversation_id = str(context.conversation.id)
     user_id = str(context.conversation.user_id)
     assistant_message_id = str(context.assistant_message.id)
+    if getattr(context, 'verified_file_edit_answer', None) is not None:
+        context.context_stats['answer_origin'] = 'verified_file_edit_status'
 
     async def text_generator():
         content_parts: list[str] = []
@@ -411,20 +413,27 @@ def _build_streaming_response(
                         "tool_sources",
                         sources=context.external_sources,
                     )
-            provider_events = provider_service.stream_chat_events(
-                provider_type=context.provider_type,
-                base_url=context.base_url,
-                api_key=context.api_key,
-                model_name=context.resolved_model,
-                messages=context.history_messages,
-                temperature=context.temperature,
-                top_p=context.top_p,
-                max_tokens=context.max_tokens,
-                thinking_enabled=context.thinking_enabled,
-                thinking_budget=context.thinking_budget,
-                prompt_cache_key=context.prompt_cache_key,
-                prompt_cache_breakpoint=context.prompt_cache_breakpoint,
-            )
+            async def verified_edit_events():
+                yield ChatStreamEvent(type='answer_delta', text=context.verified_file_edit_answer)
+
+            if getattr(context, 'verified_file_edit_answer', None) is not None:
+                # 状态来源是本轮实际记录；不调用最终模型，沿用正常流式持久化和generation校验。
+                provider_events = verified_edit_events()
+            else:
+                provider_events = provider_service.stream_chat_events(
+                    provider_type=context.provider_type,
+                    base_url=context.base_url,
+                    api_key=context.api_key,
+                    model_name=context.resolved_model,
+                    messages=context.history_messages,
+                    temperature=context.temperature,
+                    top_p=context.top_p,
+                    max_tokens=context.max_tokens,
+                    thinking_enabled=context.thinking_enabled,
+                    thinking_budget=context.thinking_budget,
+                    prompt_cache_key=context.prompt_cache_key,
+                    prompt_cache_breakpoint=context.prompt_cache_breakpoint,
+                )
             async for event in _iter_with_stream_timeouts(
                 provider_events,
                 first_token_timeout_seconds=settings.chat_first_token_timeout_seconds,
