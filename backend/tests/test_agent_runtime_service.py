@@ -294,14 +294,19 @@ class AgentRuntimeServiceTest(unittest.TestCase):
         call = PlannedToolCall(call_id='explicit-confirm', tool_key='workspace.files.apply_edit', provider='workspace',
             category='workspace_file', display_name='文件修改', confidence=1, reason='用户要求审批',
             arguments={'file_id':self.file.id,'old_string':'old value','new_string':'new value'})
-        result,events = asyncio.run(ToolExecutor(db=self.db,user_id=self.user.id,project_id=self.project.id,
-            original_task='修改文件，等待用户确认，未确认前不要写入。').execute(call))
-        self.assertEqual(result.status,'confirmation_required')
-        self.db.refresh(self.file)
-        self.assertIn('old value',self.file.parsed_text)
-        self.db.refresh(policy)
-        self.assertEqual(policy.permission_mode,'full_workspace')
-        self.assertTrue(any(e.payload.get('permission_mode')=='ask' for e in events))
+        for index, task in enumerate(('修改文件，等待用户确认，未确认前不要写入。',
+                                      '正式申请修改文件，生成审批。',
+                                      'Modify the file only after my approval.')):
+            with self.subTest(task=task):
+                call.call_id = f'explicit-confirm-{index}'
+                result,events = asyncio.run(ToolExecutor(db=self.db,user_id=self.user.id,project_id=self.project.id,
+                    original_task=task).execute(call))
+                self.assertEqual(result.status,'confirmation_required')
+                self.db.refresh(self.file)
+                self.assertIn('old value',self.file.parsed_text)
+                self.db.refresh(policy)
+                self.assertEqual(policy.permission_mode,'full_workspace')
+                self.assertTrue(any(e.payload.get('permission_mode')=='ask' for e in events))
 
     def test_revision_restore_is_an_approval_proposal_not_a_direct_write(self) -> None:
         service = AgentRuntimeService(self.db)
