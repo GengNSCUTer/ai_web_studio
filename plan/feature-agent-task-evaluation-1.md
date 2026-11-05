@@ -2,7 +2,7 @@
 goal: 建立按业务场景和执行层次分析的Agent任务评测
 version: 1.0
 date_created: 2026-11-04
-last_updated: 2026-11-04
+last_updated: 2026-11-05
 owner: AI Web Studio
 status: In progress
 tags: [evaluation, agent, business, trace]
@@ -34,10 +34,12 @@ tags: [evaluation, agent, business, trace]
 
 | Task | Description | Completed | Date |
 |---|---|---|---|
-| TASK-001 | 在backend/evals/agent_task_pilot_v1.json标注12条问题、业务资料、事实断言与允许工具，保留200目标配额 | 进行中 | 2026-11-04 |
-| TASK-002 | 在backend/app/services/agent_task_evaluation.py解析扁平Trace、嵌套ToolPlan及跨轮调用，输出逐层计数、条件覆盖率、完成/部分/失败/跳过 | 进行中 | 2026-11-04 |
-| TASK-003 | scripts/evaluate_agent_tasks.py执行真实Chat/RAG及独立Worker文档导出；保存JSON和HTML，结束清理临时资料 | 进行中 | 2026-11-04 |
-| TASK-004 | backend/tests/test_agent_task_evaluation.py覆盖空分母、缺Trace、部分失败、候选漏召回、等待审批及报告内容转义 | 进行中 | 2026-11-04 |
+| TASK-001 | 在backend/evals/agent_task_pilot_v1.json标注12条问题、业务资料、事实断言与允许工具，保留200目标配额 | 是 | 2026-11-05 |
+| TASK-002 | 在backend/app/services/agent_task_evaluation.py解析扁平Trace、嵌套ToolPlan及跨轮调用，输出逐层计数、条件覆盖率、完成/部分/失败/跳过 | 是 | 2026-11-05 |
+| TASK-003 | scripts/evaluate_agent_tasks.py执行真实Chat/RAG及独立Worker文档导出；保存JSON和HTML，结束清理临时资料 | 是 | 2026-11-05 |
+| TASK-004 | backend/tests/test_agent_task_evaluation.py覆盖空分母、缺Trace、部分失败、候选漏召回、等待审批及报告内容转义 | 是 | 2026-11-05 |
+
+2026-11-05 执行状态：Phase 1 的批量执行/检查/报告能力已完成，不代表12题全部成功。固定V3.2完整复跑r2为10/12通过、2失败、0跳过，四个文档任务均下载并核验；K01/K02答案和引用正确但规划了多余工具，外部调用被Action Intent拒绝，仍按严格任务失败保留。r1存在四个只读基线快照误判，原始报告保留，不能把修正评分器后的50%→83.33%说成产品提升。Phase 2 扩题前优先修复这两个误规划/无效重规划问题，再按场景扩充，不追加预算或放宽金标准。详情与原始报告见docs/203第7节。
 
 ### Implementation Phase 2
 
@@ -76,6 +78,7 @@ tags: [evaluation, agent, business, trace]
 - **FILE-001**: backend/evals/agent_task_pilot_v1.json：先行任务及合成业务资料。
 - **FILE-002**: backend/app/services/agent_task_evaluation.py：纯评测分析与HTML输出，无工具执行权限。
 - **FILE-003**: scripts/evaluate_agent_tasks.py：测试驱动、资料清理与报告输出。
+- **FILE-005**: scripts/agent_task_batch_runner.py：真实API/数据库/Worker执行、下载检查、Playwright与定点清理；纯分析服务不获得执行权限。
 - **FILE-004**: docs/203_Agent分层评测与业务闭环计划_2026-11-04.md：当前证据、差距、扩题方式与复现。
 
 ## 6. Testing

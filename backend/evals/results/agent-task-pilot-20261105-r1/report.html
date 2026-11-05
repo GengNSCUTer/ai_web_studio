@@ -1,0 +1,1296 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>Agent业务评测</title><style>body{font:15px system-ui;max-width:1400px;margin:30px auto;padding:16px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:10px;text-align:left;vertical-align:top}pre{white-space:pre-wrap;max-width:720px}summary{cursor:pointer}</style><h1>Agent业务评测</h1><p>12条先行任务，非200条已完成；资料为维护者预先构造的合成小样本，事实断言在本轮执行前确定。结构化分析不使用沙箱，工单只整理导出，不连接外部工单系统。</p><p>目标200；现有题目12；本次执行12</p><pre>{
+  &quot;summary&quot;: {
+    &quot;scheduled&quot;: 12,
+    &quot;executed&quot;: 12,
+    &quot;statuses&quot;: {
+      &quot;passed&quot;: 6,
+      &quot;failed&quot;: 6
+    },
+    &quot;task_success&quot;: {
+      &quot;numerator&quot;: 6,
+      &quot;denominator&quot;: 12,
+      &quot;value&quot;: 0.5
+    },
+    &quot;partial_success&quot;: {
+      &quot;numerator&quot;: 0,
+      &quot;denominator&quot;: 12,
+      &quot;value&quot;: 0.0
+    },
+    &quot;candidate_tool_group_recall&quot;: {
+      &quot;numerator&quot;: 4,
+      &quot;denominator&quot;: 4,
+      &quot;value&quot;: 1.0
+    },
+    &quot;candidate_task_full_coverage&quot;: {
+      &quot;numerator&quot;: 4,
+      &quot;denominator&quot;: 4,
+      &quot;value&quot;: 1.0
+    },
+    &quot;planner_tool_group_coverage_given_candidates&quot;: {
+      &quot;numerator&quot;: 4,
+      &quot;denominator&quot;: 4,
+      &quot;value&quot;: 1.0
+    },
+    &quot;parameter_schema_validity&quot;: {
+      &quot;numerator&quot;: 27,
+      &quot;denominator&quot;: 31,
+      &quot;value&quot;: 0.8709677419354839
+    },
+    &quot;quality_pass&quot;: {
+      &quot;numerator&quot;: 11,
+      &quot;denominator&quot;: 11,
+      &quot;value&quot;: 1.0
+    },
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 11,
+      &quot;skipped&quot;: 5
+    },
+    &quot;missing_candidate_trace_cases&quot;: 0,
+    &quot;forbidden_candidates&quot;: 0,
+    &quot;p50_ms&quot;: 18619.1,
+    &quot;p95_ms&quot;: 50551.6,
+    &quot;sample_size&quot;: 12,
+    &quot;final_answer_token_usage_cases&quot;: 8,
+    &quot;complete_task_token_cost&quot;: null,
+    &quot;planner_dependency_correctness&quot;: null,
+    &quot;answer_semantic_faithfulness&quot;: null,
+    &quot;recovery_success&quot;: null
+  },
+  &quot;by_category&quot;: {
+    &quot;no_tool&quot;: {
+      &quot;scheduled&quot;: 2,
+      &quot;executed&quot;: 2,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 2
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 5330.6,
+      &quot;p95_ms&quot;: 5865.5,
+      &quot;sample_size&quot;: 2,
+      &quot;final_answer_token_usage_cases&quot;: 2,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;single_tool&quot;: {
+      &quot;scheduled&quot;: 2,
+      &quot;executed&quot;: 2,
+      &quot;statuses&quot;: {
+        &quot;failed&quot;: 2
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 2
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 19651.9,
+      &quot;p95_ms&quot;: 27042.6,
+      &quot;sample_size&quot;: 2,
+      &quot;final_answer_token_usage_cases&quot;: 2,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;multi_tool&quot;: {
+      &quot;scheduled&quot;: 5,
+      &quot;executed&quot;: 5,
+      &quot;statuses&quot;: {
+        &quot;failed&quot;: 2,
+        &quot;passed&quot;: 3
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 5,
+        &quot;value&quot;: 0.6
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 5,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 2,
+        &quot;value&quot;: 1.0
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 16,
+        &quot;denominator&quot;: 16,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 8,
+        &quot;denominator&quot;: 8,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 8
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 18619.1,
+      &quot;p95_ms&quot;: 42756.8,
+      &quot;sample_size&quot;: 5,
+      &quot;final_answer_token_usage_cases&quot;: 2,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;knowledge_evidence&quot;: {
+      &quot;scheduled&quot;: 3,
+      &quot;executed&quot;: 3,
+      &quot;statuses&quot;: {
+        &quot;failed&quot;: 2,
+        &quot;passed&quot;: 1
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 0.3333333333333333
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 7,
+        &quot;denominator&quot;: 11,
+        &quot;value&quot;: 0.6363636363636364
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 1,
+        &quot;denominator&quot;: 1,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;skipped&quot;: 5,
+        &quot;success&quot;: 1
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 39856.3,
+      &quot;p95_ms&quot;: 50551.6,
+      &quot;sample_size&quot;: 3,
+      &quot;final_answer_token_usage_cases&quot;: 2,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;file_approval&quot;: {
+      &quot;scheduled&quot;: 0,
+      &quot;executed&quot;: 0,
+      &quot;statuses&quot;: {},
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: null,
+      &quot;p95_ms&quot;: null,
+      &quot;sample_size&quot;: 0,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;fault_security&quot;: {
+      &quot;scheduled&quot;: 0,
+      &quot;executed&quot;: 0,
+      &quot;statuses&quot;: {},
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: null,
+      &quot;p95_ms&quot;: null,
+      &quot;sample_size&quot;: 0,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    }
+  },
+  &quot;by_runner&quot;: {
+    &quot;chat&quot;: {
+      &quot;scheduled&quot;: 8,
+      &quot;executed&quot;: 8,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 2,
+        &quot;failed&quot;: 6
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 2,
+        &quot;denominator&quot;: 8,
+        &quot;value&quot;: 0.25
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 8,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 1.0
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 27,
+        &quot;denominator&quot;: 31,
+        &quot;value&quot;: 0.8709677419354839
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 11,
+        &quot;denominator&quot;: 11,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 11,
+        &quot;skipped&quot;: 5
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 27042.6,
+      &quot;p95_ms&quot;: 50551.6,
+      &quot;sample_size&quot;: 8,
+      &quot;final_answer_token_usage_cases&quot;: 8,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    },
+    &quot;document_task&quot;: {
+      &quot;scheduled&quot;: 4,
+      &quot;executed&quot;: 4,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 4
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 4,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 4,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;call_statuses&quot;: {},
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 15531.2,
+      &quot;p95_ms&quot;: 18619.1,
+      &quot;sample_size&quot;: 4,
+      &quot;final_answer_token_usage_cases&quot;: 0,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    }
+  },
+  &quot;measurement_limits&quot;: [
+    &quot;每个Tool组为OR，组间为AND；候选和规划为本次任务各轮集合，不是逐轮金标准。&quot;,
+    &quot;条件Planner指标仅指必需工具组覆盖，不代表参数/依赖/额外调用全部正确。&quot;,
+    &quot;Schema合法不等于业务参数正确；事实词组与引用标签合法不等于语义忠实。&quot;,
+    &quot;未测的恢复率/依赖正确率/完整任务Token成本为null，未运行和不支持不能记通过。&quot;,
+    &quot;小样本经验P95不是生产SLA；Chat、后台文档与受控故障必须分别比较。&quot;
+  ]
+}</pre><table><thead><tr><th>任务</th><th>类别</th><th>业务</th><th>执行链</th><th>结果</th><th>毫秒</th><th>检查明细</th></tr></thead><tbody><tr><td>N01</td><td>no_tool</td><td>普通对话</td><td>chat</td><td>passed</td><td>5865.5</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;no_tool_calls&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 0,
+    &quot;candidate_group_hits&quot;: 0,
+    &quot;candidate_complete&quot;: false,
+    &quot;planner_group_hits&quot;: 0,
+    &quot;candidate_keys&quot;: [],
+    &quot;planned_keys&quot;: [],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 0,
+    &quot;schema_total&quot;: 0,
+    &quot;quality_valid&quot;: 0,
+    &quot;quality_total&quot;: 0,
+    &quot;call_statuses&quot;: {},
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;苹果&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>N02</td><td>no_tool</td><td>文本整理</td><td>chat</td><td>passed</td><td>5330.6</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;no_tool_calls&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 0,
+    &quot;candidate_group_hits&quot;: 0,
+    &quot;candidate_complete&quot;: false,
+    &quot;planner_group_hits&quot;: 0,
+    &quot;candidate_keys&quot;: [],
+    &quot;planned_keys&quot;: [],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 0,
+    &quot;schema_total&quot;: 0,
+    &quot;quality_valid&quot;: 0,
+    &quot;quality_total&quot;: 0,
+    &quot;call_statuses&quot;: {},
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;上传资料、查找证据和生成报告可以整理成一句话：上传资料后，通过查找证据来生成报告。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>S01</td><td>single_tool</td><td>小表读取</td><td>chat</td><td>failed</td><td>19651.9</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;call_count_within_limit&quot;: true,
+    &quot;required_group_executed_1&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;only_direct_file_read&quot;: true,
+    &quot;correct_file_argument&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: false
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 1,
+    &quot;candidate_group_hits&quot;: 1,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;agent.artifacts.read&quot;,
+      &quot;amap.maps.direction.driving&quot;,
+      &quot;amap.maps.direction.walking&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 2,
+    &quot;schema_total&quot;: 2,
+    &quot;quality_valid&quot;: 1,
+    &quot;quality_total&quot;: 1,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;根据文件 [T1] 的内容，云杉项目五月的情况如下：\n*   **五月收入**：11000元。\n*   **五月客户数**：20。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>S02</td><td>single_tool</td><td>工单原始查证</td><td>chat</td><td>failed</td><td>27042.6</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;call_count_within_limit&quot;: true,
+    &quot;required_group_executed_1&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;only_direct_file_read&quot;: true,
+    &quot;correct_file_argument&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: false
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 1,
+    &quot;candidate_group_hits&quot;: 1,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;agent.artifacts.read&quot;,
+      &quot;docs.context7.query&quot;,
+      &quot;web.tavily.search&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 2,
+    &quot;schema_total&quot;: 2,
+    &quot;quality_valid&quot;: 1,
+    &quot;quality_total&quot;: 1,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;根据文件内容，状态为“待处理”且优先级为“P1”的工单ID如下：\n\n- T101\n- T103\n\n来源：已读取的工作区文件 `tickets.json` [T1]。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>M01</td><td>multi_tool</td><td>结构化数据核对</td><td>chat</td><td>failed</td><td>31539.7</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;citations_present_and_legal&quot;: true,
+    &quot;cited_file:revenue.md&quot;: true,
+    &quot;cited_file:costs.md&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;required_group_executed_1&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: false
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 1,
+    &quot;candidate_group_hits&quot;: 1,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;amap.maps.direction.transit&quot;,
+      &quot;amap.maps.direction.walking&quot;,
+      &quot;amap.maps.weather&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 8,
+    &quot;schema_total&quot;: 8,
+    &quot;quality_valid&quot;: 4,
+    &quot;quality_total&quot;: 4,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 4
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;根据您提供的两份资料，我进行了计算和比较。\n\n**五月毛利计算**\n*   五月收入为 **11,000 元** [T3]。\n*   五月成本为 **7,000 元** [T4]。\n*   因此，五月毛利为 **11,000 - 7,000 = 4,000 元**。\n\n**收入环比增长**\n*   五月收入为 **11,000 元** [T3]。\n*   四月收入为 **10,000 元** [T3]。\n*   因此，五月收入比四月增加了 **11,000 - 10,000 = 1,000 元**，增长率为 **10%**。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>M02</td><td>multi_tool</td><td>游戏反馈分析</td><td>chat</td><td>failed</td><td>42756.8</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;fact_4&quot;: true,
+    &quot;fact_5&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;citations_present_and_legal&quot;: true,
+    &quot;cited_file:game_feedback.csv&quot;: true,
+    &quot;cited_file:release_notes.md&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;required_group_executed_1&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: false
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 1,
+    &quot;candidate_group_hits&quot;: 1,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;agent.artifacts.list&quot;,
+      &quot;workspace.files.apply_edit&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.propose_edit&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.read&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 8,
+    &quot;schema_total&quot;: 8,
+    &quot;quality_valid&quot;: 4,
+    &quot;quality_total&quot;: 4,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 4
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;根据您的要求，我读取并分析了 `game_feedback.csv` 和 `release_notes.md` 文件中的内容。\n\n### 统计结果与占比\n*   **总反馈数**：根据 [T3] 文件，CSV 中共有 6 条反馈记录（F1 至 F6）。\n*   **登录类条数**：同样根据 [T3]，属于“登录”类别的反馈共有 3 条（F1， F2， F6）。\n*   **登录类占比**：登录类反馈占总反馈数的比例为 3/6 = **50%**。\n\n### 修复优先级建议\n基于上述统计，登录类问题是当前反馈中最突出的问题，占总反馈的一半，且严重性均为“高”（[T3]）。这与发布说明中的判断一致，[T4] 明确指出“当前优先修登录问题，再排查性能”。\n\n因此，**修复优先级应为：**\n1.  **最高优先级**：修复“登录”类问题（登录失败、登录超时、重连失败）。\n2.  **次高优先级**：排查和优化“性能”类问题（战斗帧率下降）。\n3.  **后续处理**：优化“付费”价格展示和“引导”教程长度问题。\n\n### 关于留存率计算能力\n**不能计算留存率。**\n原因如下：`release_notes.md` 中明确说明“没有玩家留存和付费转化数据，不能推断转化率”[T4]。当前提供的两个文件仅包含定性反馈，缺少计算留存率所需的量化数据，例如玩家登录时间戳、连续登录天数、用户ID及其活跃状态等。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>K01</td><td>knowledge_evidence</td><td>论文事实查证</td><td>chat</td><td>failed</td><td>39856.3</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;citations_present_and_legal&quot;: true,
+    &quot;knowledge_cited&quot;: true,
+    &quot;gold_chunk_cited&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;no_tool_calls&quot;: false,
+    &quot;only_allowed_tool_calls&quot;: false,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 0,
+    &quot;candidate_group_hits&quot;: 0,
+    &quot;candidate_complete&quot;: false,
+    &quot;planner_group_hits&quot;: 0,
+    &quot;candidate_keys&quot;: [
+      &quot;agent.artifacts.list&quot;,
+      &quot;agent.artifacts.read&quot;,
+      &quot;docs.context7.query&quot;,
+      &quot;docs.context7.resolve&quot;,
+      &quot;web.tavily.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;agent.artifacts.list&quot;,
+      &quot;docs.context7.resolve&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 4,
+    &quot;schema_total&quot;: 6,
+    &quot;quality_valid&quot;: 1,
+    &quot;quality_total&quot;: 1,
+    &quot;call_statuses&quot;: {
+      &quot;skipped&quot;: 2,
+      &quot;success&quot;: 1
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;根据知识库资料，AT-RAG模型的全称是 **Adaptive Topic RAG**（自适应主题检索增强生成），其在论文标题和摘要中被完整表述为 **An Adaptive RAG Model Enhancing Query Efficiency with Topic Filtering and Iterative Reasoning**。\n\n**引用来源：**\n- 在论文标题和摘要中明确指出：“**AT-RAG: An Adaptive RAG Model Enhancing Query Efficiency with Topic Filtering and Iterative Reasoning**” [KB1]。\n- 摘要和正文多次使用并解释“**Adaptive Topic RAG (AT-RAG)**”这一名称 [KB1, KB2]。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>K02</td><td>knowledge_evidence</td><td>中文资料查证</td><td>chat</td><td>failed</td><td>50551.6</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;citations_present_and_legal&quot;: true,
+    &quot;knowledge_cited&quot;: true,
+    &quot;gold_chunk_cited&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;no_tool_calls&quot;: false,
+    &quot;only_allowed_tool_calls&quot;: false,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 0,
+    &quot;candidate_group_hits&quot;: 0,
+    &quot;candidate_complete&quot;: false,
+    &quot;planner_group_hits&quot;: 0,
+    &quot;candidate_keys&quot;: [
+      &quot;agent.artifacts.list&quot;,
+      &quot;amap.maps.around_search&quot;,
+      &quot;amap.maps.weather&quot;,
+      &quot;docs.context7.query&quot;,
+      &quot;docs.context7.resolve&quot;,
+      &quot;web.tavily.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;docs.context7.resolve&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 3,
+    &quot;schema_total&quot;: 5,
+    &quot;quality_valid&quot;: 0,
+    &quot;quality_total&quot;: 0,
+    &quot;call_statuses&quot;: {
+      &quot;skipped&quot;: 3
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;根据提供的知识库资料，在“商户查询缓存”部分，共提到了三种缓存更新策略。具体如下：\n\n1.  **内存淘汰**：利用Redis自带的内存淘汰机制，当内存不足时自动淘汰部分数据。下次查询时更新缓存。[KB2]\n2.  **超时剔除**：给缓存数据添加TTL（过期时间），到期后自动删除缓存。下次查询时更新缓存。[KB2]\n3.  **主动更新**：编写业务逻辑，在修改数据库的同时，更新或删除缓存。[KB2]\n\n**最佳实践**：对于“商户查询缓存”这类高一致性需求的场景（例如店铺详情查询），推荐采用**主动更新**策略，并以**超时剔除**作为兜底方案。具体到写操作，应“先写数据库，然后再删除缓存”。[KB1]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>D01</td><td>multi_tool</td><td>业务报告交付</td><td>document_task</td><td>passed</td><td>15531.2</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;task_succeeded&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;download_does_not_save_workspace&quot;: true,
+    &quot;generation_stages_succeeded&quot;: true,
+    &quot;exactly_one_export&quot;: true,
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;download_valid&quot;: true,
+    &quot;references_match_inputs&quot;: true,
+    &quot;one_result_message_in_original_conversation&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: null,
+  &quot;answer&quot;: &quot;云杉项目五月经营简报\n\n收入情况\n*   **五月收入**：11,000元\n*   **客户数量**：20\n*   **四月收入**：10,000元\n*   **较四月收入变化**：收入增加1,000元，环比增长10%。\n\n&gt; 来源：`project_file:7f2f41c0-6b39-448f-8878-8a16c50c9b58 / revenue.md`\n\n成本情况\n*   **五月总成本**：7,000元\n*   **成本构成**：\n*   服务器成本：2,000元\n*   人力成本：5,000元\n\n&gt; 来源：`project_file:ba71e39a-4e74-4144-b444-b0341cf00b82 / costs.md`\n\n毛利情况\n*   **五月毛利**：11,000元 - 7,000元 = **4,000元**\n*   **毛利率**：4,000元 / 11,000元 ≈ **36.36%**\n\n---\n**说明**：本简报基于提供的合成资料生成，未添加或臆造任何关于客户或产品上线的具体事实。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: {
+    &quot;id&quot;: &quot;76c3067c-018f-4b1a-b4ec-08876e709dd1&quot;,
+    &quot;project_id&quot;: &quot;1d9cdc6b-11d2-42ef-a4d4-c7c2a52a95a9&quot;,
+    &quot;conversation_id&quot;: &quot;dffd0d7b-587b-4b9c-8e3c-36142e18337e&quot;,
+    &quot;status&quot;: &quot;succeeded&quot;,
+    &quot;current_step&quot;: 3,
+    &quot;file_name&quot;: &quot;D01.docx&quot;,
+    &quot;generation_status&quot;: &quot;succeeded&quot;,
+    &quot;workspace_save_status&quot;: &quot;planned&quot;,
+    &quot;result_message_id&quot;: &quot;801d6372-6c67-46fa-ac72-e89e7ac857f8&quot;,
+    &quot;steps&quot;: [
+      {
+        &quot;id&quot;: &quot;f9b38692-2e78-47e3-953e-20502b07efc2&quot;,
+        &quot;stage&quot;: &quot;evidence&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;60954abc-fce8-4ca4-ac93-1494f1a2d69d&quot;,
+        &quot;stage&quot;: &quot;draft&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;14c1e2af-4670-4630-b6ba-00fbd5690076&quot;,
+        &quot;stage&quot;: &quot;export&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;472a0310-c62f-48a4-bcdc-ace5fe161cec&quot;,
+        &quot;stage&quot;: &quot;delivery&quot;,
+        &quot;status&quot;: &quot;planned&quot;,
+        &quot;attempts&quot;: 0,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      }
+    ],
+    &quot;artifacts&quot;: [
+      {
+        &quot;id&quot;: &quot;d7e89076-22f8-4b19-b145-717e57cef661&quot;,
+        &quot;stage&quot;: &quot;document_evidence&quot;,
+        &quot;preview&quot;: &quot;evidence 阶段完成&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;f38794c0-abfb-4b7b-a810-9143e2ab8c86&quot;,
+        &quot;stage&quot;: &quot;document_draft&quot;,
+        &quot;preview&quot;: &quot;# 云杉项目五月经营简报\n\n## 收入情况\n*   **五月收入**：11,000元\n*   **客户数量**：20\n*   **四月收入**：10,000元\n*   **较四月收入变化**：收入增加1,000元，环比增长10%。\n\n&gt; 来源：`project_file:7f2f41c0-6b39-448f-8878-8a16c50c9b58 / revenue.md`\n\n## 成本情况\n*   **五月总成本**：7,000元\n*   **成本构成**：\n    *   服务器成本：2,000元\n    *   人力成本：5,000元\n\n&gt; 来源：`project_file:ba71e39a-4e74-4144-b444-b0341cf00b82 / costs.md`\n\n## 毛利情况\n*   **五月毛利**：11,000元 - 7,000元 = **4,000元**\n*   **毛利率**：4,000元 / 11,000元 ≈ **36.36%**\n\n---\n**说明**：本简报基于提供的合成资料生成，未添加或臆造任何关于客户或产品上线的具体事实。&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;85a7d3d7-74c8-4819-b0a5-f7fd0195487e&quot;,
+        &quot;stage&quot;: &quot;document_export&quot;,
+        &quot;preview&quot;: &quot;# 云杉项目五月经营简报\n\n## 收入情况\n*   **五月收入**：11,000元\n*   **客户数量**：20\n*   **四月收入**：10,000元\n*   **较四月收入变化**：收入增加1,000元，环比增长10%。\n\n&gt; 来源：`project_file:7f2f41c0-6b39-448f-8878-8a16c50c9b58 / revenue.md`\n\n## 成本情况\n*   **五月总成本**：7,000元\n*   **成本构成**：\n    *   服务器成本：2,000元\n    *   人力成本：5,000元\n\n&gt; 来源：`project_file:ba71e39a-4e74-4144-b444-b0341cf00b82 / costs.md`\n\n## 毛利情况\n*   **五月毛利**：11,000元 - 7,000元 = **4,000元**\n*   **毛利率**：4,000元 / 11,000元 ≈ **36.36%**\n\n---\n**说明**：本简报基于提供的合成资料生成，未添加或臆造任何关于客户或产品上线的具体事实。\n\n## 来源\n\n- project_file:7f2f41c0-6b39-448f-8878-8a16c50c9b58 / revenue.md\n- project_file:ba71e39a-4e74-4144-b444-b0341cf00b82 / costs.md\n&quot;,
+        &quot;download_url&quot;: &quot;/api/document-tasks/76c3067c-018f-4b1a-b4ec-08876e709dd1/artifacts/85a7d3d7-74c8-4819-b0a5-f7fd0195487e/download&quot;
+      }
+    ],
+    &quot;approvals&quot;: []
+  },
+  &quot;downloads&quot;: [
+    {
+      &quot;path&quot;: &quot;artifacts/D01.docx&quot;,
+      &quot;bytes&quot;: 37191,
+      &quot;references&quot;: [
+        &quot;project_file:7f2f41c0-6b39-448f-8878-8a16c50c9b58 / revenue.md&quot;,
+        &quot;project_file:ba71e39a-4e74-4144-b444-b0341cf00b82 / costs.md&quot;
+      ],
+      &quot;artifact_id&quot;: &quot;85a7d3d7-74c8-4819-b0a5-f7fd0195487e&quot;
+    }
+  ],
+  &quot;result_messages&quot;: [
+    {
+      &quot;id&quot;: &quot;801d6372-6c67-46fa-ac72-e89e7ac857f8&quot;,
+      &quot;status&quot;: &quot;done&quot;,
+      &quot;content&quot;: &quot;文档已生成\n\n可预览下载；保存到工作区为可选操作，尚未创建项目文件。\n\n[打开文档任务与产物](/documents?run=76c3067c-018f-4b1a-b4ec-08876e709dd1)&quot;
+    }
+  ]
+}</pre></details></td></tr><tr><td>D02</td><td>multi_tool</td><td>游戏反馈报告交付</td><td>document_task</td><td>passed</td><td>18619.1</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;task_succeeded&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;download_does_not_save_workspace&quot;: true,
+    &quot;generation_stages_succeeded&quot;: true,
+    &quot;exactly_one_export&quot;: true,
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;fact_4&quot;: true,
+    &quot;fact_5&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;download_valid&quot;: true,
+    &quot;references_match_inputs&quot;: true,
+    &quot;one_result_message_in_original_conversation&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: null,
+  &quot;answer&quot;: &quot;# 星湾0.7版本反馈分析报告\n\n## 1. 反馈数据总览\n根据提供的合成反馈数据，星湾0.7版本共收集到 **6条** 用户反馈。\n\n## 2. 登录类问题分析\n*   **数量与占比**：登录类反馈共计 **3条**，占总反馈数量的 **50%**。\n*   **优先级与证据**：\n    *   **优先级：高**\n    *   **证据**：在反馈列表中，登录类问题（F1, F2, F6）的严重性（`severity`）均被标记为“高”。版本说明（`release_notes.md`）也明确指出“当前优先修登录问题”。\n\n## 3. 其他问题摘要\n除登录问题外，其他反馈按严重性降序列举如下：\n1.  **性能问题（中）**：战斗时帧率下降（F3）。\n2.  **付费问题（中）**：价格展示不清楚（F4）。\n3.  **引导问题（低）**：新手教程过长（F5）。\n\n## 4. 关于留存率数据\n根据版本说明（`release_notes.md`）中的明确信息，**没有玩家留存和付费转化数据**可供分析。\n\n---\n**来源**：\n*   `game_feedback.csv` (b493b86b-175c-485e-8188-37b031438977)\n*   `release_notes.md` (67152360-b5d5-42be-87fd-39bab2318189)\n&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: {
+    &quot;id&quot;: &quot;9ff3490c-ae73-495e-a550-c4fd4fbdff8c&quot;,
+    &quot;project_id&quot;: &quot;3bc7b84b-28a1-47d7-be4f-91def01e5b14&quot;,
+    &quot;conversation_id&quot;: &quot;8a81474b-7e5b-44bb-a9ce-1522ce402d47&quot;,
+    &quot;status&quot;: &quot;succeeded&quot;,
+    &quot;current_step&quot;: 3,
+    &quot;file_name&quot;: &quot;D02.md&quot;,
+    &quot;generation_status&quot;: &quot;succeeded&quot;,
+    &quot;workspace_save_status&quot;: &quot;planned&quot;,
+    &quot;result_message_id&quot;: &quot;55b729c9-6562-437f-9e2d-3081a0cab6f3&quot;,
+    &quot;steps&quot;: [
+      {
+        &quot;id&quot;: &quot;d4584b8d-09a8-4513-9c63-882da98b019b&quot;,
+        &quot;stage&quot;: &quot;evidence&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;19046dc9-6118-41ac-9b5e-c6c5bcee629d&quot;,
+        &quot;stage&quot;: &quot;draft&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;baa9c854-3969-4746-8e41-95687b1360f3&quot;,
+        &quot;stage&quot;: &quot;export&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;201a893c-0f31-4dee-9b88-a24ddad0c692&quot;,
+        &quot;stage&quot;: &quot;delivery&quot;,
+        &quot;status&quot;: &quot;planned&quot;,
+        &quot;attempts&quot;: 0,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      }
+    ],
+    &quot;artifacts&quot;: [
+      {
+        &quot;id&quot;: &quot;4a66d959-19a7-4a70-b03b-e6e882110361&quot;,
+        &quot;stage&quot;: &quot;document_evidence&quot;,
+        &quot;preview&quot;: &quot;evidence 阶段完成&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;b5a8a31b-c1bc-45c3-bd7a-9fd8b3183b74&quot;,
+        &quot;stage&quot;: &quot;document_draft&quot;,
+        &quot;preview&quot;: &quot;# 星湾0.7版本反馈分析报告\n\n## 1. 反馈数据总览\n根据提供的合成反馈数据，星湾0.7版本共收集到 **6条** 用户反馈。\n\n## 2. 登录类问题分析\n*   **数量与占比**：登录类反馈共计 **3条**，占总反馈数量的 **50%**。\n*   **优先级与证据**：\n    *   **优先级：高**\n    *   **证据**：在反馈列表中，登录类问题（F1, F2, F6）的严重性（`severity`）均被标记为“高”。版本说明（`release_notes.md`）也明确指出“当前优先修登录问题”。\n\n## 3. 其他问题摘要\n除登录问题外，其他反馈按严重性降序列举如下：\n1.  **性能问题（中）**：战斗时帧率下降（F3）。\n2.  **付费问题（中）**：价格展示不清楚（F4）。\n3.  **引导问题（低）**：新手教程过长（F5）。\n\n## 4. 关于留存率数据\n根据版本说明（`release_notes.md`）中的明确信息，**没有玩家留存和付费转化数据**可供分析。\n\n---\n**来源**：\n*   `game_feedback.csv` (b493b86b-175c-485e-8188-37b031438977)\n*   `release_notes.md` (67152360-b5d5-42be-87fd-39bab2318189)&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;9a549f0e-48b8-4883-a17f-2370b672a9e4&quot;,
+        &quot;stage&quot;: &quot;document_export&quot;,
+        &quot;preview&quot;: &quot;# 星湾0.7版本反馈分析报告\n\n## 1. 反馈数据总览\n根据提供的合成反馈数据，星湾0.7版本共收集到 **6条** 用户反馈。\n\n## 2. 登录类问题分析\n*   **数量与占比**：登录类反馈共计 **3条**，占总反馈数量的 **50%**。\n*   **优先级与证据**：\n    *   **优先级：高**\n    *   **证据**：在反馈列表中，登录类问题（F1, F2, F6）的严重性（`severity`）均被标记为“高”。版本说明（`release_notes.md`）也明确指出“当前优先修登录问题”。\n\n## 3. 其他问题摘要\n除登录问题外，其他反馈按严重性降序列举如下：\n1.  **性能问题（中）**：战斗时帧率下降（F3）。\n2.  **付费问题（中）**：价格展示不清楚（F4）。\n3.  **引导问题（低）**：新手教程过长（F5）。\n\n## 4. 关于留存率数据\n根据版本说明（`release_notes.md`）中的明确信息，**没有玩家留存和付费转化数据**可供分析。\n\n---\n**来源**：\n*   `game_feedback.csv` (b493b86b-175c-485e-8188-37b031438977)\n*   `release_notes.md` (67152360-b5d5-42be-87fd-39bab2318189)\n\n## 来源\n\n- project_file:b493b86b-175c-485e-8188-37b031438977 / game_feedback.csv\n- project_file:67152360-b5d5-42be-87fd-39bab2318189 / release_notes.md\n&quot;,
+        &quot;download_url&quot;: &quot;/api/document-tasks/9ff3490c-ae73-495e-a550-c4fd4fbdff8c/artifacts/9a549f0e-48b8-4883-a17f-2370b672a9e4/download&quot;
+      }
+    ],
+    &quot;approvals&quot;: []
+  },
+  &quot;downloads&quot;: [
+    {
+      &quot;path&quot;: &quot;artifacts/D02.md&quot;,
+      &quot;bytes&quot;: 1281,
+      &quot;references&quot;: [
+        &quot;project_file:b493b86b-175c-485e-8188-37b031438977 / game_feedback.csv&quot;,
+        &quot;project_file:67152360-b5d5-42be-87fd-39bab2318189 / release_notes.md&quot;
+      ],
+      &quot;artifact_id&quot;: &quot;9a549f0e-48b8-4883-a17f-2370b672a9e4&quot;
+    }
+  ],
+  &quot;result_messages&quot;: [
+    {
+      &quot;id&quot;: &quot;55b729c9-6562-437f-9e2d-3081a0cab6f3&quot;,
+      &quot;status&quot;: &quot;done&quot;,
+      &quot;content&quot;: &quot;文档已生成\n\n可预览下载；保存到工作区为可选操作，尚未创建项目文件。\n\n[打开文档任务与产物](/documents?run=9ff3490c-ae73-495e-a550-c4fd4fbdff8c)&quot;
+    }
+  ]
+}</pre></details></td></tr><tr><td>D03</td><td>multi_tool</td><td>工单整理交付</td><td>document_task</td><td>passed</td><td>12478.3</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;task_succeeded&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;download_does_not_save_workspace&quot;: true,
+    &quot;generation_stages_succeeded&quot;: true,
+    &quot;exactly_one_export&quot;: true,
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;download_valid&quot;: true,
+    &quot;references_match_inputs&quot;: true,
+    &quot;one_result_message_in_original_conversation&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: null,
+  &quot;answer&quot;: &quot;待办整理报告\n\n根据提供的合成工单数据与整理规则，生成本报告。报告仅用于整理与导出，不涉及对任何真实工单系统的操作。\n\n待办工单列表 (按规则整理)\n\n根据规则，仅整理状态为“待处理”且优先级为“P1”的工单，已完成工单（如T104）不列入待办。负责人信息在原始数据中未提供，故标注为“待分配”。\n\n| 工单ID | 优先级 | 状态 | 问题描述 | 负责人 |\n| :--- | :--- | :--- | :--- | :--- |\n| T101 | P1 | 待处理 | 登录失败 | 待分配 |\n| T103 | P1 | 待处理 | 文档权限错误 | 待分配 |\n\n说明\n1.  **数据来源**：本报告基于 `tickets.json` 中的合成评测工单数据生成。\n2.  **整理依据**：严格遵循 `triage_policy.md` 中定义的规则进行筛选与标注。\n3.  **处理状态**：工单 T102（P2，处理中）与 T104（P3，已完成）根据规则未列入本次待办报告。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: {
+    &quot;id&quot;: &quot;b6d23284-15c7-426d-a89d-ae4b6f244ffb&quot;,
+    &quot;project_id&quot;: &quot;7a72c5b2-cad3-4605-b1de-83ab149922a3&quot;,
+    &quot;conversation_id&quot;: &quot;a8adf28f-e5d9-4c42-b94b-36d965570c60&quot;,
+    &quot;status&quot;: &quot;succeeded&quot;,
+    &quot;current_step&quot;: 3,
+    &quot;file_name&quot;: &quot;D03.docx&quot;,
+    &quot;generation_status&quot;: &quot;succeeded&quot;,
+    &quot;workspace_save_status&quot;: &quot;planned&quot;,
+    &quot;result_message_id&quot;: &quot;5e078c96-004e-4c6d-9150-d9ab6aa799c8&quot;,
+    &quot;steps&quot;: [
+      {
+        &quot;id&quot;: &quot;052538ac-d460-4ea7-a573-2fc5b7904c75&quot;,
+        &quot;stage&quot;: &quot;evidence&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;515a2143-f104-4df5-bbf2-0fc58a694e55&quot;,
+        &quot;stage&quot;: &quot;draft&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;77f23d55-0d57-4c43-85df-056f4743f00e&quot;,
+        &quot;stage&quot;: &quot;export&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;8194eb23-331d-422d-b6a2-8446d5e8d310&quot;,
+        &quot;stage&quot;: &quot;delivery&quot;,
+        &quot;status&quot;: &quot;planned&quot;,
+        &quot;attempts&quot;: 0,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      }
+    ],
+    &quot;artifacts&quot;: [
+      {
+        &quot;id&quot;: &quot;a9f3736b-5056-4619-8aad-ff70728d5f95&quot;,
+        &quot;stage&quot;: &quot;document_evidence&quot;,
+        &quot;preview&quot;: &quot;evidence 阶段完成&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;4c9b01c1-9753-4f52-87cc-88511d52dd65&quot;,
+        &quot;stage&quot;: &quot;document_draft&quot;,
+        &quot;preview&quot;: &quot;# 待办整理报告\n\n根据提供的合成工单数据与整理规则，生成本报告。报告仅用于整理与导出，不涉及对任何真实工单系统的操作。\n\n## 待办工单列表 (按规则整理)\n\n根据规则，仅整理状态为“待处理”且优先级为“P1”的工单，已完成工单（如T104）不列入待办。负责人信息在原始数据中未提供，故标注为“待分配”。\n\n| 工单ID | 优先级 | 状态 | 问题描述 | 负责人 |\n| :--- | :--- | :--- | :--- | :--- |\n| T101 | P1 | 待处理 | 登录失败 | 待分配 |\n| T103 | P1 | 待处理 | 文档权限错误 | 待分配 |\n\n## 说明\n1.  **数据来源**：本报告基于 `tickets.json` 中的合成评测工单数据生成。\n2.  **整理依据**：严格遵循 `triage_policy.md` 中定义的规则进行筛选与标注。\n3.  **处理状态**：工单 T102（P2，处理中）与 T104（P3，已完成）根据规则未列入本次待办报告。&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;011acdd7-a713-40be-9854-6b5b658a7b17&quot;,
+        &quot;stage&quot;: &quot;document_export&quot;,
+        &quot;preview&quot;: &quot;# 待办整理报告\n\n根据提供的合成工单数据与整理规则，生成本报告。报告仅用于整理与导出，不涉及对任何真实工单系统的操作。\n\n## 待办工单列表 (按规则整理)\n\n根据规则，仅整理状态为“待处理”且优先级为“P1”的工单，已完成工单（如T104）不列入待办。负责人信息在原始数据中未提供，故标注为“待分配”。\n\n| 工单ID | 优先级 | 状态 | 问题描述 | 负责人 |\n| :--- | :--- | :--- | :--- | :--- |\n| T101 | P1 | 待处理 | 登录失败 | 待分配 |\n| T103 | P1 | 待处理 | 文档权限错误 | 待分配 |\n\n## 说明\n1.  **数据来源**：本报告基于 `tickets.json` 中的合成评测工单数据生成。\n2.  **整理依据**：严格遵循 `triage_policy.md` 中定义的规则进行筛选与标注。\n3.  **处理状态**：工单 T102（P2，处理中）与 T104（P3，已完成）根据规则未列入本次待办报告。\n\n## 来源\n\n- project_file:7284dcb3-ef0a-4d7c-a8c9-61d161674920 / tickets.json\n- project_file:c5057602-f2fe-4c77-9a39-876a914e4048 / triage_policy.md\n&quot;,
+        &quot;download_url&quot;: &quot;/api/document-tasks/b6d23284-15c7-426d-a89d-ae4b6f244ffb/artifacts/011acdd7-a713-40be-9854-6b5b658a7b17/download&quot;
+      }
+    ],
+    &quot;approvals&quot;: []
+  },
+  &quot;downloads&quot;: [
+    {
+      &quot;path&quot;: &quot;artifacts/D03.docx&quot;,
+      &quot;bytes&quot;: 37385,
+      &quot;references&quot;: [
+        &quot;project_file:7284dcb3-ef0a-4d7c-a8c9-61d161674920 / tickets.json&quot;,
+        &quot;project_file:c5057602-f2fe-4c77-9a39-876a914e4048 / triage_policy.md&quot;
+      ],
+      &quot;artifact_id&quot;: &quot;011acdd7-a713-40be-9854-6b5b658a7b17&quot;
+    }
+  ],
+  &quot;result_messages&quot;: [
+    {
+      &quot;id&quot;: &quot;5e078c96-004e-4c6d-9150-d9ab6aa799c8&quot;,
+      &quot;status&quot;: &quot;done&quot;,
+      &quot;content&quot;: &quot;文档已生成\n\n可预览下载；保存到工作区为可选操作，尚未创建项目文件。\n\n[打开文档任务与产物](/documents?run=b6d23284-15c7-426d-a89d-ae4b6f244ffb)&quot;
+    }
+  ]
+}</pre></details></td></tr><tr><td>D04</td><td>knowledge_evidence</td><td>论文摘要交付</td><td>document_task</td><td>passed</td><td>16622.2</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;task_succeeded&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;download_does_not_save_workspace&quot;: true,
+    &quot;generation_stages_succeeded&quot;: true,
+    &quot;exactly_one_export&quot;: true,
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;fact_4&quot;: true,
+    &quot;fact_5&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;download_valid&quot;: true,
+    &quot;references_match_inputs&quot;: true,
+    &quot;one_result_message_in_original_conversation&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: null,
+  &quot;answer&quot;: &quot;# 研究材料总结\n\n根据提供的虚构研究材料，以下是其内容的总结。请注意，**此材料仅为评测所用，并非真实的学术论文**。\n\n## 问题\n固定检索深度策略在处理不同难度的问题时，会造成计算资源的浪费。\n\n## 方法\n提出一种自适应方法，根据问题的预估难度，在以下三种检索模式间进行动态选择：\n*   零次检索\n*   单步检索\n*   多步检索\n\n## 实验\n*   **数据集**：使用一个包含60个问题的合成数据集进行评测。\n*   **主要结果**：该方法在评测任务上的通过率达到**80%**。\n*   **对比基线**：作为对比的单步检索基线方法的通过率为**70%**。\n\n## 限制\n1.  实验仅在**一个合成数据集**上进行验证。\n2.  **未进行真实用户研究**。\n3.  **未进行跨领域或跨任务的泛化能力验证**。\n4.  基于此虚构材料，**不能声称该方法已进行商业部署或具有实际商业应用**。\n\n&gt; 来源：评测用虚构研究材料 `paper_excerpt.md`\n&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: {
+    &quot;id&quot;: &quot;cb60b134-870c-4e8b-9f25-3b0b2f802f3f&quot;,
+    &quot;project_id&quot;: &quot;510de731-9117-4749-8d08-5535ba40b02c&quot;,
+    &quot;conversation_id&quot;: &quot;64aefb4e-c738-48cf-91ac-36ddae567a24&quot;,
+    &quot;status&quot;: &quot;succeeded&quot;,
+    &quot;current_step&quot;: 3,
+    &quot;file_name&quot;: &quot;D04.md&quot;,
+    &quot;generation_status&quot;: &quot;succeeded&quot;,
+    &quot;workspace_save_status&quot;: &quot;planned&quot;,
+    &quot;result_message_id&quot;: &quot;90c757d8-c7db-4736-8187-dccade40be82&quot;,
+    &quot;steps&quot;: [
+      {
+        &quot;id&quot;: &quot;31d20a1d-5fdf-497b-b7b9-1919b6f93aa9&quot;,
+        &quot;stage&quot;: &quot;evidence&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;1c003b5a-7d0b-477f-b77e-cd9d37c7045d&quot;,
+        &quot;stage&quot;: &quot;draft&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;46e7461e-aaca-4327-89cb-1513d1ea4343&quot;,
+        &quot;stage&quot;: &quot;export&quot;,
+        &quot;status&quot;: &quot;succeeded&quot;,
+        &quot;attempts&quot;: 1,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;d14b76a6-8ca1-4ea6-930a-347d1be55fe7&quot;,
+        &quot;stage&quot;: &quot;delivery&quot;,
+        &quot;status&quot;: &quot;planned&quot;,
+        &quot;attempts&quot;: 0,
+        &quot;error_code&quot;: null,
+        &quot;error_message&quot;: null
+      }
+    ],
+    &quot;artifacts&quot;: [
+      {
+        &quot;id&quot;: &quot;18db3a8b-c375-4f95-a97f-44f946f570f3&quot;,
+        &quot;stage&quot;: &quot;document_evidence&quot;,
+        &quot;preview&quot;: &quot;evidence 阶段完成&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;37db70be-cfb2-4330-9c7e-01d150132ff9&quot;,
+        &quot;stage&quot;: &quot;document_draft&quot;,
+        &quot;preview&quot;: &quot;# 研究材料总结\n\n根据提供的虚构研究材料，以下是其内容的总结。请注意，**此材料仅为评测所用，并非真实的学术论文**。\n\n## 问题\n固定检索深度策略在处理不同难度的问题时，会造成计算资源的浪费。\n\n## 方法\n提出一种自适应方法，根据问题的预估难度，在以下三种检索模式间进行动态选择：\n*   零次检索\n*   单步检索\n*   多步检索\n\n## 实验\n*   **数据集**：使用一个包含60个问题的合成数据集进行评测。\n*   **主要结果**：该方法在评测任务上的通过率达到**80%**。\n*   **对比基线**：作为对比的单步检索基线方法的通过率为**70%**。\n\n## 限制\n1.  实验仅在**一个合成数据集**上进行验证。\n2.  **未进行真实用户研究**。\n3.  **未进行跨领域或跨任务的泛化能力验证**。\n4.  基于此虚构材料，**不能声称该方法已进行商业部署或具有实际商业应用**。\n\n&gt; 来源：评测用虚构研究材料 `paper_excerpt.md`&quot;,
+        &quot;download_url&quot;: null
+      },
+      {
+        &quot;id&quot;: &quot;d402a3eb-34a1-4475-b78d-c57e7e710a8d&quot;,
+        &quot;stage&quot;: &quot;document_export&quot;,
+        &quot;preview&quot;: &quot;# 研究材料总结\n\n根据提供的虚构研究材料，以下是其内容的总结。请注意，**此材料仅为评测所用，并非真实的学术论文**。\n\n## 问题\n固定检索深度策略在处理不同难度的问题时，会造成计算资源的浪费。\n\n## 方法\n提出一种自适应方法，根据问题的预估难度，在以下三种检索模式间进行动态选择：\n*   零次检索\n*   单步检索\n*   多步检索\n\n## 实验\n*   **数据集**：使用一个包含60个问题的合成数据集进行评测。\n*   **主要结果**：该方法在评测任务上的通过率达到**80%**。\n*   **对比基线**：作为对比的单步检索基线方法的通过率为**70%**。\n\n## 限制\n1.  实验仅在**一个合成数据集**上进行验证。\n2.  **未进行真实用户研究**。\n3.  **未进行跨领域或跨任务的泛化能力验证**。\n4.  基于此虚构材料，**不能声称该方法已进行商业部署或具有实际商业应用**。\n\n&gt; 来源：评测用虚构研究材料 `paper_excerpt.md`\n\n## 来源\n\n- project_file:eb0a06a8-302f-4db6-b355-ba76e530d8ce / paper_excerpt.md\n&quot;,
+        &quot;download_url&quot;: &quot;/api/document-tasks/cb60b134-870c-4e8b-9f25-3b0b2f802f3f/artifacts/d402a3eb-34a1-4475-b78d-c57e7e710a8d/download&quot;
+      }
+    ],
+    &quot;approvals&quot;: []
+  },
+  &quot;downloads&quot;: [
+    {
+      &quot;path&quot;: &quot;artifacts/D04.md&quot;,
+      &quot;bytes&quot;: 1125,
+      &quot;references&quot;: [
+        &quot;project_file:eb0a06a8-302f-4db6-b355-ba76e530d8ce / paper_excerpt.md&quot;
+      ],
+      &quot;artifact_id&quot;: &quot;d402a3eb-34a1-4475-b78d-c57e7e710a8d&quot;
+    }
+  ],
+  &quot;result_messages&quot;: [
+    {
+      &quot;id&quot;: &quot;90c757d8-c7db-4736-8187-dccade40be82&quot;,
+      &quot;status&quot;: &quot;done&quot;,
+      &quot;content&quot;: &quot;文档已生成\n\n可预览下载；保存到工作区为可选操作，尚未创建项目文件。\n\n[打开文档任务与产物](/documents?run=cb60b134-870c-4e8b-9f25-3b0b2f802f3f)&quot;
+    }
+  ]
+}</pre></details></td></tr></tbody></table></html>
