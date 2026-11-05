@@ -1,0 +1,250 @@
+{
+  "label": "final-connection-occupancy",
+  "commit": "658ec1d030f5afc9e312d40dd7978865d09ae88a",
+  "scope": "独立PG合成读取，不含HTTP/模型，不代表上线容量",
+  "requests_per_cell": 24,
+  "pool": {
+    "size": 5,
+    "max_overflow": 10
+  },
+  "cache": "on",
+  "cases": [
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 9.908,
+      "p95_ms": 10.597,
+      "p99_ms": 11.028,
+      "pool_wait_p95_ms": 0.295,
+      "sql_p95_ms": 3.39,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 97.94,
+      "process_cpu_seconds": 0.193,
+      "peak_checked_out_connections": 1,
+      "remaining_checked_out_connections": 0,
+      "warmup_ms": 22.693,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 137.915,
+      "p95_ms": 163.566,
+      "p99_ms": 168.389,
+      "pool_wait_p95_ms": 23.307,
+      "sql_p95_ms": 120.475,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 55.73,
+      "process_cpu_seconds": 0.49,
+      "peak_checked_out_connections": 8,
+      "remaining_checked_out_connections": 0,
+      "warmup_ms": 22.693,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "history",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 340.345,
+      "p95_ms": 412.031,
+      "p99_ms": 412.487,
+      "pool_wait_p95_ms": 58.484,
+      "sql_p95_ms": 332.281,
+      "read_rows": [
+        72
+      ],
+      "sql_queries": [
+        5
+      ],
+      "requests_per_second": 43.34,
+      "process_cpu_seconds": 0.638,
+      "peak_checked_out_connections": 15,
+      "remaining_checked_out_connections": 0,
+      "warmup_ms": 22.693,
+      "read_cache_states": [
+        "not_applicable"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 38.975,
+      "p95_ms": 44.273,
+      "p99_ms": 46.158,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 14.04,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 25.26,
+      "process_cpu_seconds": 0.744,
+      "peak_checked_out_connections": 1,
+      "remaining_checked_out_connections": 0,
+      "warmup_ms": 829.278,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 384.028,
+      "p95_ms": 463.169,
+      "p99_ms": 465.054,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 264.109,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 19.09,
+      "process_cpu_seconds": 1.419,
+      "peak_checked_out_connections": 8,
+      "remaining_checked_out_connections": 0,
+      "warmup_ms": 829.278,
+      "read_cache_states": [
+        "hit"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 737.487,
+      "p95_ms": 923.974,
+      "p99_ms": 925.881,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 461.491,
+      "read_rows": [
+        8
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 18.32,
+      "process_cpu_seconds": 1.511,
+      "peak_checked_out_connections": 14,
+      "remaining_checked_out_connections": 0,
+      "warmup_ms": 829.278,
+      "read_cache_states": [
+        "hit"
+      ]
+    }
+  ],
+  "plans": [
+    {
+      "kind": "history",
+      "rows": 1000,
+      "explain": [
+        {
+          "Plan": {
+            "Node Type": "Limit",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Startup Cost": 0.41,
+            "Total Cost": 95.68,
+            "Plan Rows": 24,
+            "Plan Width": 102,
+            "Actual Startup Time": 0.077,
+            "Actual Total Time": 0.107,
+            "Actual Rows": 24.0,
+            "Actual Loops": 1,
+            "Disabled": false,
+            "Shared Hit Blocks": 9,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Index Only Scan",
+                "Parent Relationship": "Outer",
+                "Parallel Aware": false,
+                "Async Capable": false,
+                "Scan Direction": "Backward",
+                "Index Name": "ix_messages_context_order",
+                "Relation Name": "messages",
+                "Alias": "messages",
+                "Startup Cost": 0.41,
+                "Total Cost": 659.32,
+                "Plan Rows": 166,
+                "Plan Width": 102,
+                "Actual Startup Time": 0.075,
+                "Actual Total Time": 0.1,
+                "Actual Rows": 24.0,
+                "Actual Loops": 1,
+                "Disabled": false,
+                "Index Cond": "(conversation_id = 'e1343097-f0d8-42a0-b2f6-0d37a313b940'::text)",
+                "Rows Removed by Index Recheck": 0,
+                "Heap Fetches": 24,
+                "Index Searches": 1,
+                "Shared Hit Blocks": 9,
+                "Shared Read Blocks": 0,
+                "Shared Dirtied Blocks": 0,
+                "Shared Written Blocks": 0,
+                "Local Hit Blocks": 0,
+                "Local Read Blocks": 0,
+                "Local Dirtied Blocks": 0,
+                "Local Written Blocks": 0,
+                "Temp Read Blocks": 0,
+                "Temp Written Blocks": 0
+              }
+            ]
+          },
+          "Planning": {
+            "Shared Hit Blocks": 44,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          },
+          "Planning Time": 0.335,
+          "Triggers": [],
+          "Execution Time": 0.139
+        }
+      ]
+    }
+  ],
+  "unique_queries": false,
+  "service_pool_wait": "未单独插桩；null 表示未测，不是零等待",
+  "max_rss_mib": 191.3
+}

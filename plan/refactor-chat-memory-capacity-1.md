@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-11-05
 last_updated: 2026-11-05
 owner: AI Web Studio
-status: In progress
+status: Completed
 tags: [performance, memory, database, cache]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In_progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-brightgreen)
 
 合并面试复盘中的有界读取和容量验证：先测旧实现，再优化同一请求的读取量，最后用相同数据库、连接池和负载比较。PostgreSQL 保留正式事实；Redis 仅在实测收益与撤销一致性均有证据后用于派生缓存。
 
@@ -51,7 +51,7 @@ tags: [performance, memory, database, cache]
 |------|-------------|-----------|------|
 | TASK-006 | 依赖 TASK-003/004/005；并发、撤销、过期、跨用户/项目、缓存异常和旧缓存晚回填测试 | 是 | 2026-11-05 |
 | TASK-007 | 依赖 TASK-006；同负载矩阵复测；全量 unittest、compileall、浏览器与在线 API 冒烟 | 是 | 2026-11-05 |
-| TASK-008 | 依赖 TASK-007；更新 docs/04—09、阶段报告和飞书入口，提交推送并核对 CI | 否 | |
+| TASK-008 | 依赖 TASK-007；更新 docs/04—09、阶段报告和飞书入口，提交推送并核对 CI；代码658ec1d的Actions42026680416两项success | 是 | 2026-11-05 |
 
 ## 3. Alternatives
 

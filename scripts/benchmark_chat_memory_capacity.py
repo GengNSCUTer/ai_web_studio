@@ -12,7 +12,7 @@ from pathlib import Path
 import resource
 import cProfile
 import subprocess
-from threading import local
+from threading import Lock, local
 from time import perf_counter
 from time import process_time
 from uuid import uuid4
@@ -47,6 +47,8 @@ def run(args):
     engine = None
     tls = local()
     metrics = ContextVar("capacity_metrics", default=None)
+    pool_lock = Lock()
+    pool_metrics = dict(current=0, peak=0)
     report = dict(label=args.label, commit=subprocess.check_output(
         ["git", "rev-parse", "HEAD"], text=True).strip(),
         scope="独立PG合成读取，不含HTTP/模型，不代表上线容量", requests_per_cell=args.requests,
@@ -68,6 +70,17 @@ def run(args):
         with engine.begin() as conn:
             conn.execute(text("create extension if not exists vector"))
         Base.metadata.create_all(engine)
+
+        @event.listens_for(engine, "checkout")
+        def checkout(connection, record, proxy):
+            with pool_lock:
+                pool_metrics["current"] += 1
+                pool_metrics["peak"] = max(pool_metrics["peak"], pool_metrics["current"])
+
+        @event.listens_for(engine, "checkin")
+        def checkin(connection, record):
+            with pool_lock:
+                pool_metrics["current"] -= 1
 
         @event.listens_for(engine, "before_cursor_execute")
         def before(conn, cursor, statement, parameters, context, executemany):
@@ -176,6 +189,8 @@ def run(args):
                     return dict(error=type(exc).__name__)
             warm = request(None)
             for concurrency in args.concurrency:
+                with pool_lock:
+                    pool_metrics["peak"] = pool_metrics["current"]
                 start = perf_counter()
                 cpu = process_time()
                 with ThreadPoolExecutor(max_workers=concurrency) as executor:
@@ -192,6 +207,8 @@ def run(args):
                     sql_queries=sorted(set(r["queries"] for r in ok)),
                     requests_per_second=round(len(records)/elapsed, 2),
                     process_cpu_seconds=round(process_time()-cpu, 3),
+                    peak_checked_out_connections=pool_metrics["peak"],
+                    remaining_checked_out_connections=pool_metrics["current"],
                     warmup_ms=round(warm.get("ms", 0), 3),
                     read_cache_states=sorted(set(r.get("cache", "not_applicable") for r in ok)))
                 report["cases"].append(result)
