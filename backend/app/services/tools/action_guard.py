@@ -17,6 +17,11 @@ INTENT_PATTERNS = {
     "map_geo": r"经纬度|坐标|地理编码|地址|路线|驾车|开车|步行|距离|\b(?:geocode|coordinate|address|route|distance)\b",
 }
 NO_WEB = re.compile(r"(?:不要|不用|无需|禁止|别)(?:使用|调用|进行)?(?:联网|上网|网页搜索|外部网站)|\b(?:do not|don't|never|no)\s+(?:(?:use|search|browse|access)\s+)?(?:the\s+)?(?:web|internet|online)\b", re.I)
+NO_EXTERNAL_TOOLS = re.compile(
+    r"(?:不要|不用|别|无需|不)(?:使用|用|调用|进行)?(?:外部工具|联网工具|外部服务|远程工具)"
+    r"|\b(?:do not|don't|never|no)\s+(?:(?:use|call)\s+)?(?:external|remote)\s+tools\b", re.I)
+NO_TOOLS = re.compile(r"(?:不要|不用|别|无需|不)(?:再|去)?(?:调用|使用)(?:任何|所有)?工具"
+                      r"|\b(?:do not|don't|never)\s+(?:use|call)\s+(?:any\s+)?tools\b", re.I)
 LOCAL_ONLY = re.compile(r"仅(?:根据|使用)|只(?:根据|依据|使用|总结|整理)|\b(?:only|solely)\b", re.I)
 SECRET = re.compile(
     r"\b(?:api[_ -]?key|access[_ -]?token|password|passwd|secret|authorization)\b[\"']?\s*[:=]\s*[\"']?[^\s,;\"']{4,}"
@@ -91,6 +96,10 @@ class ToolActionGuard:
 
     def check(self, definition, arguments):
         network = definition.adapter_type not in {"workspace_file", "agent_artifact"}
+        if self.scope and NO_TOOLS.search(self.scope.original_task):
+            return GuardDecision(False, "original_task_forbids_tools")
+        if network and self.scope and NO_EXTERNAL_TOOLS.search(self.scope.original_task):
+            return GuardDecision(False, "original_task_forbids_external_tools")
         if not network:
             return GuardDecision(True, "local_action")
         scope = self.scope

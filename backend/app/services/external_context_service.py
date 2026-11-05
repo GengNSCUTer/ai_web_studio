@@ -24,6 +24,7 @@ from app.services.tools.schemas import (
 from app.services.tools.workflow import (
     ToolRunCallLedger,
     ToolWorkflowAggregate,
+    ToolWorkflowAction,
     decide_workflow_action,
     ToolWorkflowService,
 )
@@ -510,6 +511,12 @@ class ExternalContextService:
                 max_rounds=self.run_policy.max_planning_rounds,
                 completion_replan_required=completion_replan_required,
             )
+            if any(event.type == 'tool_action_intent_check' and event.payload.get('status') == 'denied'
+                   for event in workflow_result.events):
+                # 原任务/数据边界拒绝不是临时网络故障，不能靠换工具继续试探。
+                workflow_action = ToolWorkflowAction(
+                    action='finalize_partial' if sources else 'clarify', reason='action_scope_denied',
+                    notice='部分工具动作超出本次任务范围或包含禁止外发的数据，已停止继续规划；已有有效证据保留。')
             if workflow_action.action == "replan" and not budget.can_replan():
                 budget_reason = budget.replan_limit_reason() or "tool_replan_budget_exhausted"
                 workflow_action = self._budget_terminal_action(

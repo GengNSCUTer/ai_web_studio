@@ -17,7 +17,7 @@ from app.services.agent_task_evaluation import report, render_html  # noqa: E402
 
 REQUIRED_CASE_KEYS = {"id", "category", "business", "runner", "query", "expected"}
 CATEGORIES = {"no_tool", "single_tool", "multi_tool", "knowledge_evidence", "file_approval", "fault_security"}
-RUNNERS = {"chat", "document_task", "fault_injection"}
+RUNNERS = {"chat", "document_task", "fault_injection", "file_approval"}
 
 
 def validate_dataset(dataset: dict) -> list[str]:
@@ -51,7 +51,7 @@ def validate_dataset(dataset: dict) -> list[str]:
             errors.append(f"{case.get('id')}query必须是非空字符串")
         if case.get("category") not in {"no_tool", "knowledge_evidence"} and not expected.get("required_tool_groups") and case.get("runner") == "chat":
             errors.append(f"{case.get('id')}工具任务缺少required_tool_groups")
-        if case.get("category") == "file_approval" and case.get("runner") != "chat":
+        if case.get("category") == "file_approval" and case.get("runner") not in {"chat", "file_approval"}:
             errors.append(f"{case.get('id')}file_approval当前应由浏览器/Chat执行")
     return errors
 
@@ -89,6 +89,8 @@ def main():
     parser.add_argument('--email', default='1528713326@qq.com')
     parser.add_argument('--timeout', type=float, default=240)
     parser.add_argument('--browser-smoke', action='store_true')
+    parser.add_argument('--jobs', type=int, default=1, choices=range(1,5))
+    parser.add_argument('--case-ids', help='显式子集冒烟；报告名和分母均标记为子集，不冒充完整200题')
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('--timeout必须大于0')
@@ -101,13 +103,19 @@ def main():
         parser.error('执行报告已存在，请用新目录保留每次运行，不能覆盖旧失败')
     dataset = json.loads(args.dataset.read_text(encoding="utf-8"))
     errors = validate_dataset(dataset)
+    if args.case_ids and not errors:
+        chosen=set(args.case_ids.split(','))
+        if chosen-{c['id'] for c in dataset['cases']}:
+            parser.error('子集含不存在的题号')
+        dataset={**dataset,'name':dataset['name']+'_subset','cases':[c for c in dataset['cases'] if c['id'] in chosen],
+                 'annotation':dataset['annotation']+' 本次仅显式题号子集冒烟。'}
     if errors:
         payload = {"status": "invalid", "errors": errors, "dataset": dataset.get("name")}
     elif args.execute:
         from agent_task_batch_runner import execute_batch
         payload = execute_batch(dataset, base_url=args.base_url, email=args.email, output=args.output,
                                 html_path=(args.html or args.output.with_suffix('.html')).resolve(),
-                                timeout=args.timeout, browser_smoke=args.browser_smoke)
+                                timeout=args.timeout, browser_smoke=args.browser_smoke, jobs=args.jobs)
         print(json.dumps({'status': payload['status'], 'summary': payload['summary'],
                           'cleanup': payload['cleanup'], 'report': str(args.output)}, ensure_ascii=False))
         success = (all(row['status'] == 'passed' for row in payload['cases'])

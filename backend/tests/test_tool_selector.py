@@ -120,6 +120,21 @@ class ToolSelectorTest(unittest.TestCase):
         self.assertEqual(definitions, [])
         self.assertEqual(trace["reason"], "user_requested_no_tools")
 
+    def test_knowledge_only_query_does_not_expose_external_or_artifact_tools(self):
+        for query in (
+            "在已选择的论文库里查证AT-RAG全称，给出知识库引用，不调用外部工具。",
+            "根据Redis知识库回答缓存策略，不使用外部工具。",
+        ):
+            with self.subTest(query=query):
+                definitions, trace = ToolCandidateSelector(self.catalog).select(query=query, enabled=True)
+                self.assertEqual(definitions, [])
+                self.assertEqual(trace["reason"], "knowledge_context_only")
+
+    def test_knowledge_plus_workspace_read_is_not_silently_disabled(self):
+        keys, _ = self.select('结合知识库和工作区note.md原文回答，不调用外部工具。')
+        self.assertIn('workspace.files.read', keys)
+        self.assertNotIn('docs.context7.query', keys)
+
     def test_model_unavailable_does_not_send_local_file_query_to_web_fallback(self):
         import asyncio
         plan = asyncio.run(LLMToolPlanner(catalog=self.catalog).plan(

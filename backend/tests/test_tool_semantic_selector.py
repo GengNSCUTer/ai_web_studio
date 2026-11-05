@@ -43,6 +43,24 @@ class ToolSemanticSelectorTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotEqual(trace['retrieval']['fallback_reason'], 'semantic_not_configured')
         self.adapter.embed_texts.assert_not_awaited()
 
+    async def test_knowledge_only_query_skips_semantic_tool_recall(self):
+        selector = ToolCandidateSelector(self.catalog, semantic_retriever=self.retriever())
+        tools, trace = await selector.select_async(
+            query='在论文库中查证AT-RAG，不调用外部工具。', enabled=True)
+        self.assertEqual(tools, [])
+        self.assertEqual(trace['reason'], 'knowledge_context_only')
+        self.adapter.embed_texts.assert_not_awaited()
+
+    async def test_empty_candidates_do_not_call_planner_model(self):
+        from app.services.tools.planner import LLMToolPlanner, PlannerRuntime
+        provider = AsyncMock()
+        result = await LLMToolPlanner(catalog=self.catalog, chat_provider=provider).plan(
+            query='在论文库里查证AT-RAG，不调用外部工具。', enabled=True,
+            runtime=PlannerRuntime('openai-compatible', 'https://example.invalid', None, 'test'))
+        self.assertFalse(result.should_use_tools)
+        self.assertEqual(result.calls, [])
+        provider.complete_chat.assert_not_awaited()
+
     async def test_permission_filters_apply_before_semantic_call(self):
         def vectors(**kwargs):
             return [[1., 0.] for _ in kwargs['texts']]

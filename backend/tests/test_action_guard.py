@@ -40,6 +40,12 @@ class ActionGuardTest(unittest.TestCase):
         guard = ToolActionGuard(ActionScope("读取工作区文件并总结"))
         self.assertTrue(guard.check(self.read, {"file_id": "opaque-id"}).allowed)
 
+    def test_explicit_tool_prohibition_is_checked_again_before_execution(self):
+        self.assertFalse(ToolActionGuard(ActionScope('不要使用任何工具')).check(self.read, {'file_id': 'f'}).allowed)
+        guard = ToolActionGuard(ActionScope('读取工作区note.md，不调用外部工具'))
+        self.assertTrue(guard.check(self.read, {'file_id': 'f'}).allowed)
+        self.assertFalse(guard.check(self.search, {'query': 'public research'}).allowed)
+
     def test_missing_task_and_english_web_prohibition_fail_closed(self):
         self.assertFalse(ToolActionGuard().check(self.search, {"query": "public facts"}).allowed)
         self.assertFalse(ToolActionGuard(ActionScope("Summarize feedback. Don't search the web.")).check(self.search, {"query": "feedback"}).allowed)

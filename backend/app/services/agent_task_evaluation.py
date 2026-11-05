@@ -128,7 +128,7 @@ def summarize(rows):
     """只汇总同一批传入结果；运行方式仍分组，控制故障不混入在线延迟。"""
     executed = [row for row in rows if row["status"] != "skipped"]
     traces = [row["trace"] for row in executed if row.get("trace", {}).get("candidate_events_available")]
-    positive = [trace for trace in traces if trace["required_groups"]]
+    positive = [trace for trace in traces if trace["required_groups"] and trace.get('capability_metrics_applicable',True)]
     conditional = [trace for trace in positive if trace["candidate_complete"]]
     all_traces = [row["trace"] for row in executed if row.get("trace", {}).get("trace_available")]
     latencies = [row["elapsed_ms"] for row in executed if row.get("elapsed_ms") is not None]
@@ -175,6 +175,7 @@ def report(dataset, rows):
             "小样本经验P95不是生产SLA；Chat、后台文档与受控故障必须分别比较。",
             "Schema/质量为Trace事件计数；调用成功分母含skipped审计行，不冒充实际网络请求成功率。",
             "本批为已启用用户记忆和既有工具配置的在线行为，非隔离关闭记忆的对照实验。",
+            "只读/歧义/原文不存在的编辑负例不进入正向能力召回分母，但仍进入任务成功率。未标注禁止候选的0计数不代表已证明越权泄漏率为0。",
         ],
         "summary": summarize(rows),
         "by_category": {key: summarize([row for row in rows if row["category"] == key]) for key in dataset["target_quotas"]},

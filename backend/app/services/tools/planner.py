@@ -90,6 +90,12 @@ class LLMToolPlanner:
                 },
             ]
             return plan
+        if not candidate_tools:
+            # 代码已确认本次没有可用候选，不再请求模型或用其它目录绕过范围。
+            return ToolPlan(plan_id=str(uuid4()), router="empty_candidate_policy", external_context_allowed=True,
+                should_use_tools=False, calls=[], original_query=query, trace_events=[start_event, candidate_trace,
+                    {"type": "tool_planner_end", "planner": "empty_candidate_policy", "strategy": "no_eligible_tools",
+                     "should_use_tools": False, "selected_tools": [], "reason": candidate_trace.get("reason")}])
         deterministic_plan = self.fallback_planner.plan(query=query, enabled=True)
         candidate_keys = {tool.tool_key for tool in candidate_tools}
         self._constrain_plan_to_allowed_tools(

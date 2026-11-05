@@ -8,6 +8,7 @@ from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import ToolDefinition
 from app.services.tools.semantic_retrieval import ToolSemanticRetriever
 from app.services.tools.file_edit_intent import edit_requested, preview_requested, approval_requested
+from app.services.tools.action_guard import NO_EXTERNAL_TOOLS, NO_TOOLS
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,9 @@ class ToolCandidateSelector:
         r"|\b(?:do not|don't|never|no)\s+(?:(?:access|read|use|search)\s+)?(?:local|workspace)\s+files\b", re.I
     )
     WEB_EXCLUSION_PATTERN = re.compile(r"(?:不要|不用|别|无需|不)(?:使用|用|进行)?(?:联网|上网|网页搜索|网络搜索)|\b(?:do not|don't|never|no)\s+(?:(?:use|search|browse|access)\s+)?(?:the\s+)?(?:web|internet|online)\b", re.I)
-    NO_TOOL_PATTERN = re.compile(r"(?:不要|不用|别|无需)(?:再|去)?(?:调用|使用)(?:任何|所有|外部)?工具|\b(?:do not|don't|never)\s+(?:use|call)\s+(?:(?:any|external)\s+)?tools\b", re.I)
+    EXTERNAL_TOOL_EXCLUSION_PATTERN = NO_EXTERNAL_TOOLS
+    KNOWLEDGE_ONLY_PATTERN = re.compile(r"(?:知识库|论文库|资料库|已选择的.{0,12}(?:库|资料))", re.I)
+    NO_TOOL_PATTERN = NO_TOOLS
     SMALLTALK_PATTERN = re.compile(r"\s*(?:谢谢(?:你)?|好的|收到|thanks(?:,? that is all)?|thank you|ok)[！!。.\s]*", re.I)
     SEMANTIC_MIN = 0.35
 
@@ -66,11 +69,21 @@ class ToolCandidateSelector:
     def _edit_intent(cls, query: str) -> bool:
         return edit_requested(query)
 
+    @classmethod
+    def _knowledge_only(cls, query: str) -> bool:
+        """仅知识库证据请求不再走Tool目录；混合工作区/产物任务保留本地能力。"""
+        return bool(cls.KNOWLEDGE_ONLY_PATTERN.search(query) and cls.EXTERNAL_TOOL_EXCLUSION_PATTERN.search(query)
+                    and not cls.FILE_NAME_PATTERN.search(query)
+                    and not re.search(r'工作区|附件|项目文件|产物|artifact|workspace', query, re.I))
+
     def _eligible(self, query: str, allowed_tool_keys: set[str] | None) -> list[ToolDefinition]:
         """两路召回共用前置范围，语义排名不能复活被排除的工具。"""
         return [tool for tool in self.catalog.list_definitions()
             if tool.enabled_by_default and (allowed_tool_keys is None or tool.tool_key in allowed_tool_keys)
-            and not (tool.category in {'web_search', 'web_fetch', 'documentation'} and self.WEB_EXCLUSION_PATTERN.search(query))
+            and not (tool.category in {'web_search', 'web_fetch', 'documentation'}
+                     and (self.WEB_EXCLUSION_PATTERN.search(query) or self.EXTERNAL_TOOL_EXCLUSION_PATTERN.search(query)))
+            and not (self.EXTERNAL_TOOL_EXCLUSION_PATTERN.search(query)
+                     and tool.adapter_type not in {'workspace_file', 'agent_artifact'})
             and not (tool.category == 'workspace_file' and self.FILE_EXCLUSION_PATTERN.search(query))
             and not (preview_requested(query) and not tool.read_only)
             and not ((not tool.read_only or tool.quality_contract.get('semantic_profile') in {'approval_draft', 'file_revision'})
@@ -90,6 +103,9 @@ class ToolCandidateSelector:
             tools, trace = rule_fallback(dict(mode='skipped', elapsed_ms=0))
             trace['retrieval']['fallback_reason'] = trace['reason']
             return tools, trace
+        if self._knowledge_only(query):
+            return [], self._trace(query=query, candidates=[], reason="knowledge_context_only",
+                                   allowed_tool_keys=allowed_tool_keys)
         definitions = self._eligible(query, allowed_tool_keys)
         if not definitions:
             tools, trace = rule_fallback(dict(mode='skipped', elapsed_ms=0))
@@ -187,6 +203,9 @@ class ToolCandidateSelector:
             )
         if self.NO_TOOL_PATTERN.search(query) or self.SMALLTALK_PATTERN.fullmatch(query):
             return [], self._trace(query=query, candidates=[], reason="user_requested_no_tools",
+                                   allowed_tool_keys=allowed_tool_keys)
+        if self._knowledge_only(query):
+            return [], self._trace(query=query, candidates=[], reason="knowledge_context_only",
                                    allowed_tool_keys=allowed_tool_keys)
         if not definitions:
             return [], self._trace(

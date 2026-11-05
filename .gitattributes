@@ -1,0 +1,2 @@
+# 下载的Markdown产物保留原始字节；行末两个空格是合法硬换行，不为消除检查提示改写评测证据。
+backend/evals/results/**/artifacts/*.md whitespace=-blank-at-eol

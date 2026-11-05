@@ -1,4 +1,4 @@
-"""先行评测的真实执行适配层；不替代业务服务，不修改用户模型配置。"""
+"""业务评测的真实执行适配层；不替代业务服务，不修改用户模型配置。"""
 
 import json
 from pathlib import Path
@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import time
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from uuid import uuid4
 
 import httpx
@@ -20,6 +21,7 @@ from app.models.agent_runtime import (AgentApproval, AgentArtifact, AgentCheckpo
 from app.models.knowledge import KnowledgeBase, KnowledgeChunk, KnowledgeDocument, KnowledgeRetrievalLog
 from app.models.observability import ChatRuntimeMetric
 from app.models.tool_trace import ToolCallRun, ToolRouteRun
+from app.models.tool_config import WorkspaceAgentPolicy, WorkspaceToolSetting
 from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import AuthService
@@ -187,13 +189,13 @@ class PilotRunner:
                 'runtime_stats': json.loads(metric.stats_json or '{}') if metric else {},
             }
 
-    def run_chat(self, case, project_id, file_ids, conversation_id, knowledge):
+    def request_chat(self, case, file_ids, conversation_id, knowledge=None):
         query = case['query']
         for name, file_id in file_ids.items():
             query = query.replace('${file:' + name + '}', file_id)
         if '${file:' in query:
             raise ValueError('输入资料未绑定')
-        stream_events, error_type, usage_count, final_usage = [], None, 0, None
+        stream_events, error_type, usage_count, final_usage, http_status = [], None, 0, None, None
         deadline = time.monotonic() + self.timeout
         try:
             with self.client.stream('POST', '/api/chat/events-stream', json={
@@ -201,6 +203,7 @@ class PilotRunner:
                 'web_search_enabled': True, 'tool_run_mode': case['mode'],
                 'knowledge_base_ids': [knowledge['id']] if knowledge else [],
             }) as response:
+                http_status=response.status_code
                 if response.is_error:
                     raise RuntimeError(f'Chat接口HTTP {response.status_code}')
                 for line in response.iter_lines():
@@ -217,25 +220,30 @@ class PilotRunner:
             error_type = type(exc).__name__
         row = self.chat_snapshot(conversation_id)
         row.update(stream_events=stream_events, provider_usage_events=usage_count, final_provider_usage=final_usage,
-                   error_type=error_type, knowledge_target=knowledge)
+                   error_type=error_type, knowledge_target=knowledge, http_status=http_status)
         row['final_answer_input_tokens'] = row['runtime_stats'].get('provider_input_tokens')
         row['final_answer_output_tokens'] = row['runtime_stats'].get('provider_output_tokens')
+        return row
+
+    def run_chat(self, case, project_id, file_ids, conversation_id, knowledge):
+        row = self.request_chat(case, file_ids, conversation_id, knowledge)
         expected, calls = case['expected'], row['calls']
         row['trace'] = inspect_trace(row['events'], calls, expected.get('required_tool_groups', []),
                                      expected.get('forbidden_tool_keys', []))
         checks = check_answer(row['answer'], expected)
         checks.update(check_chat_evidence(row['answer'], row['source_map'], expected, file_ids,
                                          knowledge['gold_chunk_ids'] if knowledge else []))
-        checks['stream_and_database_done'] = (not error_type and row['assistant_status'] == 'done'
-            and any(e.get('type') == 'done' for e in stream_events)
-            and not any(e.get('type') == 'error' for e in stream_events))
+        checks['stream_and_database_done'] = (not row['error_type'] and row['assistant_status'] == 'done'
+            and any(e.get('type') == 'done' for e in row['stream_events'])
+            and not any(e.get('type') == 'error' for e in row['stream_events']))
         if expected.get('no_tools'):
             checks['no_tool_calls'] = not calls and not row['trace']['planned_keys']
         if 'max_tool_calls' in expected:
             checks['call_count_within_limit'] = len(calls) <= expected['max_tool_calls']
         succeeded = {c['tool_key'] for c in calls if c['status'] == 'success'}
         for index, group in enumerate(expected.get('required_tool_groups', [])):
-            checks[f'required_group_executed_{index + 1}'] = bool(succeeded.intersection(group))
+            checks[f'required_group_executed_{index + 1}'] = bool(
+                ({c['tool_key'] for c in calls} if expected.get('expected_read_refusal') else succeeded).intersection(group))
         # 本批所有题均禁止联网/脚本/写入。未知工具也不能凭成功状态获得豁免。
         allowed = set(expected.get('allowed_tool_keys', ['workspace.files.read', 'workspace.files.search', 'workspace.files.list']))
         checks['only_allowed_tool_calls'] = all(c['tool_key'] in allowed for c in calls)
@@ -332,6 +340,12 @@ class PilotRunner:
                 row.update(self.run_chat(case, project_id, files, conversation_id, knowledge))
             elif case['runner'] == 'document_task':
                 row.update(self.run_document(case, project_id, files, conversation_id))
+            elif case['runner'] == 'file_approval':
+                from agent_task_approval_runner import run_approval
+                row.update(run_approval(self, case, project_id, files, conversation_id))
+            elif case['runner'] == 'fault_injection':
+                from agent_task_fault_runner import run_probe
+                row.update(run_probe(self, case, project_id, files, conversation_id))
             else:
                 raise PrerequisiteMissing('受控故障注入尚未接入本批执行器')
             row['task_elapsed_ms'] = round((time.monotonic() - task_started) * 1000, 1)
@@ -340,11 +354,14 @@ class PilotRunner:
         except Exception as exc:
             # 逐题继续；错误类型可公开，原始异常可能带凭据，不能直接str(exc)。
             row.update(status='failed', error_type=type(exc).__name__)
-            if row.get('conversation_id') and case['runner'] == 'chat':
+            if row.get('conversation_id') and case['runner'] in {'chat','file_approval'}:
                 try:
                     row.update(self.chat_snapshot(row['conversation_id']))
                 except Exception as snapshot_error:
                     row['snapshot_error_type'] = type(snapshot_error).__name__
+                if case['runner']=='file_approval' and files:
+                    from agent_task_approval_runner import snapshot
+                    row['approval_state_after_error']=snapshot(next(iter(files.values())))
             if project_id:
                 try:
                     row['safety_after_failure'] = self.safety_checks(project_id, files)
@@ -364,7 +381,7 @@ class PilotRunner:
         for project_id in self.projects:
             with SessionLocal() as db:
                 runs = list(db.scalars(select(AgentRun.id).where(AgentRun.project_id == project_id,
-                                                               AgentRun.status.not_in(TERMINAL))))
+                    AgentRun.runtime_kind == 'document_workflow', AgentRun.status.not_in(TERMINAL))))
             for run_id in runs:
                 json_response(self.client.post(f'/api/document-tasks/{run_id}/cancel'))
             with SessionLocal() as db:
@@ -381,6 +398,8 @@ class PilotRunner:
                 db.execute(delete(ChatRuntimeMetric).where(ChatRuntimeMetric.conversation_id.in_(conversations)))
                 db.execute(delete(MemoryExtractionJob).where(MemoryExtractionJob.conversation_id.in_(conversations)))
                 db.execute(delete(UserMemory).where(UserMemory.project_id == project_id))
+                db.execute(delete(WorkspaceAgentPolicy).where(WorkspaceAgentPolicy.project_id == project_id))
+                db.execute(delete(WorkspaceToolSetting).where(WorkspaceToolSetting.project_id == project_id))
                 db.execute(delete(PatchDraft).where(PatchDraft.run_id.in_(runs)))
                 db.execute(delete(FileRevision).where(FileRevision.project_file_id.in_(files)))
                 for model in (AgentApproval, AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentStep):
@@ -397,8 +416,8 @@ class PilotRunner:
         return {'status': 'cleaned', 'projects': len(self.projects)}
 
 
-def execute_batch(dataset, *, base_url, email, output, html_path, timeout, browser_smoke=False):
-    """每题落盘后再清理；中断/缺前提/失败都留在12题分母与报告中。"""
+def execute_batch(dataset, *, base_url, email, output, html_path, timeout, browser_smoke=False, jobs=1):
+    """每题落盘后再清理；中断/缺前提/失败都保留在完整题本分母与报告中。"""
     output.parent.mkdir(parents=True, exist_ok=True)
     artifacts = output.parent / 'artifacts'
     artifacts.mkdir(exist_ok=True)
@@ -429,18 +448,23 @@ def execute_batch(dataset, *, base_url, email, output, html_path, timeout, brows
             health = client.get('/health/workers')
             metadata['worker_health'] = health.json()
             try:
-                for index, case in enumerate(dataset['cases']):
-                    rows[index] = runner.run_case(case)
-                    if browser_smoke and rows[index].get('run_id') and rows[index]['status'] == 'passed' and not metadata.get('browser'):
+                with ThreadPoolExecutor(max_workers=jobs) as pool:
+                    futures = {pool.submit(runner.run_case, case): index for index,case in enumerate(dataset['cases'])}
+                    for future in as_completed(futures):
+                        index = futures[future]
+                        case = dataset['cases'][index]
+                        rows[index] = future.result()
+                        if (browser_smoke and case['runner']=='document_task' and case.get('format')=='docx'
+                            and rows[index].get('run_id') and rows[index]['status']=='passed' and not metadata.get('browser')):
+                            save()
+                            try:
+                                metadata['browser'] = check_browser(rows[index]['run_id'], token, output.parent, html_path)
+                            except Exception as exc:
+                                metadata['browser'] = {'status': 'failed', 'error_type': type(exc).__name__}
                         save()
-                        try:
-                            metadata['browser'] = check_browser(rows[index]['run_id'], token, output.parent, html_path)
-                        except Exception as exc:
-                            metadata['browser'] = {'status': 'failed', 'error_type': type(exc).__name__}
-                    save()
-                    print(json.dumps({'case': case['id'], 'status': rows[index]['status'],
-                                      'failed_checks': [key for key, value in rows[index].get('checks', {}).items() if not value],
-                                      'error_type': rows[index].get('error_type')}, ensure_ascii=False), flush=True)
+                        print(json.dumps({'case': case['id'], 'status': rows[index]['status'],
+                                          'failed_checks': [key for key, value in rows[index].get('checks', {}).items() if not value],
+                                          'error_type': rows[index].get('error_type')}, ensure_ascii=False), flush=True)
             finally:
                 # 失败快照已先保存在本地，清理不会抹掉诊断。
                 save()

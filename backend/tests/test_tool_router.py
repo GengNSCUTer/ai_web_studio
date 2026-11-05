@@ -1038,5 +1038,21 @@ class ToolRouterTest(unittest.TestCase):
         asyncio.run(run_test())
 
 
+class ScopeDenialStopsLoopTest(unittest.IsolatedAsyncioTestCase):
+    async def test_permanent_scope_denial_stops_even_when_planner_requests_more(self):
+        from unittest.mock import AsyncMock
+        from app.services.tools.workflow import ToolWorkflowAggregate
+        planner = AlwaysContinuePlanner()
+        workflow = AsyncMock()
+        workflow.run.return_value = ToolWorkflowResult(
+            aggregate=ToolWorkflowAggregate(status='blocked', blocked_steps=1),
+            events=[ToolTraceEvent(type='tool_action_intent_check', payload={'status': 'denied'})])
+        result = await ExternalContextService(planner=planner, workflow=workflow).build_context(
+            query='只查已有资料', enabled=True, max_chars=2000)
+        self.assertEqual(planner.calls, 1)
+        self.assertEqual(result.diagnostics['external_agent_terminal_reason'], 'action_scope_denied')
+        self.assertEqual(result.diagnostics['external_tool_next_action'], 'clarify')
+
+
 if __name__ == "__main__":
     unittest.main()
