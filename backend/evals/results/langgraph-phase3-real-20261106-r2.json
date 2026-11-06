@@ -1,0 +1,14 @@
+{
+  "scope": "真实在线模型、浏览器、独立托管Worker、生产同库临时项目；只读任务",
+  "run_status": "succeeded",
+  "runtime_engine": "langgraph_tool_v1",
+  "native_checkpoint_count": 5,
+  "steps": 1,
+  "artifacts": 1,
+  "browser_errors": [],
+  "preview_created_run": false,
+  "browser_closed_while_queued": true,
+  "duplicate_confirm_reused_run": true,
+  "result_projected_to_original_conversation": true,
+  "result_visible_after_reopening_browser": true
+}

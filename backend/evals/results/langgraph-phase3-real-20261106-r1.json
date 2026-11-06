@@ -1,0 +1,11 @@
+{
+  "scope": "真实在线Chat和浏览器Handoff测试的第一次尝试",
+  "status": "failed",
+  "phase": "expand_tool_trace",
+  "error_type": "PlaywrightTimeoutError",
+  "reason": "测试使用get_by_role查找折叠details内默认不可见的按钮，导致父面板定位失败",
+  "run_created": false,
+  "worker_restored": true,
+  "temporary_project_cleaned": true,
+  "note": "不计作Durable业务验收通过；保留本次脚本定位失败"
+}

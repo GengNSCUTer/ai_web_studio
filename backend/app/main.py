@@ -32,15 +32,18 @@ from app.core.config import settings as app_settings, validate_runtime_security_
 from app.core.startup import ensure_runtime_schema
 from app.services.chat_persistence_service import dispose_async_engine
 from app.services.provider_client_pool import start_provider_client_pool, close_provider_client_pool
+from app.services.durable_checkpoint_service import checkpoint_pool_lifespan
+from app.core.database import engine as database_engine
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """启动检查版本，退出时释放 Provider 和 Chat 异步数据库连接池。"""
+    """启动检查版本，退出时释放Provider、Chat与图检查点的独立连接池。"""
     await anyio.to_thread.run_sync(ensure_runtime_schema)
     start_provider_client_pool()
     try:
-        yield
+        async with checkpoint_pool_lifespan(database_engine.url):
+            yield
     finally:
         try:
             await close_provider_client_pool()

@@ -76,12 +76,14 @@ tags: [langgraph, migration, agent, durability]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-013 | 锁定 langgraph-checkpoint-postgres 3.2.0，显式迁移建立项目专用 checkpoint schema；连接池/lifespan 独立管理；不通过Web请求自动setup生产表 | | |
-| TASK-014 | 新建 agent_graph/durable_graph.py、durable_checkpoint_service.py，将 user/project/run/attempt 与 thread_id/checkpoint_ns 明确映射；历史旧Run继续按原runtime版本恢复 | | |
-| TASK-015 | durable_tool_runtime.py Worker 仍按现有Lease领取/续租；checkpoint写入和步骤完成均校验owner/version。图节点先查已保存Artifact，完成则复用；外部调用不能因检查点落后重复执行 | | |
-| TASK-016 | 测“外部执行前/产物提交后/图检查点前/消息回传前”四处强制退出、双Worker抢占、旧worker迟到、重复handoff；检查结果只回传一次 | | |
+| TASK-013 | 锁定 langgraph-checkpoint-postgres 3.2.0，显式迁移建立项目专用 checkpoint schema；连接池/lifespan 独立管理；不通过Web请求自动setup生产表 | ✅ | 2026-11-06 |
+| TASK-014 | 新建 agent_graph/durable_graph.py、durable_checkpoint_service.py，将 user/project/run/attempt 与 thread_id/checkpoint_ns 明确映射；历史旧Run继续按原runtime版本恢复 | ✅ | 2026-11-06 |
+| TASK-015 | durable_tool_runtime.py Worker 仍按现有Lease领取/续租；checkpoint写入和步骤完成均校验owner/version。图节点先查已保存Artifact，完成则复用；外部调用不能因检查点落后重复执行 | ✅ | 2026-11-06 |
+| TASK-016 | 测“外部执行前/产物提交后/图检查点前/消息回传前”四处强制退出、双Worker抢占、旧worker迟到、重复handoff；检查结果只回传一次 | ✅ | 2026-11-06 |
 
 退出标准：进程重启可从已完成业务阶段继续；checkpoint不是第二份独立事实库；租约过期旧Worker不得写图或业务进度。
+
+阶段3记录见docs/211：新Run记录langgraph_tool_v1，每个Step独立thread；显式迁移20261106_01创建aiws_graph原生表和业务映射。17项PG专项、1138项完整后端及真实浏览器/独立Worker验收通过。已提交Artifact不重做；外部只读结果尚未提交时仍可至少一次重发，不承诺exactly-once或续token。
 
 ### Implementation Phase 4 — 审批暂停与恢复
 

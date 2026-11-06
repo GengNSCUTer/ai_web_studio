@@ -155,6 +155,8 @@ npm run build
 
 ## 7. 面试学习进度与每日收尾
 
+- 2026-11-06 阶段3已实现：只读Durable Step图preflight/execute_commit/reconcile、原生PG Saver与同事务事件行租约保护，迁移20261106_01（aiws_graph独立schema），先备份到仓库外。图state只存ID/状态，Run/Step/Artifact仍是事实；每Step独立thread，历史无引擎字段走旧恢复，未知版本拒绝。新事件领取版本必须大于同Step全部历史事件/Step版本，禁止重放归1。17项PG专项含四个os._exit窗口、双Worker/迟到、取消/过期/范围/清理；1138全量及在线浏览器/独立Worker/回传通过，详见docs/211。阶段4审批尚未迁移；无续token或通用exactly-once承诺。
+
 - 2026-11-06 用户要求阶段2剩余全部完成后按阶段3—7继续，定期独立提交推送、核对CI，最后给完整迁移说明。阶段2上下文七节点与生成/保存图已实现，1121全量含PG/Redis及在线HTTP七场景、浏览器、两项受控故障通过，详见docs/210。使用请求级单槽流桥接兼容Python3.10，generation进图前冻结、最终来源日志交接前提交；修复“只读文件，不联网”误触仅联网规则，保留失败批次。无图Checkpointer，后台图尚未迁移；不要提前宣称全量完成，不改变学习进度或启动Ollama。
 
 - 2026-11-06 用户已授权将项目业务编排逐步迁移LangGraph并同步GitHub。先推送记忆索引25f355b，Actions42143751282前后端成功；阶段1同步工具图已提交309fb82，Actions42147166908前后端成功。迁移总计划plan/refactor-langgraph-runtime-1.md、阶段记录docs/209；当前仅同步工具图plan/execute/observe/finalize，默认langgraph、显式legacy只作对照，不在异常后重跑。图State不放凭据/Session，禁用外部Trace；原安全/DAG/预算继续有效。Chat总图/持久化/审批/文档/后台阶段尚未迁移，不提前宣称图恢复。

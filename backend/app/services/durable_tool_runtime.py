@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-"""Durable execution for bounded, read-only Tool DAGs.
+"""有界、低风险只读工具DAG的持久化业务控制面。
 
-The existing chat path stays synchronous for short contextual lookups. This module
-is the separate control plane for work that may outlive an HTTP request: a Run and
-all of its Steps are committed with an outbox event, then a worker obtains a lease
-before executing exactly one Step. It deliberately accepts only low-risk read-only
-tools; file edits keep using the approval-specific continuation.
+Run、Step和Outbox仍原子提交，Worker领取并续租；新任务的步骤内编排由LangGraph
+接管，历史任务复用同一组业务步骤。图位置不替代正式产物/状态，文件写入不进入此队列。
 """
 
 import asyncio
@@ -291,6 +288,7 @@ class DurableToolRunService:
             planner_state_json=self._json(
                 {
                     "mode": "read_only_durable",
+                    "runtime_engine": "langgraph_tool_v1",
                     "call_ids": [item["call_id"] for item in normalized_calls],
                     "request_hash": request_hash,
                     "handoff_plan_fingerprint": handoff_plan_fingerprint,
@@ -463,6 +461,7 @@ class DurableToolRunService:
                 or_(AgentOutboxEvent.available_at.is_(None), AgentOutboxEvent.available_at <= now),
             )
             .order_by(AgentOutboxEvent.created_at.asc(), AgentStep.sequence.asc())
+            .execution_options(populate_existing=True)
             .with_for_update(skip_locked=True)
             .limit(1)
         ).first()
@@ -476,9 +475,16 @@ class DurableToolRunService:
             event.dead_lettered_at = now
             self.db.commit()
             return None
+        # 新Outbox事件（受控重放/对账补发）的局部计数不能让Step租约倒退，
+        # 否则旧事件与新事件都可能出现version=1，旧图在终态后重新通过校验。
+        self.db.refresh(step)
+        self.db.refresh(run)
+        historical_version = self.db.scalar(select(func.max(AgentOutboxEvent.lease_version)).where(
+            AgentOutboxEvent.step_id == step.id)) or 0
         event.status = "running"
         event.lease_owner = owner
-        event.lease_version = int(event.lease_version or 0) + 1
+        event.lease_version = max(int(event.lease_version or 0), int(step.lease_version or 0),
+                                  int(historical_version)) + 1
         event.lease_expires_at = now + timedelta(seconds=ttl)
         event.heartbeat_at = now
         event.attempt_count = int(event.attempt_count or 0) + 1
@@ -1053,6 +1059,14 @@ class DurableToolWorker:
                 raise RuntimeError("Worker 实例已失去注册身份，停止领取任务。")
 
     async def run_forever(self, *, poll_interval_seconds: float = 1.0) -> None:
+        """独立Worker生命周期内复用图检查点连接池，退出时统一关闭。"""
+        from app.services.durable_checkpoint_service import checkpoint_pool_lifespan
+        with self.session_factory() as db:
+            url = db.get_bind().url
+        async with checkpoint_pool_lifespan(url):
+            await self._run_forever(poll_interval_seconds=poll_interval_seconds)
+
+    async def _run_forever(self, *, poll_interval_seconds: float = 1.0) -> None:
         """空队列时持续轮询，隔离瞬时故障并响应优雅停机。"""
 
         delay = min(30.0, max(0.1, float(poll_interval_seconds)))
@@ -1104,6 +1118,34 @@ class DurableToolWorker:
             from app.services.document_task_worker import execute_document_claim
             await execute_document_claim(self, db, claim)
             return
+        runtime_engine = self._json_object(run.planner_state_json).get("runtime_engine")
+        if runtime_engine == "langgraph_tool_v1":
+            from app.services.agent_graph.durable_graph import run_durable_graph
+            await run_durable_graph(self, db, claim, run)
+            return
+        if runtime_engine is not None:
+            self._finish_terminal(db, run, step, event, claim, status="failed",
+                error_code="unsupported_runtime_version", error_message="任务运行时版本不受当前Worker支持。")
+            return
+        await self._execute_tool_claim_legacy(db, claim)
+
+    async def _execute_tool_claim_legacy(self, db: Session, claim: DurableStepClaim) -> None:
+        prepared = self._prepare_tool_execution(db, claim)
+        if prepared is None:
+            return
+        executor, call, run, step, event = prepared
+        result, events = await self._execute_with_heartbeat(executor, call, claim)
+        self._complete_tool_execution(db, claim, run, step, event, call, result, events)
+
+    def _prepare_tool_execution(self, db: Session, claim: DurableStepClaim):
+        """短事务校验依赖、版本与权限，返回网络调用所需的请求级对象。"""
+        event = db.get(AgentOutboxEvent, claim.outbox_event_id)
+        step = db.get(AgentStep, claim.step_id)
+        if not event or not step:
+            return None
+        run = db.get(AgentRun, step.run_id)
+        if not run or event.lease_owner != self.owner or event.lease_version != claim.outbox_lease_version:
+            return None
         dependency_status = self._dependency_status(db, run.id, step)
         if dependency_status == "waiting":
             self._requeue(
@@ -1129,9 +1171,8 @@ class DurableToolWorker:
             self._finish_terminal(db, run, step, event, claim, status="skipped", error_code=exc.code, error_message=str(exc))
             return
 
-        # Persist attempt ownership before issuing an external request. A dependency
-        # wait is not an execution attempt, while a crash after this point must be
-        # retried under a new lease and remains safe because this runtime is read-only.
+        # 外部调用前提交本次尝试；等待依赖不计执行尝试。崩溃后的新租约可能
+        # 重发尚未提交结果的请求，因此这里继续仅允许低风险只读工具。
         if not self._lock_claim(db, run, step, event, claim):
             return
         step.attempts = int(step.attempts or 0) + 1
@@ -1158,7 +1199,10 @@ class DurableToolWorker:
             for artifact in db.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run.id, AgentArtifact.user_id == run.user_id)):
                 executor.action_guard.remember_sources(json.loads(artifact.content_json).get("sources", []))
             db.commit()
-        result, events = await self._execute_with_heartbeat(executor, call, claim)
+        return executor, call, run, step, event
+
+    def _complete_tool_execution(self, db, claim, run, step, event, call, result, events):
+        """依据原业务质量规则提交产物、重排或失败；图检查点不能替代本事务。"""
         if result.status == "success":
             if not is_usable_tool_result(result):
                 quality_status, _ = quality_status_for_result(result)
@@ -1346,7 +1390,7 @@ class DurableToolWorker:
             return "blocked"
         return "ready"
 
-    def _finish_success(self, db: Session, run: AgentRun, step: AgentStep, event: AgentOutboxEvent, claim: DurableStepClaim, payload: dict[str, Any]) -> None:
+    def _finish_success(self, db: Session, run: AgentRun, step: AgentStep, event: AgentOutboxEvent, claim: DurableStepClaim, payload: dict[str, Any], *, existing_artifact: AgentArtifact | None = None) -> None:
         safe_payload = redact_sensitive_arguments(payload)
         for source in safe_payload.get("sources") or []:
             if not isinstance(source, dict):
@@ -1389,17 +1433,19 @@ class DurableToolWorker:
         if not self._lock_claim(db, run, step, event, claim):
             return
         preview = self._preview(safe_payload)
-        artifact = AgentArtifact(
-            run_id=run.id,
-            step_id=step.id,
-            user_id=run.user_id,
-            content_hash=hashlib.sha256(content_json.encode("utf-8")).hexdigest(),
-            preview=preview,
-            content_json=content_json,
-            char_count=len(content_json),
-        )
-        db.add(artifact)
-        db.flush()
+        if existing_artifact is None:
+            artifact = AgentArtifact(
+                run_id=run.id, step_id=step.id, user_id=run.user_id,
+                content_hash=hashlib.sha256(content_json.encode("utf-8")).hexdigest(),
+                preview=preview, content_json=content_json, char_count=len(content_json),
+            )
+            db.add(artifact)
+            db.flush()
+        else:
+            artifact = existing_artifact
+            if artifact.run_id != run.id or artifact.step_id != step.id or artifact.user_id != run.user_id:
+                db.rollback()
+                raise DurableToolRuntimeError("artifact_scope_conflict", "产物范围不匹配")
         step.status = "succeeded"
         step.result_json = json.dumps({"artifact_id": artifact.id, "sources_count": len(safe_payload["sources"])}, ensure_ascii=False)
         step.finished_at = utcnow()
@@ -1505,7 +1551,7 @@ class DurableToolWorker:
         event: AgentOutboxEvent,
         claim: DurableStepClaim,
     ) -> bool:
-        """Fence completion against a lease reclaimed while the Tool was running."""
+        """以数据库当前值拒绝已接管、已过期或已取消任务的旧执行者写入。"""
 
         db.expire_all()
         locked_event = db.scalars(
@@ -1519,6 +1565,8 @@ class DurableToolWorker:
             or locked_event.status != "running"
             or locked_event.lease_owner != self.owner
             or locked_event.lease_version != claim.outbox_lease_version
+            or not locked_event.lease_expires_at
+            or self._aware(locked_event.lease_expires_at) <= utcnow()
         ):
             db.rollback()
             return False
@@ -1529,7 +1577,7 @@ class DurableToolWorker:
             .with_for_update()
             .limit(1)
         ).first()
-        if not locked_run:
+        if not locked_run or locked_run.status not in {"queued", "running"}:
             db.rollback()
             return False
         if (
@@ -1539,13 +1587,16 @@ class DurableToolWorker:
         ):
             db.rollback()
             return False
-        # SQLAlchemy's identity map returns the same instance after the locked
-        # SELECT; assigning it keeps callers explicit and prevents stale fields.
+        # 锁定查询可能仍返回identity map里的实例，显式刷新原调用对象以排除旧缓存。
         if locked_event is not event:
             db.refresh(event)
         if locked_run is not run:
             db.refresh(run)
         return True
+
+    @staticmethod
+    def _aware(value: datetime) -> datetime:
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
     @staticmethod
     def _preview(payload: dict[str, Any]) -> str:
