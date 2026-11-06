@@ -13,6 +13,13 @@ def preview_requested(query: str) -> bool:
 
     if re.search(r"(?:不要|不用|无需|别)(?:生成|提供|做)?(?:修改)?(?:提案|草稿|预览|diff)|\b(?:no|without)\s+(?:draft|preview|proposal)\b", query, re.I):
         return False
+    # Diff既可用于只读预览，也可作为正式审批的展示内容。不能仅凭Diff一词
+    # 把明确“创建审批”的请求降成只读预览；但明确“只预览”仍优先，绝不等于批准。
+    only_preview = re.search(r"(?:仅|只)(?:生成|提供|做|给出|读)?(?:修改)?(?:提案|草稿|预览|diff)|\b(?:only|just)\s+(?:a\s+)?(?:preview|draft|diff)\b", query, re.I)
+    formal_approval = re.search(r"正式申请|申请修改|(?:创建|生成|发起).{0,18}审批|等待.{0,8}审批|\brequest\s+(?:an?\s+)?approval\b", query, re.I)
+    no_approval = re.search(r"(?:不要|不用|无需|别)(?:创建|生成|发起|申请)?审批|\b(?:no|without)\s+approval\b", query, re.I)
+    if formal_approval and not only_preview and not no_approval:
+        return False
     return bool(FILE_HINT.search(query) and PREVIEW.search(query) and EDIT_ACTION.search(query))
 
 

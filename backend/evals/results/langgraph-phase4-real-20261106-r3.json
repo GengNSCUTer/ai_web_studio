@@ -1,0 +1,67 @@
+{
+  "scope": "固定账号临时项目；真实DeepSeek-V3.2、文件工具、原生PG审批图、浏览器",
+  "chat_traces": [
+    {
+      "title": "图审批-确认",
+      "calls": [
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "planner_strategies": [
+        "explicit_literal_edit",
+        "llm_primary"
+      ],
+      "confirmation_required": true
+    },
+    {
+      "title": "图审批-拒绝",
+      "calls": [
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "planner_strategies": [
+        "explicit_literal_edit"
+      ],
+      "confirmation_required": true
+    },
+    {
+      "title": "图审批-读回",
+      "calls": [
+        {
+          "tool_key": "workspace.files.search",
+          "status": "success"
+        },
+        {
+          "tool_key": "workspace.files.read",
+          "status": "success"
+        }
+      ],
+      "planner_strategies": [
+        "llm_primary"
+      ],
+      "confirmation_required": false
+    }
+  ],
+  "pause_survived_backend_restart": true,
+  "browser_apply": "applied",
+  "duplicate_confirm_no_extra_revision": true,
+  "exact_file_change": true,
+  "browser_reject": "rejected",
+  "rejected_did_not_write": true,
+  "online_readback_completed": true,
+  "browser_errors": [],
+  "passed": true,
+  "temporary_data_cleaned": true
+}

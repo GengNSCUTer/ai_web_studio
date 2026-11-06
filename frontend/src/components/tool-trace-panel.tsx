@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { UILanguage } from "@/lib/settings";
 import type { ExternalSource, ToolTraceEvent } from "@/lib/types";
@@ -458,10 +458,30 @@ function DurableHandoffActions({
 }
 
 function ApprovalActions({ event, uiLanguage }: { event: ToolTraceEvent; uiLanguage: UILanguage }) {
-  const [state, setState] = useState<"pending" | "working" | "applied" | "rejected" | "error">("pending");
+  const [state, setState] = useState<"loading" | "pending" | "working" | "applied" | "rejected" | "expired" | "error">("loading");
   const [message, setMessage] = useState("");
   const approvalId = typeof event.approval_id === "string" ? event.approval_id : "";
-  if (event.type !== "tool_confirmation_required" || !approvalId || event.status !== "waiting_approval") {
+  const active = event.type === "tool_confirmation_required" && Boolean(approvalId) && event.status === "waiting_approval";
+  useEffect(() => {
+    if (!active) return;
+    const controller = new AbortController();
+    // 按审批ID读取数据库当前状态，不把历史Trace里的waiting_approval当作事实。
+    void fetch(`/api/backend/agent-runtime/approvals/${encodeURIComponent(approvalId)}`, {
+      cache: "no-store", signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("approval_status_unavailable");
+      const approval = await response.json();
+      if (controller.signal.aborted) return;
+      const status = approval.status === "consumed" ? "applied"
+        : approval.status === "rejected" ? "rejected"
+        : approval.status === "pending" && Date.parse(approval.expires_at) > Date.now() ? "pending" : "expired";
+      setState((current) => current === "working" ? current : status);
+    }).catch(() => {
+      if (!controller.signal.aborted) setState("error");
+    });
+    return () => controller.abort();
+  }, [active, approvalId]);
+  if (!active) {
     return null;
   }
 
@@ -485,7 +505,7 @@ function ApprovalActions({ event, uiLanguage }: { event: ToolTraceEvent; uiLangu
       await request(`/api/backend/agent-runtime/approvals/${approvalId}/apply`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ approval_token: challenge.approval_token }),
+        body: JSON.stringify({ approval_token: challenge.approval_token, expected_state_version: challenge.state_version }),
       });
       setState("applied");
       setMessage(uiLanguage === "zh-CN" ? "已通过版本 CAS 应用修改" : "Edit applied with revision CAS");
@@ -510,6 +530,7 @@ function ApprovalActions({ event, uiLanguage }: { event: ToolTraceEvent; uiLangu
 
   return (
     <div className="mt-2 rounded-lg border border-[var(--hairline)] bg-[var(--soft-bg)] p-2">
+      {state === "loading" ? <p className="text-[10px]">{uiLanguage === "zh-CN" ? "正在核对审批状态…" : "Checking approval…"}</p> : null}
       {state === "pending" || state === "working" ? (
         <div className="flex flex-wrap gap-2">
           <button
@@ -530,7 +551,14 @@ function ApprovalActions({ event, uiLanguage }: { event: ToolTraceEvent; uiLangu
           </button>
         </div>
       ) : null}
-      {message ? <p className={`mt-1 text-[10px] ${state === "error" ? "text-[var(--danger-text)]" : ""}`}>{message}</p> : null}
+      {message || state === "applied" || state === "rejected" || state === "expired" || state === "error" ? (
+        <p className={`mt-1 text-[10px] ${state === "error" ? "text-[var(--danger-text)]" : ""}`}>
+          {message || (state === "applied" ? (uiLanguage === "zh-CN" ? "已通过版本 CAS 应用修改" : "Edit applied with revision CAS")
+            : state === "rejected" ? (uiLanguage === "zh-CN" ? "已拒绝修改" : "Edit rejected")
+            : state === "expired" ? (uiLanguage === "zh-CN" ? "审批已失效，请重新查看任务" : "Approval expired; review the task")
+            : (uiLanguage === "zh-CN" ? "无法核对审批状态，请刷新后重试" : "Cannot check approval; reload to retry"))}
+        </p>
+      ) : null}
     </div>
   );
 }

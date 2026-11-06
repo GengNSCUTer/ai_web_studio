@@ -91,11 +91,13 @@ tags: [langgraph, migration, agent, durability]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-017 | 新建 agent_graph/approval_nodes.py：在写入前interrupt，先以唯一业务键保存PatchDraft/Approval；暂停释放Worker资源，安装/激活不等于执行批准 | | |
-| TASK-018 | agent_runtime.py 审批恢复只接受当前用户授权的approval_id/版本；重新检查Diff参数、基线版本、风险、工具版本，拒绝后收口，禁止模型伪造恢复 | | |
-| TASK-019 | 浏览器真实确认/拒绝/重复确认，另一会话修改、过期批准、跨用户恢复、暂停后重启、取消；复核真实文件和FileRevision只有预期一次变化 | | |
+| TASK-017 | 新建 agent_graph/approval_nodes.py：在写入前interrupt，先以唯一业务键保存PatchDraft/Approval；暂停释放Worker资源，安装/激活不等于执行批准 | ✅ | 2026-11-06 |
+| TASK-018 | agent_runtime.py 审批恢复只接受当前用户授权的approval_id/版本；重新检查Diff参数、基线版本、风险、工具版本，拒绝后收口，禁止模型伪造恢复 | ✅ | 2026-11-06 |
+| TASK-019 | 浏览器真实确认/拒绝/重复确认，另一会话修改、过期批准、跨用户恢复、暂停后重启、取消；复核真实文件和FileRevision只有预期一次变化 | ✅ | 2026-11-06 |
 
 退出标准：审批状态、图暂停状态和任务状态一致；resume前重进节点不能重复建审批/重复写文件。
+
+阶段4记录见docs/212：文件审批使用langgraph_approval_v1，独立有界同步池；服务端每次授权恢复，令牌只放Runtime，文件事务仍以权限/参数/内容及最新Revision为准。20项PG专项、1159项全量及在线语义修改/浏览器暂停后重启确认/拒绝/重复/读回通过；r1的Diff意图误判已修复并保留失败报告。文档任务可选保存待阶段5。
 
 ### Implementation Phase 5 — 文档交付与可恢复子图
 

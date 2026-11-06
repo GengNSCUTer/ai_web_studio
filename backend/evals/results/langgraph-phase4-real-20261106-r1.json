@@ -1,0 +1,6 @@
+{
+  "scope": "固定账号临时项目；真实DeepSeek-V3.2、文件工具、原生PG审批图、浏览器",
+  "passed": false,
+  "error_type": "AssertionError",
+  "temporary_data_cleaned": true
+}

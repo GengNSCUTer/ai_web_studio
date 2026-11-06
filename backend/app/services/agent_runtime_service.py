@@ -25,6 +25,10 @@ from app.models.message import Message
 from app.models.project_file import ProjectFile
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.workspace_file_provenance import content_hash, ensure_current_revision
+from app.services.approval_checkpoint_service import APPROVAL_GRAPH_VERSION
+from app.services.tools.catalog import ToolCatalog
+from app.services.tools.credentials import ToolCredentialResolver
+from app.services.tools.schemas import tool_execution_snapshot
 
 
 def utcnow() -> datetime:
@@ -131,9 +135,7 @@ class AgentRuntimeService:
         ).first()
         if not project_file:
             raise AgentRuntimeError("file_not_found", "工作区中未找到该文件。")
-        # The high-risk apply_edit path does not go through the read-only
-        # WorkspaceFileToolProvider, so enforce the sensitive-file policy again
-        # at the mutation boundary before producing a Diff or approval record.
+        # 写入不经过只读Provider，在创建Diff和审批前再次拦截敏感文件。
         if WorkspaceFileToolProvider.is_sensitive_file_name(project_file.file_name):
             raise AgentRuntimeError(
                 "sensitive_file_blocked",
@@ -175,7 +177,7 @@ class AgentRuntimeService:
             select(AgentRun).where(AgentRun.idempotency_key == idempotency_key).limit(1)
         ).first()
         if existing_run:
-            return self._proposal_for_run(existing_run, user_id)
+            return self._with_approval_graph(self._proposal_for_run(existing_run, user_id), user_id)
 
         diff_text = "\n".join(
             difflib.unified_diff(
@@ -197,7 +199,9 @@ class AgentRuntimeService:
             assistant_message_id=assistant_message_id,
             status="waiting_approval",
             input_json=json.dumps({"file_id": file_id, "tool_key": "workspace.files.apply_edit"}),
-            planner_state_json=json.dumps({"call_id": call_id, "depends_on": depends_on or []}),
+            planner_state_json=json.dumps({"call_id": call_id, "depends_on": depends_on or [],
+                "runtime_engine": APPROVAL_GRAPH_VERSION,
+                "tool_snapshot": tool_execution_snapshot(ToolCatalog().get("workspace.files.apply_edit"))}),
             idempotency_key=idempotency_key,
             state_version=1,
             current_step=1,
@@ -270,8 +274,8 @@ class AgentRuntimeService:
             ).first()
             if not existing_run:
                 raise
-            return self._proposal_for_run(existing_run, user_id)
-        return FileEditProposal(
+            return self._with_approval_graph(self._proposal_for_run(existing_run, user_id), user_id)
+        proposal = FileEditProposal(
             run_id=run.id,
             step_id=step.id,
             patch_draft_id=draft.id,
@@ -282,6 +286,22 @@ class AgentRuntimeService:
             arguments_hash=arguments_hash,
             expires_at=expires_at,
         )
+        return self._with_approval_graph(proposal, user_id)
+
+    def _with_approval_graph(self, proposal, user_id):
+        """草稿已提交后进入图等待；历史任务不强制改写运行时版本。"""
+        run = self.db.get(AgentRun, proposal.run_id)
+        if self._file_edit_uses_graph(run) and run.status == "waiting_approval":
+            from app.services.agent_graph.approval_nodes import run_approval_graph
+            run_approval_graph(self, approval_id=proposal.approval_id, user_id=user_id)
+        return proposal
+
+    @staticmethod
+    def _file_edit_uses_graph(run):
+        engine = json.loads(run.planner_state_json or "{}").get("runtime_engine") if run else None
+        if engine is not None and engine != APPROVAL_GRAPH_VERSION:
+            raise AgentRuntimeError("unsupported_runtime_version", "未知文件审批运行时，拒绝恢复。")
+        return engine == APPROVAL_GRAPH_VERSION
 
     def issue_approval_challenge(self, *, approval_id: str, user_id: str) -> str:
         approval = self.db.scalars(
@@ -308,11 +328,7 @@ class AgentRuntimeService:
         proposal: FileEditProposal,
         user_id: str,
     ) -> FileEditApplyResult:
-        """Auto-apply an allowlisted workspace edit while preserving CAS and audit state.
-
-        This is intentionally not a generic approval bypass. The caller must already
-        have resolved the workspace policy, and only the scoped ProjectFile edit uses it.
-        """
+        """按当前工作区明确策略应用受控修改，仍保留CAS与审计，不是通用审批旁路。"""
 
         approval = self.db.scalars(
             select(AgentApproval)
@@ -345,7 +361,54 @@ class AgentRuntimeService:
         approval_id: str,
         user_id: str,
         approval_token: str,
+        expected_state_version: int | None = None,
     ) -> FileEditApplyResult:
+        approval = self.db.scalar(select(AgentApproval).where(
+            AgentApproval.id == approval_id, AgentApproval.user_id == user_id).execution_options(populate_existing=True))
+        run = self.db.get(AgentRun, approval.run_id) if approval else None
+        if approval and self._file_edit_uses_graph(run) and approval.status != "consumed":
+            from app.services.agent_graph.approval_nodes import run_approval_graph
+            return run_approval_graph(self, approval_id=approval_id, user_id=user_id,
+                decision="approve", token=approval_token, expected_state_version=expected_state_version)
+        return self._apply_file_edit_business(approval_id=approval_id, user_id=user_id,
+            approval_token=approval_token, expected_state_version=expected_state_version)
+
+    def _validate_file_edit_decision(self, identity, decision, token):
+        """恢复前与实际写入前都检查数据库现值，令牌不会进入图State。"""
+        self.db.expire_all()
+        approval = self.db.scalar(select(AgentApproval).where(
+            AgentApproval.id == identity.approval_id, AgentApproval.user_id == identity.user_id).with_for_update())
+        run = self.db.get(AgentRun, identity.run_id)
+        if not approval or not run or approval.run_id != run.id or approval.step_id != identity.step_id:
+            raise AgentRuntimeError("approval_not_found", "审批不存在。")
+        if run.state_version != identity.state_version or run.status != "waiting_approval":
+            raise AgentRuntimeError("approval_version_conflict", "审批版本或任务状态已变化。")
+        if decision == "reject":
+            if approval.status not in {"pending", "expired"}:
+                raise AgentRuntimeError("approval_not_pending", "当前审批不能拒绝。")
+            return
+        if decision != "approve":
+            raise AgentRuntimeError("invalid_approval_decision", "不支持的审批决定。")
+        if approval.status != "pending" or self._as_utc(approval.expires_at) <= utcnow():
+            raise AgentRuntimeError("approval_expired", "审批已失效，请重新生成编辑提案。")
+        if not approval.nonce_hash or not hmac.compare_digest(self._hash_text(token or ""), approval.nonce_hash):
+            raise AgentRuntimeError("invalid_approval_token", "确认挑战不匹配，请重新获取。")
+        resolver = ToolCredentialResolver(self.db)
+        mode = resolver.get_workspace_permission_mode(project_id=run.project_id)
+        if (mode == "read_only" or not resolver.is_tool_enabled_for_workspace(
+                project_id=run.project_id, tool_key="workspace.files.apply_edit")
+                or (approval.decision_mode == "full_workspace_policy" and mode != "full_workspace")):
+            raise AgentRuntimeError("permission_changed", "当前工作区权限已变化，拒绝应用旧提案。")
+        state = json.loads(run.planner_state_json or "{}")
+        if self._file_edit_uses_graph(run) and state.get("tool_snapshot") != tool_execution_snapshot(
+                ToolCatalog().get("workspace.files.apply_edit")):
+            raise AgentRuntimeError("tool_snapshot_mismatch", "工具定义已变化，请重新生成提案。")
+        self._validate_context_scope(user_id=identity.user_id, project_id=run.project_id,
+            conversation_id=run.conversation_id, assistant_message_id=run.assistant_message_id)
+
+    def _apply_file_edit_business(self, *, approval_id, user_id, approval_token, expected_state_version=None):
+        """唯一实际写入入口；图只负责何时调用，审批/CAS与版本提交仍在本短事务。"""
+        self.db.expire_all()
         approval = self.db.scalars(
             select(AgentApproval)
             .where(AgentApproval.id == approval_id, AgentApproval.user_id == user_id)
@@ -384,10 +447,23 @@ class AgentRuntimeService:
         ).first()
         if not run or not step or not project_file:
             raise AgentRuntimeError("runtime_state_missing", "Agent 恢复状态不完整，拒绝写入。")
+        from app.services.approval_checkpoint_service import ApprovalIdentity
+        self._validate_file_edit_decision(ApprovalIdentity(user_id, run.project_id, run.id, step.id,
+            approval_id, expected_state_version if expected_state_version is not None else run.state_version),
+            "approve", approval_token)
+        if project_file.project_id != run.project_id or WorkspaceFileToolProvider.is_sensitive_file_name(project_file.file_name):
+            raise AgentRuntimeError("file_scope_changed", "文件范围或敏感级别已变化，拒绝应用提案。")
         if approval.arguments_hash != step.arguments_hash or approval.arguments_hash != draft.arguments_hash:
             raise AgentRuntimeError("arguments_changed", "审批参数哈希不一致，拒绝写入。")
+        args = json.loads(step.arguments_json)
+        if self._arguments_hash(user_id=user_id, project_id=run.project_id, file_id=draft.project_file_id,
+                old_string=draft.old_string, new_string=draft.new_string,
+                expected_revision_id=args.get("expected_revision_id")) != approval.arguments_hash:
+            raise AgentRuntimeError("arguments_changed", "提案原始参数已变化，拒绝写入。")
         current = project_file.parsed_text or ""
-        if self._hash_text(current) != draft.base_content_hash:
+        latest_revision = self.db.scalar(select(FileRevision.id).where(FileRevision.project_file_id == project_file.id)
+            .order_by(FileRevision.revision_number.desc()).limit(1))
+        if self._hash_text(current) != draft.base_content_hash or latest_revision != draft.base_revision_id:
             run.status = "conflict"
             step.status = "conflict"
             step.error_code = "file_revision_conflict"
@@ -455,7 +531,19 @@ class AgentRuntimeService:
         self.db.commit()
         return self._apply_result(approval, draft, revision, status="applied")
 
-    def reject_approval(self, *, approval_id: str, user_id: str) -> FileEditApplyResult:
+    def reject_approval(self, *, approval_id: str, user_id: str, expected_state_version=None) -> FileEditApplyResult:
+        approval = self.db.scalar(select(AgentApproval).where(
+            AgentApproval.id == approval_id, AgentApproval.user_id == user_id).execution_options(populate_existing=True))
+        run = self.db.get(AgentRun, approval.run_id) if approval else None
+        if approval and self._file_edit_uses_graph(run) and approval.status not in {"rejected", "consumed"}:
+            from app.services.agent_graph.approval_nodes import run_approval_graph
+            return run_approval_graph(self, approval_id=approval_id, user_id=user_id,
+                decision="reject", expected_state_version=expected_state_version)
+        return self._reject_file_edit_business(approval_id=approval_id, user_id=user_id,
+            expected_state_version=expected_state_version)
+
+    def _reject_file_edit_business(self, *, approval_id, user_id, expected_state_version=None):
+        self.db.expire_all()
         approval = self.db.scalars(
             select(AgentApproval)
             .where(AgentApproval.id == approval_id, AgentApproval.user_id == user_id)
@@ -468,6 +556,12 @@ class AgentRuntimeService:
         run = self.db.get(AgentRun, approval.run_id)
         if approval.status == "consumed":
             raise AgentRuntimeError("already_consumed", "已应用的编辑不能再拒绝。")
+        if approval.status == "rejected" and draft:
+            return self._apply_result(approval, draft, None, status="rejected")
+        if run:
+            from app.services.approval_checkpoint_service import ApprovalIdentity
+            self._validate_file_edit_decision(ApprovalIdentity(user_id, run.project_id, run.id, approval.step_id,
+                approval_id, expected_state_version if expected_state_version is not None else run.state_version), "reject", "")
         approval.status = "rejected"
         approval.nonce_hash = None
         if draft:

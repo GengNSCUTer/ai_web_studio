@@ -17,7 +17,7 @@ from app.api.routes.tools import (
     update_mcp_tool,
     update_workspace_agent_policy,
 )
-from app.api.routes.agent_runtime import apply_approval, issue_approval_challenge
+from app.api.routes.agent_runtime import apply_approval, issue_approval_challenge, get_approval
 from app.core.database import Base
 from app.models.agent_runtime import FileRevision
 from app.models.project_file import ProjectFile
@@ -364,6 +364,12 @@ class ToolRoutesTest(unittest.TestCase):
             )
             approval_id = proposal_result.sources[0].metadata["approval_id"]
             self.assertIn("待修改内容", db.get(ProjectFile, project_file.id).parsed_text)
+            snapshot = get_approval(approval_id=approval_id, db=db, current_user=user)
+            self.assertEqual(snapshot.status, "pending")
+            self.assertNotIn("nonce_hash", snapshot.model_dump())
+            with self.assertRaises(HTTPException) as denied:
+                get_approval(approval_id=approval_id, db=db, current_user=SimpleNamespace(id="not-the-owner"))
+            self.assertEqual(denied.exception.status_code, 404)
 
             challenge = issue_approval_challenge(
                 approval_id=approval_id,
@@ -372,12 +378,13 @@ class ToolRoutesTest(unittest.TestCase):
             )
             applied = apply_approval(
                 approval_id=approval_id,
-                payload=ApprovalApplyRequest(approval_token=challenge.approval_token),
+                payload=ApprovalApplyRequest(approval_token=challenge.approval_token, expected_state_version=challenge.state_version),
                 db=db,
                 current_user=user,
             )
             self.assertEqual(applied.status, "applied")
             self.assertEqual(applied.revision_number, 2)
+            self.assertEqual(get_approval(approval_id=approval_id, db=db, current_user=user).status, "consumed")
             self.assertIn("已修改内容", db.get(ProjectFile, project_file.id).parsed_text)
             self.assertEqual(
                 db.query(FileRevision).filter(FileRevision.project_file_id == project_file.id).count(),

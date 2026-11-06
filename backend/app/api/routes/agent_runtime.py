@@ -314,7 +314,24 @@ def issue_approval_challenge(
     except AgentRuntimeError as exc:
         raise _http_error(exc) from exc
     # token 只在这一次响应中返回；数据库和 Tool Trace 只保存 SHA-256。
-    return ApprovalChallengeResponse(approval_id=approval_id, approval_token=token)
+    approval = db.get(AgentApproval, approval_id)
+    run = db.get(AgentRun, approval.run_id) if approval else None
+    return ApprovalChallengeResponse(approval_id=approval_id, approval_token=token,
+                                     state_version=run.state_version if run else None)
+
+
+@router.get("/approvals/{approval_id}", response_model=AgentApprovalResponse)
+def get_approval(
+    approval_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AgentApprovalResponse:
+    # 历史Tool事件不能代表当前审批状态；这里只返回当前用户的轻量元数据，不返回令牌或Diff。
+    approval = db.scalar(select(AgentApproval).join(AgentRun, AgentRun.id == AgentApproval.run_id).where(
+        AgentApproval.id == approval_id, AgentApproval.user_id == current_user.id, AgentRun.user_id == current_user.id))
+    if not approval:
+        raise HTTPException(404, "审批不存在。")
+    return AgentApprovalResponse.model_validate(approval)
 
 
 @router.post("/approvals/{approval_id}/apply", response_model=FileEditApplyResponse | dict[str, object])
@@ -337,6 +354,7 @@ def apply_approval(
             approval_id=approval_id,
             user_id=current_user.id,
             approval_token=payload.approval_token,
+            expected_state_version=payload.expected_state_version,
         )
     except AgentRuntimeError as exc:
         raise _http_error(exc) from exc

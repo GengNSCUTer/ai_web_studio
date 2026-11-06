@@ -155,6 +155,8 @@ npm run build
 
 ## 7. 面试学习进度与每日收尾
 
+- 2026-11-06 阶段4：文件审批图wait_for_user(interrupt)/apply_decision/reconcile，原生PG，同步有界池与同审批锁。令牌只在Runtime，版本/权限/工具快照/参数/最新Revision仍由原短事务核对；20项PG含暂停/提交前后os._exit、并发、拒绝及池回收，在线语义修改/浏览器重启确认/拒绝/重复/新会话读回通过，见docs/212。Diff+正式审批不再误判为仅预览。阶段5文档审批另做；不改高风险工具范围或学习进度。
+
 - 2026-11-06 阶段3已实现：只读Durable Step图preflight/execute_commit/reconcile、原生PG Saver与同事务事件行租约保护，迁移20261106_01（aiws_graph独立schema），先备份到仓库外。图state只存ID/状态，Run/Step/Artifact仍是事实；每Step独立thread，历史无引擎字段走旧恢复，未知版本拒绝。新事件领取版本必须大于同Step全部历史事件/Step版本，禁止重放归1。17项PG专项含四个os._exit窗口、双Worker/迟到、取消/过期/范围/清理；1138全量及在线浏览器/独立Worker/回传通过，详见docs/211。阶段4审批尚未迁移；无续token或通用exactly-once承诺。
 
 - 2026-11-06 用户要求阶段2剩余全部完成后按阶段3—7继续，定期独立提交推送、核对CI，最后给完整迁移说明。阶段2上下文七节点与生成/保存图已实现，1121全量含PG/Redis及在线HTTP七场景、浏览器、两项受控故障通过，详见docs/210。使用请求级单槽流桥接兼容Python3.10，generation进图前冻结、最终来源日志交接前提交；修复“只读文件，不联网”误触仅联网规则，保留失败批次。无图Checkpointer，后台图尚未迁移；不要提前宣称全量完成，不改变学习进度或启动Ollama。

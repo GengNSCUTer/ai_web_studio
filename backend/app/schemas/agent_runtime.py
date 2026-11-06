@@ -113,10 +113,12 @@ class AgentRunSnapshotResponse(BaseModel):
 class ApprovalChallengeResponse(BaseModel):
     approval_id: str
     approval_token: str
+    state_version: int | None = None
 
 
 class ApprovalApplyRequest(BaseModel):
     approval_token: str = Field(min_length=20, max_length=256)
+    expected_state_version: int | None = Field(default=None, ge=1)
 
 
 class FileEditApplyResponse(BaseModel):

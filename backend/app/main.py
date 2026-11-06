@@ -33,6 +33,7 @@ from app.core.startup import ensure_runtime_schema
 from app.services.chat_persistence_service import dispose_async_engine
 from app.services.provider_client_pool import start_provider_client_pool, close_provider_client_pool
 from app.services.durable_checkpoint_service import checkpoint_pool_lifespan
+from app.services.approval_checkpoint_service import approval_pool_lifespan
 from app.core.database import engine as database_engine
 
 
@@ -42,8 +43,9 @@ async def lifespan(_: FastAPI):
     await anyio.to_thread.run_sync(ensure_runtime_schema)
     start_provider_client_pool()
     try:
-        async with checkpoint_pool_lifespan(database_engine.url):
-            yield
+        with approval_pool_lifespan(database_engine.url):
+            async with checkpoint_pool_lifespan(database_engine.url):
+                yield
     finally:
         try:
             await close_provider_client_pool()

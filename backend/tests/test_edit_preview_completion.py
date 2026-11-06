@@ -31,6 +31,23 @@ def observations(*sources):
 
 
 class EditPreviewCompletionTest(unittest.TestCase):
+    def test_diff_can_be_an_approval_preview_without_changing_explicit_preview_only_intent(self):
+        for query in (
+            "正式申请修改guide.md，把旧标题替换为新标题，创建真实Diff并等待我审批。",
+            "申请修改guide.md，创建Diff和等待我确认的审批，不要直接写入。",
+        ):
+            self.assertTrue(approval_requested(query), query)
+            self.assertFalse(preview_requested(query), query)
+            tools, _ = ToolCandidateSelector().select(query=query, enabled=True)
+            self.assertIn("workspace.files.apply_edit", {tool.tool_key for tool in tools})
+        for query in (
+            "正式申请修改guide.md，只生成Diff预览，不要写入。",
+            "读取guide.md，给出修改Diff，不要创建审批。",
+            "读取guide.md，只预览替换内容，等待用户确认。",
+        ):
+            self.assertTrue(preview_requested(query), query)
+            self.assertFalse(approval_requested(query), query)
+
     def test_formal_approval_requires_real_record_not_read_or_text_preview(self):
         query = "正式申请修改guide.md，把旧标题替换为新标题，等待我审批。"
         self.assertTrue(approval_requested(query))
