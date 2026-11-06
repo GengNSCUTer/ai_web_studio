@@ -66,6 +66,14 @@ class ReadOnlyFileSelector(ToolCandidateSelector):
         )
         return super().select(**kwargs)
 
+    async def select_async(self, **kwargs):
+        # 生产入口已是语义混合召回，异步入口也必须执行本场景的候选约束。
+        allowed = kwargs.get("allowed_tool_keys")
+        kwargs["allowed_tool_keys"] = (
+            {"workspace.files.read"} if allowed is None else allowed & {"workspace.files.read"}
+        )
+        return await super().select_async(**kwargs)
+
 
 async def run_case(*, user_id: str, project_id: str, first_file_id: str) -> dict:
     with SessionLocal() as db:
@@ -185,6 +193,9 @@ async def run_unavailable_planner_case(*, user_id: str, project_id: str) -> dict
             # 仅当前验收进程模拟不可用 Planner；最终回答仍使用账号真实在线模型。
             service.planner.chat_provider = UnavailablePlannerProvider()
             service.planner.planner_timeout_seconds = 0.01
+            # 本场景明确验证“无安全兜底”：只开放read但不提供file_id，不能让
+            # 后续新增的list/search确定性兜底改变故障前提，不修改生产候选配置。
+            service.planner.candidate_selector = ReadOnlyFileSelector(service.registry)
             return service
 
         with patch("app.services.chat_context_assembly_service.ExternalContextService",

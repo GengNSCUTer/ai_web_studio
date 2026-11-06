@@ -67,6 +67,8 @@ class Settings:
     chat_first_token_timeout_seconds: float = float(os.getenv("CHAT_FIRST_TOKEN_TIMEOUT_SECONDS", "120"))
     chat_stream_idle_timeout_seconds: float = float(os.getenv("CHAT_STREAM_IDLE_TIMEOUT_SECONDS", "120"))
     chat_stream_total_timeout_seconds: float = float(os.getenv("CHAT_STREAM_TOTAL_TIMEOUT_SECONDS", "900"))
+    # 迁移期间仅由服务端显式选择；执行失败后不得自动切旧引擎重跑。
+    tool_orchestration_engine: str = os.getenv("TOOL_ORCHESTRATION_ENGINE", "langgraph")
     # Web 事件循环内的 Provider 客户端数量与每个客户端的 HTTP 连接上限。
     provider_client_pool_max_size: int = int(os.getenv("PROVIDER_CLIENT_POOL_MAX_SIZE", "32"))
     provider_client_pool_wait_seconds: float = float(os.getenv("PROVIDER_CLIENT_POOL_WAIT_SECONDS", "10"))

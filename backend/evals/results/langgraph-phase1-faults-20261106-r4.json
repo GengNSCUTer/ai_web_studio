@@ -1,0 +1,33 @@
+{
+  "langgraph_version": "1.2.20",
+  "scope": "真实在线模型/工具/最终回答，故障由测试进程显式注入",
+  "faults": [
+    {
+      "scenario": "real_model_partial_tool_timeout_with_controlled_delay",
+      "planner": "online_llm",
+      "tool": "real_workspace_file_read",
+      "assistant_status": "done",
+      "route_status": "partial",
+      "call_statuses": [
+        "success",
+        "timed_out"
+      ],
+      "answer_chars": 243,
+      "available_fact_used": true,
+      "unavailable_fact_not_invented": true,
+      "planner_latency_ms": 5872,
+      "execution_latency_ms": 29151,
+      "tool_phase_latency_ms": 35046
+    },
+    {
+      "scenario": "unavailable_planner_without_safe_fallback",
+      "planner": "controlled_timeout",
+      "final_model": "deepseek-ai/DeepSeek-V3.2",
+      "route_status": "error",
+      "assistant_status": "done",
+      "tool_calls": 0,
+      "limitation_disclosed": true,
+      "answer_chars": 233
+    }
+  ]
+}

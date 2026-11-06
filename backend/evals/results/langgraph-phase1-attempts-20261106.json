@@ -1,0 +1,12 @@
+{
+  "scope": "迁移阶段1真实验收尝试记录；不计算通用任务成功率，不覆盖失败",
+  "attempts": [
+    {"attempt": "initial_browser_wrapper", "status": "failed", "failure_layer": "test_harness", "reason": "包装脚本错误访问不存在的ToolRouteRun.project_id；改为关联Conversation", "fixture_cleaned": true},
+    {"attempt": "r2", "browser": "passed", "partial_timeout": "passed", "unavailable_planner": "failed", "failure_layer": "test_precondition", "reason": "旧测试假设没有安全兜底，但新增的文件list/search规则可以继续执行；已限定无file_id的只读候选构造真正无安全兜底场景", "fixture_cleaned": true},
+    {"attempt": "r3", "browser": "passed", "partial_timeout": "failed", "failure_layer": "final_answer_assertion", "reason": "最终回答未通过数字/未完成披露检查；该次原文未保存，不能推断只是词面误判或已定位为框架回归", "report": "langgraph-phase1-real-20261106-r3.json", "fixture_cleaned": true},
+    {"attempt": "independent_partial_diagnosis", "status": "passed", "route_status": "partial", "assistant_status": "done", "call_statuses": ["success", "timed_out"], "available_fact_used": true, "unavailable_fact_not_invented": true, "planner_latency_ms": 16023, "execution_latency_ms": 18989, "tool_phase_latency_ms": 35031, "fixture_cleaned": true},
+    {"attempt": "independent_unavailable_check", "status": "passed", "route_status": "error", "assistant_status": "done", "tool_calls": 0, "limitation_disclosed": true, "fixture_cleaned": true},
+    {"attempt": "r4_faults", "status": "passed", "report": "langgraph-phase1-faults-20261106-r4.json", "partial_timeout": "passed", "unavailable_planner": "passed", "fixture_cleaned": true}
+  ],
+  "limitation": "独立复跑通过不抹掉r3答案检查失败；模型答案稳定性仍需更大样本，不据此宣称全部真实尝试零失败"
+}
