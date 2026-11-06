@@ -155,6 +155,8 @@ npm run build
 
 ## 7. 面试学习进度与每日收尾
 
+- 2026-11-06 阶段5：document_graph四阶段与可选保存审批图已接入，导出即可下载。迁移20261106_02按(step_id,runtime_key)区分审批/执行图；备份20261106-langgraph-stage5-c2b07e27在仓库外。delivery与业务提交合并节点防Saver锁互等；claim同时看Step/事件，保留当前事件过期接管。13项原生文档PG专项、1171全量及新增过期专项、在线Word/浏览器/独立进程/并列取消通过，见docs/213。无token续接、无沙箱权限变化；阶段6后台图未做，不改变学习进度。
+
 - 2026-11-06 阶段4：文件审批图wait_for_user(interrupt)/apply_decision/reconcile，原生PG，同步有界池与同审批锁。令牌只在Runtime，版本/权限/工具快照/参数/最新Revision仍由原短事务核对；20项PG含暂停/提交前后os._exit、并发、拒绝及池回收，在线语义修改/浏览器重启确认/拒绝/重复/新会话读回通过，见docs/212。Diff+正式审批不再误判为仅预览。阶段5文档审批另做；不改高风险工具范围或学习进度。
 
 - 2026-11-06 阶段3已实现：只读Durable Step图preflight/execute_commit/reconcile、原生PG Saver与同事务事件行租约保护，迁移20261106_01（aiws_graph独立schema），先备份到仓库外。图state只存ID/状态，Run/Step/Artifact仍是事实；每Step独立thread，历史无引擎字段走旧恢复，未知版本拒绝。新事件领取版本必须大于同Step全部历史事件/Step版本，禁止重放归1。17项PG专项含四个os._exit窗口、双Worker/迟到、取消/过期/范围/清理；1138全量及在线浏览器/独立Worker/回传通过，详见docs/211。阶段4审批尚未迁移；无续token或通用exactly-once承诺。

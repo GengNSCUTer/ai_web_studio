@@ -1,0 +1,28 @@
+{
+  "scope": "在线模型、真实文件、浏览器/Word下载、独立阶段进程、托管Worker、PG原生图",
+  "business": {
+    "real_file_tool": "executor_read_succeeded",
+    "duplicate_create": "one_run",
+    "separate_process_resume": "evidence_draft_export_persisted",
+    "word_download": "valid_docx_with_sources",
+    "download_only": "succeeded_without_approval_or_project_file",
+    "approval_save": "succeeded_once",
+    "browser": "desktop_mobile_no_errors",
+    "parallel_task_and_cancel": "independent_artifacts_preserved",
+    "conversation_projection": "one_message_per_run"
+  },
+  "native": {
+    "run_engines": [
+      "langgraph_document_v1",
+      "langgraph_document_v1",
+      "langgraph_document_v1"
+    ],
+    "threads_by_runtime": {
+      "langgraph_document_approval_v1": 1,
+      "langgraph_document_v1": 7
+    },
+    "checkpoint_count": 45,
+    "checkpoint_excludes_document_body": true
+  },
+  "passed": true
+}

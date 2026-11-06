@@ -345,7 +345,8 @@ def apply_approval(
     if approval and approval.action == "documents.save_to_workspace":
         from app.services.document_task_service import DocumentTaskService, DocumentTaskError
         try:
-            return DocumentTaskService(db).approve(current_user.id, approval_id, payload.approval_token)
+            return DocumentTaskService(db).approve(current_user.id, approval_id, payload.approval_token,
+                                                   expected_state_version=payload.expected_state_version)
         except DocumentTaskError as exc:
             db.rollback()
             raise HTTPException(409, str(exc)) from exc

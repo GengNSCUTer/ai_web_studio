@@ -38,6 +38,7 @@ STAGES = ("evidence", "draft", "export", "delivery")
 TERMINAL = {"succeeded", "failed", "cancelled", "dead_letter"}
 MAX_EVIDENCE_CHARS = 40000
 MAX_DRAFT_CHARS = 100000
+DOCUMENT_GRAPH_VERSION = "langgraph_document_v1"
 
 
 class DocumentTaskError(ValueError):
@@ -98,7 +99,8 @@ class DocumentTaskService:
             self.answer(user_id, request)
         run = AgentRun(user_id=user_id, project_id=project.id, conversation_id=payload.conversation_id,
             assistant_message_id=payload.assistant_message_id, runtime_kind=KIND, status="queued",
-            input_json=encode(request), planner_state_json="{}", idempotency_key=key, max_steps=4, current_step=0)
+            input_json=encode(request), planner_state_json=encode({"runtime_engine": DOCUMENT_GRAPH_VERSION}),
+            idempotency_key=key, max_steps=4, current_step=0)
         self.db.add(run)
         self.db.flush()
         for sequence, stage in enumerate(STAGES, 1):
@@ -174,15 +176,19 @@ class DocumentTaskService:
             raise DocumentTaskError("上一阶段产物缺失。")
         return artifact, json.loads(artifact.content_json)
 
-    def save_stage(self, run, step, event, result):
+    def save_stage(self, run, step, event, result, *, transition=None, existing_artifact=None):
         payload = encode(result)
         if len(payload) > 2_000_000:
             raise DocumentTaskError("阶段产物超过持久化限额。")
-        artifact = AgentArtifact(run_id=run.id, step_id=step.id, user_id=run.user_id,
-            artifact_type=f"document_{step.call_id}", content_hash=hashlib.sha256(payload.encode()).hexdigest(),
-            preview=(result.get("text") or result.get("file_name") or f"{step.call_id} 阶段完成")[:3000],
-            content_json=payload, char_count=len(payload))
-        self.db.add(artifact)
+        artifact = existing_artifact
+        if artifact is None:
+            artifact = AgentArtifact(run_id=run.id, step_id=step.id, user_id=run.user_id,
+                artifact_type=f"document_{step.call_id}", content_hash=hashlib.sha256(payload.encode()).hexdigest(),
+                preview=(result.get("text") or result.get("file_name") or f"{step.call_id} 阶段完成")[:3000],
+                content_json=payload, char_count=len(payload))
+            self.db.add(artifact)
+        elif artifact.run_id != run.id or artifact.step_id != step.id or artifact.user_id != run.user_id:
+            raise DocumentTaskError("已保存文档产物范围不匹配。")
         self.db.flush()
         step.status, step.result_json, step.finished_at = "succeeded", encode({"artifact_id": artifact.id}), utcnow()
         step.lease_owner, step.lease_expires_at = None, None
@@ -190,9 +196,12 @@ class DocumentTaskService:
         run.state_version += 1
         run.current_step = step.sequence
         self.db.flush()
-        if step.sequence < 4:
+        # 新图在各commit节点明确给出阶段转换；旧任务只保留历史调度解释。
+        if transition is None:
+            transition = {"evidence": "draft", "draft": "export", "export": "download", "delivery": "finish"}[step.call_id]
+        if transition in {"draft", "export", "download"}:
             next_step = self.db.scalar(select(AgentStep).where(AgentStep.run_id == run.id, AgentStep.sequence == step.sequence + 1))
-            if step.sequence == 3:
+            if transition == "download":
                 # 生成到此结束；保存是用户主动发起的可选操作，不预占审批或执行资源。
                 next_step.status = "planned"
                 run.status, run.finished_at = "succeeded", utcnow()
@@ -201,9 +210,11 @@ class DocumentTaskService:
                 run.status = "queued"
                 next_step.status = "pending"
                 self.enqueue(run, next_step)
-        else:
+        elif transition == "finish":
             run.status, run.finished_at = "succeeded", utcnow()
             self.project_message(run, "文档任务已完成", f"已交付：{result['file_name']}")
+        else:
+            raise DocumentTaskError("未知文档图转换，拒绝提交。")
         self.checkpoint(run, step, f"{step.call_id}_succeeded")
 
     def snapshot(self, user_id, run_id):
@@ -227,7 +238,22 @@ class DocumentTaskService:
                 "approvals": [{"id": a.id, "status": a.status, "action": a.action} for a in self.db.scalars(
                     select(AgentApproval).where(AgentApproval.run_id == run.id))]}
 
+    def _uses_graph(self, run):
+        engine = json.loads(run.planner_state_json or "{}").get("runtime_engine")
+        if engine not in {None, DOCUMENT_GRAPH_VERSION}:
+            raise DocumentTaskError("未知文档运行时，拒绝恢复或保存。")
+        return engine == DOCUMENT_GRAPH_VERSION
+
     def request_workspace_save(self, user_id, run_id):
+        snapshot = self._request_workspace_save_business(user_id, run_id)
+        run = self.get(user_id, run_id)
+        if snapshot["status"] == "waiting_approval" and self._uses_graph(run):
+            from app.services.agent_graph.document_approval_nodes import run_document_approval_graph
+            approval_id = snapshot["approvals"][0]["id"]
+            run_document_approval_graph(self, user_id, approval_id)
+        return snapshot
+
+    def _request_workspace_save_business(self, user_id, run_id):
         """仅在用户主动保存时准备审批；重复请求不重复创建审批或执行事件。"""
         run = self.get(user_id, run_id, lock=True)
         step = self.db.scalar(select(AgentStep).where(AgentStep.run_id == run.id, AgentStep.call_id == "delivery"))
@@ -248,6 +274,10 @@ class DocumentTaskService:
             self.db.add(approval)
         else:
             expiry = approval.expires_at.replace(tzinfo=approval.expires_at.tzinfo or utcnow().tzinfo)
+            if (approval.status == "pending" and expiry > utcnow()
+                    and run.status == step.status == "waiting_approval"):
+                self.db.commit()
+                return self.snapshot(user_id, run.id)
             if approval.status != "pending" or expiry <= utcnow():
                 approval.status, approval.nonce_hash, approval.consumed_at = "pending", None, None
                 approval.expires_at = utcnow() + timedelta(hours=24)
@@ -258,6 +288,15 @@ class DocumentTaskService:
         return self.snapshot(user_id, run.id)
 
     def reject_workspace_save(self, user_id, approval_id):
+        approval = self.db.scalar(select(AgentApproval).where(AgentApproval.id == approval_id, AgentApproval.user_id == user_id)
+                                  .execution_options(populate_existing=True))
+        run = self.get(user_id, approval.run_id) if approval else None
+        if approval and self._uses_graph(run) and approval.status not in {"rejected", "consumed"}:
+            from app.services.agent_graph.document_approval_nodes import run_document_approval_graph
+            return run_document_approval_graph(self, user_id, approval_id, decision="reject")
+        return self._reject_workspace_save_business(user_id, approval_id)
+
+    def _reject_workspace_save_business(self, user_id, approval_id, *, expected_state_version=None):
         """撤回可选保存不取消已完成的文档生成。"""
         approval = self.db.scalar(select(AgentApproval).where(AgentApproval.id == approval_id, AgentApproval.user_id == user_id))
         if not approval or approval.action != "documents.save_to_workspace":
@@ -268,6 +307,8 @@ class DocumentTaskService:
         if approval.status == "rejected":
             self.db.commit()
             return self.snapshot(user_id, run.id)
+        if expected_state_version is not None and run.state_version != expected_state_version:
+            raise DocumentTaskError("文档保存审批版本已变化。")
         if approval.status not in {"pending", "expired"} or run.status != "waiting_approval":
             raise DocumentTaskError("保存已执行或任务状态已变化，不能撤回审批。")
         approval.status, approval.nonce_hash = "rejected", None
@@ -278,7 +319,38 @@ class DocumentTaskService:
         self.db.commit()
         return self.snapshot(user_id, run.id)
 
-    def approve(self, user_id, approval_id, token):
+    def approve(self, user_id, approval_id, token, *, expected_state_version=None):
+        approval = self.db.scalar(select(AgentApproval).where(AgentApproval.id == approval_id, AgentApproval.user_id == user_id)
+                                  .execution_options(populate_existing=True))
+        run = self.get(user_id, approval.run_id) if approval else None
+        if approval and self._uses_graph(run) and approval.status != "consumed":
+            from app.services.agent_graph.document_approval_nodes import run_document_approval_graph
+            return run_document_approval_graph(self, user_id, approval_id, decision="approve", token=token,
+                                               expected_state_version=expected_state_version)
+        return self._approve_workspace_save_business(user_id, approval_id, token, expected_state_version=expected_state_version)
+
+    def _validate_save_decision(self, user_id, approval_id, decision, token, state_version):
+        approval = self.db.scalar(select(AgentApproval).where(AgentApproval.id == approval_id, AgentApproval.user_id == user_id))
+        if not approval or approval.action != "documents.save_to_workspace":
+            raise DocumentTaskError("文档审批不存在。")
+        run = self.get(user_id, approval.run_id, lock=True)
+        self.db.refresh(approval, with_for_update=True)
+        step = self.db.get(AgentStep, approval.step_id)
+        if run.state_version != state_version or run.status != "waiting_approval" or step.status != "waiting_approval":
+            raise DocumentTaskError("文档保存版本或状态已变化。")
+        if decision == "reject" and approval.status in {"pending", "expired"}:
+            return
+        if decision != "approve":
+            raise DocumentTaskError("不支持的文档审批决定。")
+        expiry = approval.expires_at.replace(tzinfo=approval.expires_at.tzinfo or utcnow().tzinfo)
+        policy = self.db.get(WorkspaceAgentPolicy, run.project_id)
+        if (approval.status != "pending" or expiry <= utcnow() or not approval.nonce_hash
+                or not hmac.compare_digest(approval.nonce_hash, hashlib.sha256(token.encode()).hexdigest())
+                or approval.arguments_hash != step.arguments_hash
+                or (policy and policy.permission_mode == "read_only")):
+            raise DocumentTaskError("审批已过期、权限撤销或确认挑战不匹配。")
+
+    def _approve_workspace_save_business(self, user_id, approval_id, token, *, expected_state_version=None):
         # 与 Worker 保持 event→run→step 的写入顺序；审批不能锁完对象再等待网络。
         approval = self.db.scalar(select(AgentApproval).where(AgentApproval.id == approval_id, AgentApproval.user_id == user_id))
         if not approval or approval.action != "documents.save_to_workspace":
@@ -288,6 +360,8 @@ class DocumentTaskService:
         step = self.db.get(AgentStep, approval.step_id)
         if approval.status == "consumed":
             return self.snapshot(user_id, run.id)
+        if expected_state_version is not None and run.state_version != expected_state_version:
+            raise DocumentTaskError("文档保存审批版本已变化。")
         expiry = approval.expires_at.replace(tzinfo=approval.expires_at.tzinfo or utcnow().tzinfo)
         if (approval.status != "pending" or run.status != "waiting_approval" or step.status != "waiting_approval"
                 or expiry <= utcnow() or not approval.nonce_hash

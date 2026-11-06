@@ -448,6 +448,14 @@ class DurableToolRunService:
             .where(
                 AgentRun.runtime_kind.in_(runtime_kinds),
                 AgentRun.status.in_(["queued", "running"]),
+                # 迟到的重复事件不能把已完成Step改回running；同Step另一个事件
+                # 也不能在当前租约有效时抢占，领取判断须同时看业务Step和投递事件。
+                or_(AgentStep.status == "pending", and_(AgentStep.status == "running", or_(
+                    AgentStep.lease_expires_at.is_(None), AgentStep.lease_expires_at < now,
+                    and_(AgentOutboxEvent.status == "running",
+                         AgentOutboxEvent.lease_version == AgentStep.lease_version,
+                         AgentOutboxEvent.lease_owner == AgentStep.lease_owner,
+                         or_(AgentOutboxEvent.lease_expires_at.is_(None), AgentOutboxEvent.lease_expires_at < now))))),
                 or_(
                     AgentOutboxEvent.status == "pending",
                     and_(

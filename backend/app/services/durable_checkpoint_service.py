@@ -160,11 +160,11 @@ async def durable_checkpointer(url, identity):
     try:
         async with pool.connection() as conn:
             # 范围来自当前已认证的Run和服务端领取的Step，不接受用户给定thread_id。
-            await conn.execute("""INSERT INTO aiws_graph.runtime_threads(thread_id,run_id,step_id)
-                SELECT %s,r.id,s.id FROM public.agent_runs r JOIN public.agent_steps s ON s.run_id=r.id
+            await conn.execute("""INSERT INTO aiws_graph.runtime_threads(thread_id,run_id,step_id,runtime_key)
+                SELECT %s,r.id,s.id,%s FROM public.agent_runs r JOIN public.agent_steps s ON s.run_id=r.id
                 WHERE r.id=%s AND s.id=%s AND r.user_id=%s AND r.project_id IS NOT DISTINCT FROM %s
                 ON CONFLICT(thread_id) DO NOTHING""",
-                (identity.thread_id, identity.run_id, identity.step_id, identity.user_id, identity.project_id))
+                (identity.thread_id, identity.thread_id.split(":", 1)[0], identity.run_id, identity.step_id, identity.user_id, identity.project_id))
             yield LeaseFencedPostgresSaver(conn, identity)
     finally:
         if own_pool:
