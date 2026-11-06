@@ -32,6 +32,7 @@ from app.repositories.setting_repo import UserSettingRepository
 from app.schemas.knowledge import KnowledgeDocumentCreate
 from app.services.file_parser_service import FileParserService
 from app.services.knowledge_service import KnowledgeDocumentService
+from scripts.knowledge_import_jobs import enqueue_and_wait
 from sqlalchemy import select
 
 
@@ -154,20 +155,14 @@ def main() -> int:
                     raise RuntimeError("created document could not be reloaded")
                 document.content_hash = raw_hash
                 db.commit()
-                parsed = service.parse_document(knowledge_base.id, document.id, user.id)
-                if not parsed or parsed.document.parse_status != "parsed":
-                    result.append({"file_name": source.name, "status": "parse_failed", "document_id": document.id})
-                    continue
-                indexed = service.index_document(knowledge_base.id, document.id, user.id)
-                if not indexed or indexed.document.index_status != "indexed":
-                    result.append({"file_name": source.name, "status": "index_failed", "document_id": document.id})
-                    continue
+                indexed = enqueue_and_wait(service, db, knowledge_base_id=knowledge_base.id,
+                    document_id=document.id, user_id=user.id)
                 result.append(
                     {
                         "file_name": source.name,
                         "status": "imported",
                         "document_id": document.id,
-                        "chunk_count": indexed.chunk_count,
+                        "chunk_count": indexed.get("chunk_count", 0),
                     }
                 )
                 existing_names.add(source.name.casefold())

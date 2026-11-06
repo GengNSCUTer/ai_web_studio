@@ -15,7 +15,20 @@ npm ci
 npm run build
 ```
 
-依据 `backend/.env.example` 创建 `backend/.env`，依据 `frontend/.env.local.example` 创建 `frontend/.env.local`。不要覆盖已有配置。数据库必须先存在并启用 pgvector；当前服务启动仍执行已有的结构检查，不宣称已经完成 Alembic 版本化迁移。
+依据 `backend/.env.example` 创建 `backend/.env`，依据 `frontend/.env.local.example` 创建 `frontend/.env.local`。不要覆盖已有配置。数据库必须先存在并启用 pgvector；使用下方显式Alembic迁移流程，服务启动只校验版本，不自动修改表。
+
+## LangGraph迁移部署（2026-11-06）
+
+同步工具、Chat、Durable、文件审批、文档、记忆提取与知识索引已接入图编排，说明见[迁移与验收](../docs/215_LangGraph迁移完成说明与最终验收_2026-11-06.md)。安装继续使用上面的requirements与Python3.10约束；不能用尚未安装新依赖的旧conda环境启动服务。
+
+- 数据库`20261106_01`新增独立`aiws_graph`原生检查点schema；`20261106_02`按`(step_id,runtime_key)`区分同一步骤的审批图与执行图。运行下面已有的备份/迁移命令，不在Web请求内调用Saver.setup。
+- `TOOL_ORCHESTRATION_ENGINE`已退役，遗留环境值不生效。同步链只有图入口，失败后不自动换引擎重做。
+- 退役前正式库没有旧AgentRun；缺失/未知`runtime_engine`的导入或旧备份任务会拒绝执行/恢复，需用户重新发起。若部署其他已有旧任务的实例，先清点并安排旧版本处理或让用户重新提交，不能仅改JSON版本号绕过核验。
+- 普通Chat没有图持久化；Durable工具Step、文件和文档审批、文档执行使用原生PG检查点。记忆/知识Job仍按原Job租约、游标、generation及Outbox恢复，不宣传token续接。
+- Web与Durable Worker各自管理有界原生检查点池（最多4连接）；审批池也是独立有界4连接。容量规划要计入这些连接以及SQLAlchemy池，不能只按Web池估算。用户等待审批期间不持有连接。
+- PDF/中文资料导入脚本也改为投递正式解析/索引Job。必须先启动独立knowledge-worker与Redis；等待超时不退回脚本内同步重建索引，任务仍可在Job页追踪。
+- 回退应用时保留新迁移链和数据库schema。已产生双角色线程的数据库不能直接恢复旧`step_id`唯一约束；若必须回退数据，应停全部写入者并按备份恢复流程执行，明确备份后的新增数据处理。
+- 现有Supervisor仍各保留一个角色；API32007、前端32008、PG35433、Redis36379不变。沙箱仍因Rootless前提不足保持禁用，不向Web授予Docker权限。
 
 首次正式 HTTPS 部署必须配置：
 

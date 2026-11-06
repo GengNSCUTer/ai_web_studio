@@ -33,6 +33,7 @@ from app.repositories.setting_repo import UserSettingRepository
 from app.schemas.knowledge import KnowledgeDocumentCreate
 from app.services.file_parser_service import FileParserService
 from app.services.knowledge_service import KnowledgeDocumentService
+from scripts.knowledge_import_jobs import enqueue_and_wait
 
 
 PUBLIC_SOURCES: tuple[tuple[str, str, str], ...] = (
@@ -193,11 +194,9 @@ def main() -> int:
                     raise RuntimeError("document creation failed")
                 document.content_hash = raw_hash
                 db.commit()
-                parsed = service.parse_document(base.id, document.id, user.id)
-                indexed = service.index_document(base.id, document.id, user.id) if parsed and parsed.document.parse_status == "parsed" else None
-                if not indexed or indexed.document.index_status != "indexed":
-                    raise RuntimeError("document indexing failed")
-                results.append({"file_name": source.name, "status": "imported", "chunk_count": indexed.chunk_count})
+                indexed = enqueue_and_wait(service, db, knowledge_base_id=base.id,
+                    document_id=document.id, user_id=user.id)
+                results.append({"file_name": source.name, "status": "imported", "chunk_count": indexed.get("chunk_count", 0)})
                 existing_names.add(source.name.casefold())
                 existing_raw.add(raw_hash)
                 existing_text.add(text_hash)

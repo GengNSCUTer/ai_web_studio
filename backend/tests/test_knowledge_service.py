@@ -779,25 +779,22 @@ class KnowledgeServiceTest(unittest.TestCase):
         parsed_document = document_repo.get_by_user(document.id, self.user.id)
         assert parsed_document is not None
 
-        fake_index_service = Mock()
-        fake_index_service.index_document.return_value = SimpleNamespace(
-            chunk_count=1,
-            index_path="/tmp/index-idempotent.json",
-        )
-        with patch(
-            "app.services.knowledge_service.KnowledgeIndexService",
-            return_value=fake_index_service,
-        ):
-            first = document_service.index_document(knowledge_base.id, parsed_document.id, self.user.id)
-            second = document_service.index_document(knowledge_base.id, parsed_document.id, self.user.id)
+        first = document_service.enqueue_index_document(knowledge_base.id, parsed_document.id, self.user.id)
+        second = document_service.enqueue_index_document(knowledge_base.id, parsed_document.id, self.user.id)
 
         assert first is not None
         assert second is not None
         self.assertEqual(first.job.id, second.job.id)
-        self.assertEqual(second.job.status, "succeeded")
-        self.assertEqual(second.job.retry_count, 1)
-        self.assertEqual(second.chunk_count, 1)
-        fake_index_service.index_document.assert_called_once()
+        self.assertEqual(second.job.status, "pending")
+        self.assertEqual(self.db.query(OutboxEvent).filter_by(aggregate_id=first.job.id).count(), 1)
+        job = self.db.get(KnowledgeJob, first.job.id)
+        job.status = "succeeded"
+        job.result_json = json.dumps({"chunk_count": 1, "index_path": "/tmp/index-idempotent.json"})
+        self.db.commit()
+        third = document_service.enqueue_index_document(knowledge_base.id, parsed_document.id, self.user.id)
+        self.assertEqual(third.job.id, first.job.id)
+        self.assertEqual(third.chunk_count, 1)
+        self.assertEqual(self.db.query(OutboxEvent).filter_by(aggregate_id=first.job.id).count(), 1)
 
     def test_markdown_preview_endpoint_returns_full_markdown(self) -> None:
         base_service = KnowledgeBaseService(KnowledgeBaseRepository(self.db), ProjectRepository(self.db))

@@ -5,7 +5,6 @@ import hashlib
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy.orm import Session
-from app.core.config import settings
 
 from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.credentials import ToolCredentialResolver
@@ -33,10 +32,6 @@ class ExternalContextService:
     预算由代码侧 ToolRunPolicy 限定，避免开放式 Agent 无限循环。
     """
 
-    # 兼容历史调用方读取。默认 quick_chat 仍为五轮；实例运行时实际使用
-    # self.run_policy.max_planning_rounds，而不是让这个类常量决定所有模式。
-    max_agent_rounds = 5
-
     def __init__(
         self,
         *,
@@ -54,11 +49,8 @@ class ExternalContextService:
         planner_runtime: PlannerRuntime | None = None,
         workflow: ToolWorkflowService | None = None,
         run_policy: ToolRunPolicy | None = None,
-        orchestration: str | None = None,
     ) -> None:
-        self.orchestration = orchestration if orchestration is not None else settings.tool_orchestration_engine
-        if self.orchestration not in {"legacy", "langgraph"}:
-            raise ValueError("不支持的工具编排引擎")
+        self.db = db
         self.registry = registry or ToolCatalog(db=db, user_id=user_id, project_id=project_id)
         deterministic = router or DeterministicToolPlanner(self.registry)
         self.planner = planner or LLMToolPlanner(
@@ -162,15 +154,17 @@ class ExternalContextService:
             )
 
         from app.services.tools.loop_runtime import SyncToolRun
-        if self.orchestration == "langgraph":
-            from app.services.agent_graph.sync_tool_graph import run_sync_tool_graph
+        from app.services.agent_graph.sync_tool_graph import run_sync_tool_graph
 
+        # 后续commit会使ORM对象过期；规划只需要角色/正文，先复制为请求级值。
+        history = [{"role": message.get("role"), "content": message.get("content")} if isinstance(message, dict)
+                   else {"role": getattr(message, "role", None), "content": getattr(message, "content", None)}
+                   for message in recent_messages or []]
         run = SyncToolRun(self, query=query, enabled=enabled, max_chars=max_chars,
-            recent_messages=recent_messages, planner_runtime=planner_runtime, skill_context=skill_context,
+            recent_messages=history, planner_runtime=planner_runtime, skill_context=skill_context,
             budget=ToolRunBudget(policy=self.run_policy))
-        result = (await run.run_legacy() if self.orchestration == "legacy"
-                  else await run_sync_tool_graph(run))
-        result.diagnostics["external_orchestrator"] = self.orchestration
+        result = await run_sync_tool_graph(run)
+        result.diagnostics["external_orchestrator"] = "langgraph"
         return result
 
     @staticmethod

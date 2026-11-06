@@ -222,13 +222,13 @@ class DocumentGraphPostgresTest(unittest.TestCase):
             self.assertEqual(db.query(ProjectFile).filter_by(kind="generated_document").count(), 1)
         self.assertFalse(asyncio.run(DurableToolWorker(session_factory=self.sessions).run_once()))
 
-    def test_unknown_version_refuses_execution_and_old_unmarked_run_still_works(self):
+    def test_unknown_and_unmarked_versions_refuse_execution(self):
         rid = self.create("legacy-doc")
         with self.sessions() as db:
             db.get(AgentRun, rid).planner_state_json = "{}"
             db.commit()
-        self.advance(3)
-        self.assertEqual(self.snapshot(rid)["status"], "succeeded")
+        self.advance()
+        self.assertEqual(self.snapshot(rid)["status"], "failed")
         other = self.create("unknown-doc")
         with self.sessions() as db:
             db.get(AgentRun, other).planner_state_json = json.dumps({"runtime_engine": "unknown"})

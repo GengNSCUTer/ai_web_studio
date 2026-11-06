@@ -117,8 +117,11 @@ async def run_durable_graph(worker, db, claim, run):
             async with durable_checkpointer(url, identity) as saver:
                 graph = build_durable_graph(saver)
                 previous = await graph.aget_state(identity.config)
-                # 同一Step未完成图从next继续；已完成但因业务退避再次领取时开启新一轮。
-                graph_input = None if previous.next else {"step_id": claim.step_id,
+                # 新租约代表新尝试，必须重新预检。旧图可能停在已提交重排后的
+                # reconcile，直接续它会只对账、不执行，白占新租约到期。
+                # 已提交产物仍由preflight复用，不因重新进图重复外部副作用。
+                resume = previous.next and previous.values.get("lease_version") == claim.outbox_lease_version
+                graph_input = None if resume else {"step_id": claim.step_id,
                     "lease_version": claim.outbox_lease_version, "ready": False}
                 await graph.ainvoke(graph_input, context=context, config=identity.config, durability="sync")
         except CheckpointLeaseLost:

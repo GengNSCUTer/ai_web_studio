@@ -14,6 +14,7 @@ from app.services.tools.observation_projection import PlannerObservationProjecti
 from app.services.tools.completion_contract import infer_read_completion, needs_followup, required_tool_keys
 from app.services.tools.edit_preview_completion import (PREVIEW_GUIDANCE, APPROVAL_GUIDANCE,
     preview_requirement, approval_requirement, missing_preview_tools, missing_approval_tools)
+from app.services.tools.db_boundary import release_read_transaction
 
 
 class SyncToolRun:
@@ -136,6 +137,8 @@ class SyncToolRun:
         }
         if self.skill_context:
             planner_kwargs["skill_context"] = self.skill_context
+        # Catalog/权限查询及上一轮只读收尾不能持有连接等待Embedding或Planner。
+        release_read_transaction(self.service.db)
         planning_started = time.perf_counter()
         try:
             self.plan = await asyncio.wait_for(
@@ -534,14 +537,3 @@ class SyncToolRun:
             tool_events=self.events,
             evidence_section=evidence_section,
         )
-
-    async def run_legacy(self) -> ExternalContextResult:
-        """短期对照入口，与图使用相同业务步骤，不在失败后自动调用。"""
-        for _ in range(self.service.run_policy.max_planning_rounds):
-            if not await self.plan_round():
-                break
-            if not await self.execute_round():
-                break
-            if not self.observe_round():
-                break
-        return self.finish()

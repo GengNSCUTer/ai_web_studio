@@ -141,7 +141,9 @@ async def run_document_graph(worker, db, claim, run):
             async with durable_checkpointer(url, identity) as saver:
                 graph = build_document_graph(saver)
                 previous = await graph.aget_state(identity.config)
-                await graph.ainvoke(None if previous.next else start, context=context,
+                # 新领取先按当前租约和业务产物预检，不能沿用旧尝试的调度尾部。
+                resume = previous.next and previous.values.get("lease_version") == claim.outbox_lease_version
+                await graph.ainvoke(None if resume else start, context=context,
                                     config=identity.config, durability="sync")
         except CheckpointLeaseLost:
             db.rollback()

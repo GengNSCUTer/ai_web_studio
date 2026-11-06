@@ -11,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
+from langgraph.runtime import Runtime
 
 from app.core.migrations import upgrade_database
 from app.models.agent_runtime import AgentArtifact, AgentOutboxEvent, AgentRun, AgentStep
@@ -206,7 +207,7 @@ class DurableGraphPostgresTest(unittest.TestCase):
             self.assertEqual(step.attempts, 2)
             self.assertEqual(db.query(AgentArtifact).filter_by(run_id=rid).count(), 1)
 
-    def test_old_run_without_engine_marker_keeps_legacy_recovery(self):
+    def test_unmarked_run_cannot_bypass_graph_version_check(self):
         rid = self.enqueue()
         with self.factory() as db:
             run = db.get(AgentRun, rid)
@@ -217,8 +218,33 @@ class DurableGraphPostgresTest(unittest.TestCase):
         worker = DurableToolWorker(session_factory=self.factory, owner="graph-old", executor_factory=SuccessfulExecutor)
         self.assertTrue(asyncio.run(worker.run_once()))
         with self.factory() as db:
-            self.assertEqual(db.get(AgentRun, rid).status, "succeeded")
+            self.assertEqual(db.get(AgentRun, rid).status, "failed")
+            self.assertEqual(db.query(AgentArtifact).filter_by(run_id=rid).count(), 0)
             self.assertEqual(db.execute(text("SELECT count(*) FROM aiws_graph.checkpoints")).scalar(), 0)
+
+    def test_new_lease_after_retry_commit_does_not_resume_old_reconcile_only(self):
+        """已提交重排但图停在对账时，新租约必须开始本次执行而非空转90秒。"""
+        from unittest.mock import patch
+        rid = self.enqueue()
+        first = DurableToolWorker(session_factory=self.factory, owner="retry-old", executor_factory=FailingExecutor)
+        async def stop(state, runtime: Runtime[DurableGraphContext]):
+            raise RuntimeError("模拟对账前退出")
+        with patch("app.services.agent_graph.durable_graph._reconcile", new=stop):
+            with self.assertRaisesRegex(RuntimeError, "模拟"):
+                asyncio.run(first.run_once())
+        with self.factory() as db:
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == rid))
+            event = db.scalar(select(AgentOutboxEvent).where(AgentOutboxEvent.run_id == rid))
+            self.assertEqual(step.status, "pending")
+            event.available_at = step.available_at = utcnow() - timedelta(seconds=1)
+            db.commit()
+        second = DurableToolWorker(session_factory=self.factory, owner="retry-new", executor_factory=SuccessfulExecutor)
+        self.assertTrue(asyncio.run(second.run_once()))
+        with self.factory() as db:
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == rid))
+            self.assertEqual(step.status, "succeeded")
+            self.assertEqual(step.attempts, 2)
+            self.assertEqual(db.query(AgentArtifact).filter_by(run_id=rid).count(), 1)
 
     def test_unknown_runtime_version_is_not_executed_as_legacy(self):
         from unittest.mock import Mock

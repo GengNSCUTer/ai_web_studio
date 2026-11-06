@@ -1,4 +1,4 @@
-"""迁移对照：真实StateGraph控制续轮，原业务执行器仍负责预算和安全。"""
+"""正式图入口：StateGraph控制续轮，原业务执行器仍负责预算和安全。"""
 
 import asyncio
 from copy import deepcopy
@@ -27,12 +27,12 @@ class SequencePlanner:
 
 
 class SyncToolGraphTest(unittest.IsolatedAsyncioTestCase):
-    def service(self, *, engine="langgraph", planner=None, executor=None, policy=None):
+    def service(self, *, planner=None, executor=None, policy=None):
         executor = executor or DeadlineExecutor(slow=set())
         planner = planner or DeadlinePlanner(make_plan([make_call("one")]))
         return ExternalContextService(planner=planner,
             workflow=ToolWorkflowService(executor=executor, registry=ToolCatalog()),
-            orchestration=engine, run_policy=policy), executor, planner
+            run_policy=policy), executor, planner
 
     async def run_service(self, service, query="汇总测试查询"):
         return await service.build_context(query=query, enabled=True, max_chars=4000)
@@ -67,22 +67,15 @@ class SyncToolGraphTest(unittest.IsolatedAsyncioTestCase):
         nodes = [e.payload["node"] for e in result.tool_events if e.type == "tool_graph_node"]
         self.assertEqual(nodes, ["plan", "execute", "observe", "plan", "execute", "observe", "finalize"])
 
-    async def test_legacy_and_graph_keep_same_result_and_business_events(self):
-        results = []
-        for engine in ("legacy", "langgraph"):
-            executor = DeadlineExecutor(slow=set(), invalid={"bad"})
-            service, _, _ = self.service(engine=engine, executor=executor,
-                planner=DeadlinePlanner(make_plan([make_call("good"), make_call("bad")])))
-            results.append(await self.run_service(service))
-        old, graph = results
-        self.assertEqual(old.context_text, graph.context_text)
-        self.assertEqual(old.notices, graph.notices)
-        self.assertEqual(old.details["tool_workflow_aggregate"], graph.details["tool_workflow_aggregate"])
-        for key in ("external_agent_terminal_reason", "external_tool_next_action", "external_context_error"):
-            self.assertEqual(old.diagnostics[key], graph.diagnostics[key])
-        def events(result):
-            return [e.type for e in result.tool_events if e.type != "tool_graph_node"]
-        self.assertEqual(events(old), events(graph))
+    async def test_partial_result_keeps_good_evidence_and_business_events(self):
+        executor = DeadlineExecutor(slow=set(), invalid={"bad"})
+        service, _, _ = self.service(executor=executor,
+            planner=DeadlinePlanner(make_plan([make_call("good"), make_call("bad")])))
+        result = await self.run_service(service)
+        self.assertIn("good", result.context_text)
+        self.assertEqual(result.details["tool_workflow_aggregate_status"], "partial")
+        self.assertTrue(any(e.type == "tool_workflow_step_outcome" for e in result.tool_events))
+        self.assertTrue(any(e.type == "tool_graph_node" for e in result.tool_events))
 
     async def test_eight_round_budget_is_not_graph_recursion_limit(self):
         policy = resolve_tool_run_policy("guided_research")
@@ -109,23 +102,24 @@ class SyncToolGraphTest(unittest.IsolatedAsyncioTestCase):
     async def test_cancel_does_not_execute_legacy_fallback(self):
         planner = DeadlinePlanner(make_plan([make_call("one")]), wait_on_call=1)
         service, executor, _ = self.service(planner=planner)
-        with patch("app.services.tools.loop_runtime.SyncToolRun.run_legacy", side_effect=AssertionError("不允许失败后重跑")):
-            task = asyncio.create_task(self.run_service(service))
-            await planner.started.wait()
-            task.cancel()
-            with self.assertRaises(asyncio.CancelledError):
-                await task
+        task = asyncio.create_task(self.run_service(service))
+        await planner.started.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
         self.assertFalse(executor.started)
         self.assertTrue(planner.cancelled)
 
     async def test_unexpected_exception_is_not_hidden_by_engine_fallback(self):
         class BrokenPlanner:
+            calls = 0
             async def plan(self, **kwargs):
+                self.calls += 1
                 raise RuntimeError("受控规划错误")
-        service, executor, _ = self.service(planner=BrokenPlanner())
-        with patch("app.services.tools.loop_runtime.SyncToolRun.run_legacy", side_effect=AssertionError("不允许失败后重跑")):
-            with self.assertRaisesRegex(RuntimeError, "受控规划错误"):
-                await self.run_service(service)
+        service, executor, planner = self.service(planner=BrokenPlanner())
+        with self.assertRaisesRegex(RuntimeError, "受控规划错误"):
+            await self.run_service(service)
+        self.assertEqual(planner.calls, 1)
         self.assertFalse(executor.started)
 
     async def test_separate_requests_do_not_share_budget_or_sources(self):
@@ -150,9 +144,11 @@ class SyncToolGraphTest(unittest.IsolatedAsyncioTestCase):
             await self.run_service(service)
         self.assertFalse(planner.enabled)
 
-    def test_invalid_engine_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "编排引擎"):
-            self.service(engine="unknown")
+    async def test_obsolete_environment_cannot_switch_to_legacy(self):
+        with patch.dict("os.environ", {"TOOL_ORCHESTRATION_ENGINE": "legacy"}):
+            service, _, _ = self.service(planner=DeadlinePlanner(make_plan([])))
+            result = await self.run_service(service)
+        self.assertEqual(result.diagnostics["external_orchestrator"], "langgraph")
 
 
 if __name__ == "__main__":

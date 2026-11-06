@@ -267,7 +267,7 @@ class ApprovalGraphPostgresTest(unittest.TestCase):
                     context=ApprovalContext(AgentRuntimeService(db), identity), durability="sync")
         self.assert_unchanged()
 
-    def test_unknown_runtime_rejected_and_legacy_approval_keeps_business_checks(self):
+    def test_unknown_and_unmarked_approval_runtime_rejected(self):
         proposal = self.propose()
         token = self.challenge(proposal)
         with self.factory() as db:
@@ -284,7 +284,9 @@ class ApprovalGraphPostgresTest(unittest.TestCase):
             state.pop("runtime_engine")
             run.planner_state_json = json.dumps(state)
             db.commit()
-        self.assertEqual(self.apply(proposal, token).status, "applied")
+        with self.assertRaisesRegex(AgentRuntimeError, "缺失"):
+            self.apply(proposal, token)
+        self.assert_unchanged()
 
     def test_cancelled_run_cannot_resume(self):
         proposal = self.propose()

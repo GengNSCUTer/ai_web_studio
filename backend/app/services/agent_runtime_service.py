@@ -289,7 +289,7 @@ class AgentRuntimeService:
         return self._with_approval_graph(proposal, user_id)
 
     def _with_approval_graph(self, proposal, user_id):
-        """草稿已提交后进入图等待；历史任务不强制改写运行时版本。"""
+        """草稿已提交后进入图等待，恢复时必须具有已验证的运行时版本。"""
         run = self.db.get(AgentRun, proposal.run_id)
         if self._file_edit_uses_graph(run) and run.status == "waiting_approval":
             from app.services.agent_graph.approval_nodes import run_approval_graph
@@ -299,8 +299,8 @@ class AgentRuntimeService:
     @staticmethod
     def _file_edit_uses_graph(run):
         engine = json.loads(run.planner_state_json or "{}").get("runtime_engine") if run else None
-        if engine is not None and engine != APPROVAL_GRAPH_VERSION:
-            raise AgentRuntimeError("unsupported_runtime_version", "未知文件审批运行时，拒绝恢复。")
+        if engine != APPROVAL_GRAPH_VERSION:
+            raise AgentRuntimeError("unsupported_runtime_version", "未知或缺失文件审批运行时，请重新生成提案。")
         return engine == APPROVAL_GRAPH_VERSION
 
     def issue_approval_challenge(self, *, approval_id: str, user_id: str) -> str:

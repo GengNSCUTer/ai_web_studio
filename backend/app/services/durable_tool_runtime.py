@@ -1131,19 +1131,9 @@ class DurableToolWorker:
             from app.services.agent_graph.durable_graph import run_durable_graph
             await run_durable_graph(self, db, claim, run)
             return
-        if runtime_engine is not None:
-            self._finish_terminal(db, run, step, event, claim, status="failed",
-                error_code="unsupported_runtime_version", error_message="任务运行时版本不受当前Worker支持。")
-            return
-        await self._execute_tool_claim_legacy(db, claim)
-
-    async def _execute_tool_claim_legacy(self, db: Session, claim: DurableStepClaim) -> None:
-        prepared = self._prepare_tool_execution(db, claim)
-        if prepared is None:
-            return
-        executor, call, run, step, event = prepared
-        result, events = await self._execute_with_heartbeat(executor, call, claim)
-        self._complete_tool_execution(db, claim, run, step, event, call, result, events)
+        # 阶段7已核对生产无旧Run；缺版本的导入任务也不能绕过图执行。
+        self._finish_terminal(db, run, step, event, claim, status="failed",
+            error_code="unsupported_runtime_version", error_message="任务运行时版本不受当前Worker支持，请重新发起任务。")
 
     def _prepare_tool_execution(self, db: Session, claim: DurableStepClaim):
         """短事务校验依赖、版本与权限，返回网络调用所需的请求级对象。"""

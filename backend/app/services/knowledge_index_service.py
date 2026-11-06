@@ -762,11 +762,10 @@ class KnowledgeIndexService:
         )
 
     def index_document(self, *, user_id: str, knowledge_base: KnowledgeBase, document: KnowledgeDocument) -> IndexResult:
-        """Build and publish one document's chunks as part of a knowledge-base-wide index.
+        """仅为检索算法测试/隔离夹具建立活动快照，不是正式索引或恢复入口。
 
-        Embeddings live with chunks in PostgreSQL, while the lexical index is a per-knowledge-base BM25 file.
-        Keep fallible external work before database mutation, and keep the vector_id -> embedding association
-        explicit when publishing the rebuilt chunks and lexical index.
+        API及导入脚本均使用Job→后台图→inactive generation→CAS。这里仍保留
+        旧补偿算法的失败回归，便于测试检索/分块而不启动Redis；它没有崩溃原子性。
         """
         if document.parse_status != "parsed" or not document.parsed_markdown_path:
             raise RuntimeError("文档尚未解析，不能生成索引。")

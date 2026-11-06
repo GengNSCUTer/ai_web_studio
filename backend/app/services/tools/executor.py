@@ -23,6 +23,7 @@ from app.services.tools.providers.workspace_files import WorkspaceFileToolProvid
 from app.services.tools.providers.agent_artifacts import AgentArtifactToolProvider
 from app.services.tools.action_guard import ActionScope, ToolActionGuard
 from app.services.tools.file_edit_intent import approval_requested
+from app.services.tools.db_boundary import release_read_transaction
 
 
 class ToolExecutor:
@@ -446,6 +447,9 @@ class ToolExecutor:
         )
         started = time.perf_counter()
         try:
+            # 权限/凭据已复制为值，等待HTTP/文件线程前释放只读事务。
+            # 不能提交尚未保存的业务写入；文件审批有独立的原有提交入口。
+            release_read_transaction(self.db)
             sources, adapter_metadata = await self.adapter_runner.run(
                 definition=definition,
                 call=call,

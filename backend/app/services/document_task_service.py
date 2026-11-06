@@ -176,7 +176,7 @@ class DocumentTaskService:
             raise DocumentTaskError("上一阶段产物缺失。")
         return artifact, json.loads(artifact.content_json)
 
-    def save_stage(self, run, step, event, result, *, transition=None, existing_artifact=None):
+    def save_stage(self, run, step, event, result, *, transition, existing_artifact=None):
         payload = encode(result)
         if len(payload) > 2_000_000:
             raise DocumentTaskError("阶段产物超过持久化限额。")
@@ -196,9 +196,7 @@ class DocumentTaskService:
         run.state_version += 1
         run.current_step = step.sequence
         self.db.flush()
-        # 新图在各commit节点明确给出阶段转换；旧任务只保留历史调度解释。
-        if transition is None:
-            transition = {"evidence": "draft", "draft": "export", "export": "download", "delivery": "finish"}[step.call_id]
+        # 转换由图提交节点明确给出，业务保存函数不另行决定下一阶段。
         if transition in {"draft", "export", "download"}:
             next_step = self.db.scalar(select(AgentStep).where(AgentStep.run_id == run.id, AgentStep.sequence == step.sequence + 1))
             if transition == "download":
@@ -240,8 +238,8 @@ class DocumentTaskService:
 
     def _uses_graph(self, run):
         engine = json.loads(run.planner_state_json or "{}").get("runtime_engine")
-        if engine not in {None, DOCUMENT_GRAPH_VERSION}:
-            raise DocumentTaskError("未知文档运行时，拒绝恢复或保存。")
+        if engine != DOCUMENT_GRAPH_VERSION:
+            raise DocumentTaskError("未知或缺失文档运行时，请重新发起任务。")
         return engine == DOCUMENT_GRAPH_VERSION
 
     def request_workspace_save(self, user_id, run_id):

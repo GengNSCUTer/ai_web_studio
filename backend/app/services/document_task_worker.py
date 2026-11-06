@@ -87,7 +87,7 @@ async def execute_document_stage(worker, db, claim, prepared):
     raise DocumentTaskError("未知文档阶段，拒绝执行。")
 
 
-def commit_document_result(worker, db, claim, prepared, result, *, transition=None, existing_artifact=None):
+def commit_document_result(worker, db, claim, prepared, result, *, transition, existing_artifact=None):
     """产物、下一阶段事件与原会话结果仍在同一业务事务中提交。"""
     service, event, step, run, stage, user_id, run_id = prepared
     if not fence(worker, db, run, step, event, claim):
@@ -143,13 +143,8 @@ async def execute_document_claim(worker, db, claim):
         if engine == DOCUMENT_GRAPH_VERSION:
             from app.services.agent_graph.document_graph import run_document_graph
             await run_document_graph(worker, db, claim, run)
-        elif engine is None:
-            prepared = prepare_document_claim(worker, db, claim)
-            if prepared:
-                result = await execute_document_stage(worker, db, claim, prepared)
-                commit_document_result(worker, db, claim, prepared, result)
         else:
-            raise DocumentTaskError("未知文档运行时版本，拒绝执行。")
+            raise DocumentTaskError("未知或缺失文档运行时版本，请重新发起任务。")
     except asyncio.CancelledError:
         # Worker 被杀或退出，保持租约；新 Worker 到期后从本阶段重做，旧产物不丢失。
         db.rollback()

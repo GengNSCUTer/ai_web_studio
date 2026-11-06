@@ -38,7 +38,6 @@ from app.schemas.knowledge import (
     KnowledgeRetrievalTestResponse,
 )
 from app.repositories.setting_repo import UserSettingRepository
-from app.services.knowledge_index_service import KnowledgeIndexService
 from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalFilter, KnowledgeRetrievalPipeline
 from app.services.knowledge_parser_service import KnowledgeParserService
 from app.services.knowledge_model_metadata import infer_embedding_dimensions
@@ -638,131 +637,6 @@ class KnowledgeDocumentService:
                 for chunk in chunks
             ],
         )
-
-    def index_document(
-        self,
-        knowledge_base_id: str,
-        document_id: str,
-        user_id: str,
-    ) -> KnowledgeDocumentIndexResponse | None:
-        knowledge_base = self.base_repo.get_by_user(knowledge_base_id, user_id)
-        document = self.document_repo.get_by_user_for_update(document_id, user_id)
-        if not knowledge_base or not document or document.knowledge_base_id != knowledge_base.id:
-            return None
-
-        request_payload: dict[str, object] = {
-            "embedding_provider": knowledge_base.embedding_provider,
-            "embedding_model": knowledge_base.embedding_model,
-            "embedding_dimensions": knowledge_base.embedding_dimensions,
-            "document_version": document.document_version,
-            "content_hash": document.content_hash,
-        }
-        previous_job = self.job_repo.latest_by_document_type(
-            document_id=document.id,
-            user_id=user_id,
-            job_type="index_document",
-        )
-        previous_payload = _payload_object(previous_job.payload_json) if previous_job else {}
-        previous_request = previous_payload.get("request", previous_payload)
-        same_request = isinstance(previous_request, dict) and previous_request == request_payload
-
-        # 相同文档版本 + 相同 Embedding 签名的索引请求可以复用结果；
-        # 这避免用户重复点击 index 时产生多条无意义 Job 和重复外部调用。
-        if previous_job and same_request and previous_job.status in {
-            JOB_STATUS_RUNNING,
-            JOB_STATUS_SUCCEEDED,
-        }:
-            result_payload = previous_payload.get("result")
-            result = result_payload if isinstance(result_payload, dict) else {}
-            chunk_count = int(result.get("chunk_count") or len(self.chunk_repo.list_by_document(document.id, user_id)))
-            return KnowledgeDocumentIndexResponse(
-                document=KnowledgeDocumentResponse.model_validate(document),
-                job=KnowledgeJobResponse.model_validate(previous_job),
-                chunk_count=chunk_count,
-                index_path=result.get("index_path") if isinstance(result.get("index_path"), str) else None,
-            )
-
-        if previous_job and same_request and previous_job.status == JOB_STATUS_FAILED:
-            job = previous_job
-        else:
-            job = KnowledgeJob(
-                user_id=user_id,
-                knowledge_base_id=knowledge_base.id,
-                document_id=document.id,
-                job_type="index_document",
-                status=JOB_STATUS_RUNNING,
-                payload_json=json.dumps({"request": request_payload}, ensure_ascii=False),
-                retry_count=1,
-                started_at=datetime.now(timezone.utc),
-            )
-        if job is previous_job:
-            job.status = JOB_STATUS_RUNNING
-            job.retry_count = (job.retry_count or 0) + 1
-            job.started_at = datetime.now(timezone.utc)
-            job.finished_at = None
-            job.error_code = None
-            job.error_message = None
-        document.index_status = "indexing"
-        document.error_message = None
-        document, job = self._save_document_and_job(document=document, job=job)
-
-        index_service = KnowledgeIndexService(
-            chunk_repo=self.chunk_repo,
-            document_repo=self.document_repo,
-            setting_service=SettingService(self.setting_repo),
-        )
-        try:
-            result = index_service.index_document(user_id=user_id, knowledge_base=knowledge_base, document=document)
-            saved_document = self.document_repo.get_by_user(document.id, user_id) or document
-            job.status = JOB_STATUS_SUCCEEDED
-            job.error_code = None
-            job.error_message = None
-            job.payload_json = json.dumps(
-                {
-                    "request": request_payload,
-                    "result": {
-                        "chunk_count": result.chunk_count,
-                        "index_path": result.index_path,
-                    },
-                },
-                ensure_ascii=False,
-            )
-            job.finished_at = datetime.now(timezone.utc)
-            saved_document, saved_job = self._save_document_and_job(document=saved_document, job=job)
-            return KnowledgeDocumentIndexResponse(
-                document=KnowledgeDocumentResponse.model_validate(saved_document),
-                job=KnowledgeJobResponse.model_validate(saved_job),
-                chunk_count=result.chunk_count,
-                index_path=result.index_path,
-            )
-        except Exception as exc:
-            # KnowledgeIndexService may fail during a flush/commit (for
-            # example, a PDF extractor emitted a NUL byte). The SQLAlchemy
-            # session must be rolled back before recording the safe failure
-            # state; otherwise this recovery path itself raises
-            # PendingRollbackError and leaves the job stuck in running.
-            self.document_repo.db.rollback()
-            document = self.document_repo.get_by_user(document.id, user_id) or document
-            job = self.job_repo.latest_by_document_type(
-                document_id=document.id,
-                user_id=user_id,
-                job_type="index_document",
-            ) or job
-            error_code = _classify_job_error(exc)
-            safe_message = _safe_job_error_message(error_code)
-            document.index_status = "failed"
-            document.error_message = safe_message
-            job.status = JOB_STATUS_FAILED
-            job.error_code = error_code
-            job.error_message = safe_message
-            job.finished_at = datetime.now(timezone.utc)
-            saved_document, saved_job = self._save_document_and_job(document=document, job=job)
-            return KnowledgeDocumentIndexResponse(
-                document=KnowledgeDocumentResponse.model_validate(saved_document),
-                job=KnowledgeJobResponse.model_validate(saved_job),
-                chunk_count=0,
-                index_path=None,
-            )
 
     def test_retrieval(
         self,
