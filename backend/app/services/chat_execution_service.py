@@ -70,88 +70,59 @@ class ChatExecutionService:
         ChatTurnBootstrapper.validate_attachment_context_inputs(attachments)
 
     async def prepare_chat_execution(self, payload: ChatStreamRequest) -> ChatExecutionContext:
-        # 新问题入口：先创建/复用会话并落库本轮消息，再组装上下文。
-        # 返回的 ChatExecutionContext 还没有真正调用模型；模型流式调用发生在 route 的 StreamingResponse 中。
-        default_settings = self.setting_service.get_or_create_user_settings(self.current_user.id)
+        # 新问题入口由 Chat 图负责：消息骨架、运行时配置、上下文组装和流式交接分成独立节点。
+        # 图只保存阶段诊断；数据库对象和认证信息留在请求级 Runtime Context。
+        from app.services.agent_graph.chat_graph import run_chat_graph
+        from app.services.agent_graph.chat_graph_state import ChatGraphContext
+
+        graph_context = ChatGraphContext(service=self, turn_kind="new", payload=payload)
         try:
-            turn = self.turn_bootstrapper.bootstrap_new_turn(payload=payload, default_settings=default_settings)
+            return await run_chat_graph(graph_context)
         except MessageGenerationConflict as exc:
             self.db.rollback()
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-        generation_id = getattr(turn.assistant_message, "generation_id", None)
-        try:
-            runtime = self._build_runtime_config(turn.conversation)
-            skill_context = self._resolve_skill_execution_context(
-                skill_key=payload.skill_key,
-                conversation=turn.conversation,
-            )
-            return await self.context_assembly_service.build_execution_context(
-                conversation=turn.conversation,
-                history_rows=turn.history_rows,
-                user_message=turn.user_message,
-                assistant_message=turn.assistant_message,
-                runtime=runtime,
-                thinking_enabled=payload.thinking_enabled,
-                thinking_budget=payload.thinking_budget,
-                web_search_enabled=payload.web_search_enabled,
-                knowledge_base_id=payload.knowledge_base_id,
-                knowledge_base_ids=payload.knowledge_base_ids,
-                skill_context=skill_context,
-                tool_run_mode=payload.tool_run_mode,
-            )
         except asyncio.CancelledError:
-            self._mark_prepare_cancelled(turn.assistant_message, generation_id=generation_id)
+            if graph_context.assistant_message is not None:
+                self._mark_prepare_cancelled(
+                    graph_context.assistant_message,
+                    generation_id=graph_context.generation_id,
+                )
             raise
         except Exception:
-            # StreamingResponse 尚未创建，generator 的异常收口不会执行。
-            # 这里必须先把占位消息从 streaming 收口，否则它只能等 15 分钟自愈。
-            self._mark_prepare_failed(turn.assistant_message, generation_id=generation_id)
+            # 流式响应尚未创建，图准备阶段失败时必须先收口 assistant 占位消息。
+            if graph_context.assistant_message is not None:
+                self._mark_prepare_failed(
+                    graph_context.assistant_message,
+                    generation_id=graph_context.generation_id,
+                )
             raise
 
     async def prepare_existing_turn_execution(
         self,
         execution_input: ExistingTurnExecutionInput,
     ) -> ChatExecutionContext:
-        # 重生成/编辑重答入口：复用已存在的 user/assistant 消息，只重新组装上下文和模型运行时配置。
-        generation_id = getattr(execution_input.assistant_message, "generation_id", None)
+        # 重生成/编辑重答复用同一张图，但不创建新的 user/assistant 消息。
+        from app.services.agent_graph.chat_graph import run_chat_graph
+        from app.services.agent_graph.chat_graph_state import ChatGraphContext
+
+        graph_context = ChatGraphContext(
+            service=self,
+            turn_kind="existing",
+            execution_input=execution_input,
+        )
         try:
-            if isinstance(execution_input.history_rows, ContextHistory):
-                execution_input.history_rows = self.message_repo.freeze_context_history(execution_input.history_rows)
-            self.turn_bootstrapper.apply_turn_overrides(
-                conversation=execution_input.conversation,
-                model_name=execution_input.model_name,
-                system_prompt=execution_input.system_prompt,
-            )
-            self.validate_attachment_context_inputs(
-                list(getattr(execution_input.user_message, "attachments", []) or [])
-            )
-            # 重生成/编辑重答的消息重置已由上层事务提交；这里把会话覆盖项作为一个独立、短事务提交，
-            # 不让后续外部 Tool/RAG 调用持有未提交数据库事务。
-            self.db.commit()
-            runtime = self._build_runtime_config(execution_input.conversation)
-            skill_context = self._resolve_skill_execution_context(
-                skill_key=execution_input.skill_key,
-                conversation=execution_input.conversation,
-            )
-            return await self.context_assembly_service.build_execution_context(
-                conversation=execution_input.conversation,
-                history_rows=execution_input.history_rows,
-                user_message=execution_input.user_message,
-                assistant_message=execution_input.assistant_message,
-                runtime=runtime,
-                thinking_enabled=execution_input.thinking_enabled,
-                thinking_budget=execution_input.thinking_budget,
-                web_search_enabled=execution_input.web_search_enabled,
-                knowledge_base_id=execution_input.knowledge_base_id,
-                knowledge_base_ids=execution_input.knowledge_base_ids,
-                skill_context=skill_context,
-                tool_run_mode=execution_input.tool_run_mode,
-            )
+            return await run_chat_graph(graph_context)
         except asyncio.CancelledError:
-            self._mark_prepare_cancelled(execution_input.assistant_message, generation_id=generation_id)
+            self._mark_prepare_cancelled(
+                execution_input.assistant_message,
+                generation_id=getattr(execution_input.assistant_message, "generation_id", None),
+            )
             raise
         except Exception:
-            self._mark_prepare_failed(execution_input.assistant_message, generation_id=generation_id)
+            self._mark_prepare_failed(
+                execution_input.assistant_message,
+                generation_id=getattr(execution_input.assistant_message, "generation_id", None),
+            )
             raise
 
     def _mark_prepare_cancelled(self, assistant_message: object, *, generation_id: str | None) -> None:

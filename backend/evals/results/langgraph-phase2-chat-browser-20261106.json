@@ -1,0 +1,30 @@
+{
+  "langgraph_version": "1.2.20",
+  "scope": "真实在线模型/工具/最终回答，故障由测试进程显式注入",
+  "browser": {
+    "assistant_chars": 146,
+    "assistant_status": "done",
+    "conversation_id": "de4e7356-b9bd-473f-98e0-d6d549c213ab",
+    "executed_tool_keys": [
+      "workspace.files.read",
+      "workspace.files.search"
+    ],
+    "graph_nodes": [
+      "plan",
+      "execute",
+      "observe",
+      "plan",
+      "execute",
+      "observe",
+      "finalize"
+    ],
+    "last_plan_tool_keys": [
+      "workspace.files.read"
+    ],
+    "planner_strategy": "llm_primary",
+    "project_name": "stage46a-real-e2e-dab958256c",
+    "route_run_id": "666123cb-383d-41e7-82d5-5351d72914bf",
+    "route_status": "success",
+    "tool_call_count": 2
+  }
+}

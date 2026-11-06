@@ -61,12 +61,14 @@ tags: [langgraph, migration, agent, durability]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-009 | 新建 agent_graph/chat_graph.py 和 chat_graph_state.py；只保存消息ID/generation、证据引用、阶段诊断，认证对象与Provider配置走 Runtime Context | | |
+| TASK-009 | 新建 agent_graph/chat_graph.py 和 chat_graph_state.py；只保存消息ID/generation、证据引用、阶段诊断，认证对象与Provider配置走 Runtime Context | ✅（第一段） | 2026-11-06 |
 | TASK-010 | chat_execution_service.py 与 chat_context_assembly_service.py 接入 prepare→retrieve_memory/rag→tools_subgraph→govern→generate/finalize；只并行无依赖只读阶段，保留各自失败降级 | | |
 | TASK-011 | Chat流式服务将图事件适配现有NDJSON；重复/旧generation写入仍拒绝；首包/空闲/总超时、用户停止、代理断连各保持现有收口 | | |
 | TASK-012 | 真实模型验证普通/RAG/Tool/混合四模式、停止、超时、重生成/编辑重答；前端无接口破坏，实际注入来源一致 | | |
 
 退出标准：核心 Chat 已走图入口；只读并行无跨线程共享 Session；滚动摘要/记忆调用前仍释放连接，失败不伪装成成功。
+
+阶段2第一段已完成：新问题、重生成和编辑重答统一经过 `bootstrap → resolve_runtime → assemble_context → finalize`。其中 `assemble_context` 暂时复用现有上下文服务的短事务和失败降级，下一段再将记忆、RAG、工具和预算治理拆成独立图节点；因此当前不能宣称 Chat 内部已经全部图化。
 
 ### Implementation Phase 3 — Durable 检查点与 Worker
 
