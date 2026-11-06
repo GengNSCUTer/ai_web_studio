@@ -2,6 +2,8 @@
 
 2026-11-06。前置提交为 `196f8dd`，详细迁移范围仍以 [总计划](../plan/refactor-langgraph-runtime-1.md) 为准。阶段2已实现并完成下述本地验收；提交/CI记录以阶段提交和Actions为准，Durable检查点属于阶段3。
 
+阶段提交 `1197b59` 已推送；GitHub Actions `42164080330` 的 backend/frontend 均成功。飞书当前项目入口已更新阶段2完整链路与验收，最终提交状态在原段定点补充。阶段1 `309fb82`、准备图第一段 `196f8dd` 均保留为Git回退边界。
+
 ## 实际调用链
 
 HTTP 请求认证后进入 `ChatExecutionService`，新问题创建消息骨架，重生成/编辑重答复用原消息并更换 generation。准备图组织运行时与上下文子图，准备成功才创建 HTTP 流。随后生成图组织在线模型与保存终态，路由继续适配 NDJSON：

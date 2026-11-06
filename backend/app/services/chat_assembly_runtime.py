@@ -47,4 +47,3 @@ class ChatAssemblyRuntime:
     prompt_diagnostics: Any = None
     result: Any = None
     phases: list[str] = field(default_factory=list)
-
