@@ -1,0 +1,2270 @@
+{
+  "scope": "迁移后固定200任务和12题留出回归；不是同期A/B或生产SLA，模型随机性和前序业务修复均影响结果",
+  "same_case_annotations": true,
+  "same_fixture_inputs": true,
+  "baseline_reference": {
+    "scheduled": 200,
+    "executed": 200,
+    "statuses": {
+      "passed": 170,
+      "partial": 29,
+      "failed": 1
+    },
+    "task_success": {
+      "numerator": 170,
+      "denominator": 200,
+      "value": 0.85
+    },
+    "scheduled_task_success": {
+      "numerator": 170,
+      "denominator": 200,
+      "value": 0.85
+    },
+    "partial_success": {
+      "numerator": 29,
+      "denominator": 200,
+      "value": 0.145
+    },
+    "candidate_tool_group_recall": {
+      "numerator": 117,
+      "denominator": 118,
+      "value": 0.9915254237288136
+    },
+    "candidate_task_full_coverage": {
+      "numerator": 97,
+      "denominator": 98,
+      "value": 0.9897959183673469
+    },
+    "planner_tool_group_coverage_given_candidates": {
+      "numerator": 103,
+      "denominator": 116,
+      "value": 0.8879310344827587
+    },
+    "parameter_schema_validity": {
+      "numerator": 446,
+      "denominator": 449,
+      "value": 0.9933184855233853
+    },
+    "quality_pass": {
+      "numerator": 219,
+      "denominator": 219,
+      "value": 1.0
+    },
+    "call_statuses": {
+      "success": 215,
+      "waiting_approval": 8
+    },
+    "call_execution_success": {
+      "numerator": 215,
+      "denominator": 223,
+      "value": 0.9641255605381166
+    },
+    "no_tool_task_success": {
+      "numerator": 29,
+      "denominator": 30,
+      "value": 0.9666666666666667
+    },
+    "artifact_download_success": {
+      "numerator": 20,
+      "denominator": 20,
+      "value": 1.0
+    },
+    "missing_candidate_trace_cases": 0,
+    "forbidden_candidates": 0,
+    "p50_ms": 23923.8,
+    "p95_ms": 64811.9,
+    "sample_size": 200,
+    "final_answer_token_usage_cases": 168,
+    "complete_task_token_cost": null,
+    "planner_dependency_correctness": null,
+    "answer_semantic_faithfulness": null,
+    "recovery_success": null
+  },
+  "current": {
+    "summary": {
+      "scheduled": 200,
+      "executed": 200,
+      "statuses": {
+        "passed": 176,
+        "partial": 23,
+        "failed": 1
+      },
+      "task_success": {
+        "numerator": 176,
+        "denominator": 200,
+        "value": 0.88
+      },
+      "scheduled_task_success": {
+        "numerator": 176,
+        "denominator": 200,
+        "value": 0.88
+      },
+      "partial_success": {
+        "numerator": 23,
+        "denominator": 200,
+        "value": 0.115
+      },
+      "candidate_tool_group_recall": {
+        "numerator": 112,
+        "denominator": 112,
+        "value": 1.0
+      },
+      "candidate_task_full_coverage": {
+        "numerator": 95,
+        "denominator": 95,
+        "value": 1.0
+      },
+      "planner_tool_group_coverage_given_candidates": {
+        "numerator": 110,
+        "denominator": 112,
+        "value": 0.9821428571428571
+      },
+      "parameter_schema_validity": {
+        "numerator": 461,
+        "denominator": 463,
+        "value": 0.9956803455723542
+      },
+      "quality_pass": {
+        "numerator": 217,
+        "denominator": 217,
+        "value": 1.0
+      },
+      "call_statuses": {
+        "success": 213,
+        "waiting_approval": 17,
+        "skipped": 1
+      },
+      "call_execution_success": {
+        "numerator": 213,
+        "denominator": 231,
+        "value": 0.922077922077922
+      },
+      "no_tool_task_success": {
+        "numerator": 27,
+        "denominator": 30,
+        "value": 0.9
+      },
+      "artifact_download_success": {
+        "numerator": 20,
+        "denominator": 20,
+        "value": 1.0
+      },
+      "missing_candidate_trace_cases": 0,
+      "forbidden_candidates": 0,
+      "p50_ms": 17391.9,
+      "p95_ms": 58990.1,
+      "sample_size": 200,
+      "final_answer_token_usage_cases": 148,
+      "complete_task_token_cost": null,
+      "planner_dependency_correctness": null,
+      "answer_semantic_faithfulness": null,
+      "recovery_success": null
+    },
+    "by_category": {
+      "no_tool": {
+        "scheduled": 30,
+        "executed": 30,
+        "statuses": {
+          "passed": 27,
+          "partial": 3
+        },
+        "task_success": {
+          "numerator": 27,
+          "denominator": 30,
+          "value": 0.9
+        },
+        "scheduled_task_success": {
+          "numerator": 27,
+          "denominator": 30,
+          "value": 0.9
+        },
+        "partial_success": {
+          "numerator": 3,
+          "denominator": 30,
+          "value": 0.1
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "parameter_schema_validity": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "quality_pass": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "call_statuses": {},
+        "call_execution_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "no_tool_task_success": {
+          "numerator": 27,
+          "denominator": 30,
+          "value": 0.9
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 4138.5,
+        "p95_ms": 35400.8,
+        "sample_size": 30,
+        "final_answer_token_usage_cases": 30,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "single_tool": {
+        "scheduled": 40,
+        "executed": 40,
+        "statuses": {
+          "passed": 29,
+          "partial": 11
+        },
+        "task_success": {
+          "numerator": 29,
+          "denominator": 40,
+          "value": 0.725
+        },
+        "scheduled_task_success": {
+          "numerator": 29,
+          "denominator": 40,
+          "value": 0.725
+        },
+        "partial_success": {
+          "numerator": 11,
+          "denominator": 40,
+          "value": 0.275
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 40,
+          "denominator": 40,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 40,
+          "denominator": 40,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 39,
+          "denominator": 40,
+          "value": 0.975
+        },
+        "parameter_schema_validity": {
+          "numerator": 80,
+          "denominator": 80,
+          "value": 1.0
+        },
+        "quality_pass": {
+          "numerator": 40,
+          "denominator": 40,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "success": 40
+        },
+        "call_execution_success": {
+          "numerator": 40,
+          "denominator": 40,
+          "value": 1.0
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 14360.6,
+        "p95_ms": 42935.2,
+        "sample_size": 40,
+        "final_answer_token_usage_cases": 40,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "multi_tool": {
+        "scheduled": 50,
+        "executed": 50,
+        "statuses": {
+          "passed": 47,
+          "partial": 3
+        },
+        "task_success": {
+          "numerator": 47,
+          "denominator": 50,
+          "value": 0.94
+        },
+        "scheduled_task_success": {
+          "numerator": 47,
+          "denominator": 50,
+          "value": 0.94
+        },
+        "partial_success": {
+          "numerator": 3,
+          "denominator": 50,
+          "value": 0.06
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 30,
+          "denominator": 30,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 30,
+          "denominator": 30,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 30,
+          "denominator": 30,
+          "value": 1.0
+        },
+        "parameter_schema_validity": {
+          "numerator": 238,
+          "denominator": 238,
+          "value": 1.0
+        },
+        "quality_pass": {
+          "numerator": 119,
+          "denominator": 119,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "success": 119
+        },
+        "call_execution_success": {
+          "numerator": 119,
+          "denominator": 119,
+          "value": 1.0
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 20,
+          "denominator": 20,
+          "value": 1.0
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 35210.8,
+        "p95_ms": 83836.5,
+        "sample_size": 50,
+        "final_answer_token_usage_cases": 30,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "knowledge_evidence": {
+        "scheduled": 40,
+        "executed": 40,
+        "statuses": {
+          "passed": 34,
+          "partial": 6
+        },
+        "task_success": {
+          "numerator": 34,
+          "denominator": 40,
+          "value": 0.85
+        },
+        "scheduled_task_success": {
+          "numerator": 34,
+          "denominator": 40,
+          "value": 0.85
+        },
+        "partial_success": {
+          "numerator": 6,
+          "denominator": 40,
+          "value": 0.15
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "parameter_schema_validity": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "quality_pass": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "call_statuses": {},
+        "call_execution_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 19874.5,
+        "p95_ms": 53240.4,
+        "sample_size": 40,
+        "final_answer_token_usage_cases": 40,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "file_approval": {
+        "scheduled": 20,
+        "executed": 20,
+        "statuses": {
+          "passed": 20
+        },
+        "task_success": {
+          "numerator": 20,
+          "denominator": 20,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 20,
+          "denominator": 20,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 20,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 34,
+          "denominator": 34,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 17,
+          "denominator": 17,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 34,
+          "denominator": 34,
+          "value": 1.0
+        },
+        "parameter_schema_validity": {
+          "numerator": 114,
+          "denominator": 114,
+          "value": 1.0
+        },
+        "quality_pass": {
+          "numerator": 44,
+          "denominator": 44,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "success": 40,
+          "waiting_approval": 17
+        },
+        "call_execution_success": {
+          "numerator": 40,
+          "denominator": 57,
+          "value": 0.7017543859649122
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 5106.9,
+        "p95_ms": 5914.0,
+        "sample_size": 20,
+        "final_answer_token_usage_cases": 0,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "fault_security": {
+        "scheduled": 20,
+        "executed": 20,
+        "statuses": {
+          "passed": 19,
+          "failed": 1
+        },
+        "task_success": {
+          "numerator": 19,
+          "denominator": 20,
+          "value": 0.95
+        },
+        "scheduled_task_success": {
+          "numerator": 19,
+          "denominator": 20,
+          "value": 0.95
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 20,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 8,
+          "denominator": 8,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 8,
+          "denominator": 8,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 7,
+          "denominator": 8,
+          "value": 0.875
+        },
+        "parameter_schema_validity": {
+          "numerator": 29,
+          "denominator": 31,
+          "value": 0.9354838709677419
+        },
+        "quality_pass": {
+          "numerator": 14,
+          "denominator": 14,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "success": 14,
+          "skipped": 1
+        },
+        "call_execution_success": {
+          "numerator": 14,
+          "denominator": 15,
+          "value": 0.9333333333333333
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 1008.2,
+        "p95_ms": 98847.4,
+        "sample_size": 20,
+        "final_answer_token_usage_cases": 8,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      }
+    },
+    "by_runner": {
+      "chat": {
+        "scheduled": 148,
+        "executed": 148,
+        "statuses": {
+          "passed": 124,
+          "partial": 23,
+          "failed": 1
+        },
+        "task_success": {
+          "numerator": 124,
+          "denominator": 148,
+          "value": 0.8378378378378378
+        },
+        "scheduled_task_success": {
+          "numerator": 124,
+          "denominator": 148,
+          "value": 0.8378378378378378
+        },
+        "partial_success": {
+          "numerator": 23,
+          "denominator": 148,
+          "value": 0.1554054054054054
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 78,
+          "denominator": 78,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 78,
+          "denominator": 78,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 76,
+          "denominator": 78,
+          "value": 0.9743589743589743
+        },
+        "parameter_schema_validity": {
+          "numerator": 347,
+          "denominator": 349,
+          "value": 0.994269340974212
+        },
+        "quality_pass": {
+          "numerator": 173,
+          "denominator": 173,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "success": 173,
+          "skipped": 1
+        },
+        "call_execution_success": {
+          "numerator": 173,
+          "denominator": 174,
+          "value": 0.9942528735632183
+        },
+        "no_tool_task_success": {
+          "numerator": 27,
+          "denominator": 30,
+          "value": 0.9
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 18915.9,
+        "p95_ms": 53628.0,
+        "sample_size": 148,
+        "final_answer_token_usage_cases": 148,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "document_task": {
+        "scheduled": 20,
+        "executed": 20,
+        "statuses": {
+          "passed": 20
+        },
+        "task_success": {
+          "numerator": 20,
+          "denominator": 20,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 20,
+          "denominator": 20,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 20,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "parameter_schema_validity": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "quality_pass": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "call_statuses": {},
+        "call_execution_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 20,
+          "denominator": 20,
+          "value": 1.0
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 33157.9,
+        "p95_ms": 102506.2,
+        "sample_size": 20,
+        "final_answer_token_usage_cases": 0,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "fault_injection": {
+        "scheduled": 12,
+        "executed": 12,
+        "statuses": {
+          "passed": 12
+        },
+        "task_success": {
+          "numerator": 12,
+          "denominator": 12,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 12,
+          "denominator": 12,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 12,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "parameter_schema_validity": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "quality_pass": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "call_statuses": {},
+        "call_execution_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 726.2,
+        "p95_ms": 47161.8,
+        "sample_size": 12,
+        "final_answer_token_usage_cases": 0,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "file_approval": {
+        "scheduled": 20,
+        "executed": 20,
+        "statuses": {
+          "passed": 20
+        },
+        "task_success": {
+          "numerator": 20,
+          "denominator": 20,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 20,
+          "denominator": 20,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 20,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 34,
+          "denominator": 34,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 17,
+          "denominator": 17,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 34,
+          "denominator": 34,
+          "value": 1.0
+        },
+        "parameter_schema_validity": {
+          "numerator": 114,
+          "denominator": 114,
+          "value": 1.0
+        },
+        "quality_pass": {
+          "numerator": 44,
+          "denominator": 44,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "success": 40,
+          "waiting_approval": 17
+        },
+        "call_execution_success": {
+          "numerator": 40,
+          "denominator": 57,
+          "value": 0.7017543859649122
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 5106.9,
+        "p95_ms": 5914.0,
+        "sample_size": 20,
+        "final_answer_token_usage_cases": 0,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      }
+    },
+    "graph_coverage": {
+      "chat_metric_rows": 168,
+      "chat_prepare_orchestrator": 168,
+      "context_orchestrator": 168,
+      "chat_stream_orchestrator": 168,
+      "tool_graph_trace_rows": 168
+    },
+    "mode_distribution": {
+      "chat:quick_chat": {
+        "cases": 110,
+        "statuses": {
+          "passed": 90,
+          "partial": 20
+        },
+        "p50_ms": 14799.4,
+        "p95_ms": 43927.5,
+        "planner_rounds": {
+          "1": 109,
+          "2": 1
+        },
+        "tool_calls": {
+          "0": 70,
+          "1": 40
+        },
+        "stop_reasons": {
+          "no_tool_needed": 70,
+          "completed": 39,
+          "tool_wall_clock_budget_exhausted": 1
+        }
+      },
+      "chat:workspace_review": {
+        "cases": 38,
+        "statuses": {
+          "passed": 34,
+          "partial": 3,
+          "failed": 1
+        },
+        "p50_ms": 33387.2,
+        "p95_ms": 98636.9,
+        "planner_rounds": {
+          "2": 35,
+          "3": 2,
+          "1": 1
+        },
+        "tool_calls": {
+          "4": 25,
+          "3": 3,
+          "5": 2,
+          "2": 7,
+          "0": 1
+        },
+        "stop_reasons": {
+          "completed": 37,
+          "action_scope_denied": 1
+        }
+      },
+      "document_task:quick_chat": {
+        "cases": 20,
+        "statuses": {
+          "passed": 20
+        },
+        "p50_ms": 32833.1,
+        "p95_ms": 102197.0,
+        "planner_rounds": {},
+        "tool_calls": {},
+        "stop_reasons": {}
+      },
+      "file_approval:edit_proposal": {
+        "cases": 20,
+        "statuses": {
+          "passed": 20
+        },
+        "p50_ms": 4910.7,
+        "p95_ms": 5701.5,
+        "planner_rounds": {
+          "3": 20
+        },
+        "tool_calls": {
+          "3": 17,
+          "2": 3
+        },
+        "stop_reasons": {
+          "waiting_approval": 17,
+          "task_evidence_incomplete": 3
+        }
+      },
+      "fault_injection:quick_chat": {
+        "cases": 12,
+        "statuses": {
+          "passed": 12
+        },
+        "p50_ms": 466.3,
+        "p95_ms": 46931.0,
+        "planner_rounds": {},
+        "tool_calls": {},
+        "stop_reasons": {}
+      }
+    },
+    "failed_check_counts": {
+      "fact_2": 5,
+      "fact_1": 8,
+      "citations_present_and_legal": 10,
+      "cited_file:S02.md": 1,
+      "cited_file:S04.md": 1,
+      "required_group_executed_1": 2,
+      "only_direct_file_read": 1,
+      "correct_file_argument": 1,
+      "cited_file:S12.md": 1,
+      "cited_file:S15.md": 1,
+      "cited_file:S20.md": 1,
+      "cited_file:S22.md": 1,
+      "cited_file:S24.md": 1,
+      "cited_file:S25.md": 1,
+      "cited_file:S28.md": 1,
+      "cited_file:S37.md": 1,
+      "cited_file:M09_input.md": 1,
+      "cited_file:M23_input.md": 1,
+      "cited_file:M26_input.md": 1,
+      "gold_chunk_cited": 3,
+      "fact_3": 1,
+      "only_allowed_tool_calls": 1
+    },
+    "uncompleted": [
+      {
+        "id": "N13",
+        "status": "partial",
+        "failed_checks": [
+          "fact_2"
+        ],
+        "error_type": null,
+        "stop_reason": "no_tool_needed"
+      },
+      {
+        "id": "N16",
+        "status": "partial",
+        "failed_checks": [
+          "fact_1"
+        ],
+        "error_type": null,
+        "stop_reason": "no_tool_needed"
+      },
+      {
+        "id": "N27",
+        "status": "partial",
+        "failed_checks": [
+          "fact_2"
+        ],
+        "error_type": null,
+        "stop_reason": "no_tool_needed"
+      },
+      {
+        "id": "S02",
+        "status": "partial",
+        "failed_checks": [
+          "citations_present_and_legal",
+          "cited_file:S02.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "S04",
+        "status": "partial",
+        "failed_checks": [
+          "fact_1",
+          "citations_present_and_legal",
+          "cited_file:S04.md",
+          "required_group_executed_1",
+          "only_direct_file_read",
+          "correct_file_argument"
+        ],
+        "error_type": null,
+        "stop_reason": "tool_wall_clock_budget_exhausted"
+      },
+      {
+        "id": "S12",
+        "status": "partial",
+        "failed_checks": [
+          "citations_present_and_legal",
+          "cited_file:S12.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "S15",
+        "status": "partial",
+        "failed_checks": [
+          "citations_present_and_legal",
+          "cited_file:S15.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "S20",
+        "status": "partial",
+        "failed_checks": [
+          "citations_present_and_legal",
+          "cited_file:S20.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "S22",
+        "status": "partial",
+        "failed_checks": [
+          "citations_present_and_legal",
+          "cited_file:S22.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "S24",
+        "status": "partial",
+        "failed_checks": [
+          "fact_2",
+          "citations_present_and_legal",
+          "cited_file:S24.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "S25",
+        "status": "partial",
+        "failed_checks": [
+          "citations_present_and_legal",
+          "cited_file:S25.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "S28",
+        "status": "partial",
+        "failed_checks": [
+          "citations_present_and_legal",
+          "cited_file:S28.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "S36",
+        "status": "partial",
+        "failed_checks": [
+          "fact_1"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "S37",
+        "status": "partial",
+        "failed_checks": [
+          "fact_1",
+          "citations_present_and_legal",
+          "cited_file:S37.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "M09",
+        "status": "partial",
+        "failed_checks": [
+          "fact_1",
+          "cited_file:M09_input.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "M23",
+        "status": "partial",
+        "failed_checks": [
+          "cited_file:M23_input.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "M26",
+        "status": "partial",
+        "failed_checks": [
+          "cited_file:M26_input.md"
+        ],
+        "error_type": null,
+        "stop_reason": "completed"
+      },
+      {
+        "id": "K02",
+        "status": "partial",
+        "failed_checks": [
+          "gold_chunk_cited"
+        ],
+        "error_type": null,
+        "stop_reason": "no_tool_needed"
+      },
+      {
+        "id": "K13",
+        "status": "partial",
+        "failed_checks": [
+          "gold_chunk_cited"
+        ],
+        "error_type": null,
+        "stop_reason": "no_tool_needed"
+      },
+      {
+        "id": "K14",
+        "status": "partial",
+        "failed_checks": [
+          "gold_chunk_cited"
+        ],
+        "error_type": null,
+        "stop_reason": "no_tool_needed"
+      },
+      {
+        "id": "K16",
+        "status": "partial",
+        "failed_checks": [
+          "fact_1"
+        ],
+        "error_type": null,
+        "stop_reason": "no_tool_needed"
+      },
+      {
+        "id": "K18",
+        "status": "partial",
+        "failed_checks": [
+          "fact_1",
+          "fact_2",
+          "fact_3"
+        ],
+        "error_type": null,
+        "stop_reason": "no_tool_needed"
+      },
+      {
+        "id": "K20",
+        "status": "partial",
+        "failed_checks": [
+          "fact_2"
+        ],
+        "error_type": null,
+        "stop_reason": "no_tool_needed"
+      },
+      {
+        "id": "F02",
+        "status": "failed",
+        "failed_checks": [
+          "fact_1",
+          "required_group_executed_1",
+          "only_allowed_tool_calls"
+        ],
+        "error_type": null,
+        "stop_reason": "action_scope_denied"
+      }
+    ],
+    "final_answer_usage": {
+      "cases_with_usage": 148,
+      "input_tokens": 177568,
+      "output_tokens": 23504,
+      "complete_task_tokens": null,
+      "note": "仅最终回答Provider用量；Planner/Embedding/重排/文档草稿不齐全，不计算总成本"
+    },
+    "browser": {
+      "status": "passed",
+      "errors": [],
+      "download": "artifacts/browser-download.docx"
+    },
+    "cleanup": {
+      "status": "cleaned",
+      "projects": 202
+    }
+  },
+  "holdout": {
+    "summary": {
+      "scheduled": 12,
+      "executed": 12,
+      "statuses": {
+        "passed": 12
+      },
+      "task_success": {
+        "numerator": 12,
+        "denominator": 12,
+        "value": 1.0
+      },
+      "scheduled_task_success": {
+        "numerator": 12,
+        "denominator": 12,
+        "value": 1.0
+      },
+      "partial_success": {
+        "numerator": 0,
+        "denominator": 12,
+        "value": 0.0
+      },
+      "candidate_tool_group_recall": {
+        "numerator": 10,
+        "denominator": 10,
+        "value": 1.0
+      },
+      "candidate_task_full_coverage": {
+        "numerator": 8,
+        "denominator": 8,
+        "value": 1.0
+      },
+      "planner_tool_group_coverage_given_candidates": {
+        "numerator": 10,
+        "denominator": 10,
+        "value": 1.0
+      },
+      "parameter_schema_validity": {
+        "numerator": 42,
+        "denominator": 42,
+        "value": 1.0
+      },
+      "quality_pass": {
+        "numerator": 20,
+        "denominator": 20,
+        "value": 1.0
+      },
+      "call_statuses": {
+        "success": 19,
+        "waiting_approval": 2
+      },
+      "call_execution_success": {
+        "numerator": 19,
+        "denominator": 21,
+        "value": 0.9047619047619048
+      },
+      "no_tool_task_success": {
+        "numerator": 2,
+        "denominator": 2,
+        "value": 1.0
+      },
+      "artifact_download_success": {
+        "numerator": 2,
+        "denominator": 2,
+        "value": 1.0
+      },
+      "missing_candidate_trace_cases": 0,
+      "forbidden_candidates": 0,
+      "p50_ms": 12043.9,
+      "p95_ms": 44497.4,
+      "sample_size": 12,
+      "final_answer_token_usage_cases": 8,
+      "complete_task_token_cost": null,
+      "planner_dependency_correctness": null,
+      "answer_semantic_faithfulness": null,
+      "recovery_success": null
+    },
+    "by_category": {
+      "no_tool": {
+        "scheduled": 2,
+        "executed": 2,
+        "statuses": {
+          "passed": 2
+        },
+        "task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 2,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "parameter_schema_validity": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "quality_pass": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "call_statuses": {},
+        "call_execution_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "no_tool_task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 3058.9,
+        "p95_ms": 5777.4,
+        "sample_size": 2,
+        "final_answer_token_usage_cases": 2,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "single_tool": {
+        "scheduled": 3,
+        "executed": 3,
+        "statuses": {
+          "passed": 3
+        },
+        "task_success": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 3,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "parameter_schema_validity": {
+          "numerator": 6,
+          "denominator": 6,
+          "value": 1.0
+        },
+        "quality_pass": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "success": 3
+        },
+        "call_execution_success": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 12043.9,
+        "p95_ms": 40814.7,
+        "sample_size": 3,
+        "final_answer_token_usage_cases": 3,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "multi_tool": {
+        "scheduled": 5,
+        "executed": 5,
+        "statuses": {
+          "passed": 5
+        },
+        "task_success": {
+          "numerator": 5,
+          "denominator": 5,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 5,
+          "denominator": 5,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 5,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 3,
+          "denominator": 3,
+          "value": 1.0
+        },
+        "parameter_schema_validity": {
+          "numerator": 24,
+          "denominator": 24,
+          "value": 1.0
+        },
+        "quality_pass": {
+          "numerator": 12,
+          "denominator": 12,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "success": 12
+        },
+        "call_execution_success": {
+          "numerator": 12,
+          "denominator": 12,
+          "value": 1.0
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 22465.7,
+        "p95_ms": 44497.4,
+        "sample_size": 5,
+        "final_answer_token_usage_cases": 3,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "file_approval": {
+        "scheduled": 2,
+        "executed": 2,
+        "statuses": {
+          "passed": 2
+        },
+        "task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 2,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 4,
+          "denominator": 4,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 4,
+          "denominator": 4,
+          "value": 1.0
+        },
+        "parameter_schema_validity": {
+          "numerator": 12,
+          "denominator": 12,
+          "value": 1.0
+        },
+        "quality_pass": {
+          "numerator": 5,
+          "denominator": 5,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "waiting_approval": 2,
+          "success": 4
+        },
+        "call_execution_success": {
+          "numerator": 4,
+          "denominator": 6,
+          "value": 0.6666666666666666
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 953.8,
+        "p95_ms": 4030.1,
+        "sample_size": 2,
+        "final_answer_token_usage_cases": 0,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      }
+    },
+    "by_runner": {
+      "chat": {
+        "scheduled": 8,
+        "executed": 8,
+        "statuses": {
+          "passed": 8
+        },
+        "task_success": {
+          "numerator": 8,
+          "denominator": 8,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 8,
+          "denominator": 8,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 8,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 6,
+          "denominator": 6,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 6,
+          "denominator": 6,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 6,
+          "denominator": 6,
+          "value": 1.0
+        },
+        "parameter_schema_validity": {
+          "numerator": 30,
+          "denominator": 30,
+          "value": 1.0
+        },
+        "quality_pass": {
+          "numerator": 15,
+          "denominator": 15,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "success": 15
+        },
+        "call_execution_success": {
+          "numerator": 15,
+          "denominator": 15,
+          "value": 1.0
+        },
+        "no_tool_task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 12043.9,
+        "p95_ms": 44497.4,
+        "sample_size": 8,
+        "final_answer_token_usage_cases": 8,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "document_task": {
+        "scheduled": 2,
+        "executed": 2,
+        "statuses": {
+          "passed": 2
+        },
+        "task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 2,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "parameter_schema_validity": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "quality_pass": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "call_statuses": {},
+        "call_execution_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 14688.4,
+        "p95_ms": 18690.6,
+        "sample_size": 2,
+        "final_answer_token_usage_cases": 0,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      },
+      "file_approval": {
+        "scheduled": 2,
+        "executed": 2,
+        "statuses": {
+          "passed": 2
+        },
+        "task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "scheduled_task_success": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "partial_success": {
+          "numerator": 0,
+          "denominator": 2,
+          "value": 0.0
+        },
+        "candidate_tool_group_recall": {
+          "numerator": 4,
+          "denominator": 4,
+          "value": 1.0
+        },
+        "candidate_task_full_coverage": {
+          "numerator": 2,
+          "denominator": 2,
+          "value": 1.0
+        },
+        "planner_tool_group_coverage_given_candidates": {
+          "numerator": 4,
+          "denominator": 4,
+          "value": 1.0
+        },
+        "parameter_schema_validity": {
+          "numerator": 12,
+          "denominator": 12,
+          "value": 1.0
+        },
+        "quality_pass": {
+          "numerator": 5,
+          "denominator": 5,
+          "value": 1.0
+        },
+        "call_statuses": {
+          "waiting_approval": 2,
+          "success": 4
+        },
+        "call_execution_success": {
+          "numerator": 4,
+          "denominator": 6,
+          "value": 0.6666666666666666
+        },
+        "no_tool_task_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "artifact_download_success": {
+          "numerator": 0,
+          "denominator": 0,
+          "value": null
+        },
+        "missing_candidate_trace_cases": 0,
+        "forbidden_candidates": 0,
+        "p50_ms": 953.8,
+        "p95_ms": 4030.1,
+        "sample_size": 2,
+        "final_answer_token_usage_cases": 0,
+        "complete_task_token_cost": null,
+        "planner_dependency_correctness": null,
+        "answer_semantic_faithfulness": null,
+        "recovery_success": null
+      }
+    },
+    "graph_coverage": {
+      "chat_metric_rows": 10,
+      "chat_prepare_orchestrator": 10,
+      "context_orchestrator": 10,
+      "chat_stream_orchestrator": 10,
+      "tool_graph_trace_rows": 10
+    },
+    "mode_distribution": {
+      "chat:quick_chat": {
+        "cases": 5,
+        "statuses": {
+          "passed": 5
+        },
+        "p50_ms": 10983.8,
+        "p95_ms": 40732.6,
+        "planner_rounds": {
+          "1": 5
+        },
+        "tool_calls": {
+          "0": 2,
+          "1": 3
+        },
+        "stop_reasons": {
+          "no_tool_needed": 2,
+          "completed": 3
+        }
+      },
+      "chat:workspace_review": {
+        "cases": 3,
+        "statuses": {
+          "passed": 3
+        },
+        "p50_ms": 24376.2,
+        "p95_ms": 44407.9,
+        "planner_rounds": {
+          "2": 3
+        },
+        "tool_calls": {
+          "4": 3
+        },
+        "stop_reasons": {
+          "completed": 3
+        }
+      },
+      "document_task:guided_research": {
+        "cases": 1,
+        "statuses": {
+          "passed": 1
+        },
+        "p50_ms": 14444.1,
+        "p95_ms": 14444.1,
+        "planner_rounds": {},
+        "tool_calls": {},
+        "stop_reasons": {}
+      },
+      "document_task:workspace_review": {
+        "cases": 1,
+        "statuses": {
+          "passed": 1
+        },
+        "p50_ms": 18537.6,
+        "p95_ms": 18537.6,
+        "planner_rounds": {},
+        "tool_calls": {},
+        "stop_reasons": {}
+      },
+      "file_approval:edit_proposal": {
+        "cases": 2,
+        "statuses": {
+          "passed": 2
+        },
+        "p50_ms": 718.2,
+        "p95_ms": 3863.0,
+        "planner_rounds": {
+          "3": 2
+        },
+        "tool_calls": {
+          "3": 2
+        },
+        "stop_reasons": {
+          "waiting_approval": 2
+        }
+      }
+    },
+    "failed_check_counts": {},
+    "uncompleted": [],
+    "final_answer_usage": {
+      "cases_with_usage": 8,
+      "input_tokens": 5309,
+      "output_tokens": 787,
+      "complete_task_tokens": null,
+      "note": "仅最终回答Provider用量；Planner/Embedding/重排/文档草稿不齐全，不计算总成本"
+    },
+    "browser": {
+      "status": "passed",
+      "errors": [],
+      "download": "artifacts/browser-download.docx"
+    },
+    "cleanup": {
+      "status": "cleaned",
+      "projects": 12
+    }
+  },
+  "case_status_changes": [
+    {
+      "id": "N13",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "N27",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "S02",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "S04",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "S09",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "S10",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "S11",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "S13",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "S15",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "S18",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "S20",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "S23",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "S24",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "S28",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "S36",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "M13",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "M23",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "M26",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "K16",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "K20",
+      "before": "passed",
+      "now": "partial"
+    },
+    {
+      "id": "K28",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E05",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E06",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E07",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E08",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E09",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E11",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E12",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E14",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E16",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E17",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "E19",
+      "before": "partial",
+      "now": "passed"
+    },
+    {
+      "id": "F02",
+      "before": "passed",
+      "now": "failed"
+    },
+    {
+      "id": "F04",
+      "before": "failed",
+      "now": "passed"
+    }
+  ],
+  "resource_samples": 30,
+  "process_resources": {
+    "backend": {
+      "pids": [
+        1694466
+      ],
+      "rss_kib": {
+        "first": 249944,
+        "last": 251864,
+        "max": 251864
+      },
+      "fds": {
+        "first": 20,
+        "last": 20,
+        "max": 20
+      },
+      "threads": {
+        "first": 55,
+        "last": 55,
+        "max": 55
+      }
+    },
+    "durable-worker": {
+      "pids": [
+        1697156
+      ],
+      "rss_kib": {
+        "first": 149188,
+        "last": 149368,
+        "max": 149368
+      },
+      "fds": {
+        "first": 8,
+        "last": 8,
+        "max": 8
+      },
+      "threads": {
+        "first": 2,
+        "last": 2,
+        "max": 2
+      }
+    },
+    "knowledge-worker": {
+      "pids": [
+        1682251
+      ],
+      "rss_kib": {
+        "first": 112120,
+        "last": 112156,
+        "max": 112156
+      },
+      "fds": {
+        "first": 5,
+        "last": 5,
+        "max": 5
+      },
+      "threads": {
+        "first": 1,
+        "last": 1,
+        "max": 1
+      }
+    },
+    "memory-worker": {
+      "pids": [
+        1682618
+      ],
+      "rss_kib": {
+        "first": 124704,
+        "last": 124764,
+        "max": 124764
+      },
+      "fds": {
+        "first": 7,
+        "last": 7,
+        "max": 7
+      },
+      "threads": {
+        "first": 49,
+        "last": 49,
+        "max": 49
+      }
+    }
+  },
+  "health_sample_failures": 0,
+  "sampling_failures": [],
+  "max_idle_in_transaction": 1,
+  "max_idle_transaction_seconds": 0.002,
+  "sources": {
+    "baseline": "backend/evals/results/agent-business-200-20261105-r1/report.json",
+    "current": "backend/evals/results/langgraph-phase7-business200-20261106-r2/report.json",
+    "holdout": "backend/evals/results/langgraph-phase7-holdout-20261106-r1/report.json",
+    "resources": "backend/evals/results/langgraph-phase7-resources-20261106-r4.json"
+  }
+}

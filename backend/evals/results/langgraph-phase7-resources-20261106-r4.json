@@ -1,0 +1,1149 @@
+{
+  "scope": "业务验收期间的资源采样，不是生产容量或无泄漏证明",
+  "status": "completed",
+  "planned_samples": 30,
+  "samples": [
+    {
+      "offset_seconds": 0.7,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 249944,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149188,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 11.3,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 249980,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149188,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 22.0,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 249984,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149188,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 32.6,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250044,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149200,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 43.2,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250048,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149200,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 53.9,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250120,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149200,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 64.5,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250136,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149200,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 75.2,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250212,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149200,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 85.8,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250256,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149200,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 96.5,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250296,
+          "threads": 55,
+          "fds": 19
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149200,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 107.2,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250384,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149200,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 117.8,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250724,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149276,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124704,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 128.5,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250864,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149288,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 139.1,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250972,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149288,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 149.8,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 250992,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149288,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 160.4,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251136,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149288,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 171.0,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251172,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 181.7,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251224,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 192.3,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251276,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 203.0,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251284,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 213.6,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251284,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 224.3,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251360,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 12,
+        "idle in transaction": 1
+      },
+      "max_idle_transaction_seconds": 0.002,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 235.0,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251476,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 245.6,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251520,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112120,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 256.3,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251684,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112152,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 266.9,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251692,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149332,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112152,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 277.6,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251692,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149368,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112152,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 288.2,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251796,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149368,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112152,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 298.9,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251832,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149368,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112152,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    },
+    {
+      "offset_seconds": 309.5,
+      "processes": {
+        "backend": {
+          "pid": 1694466,
+          "rss_kib": 251864,
+          "threads": 55,
+          "fds": 20
+        },
+        "durable-worker": {
+          "pid": 1697156,
+          "rss_kib": 149368,
+          "threads": 2,
+          "fds": 8
+        },
+        "knowledge-worker": {
+          "pid": 1682251,
+          "rss_kib": 112156,
+          "threads": 1,
+          "fds": 5
+        },
+        "memory-worker": {
+          "pid": 1682618,
+          "rss_kib": 124764,
+          "threads": 49,
+          "fds": 7
+        }
+      },
+      "pg_sessions": {
+        "active": 1,
+        "idle": 13
+      },
+      "max_idle_transaction_seconds": 0.0,
+      "health": {
+        "/health/ready": 200,
+        "/health/workers": 200
+      }
+    }
+  ],
+  "sampling_failures": []
+}
