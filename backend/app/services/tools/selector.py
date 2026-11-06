@@ -34,7 +34,8 @@ class ToolCandidateSelector:
     FOLLOWUP_PATTERN = re.compile(r"(?:它|这份|那份|这个|那个|里面|其中|继续|上面|刚才|上述|这篇|那篇)|\b(?:it|that|previous|above)\b", re.I)
     FILE_EXCLUSION_PATTERN = re.compile(
         r"(?:不要|不用|别|无需|不)(?:使用|用|读取|读|查看|搜索|访问|检查)?(?:本地|工作区|项目)?(?:文件|文档)"
-        r"|(?:只|仅).{0,5}(?:联网|网上|网页|官网)"
+        # 只能跨越明确的连接词，不能把“只读文件，不联网”跨标点/否定匹配成仅联网。
+        r"|(?:只|仅)(?:(?:允许|使用|进行|通过|根据|依据|基于|访问|搜索|查询|从|在|用)\s*){0,2}(?:联网|网上|网页|官网)"
         r"|\b(?:do not|don't|never|no)\s+(?:(?:access|read|use|search)\s+)?(?:local|workspace)\s+files\b", re.I
     )
     WEB_EXCLUSION_PATTERN = re.compile(r"(?:不要|不用|别|无需|不)(?:使用|用|进行)?(?:联网|上网|网页搜索|网络搜索)|\b(?:do not|don't|never|no)\s+(?:(?:use|search|browse|access)\s+)?(?:the\s+)?(?:web|internet|online)\b", re.I)

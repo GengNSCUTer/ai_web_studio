@@ -25,6 +25,7 @@ class ChatGraphState(TypedDict, total=False):
     tool_event_count: int
     context_token_count: int
     terminal_reason: str
+    final_source_labels: list[str]
 
 
 @dataclass

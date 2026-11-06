@@ -1,13 +1,10 @@
-"""Chat 准备主图。
+"""Chat准备主图：消息骨架、运行时、上下文子图与流式交接。
 
-本阶段先把“创建/复用本轮消息 → 解析运行时 → 组装上下文 → 交给流式层”纳入
-LangGraph。最终模型流式输出仍由现有 Chat 路由负责，以保持 NDJSON、取消、超时和
-generation CAS 的原有行为；后续阶段再把上下文内部的检索、工具和预算拆成子图节点。
+准备先于HTTP流开始；生成与保存由chat_stream_graph接续，路由保留NDJSON适配及取消收口。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -15,7 +12,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from langsmith import tracing_context
 
-from app.repositories.message_repo import ContextHistory, MessageGenerationConflict
+from app.repositories.message_repo import ContextHistory
 from app.services.agent_graph.chat_graph_state import ChatGraphContext, ChatGraphState
 
 
@@ -36,6 +33,8 @@ def _record_phase(context: ChatGraphContext, phase: str) -> None:
     for item in context.phase_log:
         if item not in phases:
             phases.append(item)
+    result.context_stats["chat_graph_phases"] = list(phases)
+    result.context_stats["chat_prepare_orchestrator"] = "langgraph"
 
 
 async def _bootstrap(state: ChatGraphState, runtime: Runtime[ChatGraphContext]) -> dict[str, Any]:
@@ -73,7 +72,8 @@ async def _bootstrap(state: ChatGraphState, runtime: Runtime[ChatGraphContext]) 
         service.db.commit()
         context.history_rows = history_rows
 
-    generation_id = getattr(context.assistant_message, "generation_id", None)
+    generation_id = (context.generation_id if context.turn_kind == "existing"
+                     else getattr(context.assistant_message, "generation_id", None))
     context.generation_id = generation_id
     _record_phase(context, "bootstrap")
     return {
@@ -128,17 +128,19 @@ async def _assemble_context(state: ChatGraphState, runtime: Runtime[ChatGraphCon
         }
     context.result = await service.context_assembly_service.build_execution_context(
         conversation=context.conversation,
-        history_rows=context.history_rows or [],
+        history_rows=context.history_rows if context.history_rows is not None else [],
         user_message=context.user_message,
         assistant_message=context.assistant_message,
         runtime=context.runtime,
         skill_context=context.skill_context,
+        generation_id=context.generation_id,
         **values,
     )
     _record_phase(context, "assemble")
     return {
         "phase": "assemble",
         "context_ready": True,
+        "final_source_labels": list((getattr(context.result, "context_details", {}) or {}).get("final_source_map", {})),
         "source_count": len(getattr(context.result, "external_sources", []) or []),
         "tool_event_count": len(getattr(context.result, "tool_events", []) or []),
         "context_token_count": int((getattr(context.result, "context_stats", {}) or {}).get(

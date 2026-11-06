@@ -1,0 +1,143 @@
+{
+  "scope": "真实在线DeepSeek-V3.2/HTTP/数据库；非性能或语义评分集",
+  "cases": [
+    {
+      "case": "普通对话",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 13623,
+      "answer_chars": 61,
+      "source_count": 0,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    },
+    {
+      "case": "重生成",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 3585,
+      "answer_chars": 53,
+      "source_count": 0,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    },
+    {
+      "case": "编辑重答",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 8454,
+      "answer_chars": 47,
+      "source_count": 0,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    },
+    {
+      "case": "RAG",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 11863,
+      "answer_chars": 348,
+      "source_count": 6,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    },
+    {
+      "case": "工具",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 21579,
+      "answer_chars": 145,
+      "source_count": 2,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    },
+    {
+      "case": "混合RAG与工具",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 37256,
+      "answer_chars": 310,
+      "source_count": 9,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    },
+    {
+      "case": "真实HTTP流断连",
+      "status": "passed",
+      "assistant_status": "cancelled",
+      "saved_partial_chars": 1
+    }
+  ]
+}

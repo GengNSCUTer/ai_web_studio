@@ -817,6 +817,74 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_existing_turn_cancel_cannot_close_a_new_generation(self) -> None:
+        """重生成也必须使用进入图之前复制的版本，不能在异常收口时重读ORM。"""
+        async def run_test():
+            context = self._create_stream_context()
+            original_generation = context.assistant_message.generation_id
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+
+            async def replace_and_cancel(**kwargs):
+                self.assertEqual(kwargs["generation_id"], original_generation)
+                message = kwargs["assistant_message"]
+                message.generation_id = str(uuid4())
+                message.status = "done"
+                message.content = "新的重生成结果"
+                self.db.commit()
+                raise asyncio.CancelledError
+
+            with patch.object(service.context_assembly_service, "build_execution_context",
+                              side_effect=replace_and_cancel):
+                with self.assertRaises(asyncio.CancelledError):
+                    await service.prepare_existing_turn_execution(ExistingTurnExecutionInput(
+                        conversation=context.conversation, history_rows=[], user_message=context.user_message,
+                        assistant_message=context.assistant_message, model_name=None, system_prompt=None,
+                        thinking_enabled=False, thinking_budget=None, web_search_enabled=False,
+                    ))
+            self.db.refresh(context.assistant_message)
+            self.assertEqual(context.assistant_message.status, "done")
+            self.assertEqual(context.assistant_message.content, "新的重生成结果")
+
+        asyncio.run(run_test())
+
+    def test_final_knowledge_sources_survive_request_session_close(self) -> None:
+        """最终来源日志不能只flush，否则流开始时关闭Session会恢复成原始候选。"""
+        from app.models.knowledge import KnowledgeBase, KnowledgeRetrievalLog
+        from app.services.knowledge_context_service import KnowledgeContextResult, KnowledgeContextService
+
+        base = KnowledgeBase(user_id=self.user.id, name="最终来源事务测试")
+        self.db.add(base)
+        self.db.flush()
+        log = KnowledgeRetrievalLog(user_id=self.user.id, knowledge_base_id=base.id, query="测试证据",
+                                    sources_json="[]")
+        self.db.add(log)
+        self.db.commit()
+        lid, bid = log.id, base.id
+        source = ExternalSource(source_type="knowledge", provider="knowledge", title="测试资料",
+            display_text="最终保留的测试证据内容。", citation_label="[KB1]", used_in_prompt=True,
+            metadata={"retrieval_log_id": lid})
+        section = KnowledgeContextService._evidence_section([source])
+        result = KnowledgeContextResult(context_text=section.render(), sources=[source],
+                                        retrieval_log_id=lid, evidence_section=section)
+
+        async def run_test():
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+            with patch("app.services.chat_context_assembly_service.KnowledgeContextService") as knowledge, patch(
+                "app.services.chat_context_assembly_service.ExternalContextService", FakeExternalContextService
+            ):
+                knowledge.return_value.build_context = AsyncMock(return_value=result)
+                return await service.prepare_chat_execution(ChatStreamRequest(
+                    content="测试证据是什么？", model_name="qwen-test", knowledge_base_id=bid))
+
+        context = asyncio.run(run_test())
+        expected_sources = list(context.external_sources)
+        self.assertTrue(expected_sources)
+        self.db.close()
+        with self.SessionLocal() as fresh:
+            persisted = fresh.get(KnowledgeRetrievalLog, lid)
+            self.assertEqual(json.loads(persisted.sources_json), expected_sources)
+            self.assertEqual(json.loads(persisted.diagnostics_json)["knowledge_sources_in_final_prompt"], 1)
+
     def test_streaming_response_enforces_first_token_timeout(self) -> None:
         class SlowFirstTokenProvider:
             async def stream_chat_events(self, **_: object):

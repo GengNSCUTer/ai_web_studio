@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
-from app.repositories.message_repo import ContextHistory, MessageRepository
+from app.repositories.message_repo import MessageRepository
 from app.repositories.message_repo import MessageGenerationConflict
 from app.repositories.project_repo import ProjectRepository
 from app.repositories.setting_repo import UserSettingRepository
@@ -109,19 +109,20 @@ class ChatExecutionService:
             service=self,
             turn_kind="existing",
             execution_input=execution_input,
+            generation_id=getattr(execution_input.assistant_message, "generation_id", None),
         )
         try:
             return await run_chat_graph(graph_context)
         except asyncio.CancelledError:
             self._mark_prepare_cancelled(
                 execution_input.assistant_message,
-                generation_id=getattr(execution_input.assistant_message, "generation_id", None),
+                generation_id=graph_context.generation_id,
             )
             raise
         except Exception:
             self._mark_prepare_failed(
                 execution_input.assistant_message,
-                generation_id=getattr(execution_input.assistant_message, "generation_id", None),
+                generation_id=graph_context.generation_id,
             )
             raise
 

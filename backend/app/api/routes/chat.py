@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any
 
 import anyio
@@ -29,6 +30,7 @@ from app.services.chat_provider_service import ChatProviderService, ChatStreamEv
 from app.services.chat_persistence_service import ChatPersistenceSnapshot, persist_stream_result
 from app.services.message_service import MessageService
 from app.services.citation_audit_service import audit_answer_citations
+from app.services.agent_graph.chat_stream_graph import ChatStreamGraphContext, stream_chat_graph
 
 from app.api.resource_limits import chat_capacity
 
@@ -386,6 +388,7 @@ def _build_streaming_response(
     async def text_generator():
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
+        stream_context = None
         try:
             if event_stream:
                 # 诊断不能仅依赖有大小上限的响应头；NDJSON 内发送一份完整、安全的摘要。
@@ -426,60 +429,65 @@ def _build_streaming_response(
                     prompt_cache_key=context.prompt_cache_key,
                     prompt_cache_breakpoint=context.prompt_cache_breakpoint,
                 )
-            async for event in _iter_with_stream_timeouts(
-                provider_events,
-                first_token_timeout_seconds=settings.chat_first_token_timeout_seconds,
-                idle_timeout_seconds=settings.chat_stream_idle_timeout_seconds,
-                total_timeout_seconds=settings.chat_stream_total_timeout_seconds,
-            ):
-                if event.type == "reasoning_delta":
-                    # reasoning_delta 是深度思考过程；单独存储，避免混入最终回答正文。
-                    reasoning_parts.append(event.text)
-                    if event_stream:
-                        yield _encode_stream_event("reasoning_delta", text=event.text)
-                    continue
-                if event.type == "answer_delta":
-                    # answer_delta 才是最终回答正文。
-                    content_parts.append(event.text)
-                    yield _encode_stream_event("answer_delta", text=event.text) if event_stream else event.text
-                    continue
-                if event.type == "provider_usage" and event.data:
-                    # usage 事件来自 Provider 最终 chunk，不包含凭据；它让前端/测试能够
-                    # 区分“理论前缀可复用”和“Provider 实际命中 cached tokens”。
-                    context.context_stats.update(
-                        {
-                            "provider_input_tokens": int(event.data.get("input_tokens", 0) or 0),
-                            "provider_output_tokens": int(event.data.get("output_tokens", 0) or 0),
-                            "provider_cached_input_tokens": int(event.data.get("cached_input_tokens", 0) or 0),
-                            "provider_cache_creation_input_tokens": int(
-                                event.data.get("cache_creation_input_tokens", 0) or 0
-                            ),
-                            "prompt_cache_mode": event.data.get("prompt_cache_mode", "none"),
-                            "prompt_cache_request_key_sent": int(
-                                bool(event.data.get("prompt_cache_request_key_sent", False))
-                            ),
-                            "prompt_cache_usage_available": int(
-                                bool(event.data.get("prompt_cache_usage_available", False))
-                            ),
-                            "prompt_cache_usage_support": event.data.get(
-                                "prompt_cache_usage_support", "none"
-                            ),
-                        }
-                    )
-                    if event_stream:
-                        yield _encode_stream_event("provider_usage", **event.data)
+            async def persist_terminal(status_value: str) -> bool:
+                return await _persist_stream_result_nonblocking(
+                    context, status_value=status_value,
+                    content_parts=content_parts, reasoning_parts=reasoning_parts,
+                    assistant_message_id=assistant_message_id,
+                    conversation_id=conversation_id, user_id=user_id, postgresql=postgresql,
+                )
 
-            # 模型正常结束后，一次性把完整 answer/reasoning/sources 写回 assistant 消息。
-            persisted = await _persist_stream_result_nonblocking(
-                context,
-                status_value="done",
-                content_parts=content_parts,
-                reasoning_parts=reasoning_parts,
-                assistant_message_id=assistant_message_id,
-                conversation_id=conversation_id,
-                user_id=user_id,
-                postgresql=postgresql,
+            stream_context = ChatStreamGraphContext(
+                source=_iter_with_stream_timeouts(
+                    provider_events,
+                    first_token_timeout_seconds=settings.chat_first_token_timeout_seconds,
+                    idle_timeout_seconds=settings.chat_stream_idle_timeout_seconds,
+                    total_timeout_seconds=settings.chat_stream_total_timeout_seconds,
+                ),
+                persist=persist_terminal, content_parts=content_parts, reasoning_parts=reasoning_parts,
+                context_details=context.context_details, context_stats=context.context_stats,
             )
+            async with aclosing(stream_chat_graph(stream_context)) as graph_events:
+                async for event in graph_events:
+                    if event.type == "reasoning_delta":
+                        # reasoning_delta 是深度思考过程；单独存储，避免混入最终回答正文。
+                        if event_stream:
+                            yield _encode_stream_event("reasoning_delta", text=event.text)
+                        continue
+                    if event.type == "answer_delta":
+                        # answer_delta 才是最终回答正文。
+                        yield _encode_stream_event("answer_delta", text=event.text) if event_stream else event.text
+                        continue
+                    if event.type == "provider_usage" and event.data:
+                        # usage 事件来自 Provider 最终 chunk，不包含凭据；它让前端/测试能够
+                        # 区分“理论前缀可复用”和“Provider 实际命中 cached tokens”。
+                        context.context_stats.update(
+                            {
+                                "provider_input_tokens": int(event.data.get("input_tokens", 0) or 0),
+                                "provider_output_tokens": int(event.data.get("output_tokens", 0) or 0),
+                                "provider_cached_input_tokens": int(event.data.get("cached_input_tokens", 0) or 0),
+                                "provider_cache_creation_input_tokens": int(
+                                    event.data.get("cache_creation_input_tokens", 0) or 0
+                                ),
+                                "prompt_cache_mode": event.data.get("prompt_cache_mode", "none"),
+                                "prompt_cache_request_key_sent": int(
+                                    bool(event.data.get("prompt_cache_request_key_sent", False))
+                                ),
+                                "prompt_cache_usage_available": int(
+                                    bool(event.data.get("prompt_cache_usage_available", False))
+                                ),
+                                "prompt_cache_usage_support": event.data.get(
+                                    "prompt_cache_usage_support", "none"
+                                ),
+                            }
+                        )
+                        if event_stream:
+                            yield _encode_stream_event("provider_usage", **event.data)
+
+            # 图生成节点结束后由独立节点保存；路由只按保存结果输出终态事件。
+            if stream_context.error is not None:
+                raise stream_context.error
+            persisted = stream_context.persisted
             if not persisted:
                 if event_stream:
                     yield _encode_stream_event(
@@ -520,16 +528,20 @@ def _build_streaming_response(
                 logger.warning("Chat provider stream timed out: %s", exc.timeout_kind)
             else:
                 logger.error("Chat provider stream failed: %s", type(exc).__name__)
-            persisted = await _persist_stream_result_nonblocking(
-                context,
-                status_value="failed",
-                content_parts=content_parts,
-                reasoning_parts=reasoning_parts,
-                assistant_message_id=assistant_message_id,
-                conversation_id=conversation_id,
-                user_id=user_id,
-                postgresql=postgresql,
-            )
+            # 生成错误已由图终态节点保存，避免重复写入和重复派发后台记忆任务。
+            if stream_context is not None and stream_context.persisted is not None:
+                persisted = stream_context.persisted
+            else:
+                persisted = await _persist_stream_result_nonblocking(
+                    context,
+                    status_value="failed",
+                    content_parts=content_parts,
+                    reasoning_parts=reasoning_parts,
+                    assistant_message_id=assistant_message_id,
+                    conversation_id=conversation_id,
+                    user_id=user_id,
+                    postgresql=postgresql,
+                )
             if not persisted:
                 if event_stream:
                     yield _encode_stream_event(

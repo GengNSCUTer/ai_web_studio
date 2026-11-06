@@ -1,0 +1,96 @@
+{
+  "scope": "真实在线DeepSeek-V3.2/HTTP/数据库；非性能或语义评分集",
+  "cases": [
+    {
+      "case": "普通对话",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 28778,
+      "answer_chars": 68,
+      "source_count": 0,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    },
+    {
+      "case": "重生成",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 3293,
+      "answer_chars": 52,
+      "source_count": 0,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    },
+    {
+      "case": "编辑重答",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 4514,
+      "answer_chars": 45,
+      "source_count": 0,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    },
+    {
+      "case": "RAG",
+      "status": "passed",
+      "assistant_status": "done",
+      "elapsed_ms": 10413,
+      "answer_chars": 266,
+      "source_count": 6,
+      "context_nodes": [
+        "snapshot",
+        "memory",
+        "tools_subgraph",
+        "rag",
+        "summary",
+        "govern",
+        "context_ready"
+      ],
+      "stream_nodes": [
+        "generate",
+        "persist_terminal"
+      ],
+      "citation_map_consistent": true
+    }
+  ],
+  "failed": {
+    "error_type": "AssertionError"
+  }
+}

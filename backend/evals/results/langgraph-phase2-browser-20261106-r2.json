@@ -1,0 +1,42 @@
+{
+  "scope": "真实浏览器/在线Planner/文件工具/最终回答/持久化图阶段",
+  "browser": {
+    "assistant_chars": 193,
+    "assistant_status": "done",
+    "context_nodes": [
+      "snapshot",
+      "memory",
+      "tools_subgraph",
+      "rag",
+      "summary",
+      "govern",
+      "context_ready"
+    ],
+    "conversation_id": "45c9ff65-1e43-4824-a903-c46142b7ef00",
+    "executed_tool_keys": [
+      "workspace.files.read",
+      "workspace.files.search"
+    ],
+    "graph_nodes": [
+      "plan",
+      "execute",
+      "observe",
+      "plan",
+      "execute",
+      "observe",
+      "finalize"
+    ],
+    "last_plan_tool_keys": [
+      "workspace.files.read"
+    ],
+    "planner_strategy": "llm_primary",
+    "project_name": "stage46a-real-e2e-1ad259d7dd",
+    "route_run_id": "56e3eff0-e047-4b0e-81a7-20d184b2e823",
+    "route_status": "success",
+    "stream_nodes": [
+      "generate",
+      "persist_terminal"
+    ],
+    "tool_call_count": 2
+  }
+}

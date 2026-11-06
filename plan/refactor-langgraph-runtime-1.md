@@ -61,14 +61,14 @@ tags: [langgraph, migration, agent, durability]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-009 | 新建 agent_graph/chat_graph.py 和 chat_graph_state.py；只保存消息ID/generation、证据引用、阶段诊断，认证对象与Provider配置走 Runtime Context | ✅（第一段） | 2026-11-06 |
-| TASK-010 | chat_execution_service.py 与 chat_context_assembly_service.py 接入 prepare→retrieve_memory/rag→tools_subgraph→govern→generate/finalize；只并行无依赖只读阶段，保留各自失败降级 | | |
-| TASK-011 | Chat流式服务将图事件适配现有NDJSON；重复/旧generation写入仍拒绝；首包/空闲/总超时、用户停止、代理断连各保持现有收口 | | |
-| TASK-012 | 真实模型验证普通/RAG/Tool/混合四模式、停止、超时、重生成/编辑重答；前端无接口破坏，实际注入来源一致 | | |
+| TASK-009 | 新建 agent_graph/chat_graph.py 和 chat_graph_state.py；只保存消息ID/generation、证据引用、阶段诊断，认证对象与Provider配置走 Runtime Context | ✅ | 2026-11-06 |
+| TASK-010 | chat_execution_service.py 与 chat_context_assembly_service.py 接入 prepare→retrieve_memory/rag→tools_subgraph→govern→generate/finalize；只并行无依赖只读阶段，保留各自失败降级 | ✅ | 2026-11-06 |
+| TASK-011 | Chat流式服务将图事件适配现有NDJSON；重复/旧generation写入仍拒绝；首包/空闲/总超时、用户停止、代理断连各保持现有收口 | ✅ | 2026-11-06 |
+| TASK-012 | 真实模型验证普通/RAG/Tool/混合四模式、停止、超时、重生成/编辑重答；前端无接口破坏，实际注入来源一致 | ✅ | 2026-11-06 |
 
 退出标准：核心 Chat 已走图入口；只读并行无跨线程共享 Session；滚动摘要/记忆调用前仍释放连接，失败不伪装成成功。
 
-阶段2第一段已完成：新问题、重生成和编辑重答统一经过 `bootstrap → resolve_runtime → assemble_context → finalize`。其中 `assemble_context` 暂时复用现有上下文服务的短事务和失败降级，下一段再将记忆、RAG、工具和预算治理拆成独立图节点；因此当前不能宣称 Chat 内部已经全部图化。
+阶段2实现：准备入口仍分离于HTTP生成流；上下文已拆为snapshot、memory、tools（调用原工具子图）、rag、summary、govern、context_ready；生成流另由generate与persist_terminal节点组织。共享Session阶段保持串行异步节点，不交给线程池。Python3.10下采用请求级单槽事件桥接保持NDJSON和消费顺序；无Checkpointer，普通Chat仍不支持崩溃续token。验证与中间失败见docs/210。
 
 ### Implementation Phase 3 — Durable 检查点与 Worker
 
@@ -168,7 +168,7 @@ tags: [langgraph, migration, agent, durability]
 - **RISK-002**: 图的superstep/递归次数不等于Planner轮次；配置独立递归保护，原业务预算继续有效。
 - **RISK-003**: Graph与业务DB提交不共享事务，恢复协议必须容许checkpoint滞后，禁止仅凭checkpoint宣布写入成功。
 - **RISK-004**: 迁移不保证模型更准确、响应更快；收集开销与维护差异，发现回退先修复而不删除测试。
-- **ASSUMPTION-001**: 本轮优先完成阶段0/1；后续按同一计划逐项推进，不以文档勾选替代验证。
+- **ASSUMPTION-001**: 用户已要求阶段2余项完成后逐阶段继续，每阶段单独提交推送并确认CI，不以文档勾选替代验证；最后统一说明迁移范围、代码、部署、证据与边界。
 
 ## 8. Related Specifications / Further Reading
 

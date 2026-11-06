@@ -20,6 +20,7 @@ from app.services.chat_execution_models import (
     PromptDiagnosticsBundle,
     SummaryRefreshBundle,
 )
+from app.services.chat_assembly_runtime import ChatAssemblyRuntime
 from app.services.chat_provider_service import ChatProviderService
 from app.services.external_context_service import ExternalContextService
 from app.services.evidence_sufficiency import assess_evidence_sufficiency
@@ -149,25 +150,43 @@ class ChatContextAssemblyService:
         knowledge_base_ids: list[str] | None = None,
         skill_context: SkillExecutionContext | None = None,
         tool_run_mode: str = "quick_chat",
+        generation_id: str | None = None,
     ) -> ChatExecutionContext:
+        # 独立图节点调用原业务步骤，不再在一个函数里顺序编排所有上下文来源。
+        from app.services.agent_graph.context_graph import run_context_graph
+
+        assembly = ChatAssemblyRuntime(
+            conversation=conversation, history_rows=history_rows,
+            user_message=user_message, assistant_message=assistant_message,
+            runtime=runtime, thinking_enabled=thinking_enabled,
+            thinking_budget=thinking_budget, web_search_enabled=web_search_enabled,
+            knowledge_base_id=knowledge_base_id, knowledge_base_ids=knowledge_base_ids,
+            skill_context=skill_context, tool_run_mode=tool_run_mode,
+            assistant_generation_id=generation_id,
+        )
+        return await run_context_graph(self, assembly)
+
+    def snapshot(self, assembly: ChatAssemblyRuntime) -> None:
+        """固定原文、历史边界和生成版本，防止后续提交刷新ORM属性。"""
         # 这是 Chat prepare 阶段的核心方法：收集所有上下文来源，构造最终 prompt，并返回给流式执行层。
-        query = getattr(user_message, "content", "") or ""
+        assembly.query = getattr(assembly.user_message, "content", "") or ""
         # 选择只保存标识；本轮和重生成均重新读取，不能用上一轮已撤销授权的正文。
-        resource_selections = json.loads(getattr(user_message, "mcp_resources_json", None) or "[]")
+        assembly.resource_selections = json.loads(getattr(assembly.user_message, "mcp_resources_json", None) or "[]")
         # Prepare 过程中会有外部调用和多次 commit；必须固定本次 generation 的 token，
         # 避免 ORM 刷新后读到后来 generation 的新 token，削弱流式收口的 CAS 保护。
-        assistant_generation_id = getattr(assistant_message, "generation_id", None)
-        assistant_id = assistant_message.id
-        bounded_history = isinstance(history_rows, ContextHistory)
-        history_through_message_id = getattr(history_rows, "through_message_id", None)
+        if assembly.assistant_generation_id is None:
+            assembly.assistant_generation_id = getattr(assembly.assistant_message, "generation_id", None)
+        assembly.assistant_id = assembly.assistant_message.id
+        assembly.bounded_history = isinstance(assembly.history_rows, ContextHistory)
+        assembly.history_through_message_id = getattr(assembly.history_rows, "through_message_id", None)
         # 重生成入口也可能传入当前空占位；它不属于可摘要、可发送的历史。
-        history_rows = [row for row in history_rows if row.id != assistant_id]
+        assembly.history_rows = [row for row in assembly.history_rows if row.id != assembly.assistant_id]
         # 必须在任何 await/commit 之前固定原文，ORM 对象可能在后续提交后被刷新。
-        history_snapshot = [
-            (row.id, row.role, row.content, row.generation_id) for row in history_rows
+        assembly.history_snapshot = [
+            (row.id, row.role, row.content, row.generation_id) for row in assembly.history_rows
         ]
         # 后续检索和 Prompt 也只读值副本，避免等待期间被删除的 ORM 对象触发懒加载异常。
-        history_rows = [
+        assembly.history_rows = [
             SimpleNamespace(
                 id=row.id, role=row.role, content=row.content, generation_id=row.generation_id,
                 status=row.status,
@@ -175,179 +194,196 @@ class ChatContextAssemblyService:
                     kind=attachment.kind, storage_path=attachment.storage_path, mime_type=attachment.mime_type,
                 ) for attachment in row.attachments],
             )
-            for row in history_rows
+            for row in assembly.history_rows
         ]
-        memory_bundle = await self.build_memory_context(
-            runtime.settings,
-            query=query,
-            project_id=getattr(conversation, "project_id", None),
+
+    async def retrieve_memory(self, assembly: ChatAssemblyRuntime) -> None:
+        """使用独立短Session召回长期记忆，并准备本轮附件。"""
+        assembly.memory_bundle = await self.build_memory_context(
+            assembly.runtime.settings,
+            query=assembly.query,
+            project_id=getattr(assembly.conversation, "project_id", None),
         )
 
         # 当前轮附件上下文只围绕本轮 user_message 选择，不扫描全部历史附件。
-        attachment_context_result = AttachmentContextService().build_context(
-            attachments=list(getattr(user_message, "attachments", []) or []),
-            query=query,
-            max_chars=runtime.budget.max_attachment_chars,
+        assembly.attachment_context_result = AttachmentContextService().build_context(
+            attachments=list(getattr(assembly.user_message, "attachments", []) or []),
+            query=assembly.query,
+            max_chars=assembly.runtime.budget.max_attachment_chars,
         )
+
+    async def execute_tools(self, assembly: ChatAssemblyRuntime) -> None:
+        """调用已有工具图和MCP资料接口，汇总已校验的工具证据。"""
         # 外部上下文包括联网搜索、地图、天气等工具。只有 web_search_enabled=True 时才会真正规划/调用工具。
-        resource_sources, resource_notices = [], []
-        resource_service = None
-        if resource_selections:
-            resource_project_id = getattr(conversation, "project_id", None)
+        assembly.resource_sources, assembly.resource_notices = [], []
+        assembly.resource_service = None
+        if assembly.resource_selections:
+            resource_project_id = getattr(assembly.conversation, "project_id", None)
             self.db.commit()
-            resource_service = McpResourceService(user_id=self.user_id, project_id=resource_project_id)
-            resource_sources, resource_notices = await resource_service.build_sources(resource_selections)
-        external_context_result = await self._build_external_context(
-            conversation=conversation,
-            assistant_message=assistant_message,
-            user_message=user_message,
-            query=query,
-            history_rows=history_rows,
-            web_search_enabled=web_search_enabled,
-            max_attachment_chars=runtime.budget.max_attachment_chars,
-            runtime=runtime,
-            skill_context=skill_context,
-            tool_run_mode=tool_run_mode,
+            assembly.resource_service = McpResourceService(user_id=self.user_id, project_id=resource_project_id)
+            assembly.resource_sources, assembly.resource_notices = await assembly.resource_service.build_sources(assembly.resource_selections)
+        assembly.external_context_result = await self._build_external_context(
+            conversation=assembly.conversation,
+            assistant_message=assembly.assistant_message,
+            user_message=assembly.user_message,
+            query=assembly.query,
+            history_rows=assembly.history_rows,
+            web_search_enabled=assembly.web_search_enabled,
+            max_attachment_chars=assembly.runtime.budget.max_attachment_chars,
+            runtime=assembly.runtime,
+            skill_context=assembly.skill_context,
+            tool_run_mode=assembly.tool_run_mode,
         )
-        if resource_selections:
-            all_sources = [*external_context_result.sources, *resource_sources]
-            status_text = str(external_context_result.details.get("execution_status_text") or "")
-            if resource_notices:
+        if assembly.resource_selections:
+            all_sources = [*assembly.external_context_result.sources, *assembly.resource_sources]
+            status_text = str(assembly.external_context_result.details.get("execution_status_text") or "")
+            if assembly.resource_notices:
                 status_text += "\n所选MCP资料未成功读取。不要声称已查阅这些资料，相关问题应说明资料不足。"
             section = ExternalContextAssembler.build_section(all_sources,
-                max_chars=max(1200, min(runtime.budget.max_attachment_chars, 6000)), execution_status=status_text)
-            external_context_result = replace(external_context_result, sources=all_sources,
+                max_chars=max(1200, min(assembly.runtime.budget.max_attachment_chars, 6000)), execution_status=status_text)
+            assembly.external_context_result = replace(assembly.external_context_result, sources=all_sources,
                 evidence_section=section, context_text=section.render() or None,
-                notices=[*external_context_result.notices, *resource_notices])
+                notices=[*assembly.external_context_result.notices, *assembly.resource_notices])
         # 证据充分性是代码侧的最终回答约束。它仅依据已通过执行边界的 Tool
         # 来源类型和状态生成，不读取自由文本，也不授予模型额外权限。
-        evidence_sufficiency = assess_evidence_sufficiency(
-            query=query,
-            sources=external_context_result.sources,
-            skill_key=skill_context.skill_key if skill_context else None,
-            completion_contract=skill_context.completion_contract if skill_context else None,
+        assembly.evidence_sufficiency = assess_evidence_sufficiency(
+            query=assembly.query,
+            sources=assembly.external_context_result.sources,
+            skill_key=assembly.skill_context.skill_key if assembly.skill_context else None,
+            completion_contract=assembly.skill_context.completion_contract if assembly.skill_context else None,
         )
+
+    async def retrieve_knowledge(self, assembly: ChatAssemblyRuntime) -> None:
+        """检索知识库并将原始召回日志绑定到本轮消息。"""
         # 知识库上下文来自用户显式选择的知识库；检索日志会在后面绑定到本轮 user/assistant message。
-        knowledge_context_result = await KnowledgeContextService(
+        assembly.knowledge_context_result = await KnowledgeContextService(
             db=self.db,
             user_id=self.user_id,
         ).build_context(
-            knowledge_base_id=knowledge_base_id,
-            knowledge_base_ids=knowledge_base_ids,
-            query=query,
+            knowledge_base_id=assembly.knowledge_base_id,
+            knowledge_base_ids=assembly.knowledge_base_ids,
+            query=assembly.query,
             rewrite_provider={
-                "provider_type": runtime.provider_type,
-                "base_url": runtime.base_url,
-                "api_key": runtime.provider_api_key,
-                "model_name": runtime.resolved_model,
+                "provider_type": assembly.runtime.provider_type,
+                "base_url": assembly.runtime.base_url,
+                "api_key": assembly.runtime.provider_api_key,
+                "model_name": assembly.runtime.resolved_model,
             },
             recent_messages=[
                 message
-                for message in history_rows
-                if message is not user_message
+                for message in assembly.history_rows
+                if message is not assembly.user_message
                 and (
-                    not getattr(user_message, "id", None)
-                    or getattr(message, "id", None) != getattr(user_message, "id", None)
+                    not getattr(assembly.user_message, "id", None)
+                    or getattr(message, "id", None) != getattr(assembly.user_message, "id", None)
                 )
             ],
         )
-        retrieval_log_ids = knowledge_context_result.retrieval_log_ids or (
-            [knowledge_context_result.retrieval_log_id] if knowledge_context_result.retrieval_log_id else []
+        assembly.retrieval_log_ids = assembly.knowledge_context_result.retrieval_log_ids or (
+            [assembly.knowledge_context_result.retrieval_log_id] if assembly.knowledge_context_result.retrieval_log_id else []
         )
-        if retrieval_log_ids:
+        if assembly.retrieval_log_ids:
             # RAG 来源定位需要把检索日志绑定到本轮消息，否则前端只能看到片段，不能跳回对应回答。
             knowledge_log_repo = KnowledgeRetrievalLogRepository(self.db)
             sources_by_log_id: dict[str, list[dict[str, Any]]] = {}
-            for source in knowledge_context_result.sources:
+            for source in assembly.knowledge_context_result.sources:
                 source_dict = source.to_public_dict()
                 log_id = str((source.metadata or {}).get("retrieval_log_id") or "")
                 if log_id:
                     sources_by_log_id.setdefault(log_id, []).append(source_dict)
-            for log_id in retrieval_log_ids:
+            for log_id in assembly.retrieval_log_ids:
                 knowledge_log_repo.update_message_links(
                     log_id=log_id,
                     user_id=self.user_id,
-                    conversation_id=getattr(conversation, "id", None),
-                    user_message_id=getattr(user_message, "id", None),
-                    assistant_message_id=getattr(assistant_message, "id", None),
+                    conversation_id=getattr(assembly.conversation, "id", None),
+                    user_message_id=getattr(assembly.user_message, "id", None),
+                    assistant_message_id=getattr(assembly.assistant_message, "id", None),
                     sources=sources_by_log_id.get(log_id, []),
                 )
-        summary_bundle = await self._refresh_context_summary(
-            conversation=conversation,
-            runtime=runtime,
-            expected_history=history_snapshot,
-            assistant_id=assistant_id,
-            generation_id=assistant_generation_id,
-            bounded_history=bounded_history,
-            history_through_message_id=history_through_message_id,
+
+    async def refresh_summary(self, assembly: ChatAssemblyRuntime) -> None:
+        """刷新摘要并复核历史版本及MCP资料授权。"""
+        assembly.summary_bundle = await self._refresh_context_summary(
+            conversation=assembly.conversation,
+            runtime=assembly.runtime,
+            expected_history=assembly.history_snapshot,
+            assistant_id=assembly.assistant_id,
+            generation_id=assembly.assistant_generation_id,
+            bounded_history=assembly.bounded_history,
+            history_through_message_id=assembly.history_through_message_id,
         )
 
-        if resource_service:
+        if assembly.resource_service:
             self.db.commit()
-            await resource_service.revalidate()
+            await assembly.resource_service.revalidate()
+
+    async def govern_prompt(self, assembly: ChatAssemblyRuntime) -> None:
+        """构建分层Prompt，并按完整证据单元执行预算治理。"""
         # PromptBuilder携带结构化证据；Governance按保留单元渲染最终输入。
-        prompt_result = ContextPromptBuilder().build_chat_messages(
-            messages=history_rows,
-            system_prompt=clean_optional_str(conversation.system_prompt)
-            or clean_optional_str(getattr(runtime.settings, "system_prompt", None)),
-            memory_context=memory_bundle.context_text,
-            context_summary=summary_bundle.summary or clean_optional_str(getattr(conversation, "context_summary", None)),
-            summary_boundary_message_id=summary_bundle.boundary_message_id
-            or clean_optional_str(getattr(conversation, "context_summary_boundary_message_id", None)),
-            external_context=external_context_result.context_text,
-            attachment_context=attachment_context_result.context_text,
-            knowledge_context=knowledge_context_result.context_text,
-            provider_type=runtime.provider_type,
-            model_name=runtime.resolved_model,
+        assembly.prompt_result = ContextPromptBuilder().build_chat_messages(
+            messages=assembly.history_rows,
+            system_prompt=clean_optional_str(assembly.conversation.system_prompt)
+            or clean_optional_str(getattr(assembly.runtime.settings, "system_prompt", None)),
+            memory_context=assembly.memory_bundle.context_text,
+            context_summary=assembly.summary_bundle.summary or clean_optional_str(getattr(assembly.conversation, "context_summary", None)),
+            summary_boundary_message_id=assembly.summary_bundle.boundary_message_id
+            or clean_optional_str(getattr(assembly.conversation, "context_summary_boundary_message_id", None)),
+            external_context=assembly.external_context_result.context_text,
+            attachment_context=assembly.attachment_context_result.context_text,
+            knowledge_context=assembly.knowledge_context_result.context_text,
+            provider_type=assembly.runtime.provider_type,
+            model_name=assembly.runtime.resolved_model,
             skill_instructions=(
-                skill_context.final_answer_instructions if skill_context else None
+                assembly.skill_context.final_answer_instructions if assembly.skill_context else None
             ),
-            evidence_guidance=evidence_sufficiency.guidance,
+            evidence_guidance=assembly.evidence_sufficiency.guidance,
             evidence_sections={section.layer: section for section in (
-                external_context_result.evidence_section, knowledge_context_result.evidence_section) if section is not None},
+                assembly.external_context_result.evidence_section, assembly.knowledge_context_result.evidence_section) if section is not None},
         )
-        governed_context = runtime.governance_service.govern_messages(prompt_result.messages)
-        memory_diagnostics = memory_bundle.after_governance(
-            governed_context.retained_reference_texts.get("long_term_memory", ""))
-        prompt_diagnostics = self._build_prompt_diagnostics(
-            conversation=conversation,
-            prompt_result=prompt_result,
-            governed_messages=governed_context.messages,
-            runtime=runtime,
+        assembly.governed_context = assembly.runtime.governance_service.govern_messages(assembly.prompt_result.messages)
+        assembly.memory_diagnostics = assembly.memory_bundle.after_governance(
+            assembly.governed_context.retained_reference_texts.get("long_term_memory", ""))
+        assembly.prompt_diagnostics = self._build_prompt_diagnostics(
+            conversation=assembly.conversation,
+            prompt_result=assembly.prompt_result,
+            governed_messages=assembly.governed_context.messages,
+            runtime=assembly.runtime,
         )
 
-        conversation.last_prompt_prefix_hash = prompt_diagnostics.prompt_prefix_hash or None
-        conversation.last_prompt_prefix_token_count = prompt_diagnostics.prompt_prefix_tokens or None
+        assembly.conversation.last_prompt_prefix_hash = assembly.prompt_diagnostics.prompt_prefix_hash or None
+        assembly.conversation.last_prompt_prefix_token_count = assembly.prompt_diagnostics.prompt_prefix_tokens or None
         # prefix hash 只是观测/缓存命中诊断字段，不影响业务权限。
-        self.conversation_repo.save(conversation)
+        self.conversation_repo.save(assembly.conversation)
         # ConversationRepository 只 flush；摘要边界与 prefix 诊断在 Context Assembly 用例末尾统一提交。
         self.db.commit()
 
-        summary_text = summary_bundle.summary or clean_optional_str(getattr(conversation, "context_summary", None)) or ""
-        summary_tokens = runtime.tokenizer.estimate_text_tokens(summary_text)
-        summary_source_tokens = int(summary_bundle.stats.get("summary_refresh_source_tokens", 0) or 0)
+    def finalize_context(self, assembly: ChatAssemblyRuntime) -> ChatExecutionContext:
+        """从同一份治理结果生成可调用上下文和最终来源映射。"""
+        summary_text = assembly.summary_bundle.summary or clean_optional_str(getattr(assembly.conversation, "context_summary", None)) or ""
+        summary_tokens = assembly.runtime.tokenizer.estimate_text_tokens(summary_text)
+        summary_source_tokens = int(assembly.summary_bundle.stats.get("summary_refresh_source_tokens", 0) or 0)
         summary_compression_ratio = (
             round(summary_tokens / summary_source_tokens, 4) if summary_source_tokens > 0 else 0
         )
-        attachment_context_tokens = runtime.tokenizer.estimate_text_tokens(attachment_context_result.context_text or "")
-        knowledge_context_tokens = runtime.tokenizer.estimate_text_tokens(knowledge_context_result.context_text or "")
-        original_sources = [*external_context_result.sources, *knowledge_context_result.sources]
-        final_source_map = governed_context.final_source_map
+        attachment_context_tokens = assembly.runtime.tokenizer.estimate_text_tokens(assembly.attachment_context_result.context_text or "")
+        knowledge_context_tokens = assembly.runtime.tokenizer.estimate_text_tokens(assembly.knowledge_context_result.context_text or "")
+        original_sources = [*assembly.external_context_result.sources, *assembly.knowledge_context_result.sources]
+        final_source_map = assembly.governed_context.final_source_map
         provider_capabilities = resolve_provider_capabilities(
-            provider_type=runtime.provider_type,
-            base_url=runtime.base_url,
+            provider_type=assembly.runtime.provider_type,
+            base_url=assembly.runtime.base_url,
         )
         combined_public_sources = list(final_source_map.values())
-        verified_file_edit_answer = build_file_edit_response(query=query, mode=tool_run_mode,
-            sources=external_context_result.sources, final_source_map=final_source_map,
-            events=external_context_result.tool_events)
+        verified_file_edit_answer = build_file_edit_response(query=assembly.query, mode=assembly.tool_run_mode,
+            sources=assembly.external_context_result.sources, final_source_map=final_source_map,
+            events=assembly.external_context_result.tool_events)
         # 候选/选择记录不变；展示来源只取最终证据，另存排除原因而非伪装成可引用来源。
-        if retrieval_log_ids:
+        if assembly.retrieval_log_ids:
             log_repo = KnowledgeRetrievalLogRepository(self.db)
-            for log_id in retrieval_log_ids:
+            for log_id in assembly.retrieval_log_ids:
                 log = log_repo.update_message_links(log_id=log_id, user_id=self.user_id,
-                    conversation_id=getattr(conversation, "id", None), user_message_id=getattr(user_message, "id", None),
-                    assistant_message_id=getattr(assistant_message, "id", None),
+                    conversation_id=getattr(assembly.conversation, "id", None), user_message_id=getattr(assembly.user_message, "id", None),
+                    assistant_message_id=getattr(assembly.assistant_message, "id", None),
                     sources=[source for source in combined_public_sources
                         if (source.get("metadata") or {}).get("retrieval_log_id") == log_id])
                 if log:
@@ -358,128 +394,131 @@ class ChatContextAssemblyService:
                         if source.metadata.get("retrieval_log_id") == log_id and source.citation_label not in final_source_map]
                     log.diagnostics_json = json.dumps(diagnostics, ensure_ascii=False)
                     log_repo.save(log)
+            # 流式层会关闭请求Session，最终来源/排除原因必须在交接前提交，
+            # 否则日志会退回预算治理前的来源集合。
+            self.db.commit()
         context_details = {
-            "citation_smalltalk": is_smalltalk_query(query),
-            "memory_retrieval": memory_diagnostics,
-            "attachment_chunks": attachment_context_result.details.get("attachment_chunks", []),
+            "citation_smalltalk": is_smalltalk_query(assembly.query),
+            "memory_retrieval": assembly.memory_diagnostics,
+            "attachment_chunks": assembly.attachment_context_result.details.get("attachment_chunks", []),
             "external_sources": combined_public_sources,
             "final_source_map": final_source_map,
             "known_source_labels": [source.citation_label for source in original_sources if source.citation_label],
             "knowledge_sources": [source for source in combined_public_sources if source["source_type"] == "knowledge"],
-            "knowledge_query_rewrite": knowledge_context_result.details.get("knowledge_query_rewrite"),
-            "tool_plan": external_context_result.details.get("tool_plan"),
-            "tool_events": external_context_result.details.get("tool_events", []),
-            "active_skill": external_context_result.details.get("active_skill"),
-            "tool_run_policy": external_context_result.details.get("tool_run_policy"),
-            "tool_run_budget": external_context_result.details.get("tool_run_budget"),
-            "evidence_sufficiency": evidence_sufficiency.to_public_dict(),
+            "knowledge_query_rewrite": assembly.knowledge_context_result.details.get("knowledge_query_rewrite"),
+            "tool_plan": assembly.external_context_result.details.get("tool_plan"),
+            "tool_events": assembly.external_context_result.details.get("tool_events", []),
+            "active_skill": assembly.external_context_result.details.get("active_skill"),
+            "tool_run_policy": assembly.external_context_result.details.get("tool_run_policy"),
+            "tool_run_budget": assembly.external_context_result.details.get("tool_run_budget"),
+            "evidence_sufficiency": assembly.evidence_sufficiency.to_public_dict(),
         }
 
         return ChatExecutionContext(
             conversation_repo=self.conversation_repo,
             message_service=self.message_service,
-            conversation=conversation,
-            user_message=user_message,
-            assistant_message=assistant_message,
-            history_messages=governed_context.messages,
-            resolved_model=runtime.resolved_model,
-            provider_type=runtime.provider_type,
-            base_url=runtime.base_url,
-            api_key=runtime.provider_api_key,
-            temperature=runtime.settings.temperature,
-            top_p=runtime.settings.top_p,
+            conversation=assembly.conversation,
+            user_message=assembly.user_message,
+            assistant_message=assembly.assistant_message,
+            history_messages=assembly.governed_context.messages,
+            resolved_model=assembly.runtime.resolved_model,
+            provider_type=assembly.runtime.provider_type,
+            base_url=assembly.runtime.base_url,
+            api_key=assembly.runtime.provider_api_key,
+            temperature=assembly.runtime.settings.temperature,
+            top_p=assembly.runtime.settings.top_p,
             # Provider 输出上限必须与预算预留一致，否则输入合规后仍可能在生成阶段挤爆窗口。
-            max_tokens=runtime.budget.reserved_output_tokens,
+            max_tokens=assembly.runtime.budget.reserved_output_tokens,
             # cache key 只用于 Provider 路由/缓存分片，不暴露原始 user/conversation id。
             prompt_cache_key=hashlib.sha256(
-                f"{self.user_id}:{conversation.id}:{ContextPromptBuilder.TEMPLATE_VERSION}".encode("utf-8")
+                f"{self.user_id}:{assembly.conversation.id}:{ContextPromptBuilder.TEMPLATE_VERSION}".encode("utf-8")
             ).hexdigest()[:32],
             # Govern 后最后一条是包含当前 query/evidence 的 user message；之前的连续消息
             # 是 Anthropic 可设置 cache_control 的稳定断点。
             prompt_cache_breakpoint=max(
                 0,
-                len(governed_context.messages)
-                - int(bool(governed_context.messages and governed_context.messages[-1].get("role") == "user")),
+                len(assembly.governed_context.messages)
+                - int(bool(assembly.governed_context.messages and assembly.governed_context.messages[-1].get("role") == "user")),
             ),
             context_notices=[
-                *external_context_result.notices,
-                *knowledge_context_result.notices,
-                *governed_context.notices,
+                *assembly.external_context_result.notices,
+                *assembly.knowledge_context_result.notices,
+                *assembly.governed_context.notices,
             ],
             context_stats={
-                "context_mode": runtime.budget.context_mode,
-                "model_context_window": runtime.budget.model_context_window,
-                "budget_reserved_output_tokens": runtime.budget.reserved_output_tokens,
-                "budget_max_total_chars": runtime.budget.max_total_chars,
-                "budget_max_total_tokens": runtime.budget.max_total_tokens,
-                "budget_max_attachment_chars": runtime.budget.max_attachment_chars,
-                "budget_max_attachment_tokens": runtime.budget.max_attachment_tokens,
-                "total_chars_estimate": governed_context.stats.total_chars_estimate,
-                "total_tokens_estimate": governed_context.stats.total_tokens_estimate,
-                "truncated_history_messages": governed_context.stats.truncated_history_messages,
+                "context_mode": assembly.runtime.budget.context_mode,
+                "model_context_window": assembly.runtime.budget.model_context_window,
+                "budget_reserved_output_tokens": assembly.runtime.budget.reserved_output_tokens,
+                "budget_max_total_chars": assembly.runtime.budget.max_total_chars,
+                "budget_max_total_tokens": assembly.runtime.budget.max_total_tokens,
+                "budget_max_attachment_chars": assembly.runtime.budget.max_attachment_chars,
+                "budget_max_attachment_tokens": assembly.runtime.budget.max_attachment_tokens,
+                "total_chars_estimate": assembly.governed_context.stats.total_chars_estimate,
+                "total_tokens_estimate": assembly.governed_context.stats.total_tokens_estimate,
+                "truncated_history_messages": assembly.governed_context.stats.truncated_history_messages,
                 # 裁剪计数针对本轮已加载窗口，不冒充整段会话的总消息统计。
-                "history_rows_loaded": len(history_rows),
-                "history_read_bounded": int(bounded_history),
-                "history_recent_read_limit": MessageRepository.RECENT_CONTEXT_LIMIT if bounded_history else 0,
-                "history_summary_batch_limit": MessageRepository.SUMMARY_BATCH_LIMIT if bounded_history else 0,
-                "dropped_reference_layers": governed_context.stats.dropped_reference_layers,
-                "truncated_reference_layers": governed_context.stats.truncated_reference_layers,
-                "retained_reference_tokens": governed_context.stats.retained_reference_tokens,
+                "history_rows_loaded": len(assembly.history_rows),
+                "history_read_bounded": int(assembly.bounded_history),
+                "history_recent_read_limit": MessageRepository.RECENT_CONTEXT_LIMIT if assembly.bounded_history else 0,
+                "history_summary_batch_limit": MessageRepository.SUMMARY_BATCH_LIMIT if assembly.bounded_history else 0,
+                "dropped_reference_layers": assembly.governed_context.stats.dropped_reference_layers,
+                "truncated_reference_layers": assembly.governed_context.stats.truncated_reference_layers,
+                "retained_reference_tokens": assembly.governed_context.stats.retained_reference_tokens,
                 "summary_chars": len(
-                    summary_bundle.summary or clean_optional_str(getattr(conversation, "context_summary", None)) or ""
+                    assembly.summary_bundle.summary or clean_optional_str(getattr(assembly.conversation, "context_summary", None)) or ""
                 ),
                 "summary_tokens": summary_tokens,
-                "summary_triggered": int(governed_context.summary_triggered),
-                "summary_refresh_triggered": summary_bundle.stats["summary_refresh_triggered"],
-                "summary_refresh_source_messages": summary_bundle.stats["summary_refresh_source_messages"],
-                "summary_refresh_source_chars": summary_bundle.stats["summary_refresh_source_chars"],
-                "summary_refresh_model_used": summary_bundle.stats["summary_refresh_model_used"],
-                "summary_refresh_fallback_used": summary_bundle.stats["summary_refresh_fallback_used"],
-                "summary_boundary_reset": summary_bundle.stats["summary_boundary_reset"],
+                "summary_triggered": int(assembly.governed_context.summary_triggered),
+                "summary_refresh_triggered": assembly.summary_bundle.stats["summary_refresh_triggered"],
+                "summary_refresh_source_messages": assembly.summary_bundle.stats["summary_refresh_source_messages"],
+                "summary_refresh_source_chars": assembly.summary_bundle.stats["summary_refresh_source_chars"],
+                "summary_refresh_model_used": assembly.summary_bundle.stats["summary_refresh_model_used"],
+                "summary_refresh_fallback_used": assembly.summary_bundle.stats["summary_refresh_fallback_used"],
+                "summary_boundary_reset": assembly.summary_bundle.stats["summary_boundary_reset"],
                 "summary_refresh_source_tokens": summary_source_tokens,
                 "summary_compression_ratio": summary_compression_ratio,
                 "attachment_context_tokens": attachment_context_tokens,
                 "knowledge_context_tokens": knowledge_context_tokens,
-                "memory_enabled": int(bool(getattr(runtime.settings, "memory_enabled", True))),
-                "memory_injected": int(bool(memory_diagnostics["injected_count"])),
-                "memory_count": memory_diagnostics["injected_count"],
-                "memory_chars": memory_diagnostics["injected_chars"],
-                "memory_selected_count": memory_bundle.count,
-                "memory_retrieval_mode": memory_diagnostics.get("mode", "lexical"),
-                "memory_fallback_reason": memory_diagnostics.get("fallback_reason") or "none",
-                "memory_retrieval": memory_diagnostics,
-                "thinking_enabled": int(bool(thinking_enabled)),
-                "skill_active": int(bool(skill_context)),
-                "skill_key": skill_context.skill_key if skill_context else "none",
-                "skill_version": skill_context.version if skill_context else "none",
-                "evidence_sufficiency_status": evidence_sufficiency.status,
-                "evidence_sufficiency_reasons": ",".join(evidence_sufficiency.reasons),
-                "tokenizer_encoding": runtime.tokenizer.estimate.encoding_name,
-                "prompt_prefix_hash": prompt_diagnostics.prompt_prefix_hash,
-                "prompt_prefix_tokens": prompt_diagnostics.prompt_prefix_tokens,
-                "prompt_total_tokens": prompt_diagnostics.prompt_total_tokens,
-                "prompt_recent_history_tokens": prompt_diagnostics.prompt_recent_history_tokens,
-                "prompt_prefix_reused_last_turn": prompt_diagnostics.prompt_prefix_reused_last_turn,
+                "memory_enabled": int(bool(getattr(assembly.runtime.settings, "memory_enabled", True))),
+                "memory_injected": int(bool(assembly.memory_diagnostics["injected_count"])),
+                "memory_count": assembly.memory_diagnostics["injected_count"],
+                "memory_chars": assembly.memory_diagnostics["injected_chars"],
+                "memory_selected_count": assembly.memory_bundle.count,
+                "memory_retrieval_mode": assembly.memory_diagnostics.get("mode", "lexical"),
+                "memory_fallback_reason": assembly.memory_diagnostics.get("fallback_reason") or "none",
+                "memory_retrieval": assembly.memory_diagnostics,
+                "thinking_enabled": int(bool(assembly.thinking_enabled)),
+                "skill_active": int(bool(assembly.skill_context)),
+                "skill_key": assembly.skill_context.skill_key if assembly.skill_context else "none",
+                "skill_version": assembly.skill_context.version if assembly.skill_context else "none",
+                "evidence_sufficiency_status": assembly.evidence_sufficiency.status,
+                "evidence_sufficiency_reasons": ",".join(assembly.evidence_sufficiency.reasons),
+                "tokenizer_encoding": assembly.runtime.tokenizer.estimate.encoding_name,
+                "prompt_prefix_hash": assembly.prompt_diagnostics.prompt_prefix_hash,
+                "prompt_prefix_tokens": assembly.prompt_diagnostics.prompt_prefix_tokens,
+                "prompt_total_tokens": assembly.prompt_diagnostics.prompt_total_tokens,
+                "prompt_recent_history_tokens": assembly.prompt_diagnostics.prompt_recent_history_tokens,
+                "prompt_prefix_reused_last_turn": assembly.prompt_diagnostics.prompt_prefix_reused_last_turn,
                 "prompt_cache_provider_enabled": int(provider_capabilities.prompt_cache_mode != "none"),
                 "prompt_cache_mode": provider_capabilities.prompt_cache_mode,
                 "prompt_cache_provider_family": provider_capabilities.family,
                 "prompt_cache_usage_support": provider_capabilities.cache_usage_support,
-                **attachment_context_result.diagnostics,
-                **external_context_result.diagnostics,
-                **knowledge_context_result.diagnostics,
-                **prompt_result.diagnostics,
+                **assembly.attachment_context_result.diagnostics,
+                **assembly.external_context_result.diagnostics,
+                **assembly.knowledge_context_result.diagnostics,
+                **assembly.prompt_result.diagnostics,
                 # 原阶段计数保留；另列最终预算之后实际可引用的证据数。
                 "citation_sources_in_final_prompt": len(final_source_map),
                 "citation_sources_excluded": sum(source.citation_label not in final_source_map for source in original_sources),
             },
             context_details=context_details,
             verified_file_edit_answer=verified_file_edit_answer,
-            context_summary=summary_bundle.summary or clean_optional_str(getattr(conversation, "context_summary", None)),
-            thinking_enabled=thinking_enabled,
-            thinking_budget=thinking_budget,
-            tool_events=[event.to_public_dict() for event in external_context_result.tool_events],
+            context_summary=assembly.summary_bundle.summary or clean_optional_str(getattr(assembly.conversation, "context_summary", None)),
+            thinking_enabled=assembly.thinking_enabled,
+            thinking_budget=assembly.thinking_budget,
+            tool_events=[event.to_public_dict() for event in assembly.external_context_result.tool_events],
             external_sources=combined_public_sources,
-            generation_id=assistant_generation_id,
+            generation_id=assembly.assistant_generation_id,
         )
 
     async def _build_external_context(
