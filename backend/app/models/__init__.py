@@ -46,6 +46,11 @@ from app.models.resource_lease import ResourceLease
 from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.models.user_setting import UserSetting
 from app.models.plugin import PluginInstallation, PluginRelease, ProjectPlugin, PluginSubmission, SandboxJob, SandboxWorkerState
+from sqlalchemy import event
+from app.core.database import Base
+from app.core.memory_search_schema import after_create as _install_memory_search
+
+event.listen(Base.metadata, "after_create", _install_memory_search)
 
 __all__ = [
     "Attachment",

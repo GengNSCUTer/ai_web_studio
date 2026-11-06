@@ -188,7 +188,8 @@ class MemoryCandidateWorker:
     async def run_once(self) -> bool:
         claimed = self._claim()
         if not claimed:
-            return False
+            from app.services.memory_index_service import MemoryIndexWorker
+            return await MemoryIndexWorker(session_factory=self.session_factory).run_once()
         job_id, lease_version = claimed
         try:
             snapshot = self._load_snapshot(job_id, lease_version)

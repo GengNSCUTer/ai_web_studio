@@ -1,15 +1,40 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import Boolean, Computed, DateTime, Float, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.memory_search_schema import ANN_DIMENSIONS
+
+
+class MemorySearchComputed(Computed):
+    """SQLite 不承担生产词法检索，只用于原业务单测。"""
+
+
+@compiles(MemorySearchComputed, "sqlite")
+def _sqlite_memory_computed(element, compiler, **kwargs):
+    return ""
 
 
 class UserMemory(Base):
     __tablename__ = "user_memories"
-    __table_args__ = (Index("ix_user_memories_active_lookup", "user_id", "status", "is_enabled", "id"),)
+    __table_args__ = (
+        Index("ix_user_memories_active_lookup", "user_id", "status", "is_enabled", "id"),
+        Index("ix_memory_expiry_lookup", "user_id", "status", "is_enabled", "expires_at"),
+        Index("ix_memory_terms", "search_vector", postgresql_using="gin").ddl_if(dialect="postgresql"),
+        Index("ix_memory_index_backlog", "updated_at", "id", postgresql_where=text(
+            "search_embedding IS NULL AND status = 'active' AND is_enabled = true "
+            "AND memory_type NOT IN ('profile', 'instruction')")).ddl_if(dialect="postgresql"),
+        *(Index(f"ix_memory_hnsw_{dim}",
+                text(f"(search_embedding::{'vector' if dim <= 2000 else 'halfvec'}({dim})) "
+                     f"{'vector' if dim <= 2000 else 'halfvec'}_cosine_ops"),
+                postgresql_using="hnsw", postgresql_where=text(f"search_dimensions = {dim}"))
+          .ddl_if(dialect="postgresql") for dim in ANN_DIMENSIONS),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
@@ -42,6 +67,14 @@ class UserMemory(Base):
     embedding_vector: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding_signature: Mapped[str | None] = mapped_column(String(64), nullable=True)
     embedding_text_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 派生字段由 PostgreSQL 在写入时维护；普通 ORM 查询默认不搬运索引数据。
+    search_terms: Mapped[str | None] = mapped_column(Text, nullable=True, deferred=True)
+    search_vector: Mapped[object | None] = mapped_column(TSVECTOR().with_variant(Text(), "sqlite"),
+        MemorySearchComputed("to_tsvector('simple'::regconfig, coalesce(search_terms, ''))", persisted=True),
+        nullable=True, deferred=True)
+    search_embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True, deferred=True)
+    search_dimensions: Mapped[int | None] = mapped_column(Integer, nullable=True, deferred=True)
+    embedding_retry_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     supersedes_memory_id: Mapped[str | None] = mapped_column(
         ForeignKey("user_memories.id"), nullable=True, index=True
     )

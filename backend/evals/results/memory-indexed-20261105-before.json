@@ -1,0 +1,92 @@
+{
+  "label": "indexed-before",
+  "commit": "d15e042d988232ca3ae245566a12847a88a42da5",
+  "scope": "独立PG合成读取，不含HTTP/模型，不代表上线容量",
+  "requests_per_cell": 24,
+  "pool": {
+    "size": 5,
+    "max_overflow": 10
+  },
+  "cache": "on",
+  "cases": [
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 1,
+      "failures": 0,
+      "p50_ms": 766.561,
+      "p95_ms": 809.418,
+      "p99_ms": 811.509,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 29.215,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 1.3,
+      "process_cpu_seconds": 18.04,
+      "peak_checked_out_connections": 1,
+      "remaining_checked_out_connections": 0,
+      "warmup_ms": 786.163,
+      "read_cache_states": [
+        "miss"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 8,
+      "failures": 0,
+      "p50_ms": 9951.623,
+      "p95_ms": 11315.121,
+      "p99_ms": 11611.025,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 4381.521,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 0.78,
+      "process_cpu_seconds": 34.217,
+      "peak_checked_out_connections": 8,
+      "remaining_checked_out_connections": 0,
+      "warmup_ms": 786.163,
+      "read_cache_states": [
+        "miss"
+      ]
+    },
+    {
+      "kind": "memory_retrieval",
+      "stored_rows": 1000,
+      "concurrency": 16,
+      "failures": 0,
+      "p50_ms": 17216.187,
+      "p95_ms": 25969.71,
+      "p99_ms": 27604.695,
+      "pool_wait_p95_ms": null,
+      "sql_p95_ms": 8460.154,
+      "read_rows": [
+        1000
+      ],
+      "sql_queries": [
+        7
+      ],
+      "requests_per_second": 0.72,
+      "process_cpu_seconds": 38.798,
+      "peak_checked_out_connections": 15,
+      "remaining_checked_out_connections": 0,
+      "warmup_ms": 786.163,
+      "read_cache_states": [
+        "miss"
+      ]
+    }
+  ],
+  "plans": [],
+  "unique_queries": true,
+  "service_pool_wait": "未单独插桩；null 表示未测，不是零等待",
+  "max_rss_mib": 701.0
+}

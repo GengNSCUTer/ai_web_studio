@@ -1,0 +1,10 @@
+{
+  "cases": [
+    {"case": 1, "passed": true, "reason": "hybrid", "semantic_score": 0.5675, "read_rows": 4, "search": "exact", "cache": "miss"},
+    {"case": 2, "passed": true, "reason": "semantic", "semantic_score": 0.628, "read_rows": 4, "search": "exact", "cache": "miss"},
+    {"case": 3, "passed": true, "reason": "semantic", "semantic_score": 0.459, "read_rows": 4, "search": "exact", "cache": "miss"}
+  ],
+  "cache_hit": true,
+  "revocation_checked": true,
+  "online_embedding": true
+}

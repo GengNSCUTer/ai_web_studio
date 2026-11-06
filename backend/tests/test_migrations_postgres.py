@@ -52,6 +52,23 @@ class MigrationPostgresTest(unittest.TestCase):
             row = c.execute(text("select content,status,citation_audit,mcp_resources_json from messages where id='m'")).one()
             self.assertEqual(tuple(row), ("旧答案", "done", None, None))
 
+    def test_memory_search_upgrade_converts_valid_json_and_keeps_business_fields(self):
+        import hashlib
+        upgrade_database(self.engine, target="20261105_01")
+        digest = hashlib.sha256("1:数据库\n项目使用PostgreSQL".encode()).hexdigest()
+        with self.engine.begin() as c:
+            c.execute(text("insert into users(id,email) values ('u','memory-migration@example.test')"))
+            c.execute(text("insert into user_memories(id,user_id,memory_type,title,content,source,status,is_enabled,version,"
+                "embedding_vector,embedding_signature,embedding_text_hash) values "
+                "('m','u','fact','数据库','项目使用PostgreSQL','manual','active',true,1,'[1,0]','test',:digest)"), {"digest": digest})
+        upgrade_database(self.engine)
+        with self.engine.connect() as c:
+            row = c.execute(text("select title,content,version,status,search_dimensions,search_embedding::text "
+                                 "from user_memories where id='m'")).one()
+            self.assertEqual(tuple(row), ("数据库", "项目使用PostgreSQL", 1, "active", 2, "[1,0]"))
+            self.assertTrue(c.execute(text("select search_vector @@ to_tsquery('simple','数据') "
+                                          "from user_memories where id='m'")).scalar())
+
     def test_current_legacy_is_validated_and_adopted_without_data_loss(self):
         upgrade_database(self.engine, target=FIRST_REVISION)
         with self.engine.begin() as c:

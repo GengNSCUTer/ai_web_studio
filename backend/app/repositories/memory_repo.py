@@ -1,13 +1,15 @@
 from datetime import datetime, timezone
 from contextlib import contextmanager
 
-from sqlalchemy import and_, or_, select, update
+from pgvector.sqlalchemy import HALFVEC, Vector
+from sqlalchemy import and_, cast, func, literal_column, or_, select, text, update
 from sqlalchemy.orm import Session, defer
 
 from app.models.user_memory import UserMemory
 from app.models.user import User
 from app.models.project import Project
 from app.models.conversation import Conversation
+from app.core.memory_search_schema import ANN_DIMENSIONS
 
 
 class UserMemoryRepository:
@@ -88,6 +90,14 @@ class UserMemoryRepository:
 
     def retrieval_metadata(self, user_id: str, project_id: str | None) -> list[list]:
         """只取轻量版本清单；缓存不得依据 TTL 猜测记忆是否仍有效。"""
+        if self.db.get_bind().dialect.name == "postgresql":
+            # 时间流逝不会写修订号；最早到期边界变化仍须让旧选择失效。
+            next_expiry = select(UserMemory.expires_at).where(
+                *self._retrieval_filter(user_id, project_id), UserMemory.expires_at.is_not(None)
+            ).order_by(UserMemory.expires_at).limit(1).scalar_subquery()
+            row = self.db.execute(select(User.memory_revision, next_expiry).where(User.id == user_id)).first()
+            revision, expiry = row if row else (None, None)
+            return [revision, expiry.isoformat() if expiry else None]
         source_scope = select(Conversation.project_id).where(
             Conversation.id == UserMemory.source_conversation_id,
             Conversation.user_id == user_id).scalar_subquery()
@@ -95,6 +105,68 @@ class UserMemoryRepository:
             UserMemory.expires_at, UserMemory.project_id, UserMemory.source_conversation_id, source_scope)
             .where(*self._retrieval_filter(user_id, project_id)).order_by(UserMemory.id)).all()
         return [[value.isoformat() if isinstance(value, datetime) else value for value in row] for row in rows]
+
+    def _search_deadline(self):
+        """线程取消不能终止已发出的 SQL，数据库也设置有限等待。"""
+        self.db.execute(text("SELECT set_config('statement_timeout', '1500ms', true), "
+                             "set_config('lock_timeout', '250ms', true)"))
+
+    def retrieval_candidates(self, user_id, project_id, query, signature, *, route_limit=32):
+        """按相关性而非最新 N 条召回；只返回候选 ID，不搬运全量正文。"""
+        from app.services.memory_service import MemoryService
+
+        self._search_deadline()
+        filters = self._retrieval_filter(user_id, project_id)
+        terms = sorted(MemoryService._search_terms(query))[:64]
+        ids = list(self.db.scalars(select(UserMemory.id).where(*filters,
+            UserMemory.memory_type.in_(["profile", "instruction"]), UserMemory.sensitivity != "sensitive"
+        ).order_by(UserMemory.importance.desc(), UserMemory.updated_at.desc(), UserMemory.id).limit(8)))
+        if terms:
+            tsquery = func.to_tsquery("simple", " | ".join(terms))
+            score = func.ts_rank_cd(UserMemory.search_vector, tsquery)
+            ids.extend(self.db.scalars(select(UserMemory.id).where(*filters,
+                UserMemory.search_vector.op("@@")(tsquery), UserMemory.sensitivity != "sensitive"
+            ).order_by(score.desc(), UserMemory.id).limit(route_limit)))
+        # 无向量的新事实有有限补建机会；老事实通过完整词法/向量索引参与检索。
+        pending_ids = list(self.db.scalars(select(UserMemory.id).where(*filters,
+            UserMemory.memory_type.not_in(["profile", "instruction"]), UserMemory.sensitivity != "sensitive",
+            or_(UserMemory.search_embedding.is_(None), UserMemory.embedding_signature != signature),
+            or_(UserMemory.embedding_retry_after.is_(None), UserMemory.embedding_retry_after <= datetime.now(timezone.utc))
+        ).order_by(UserMemory.updated_at, UserMemory.id).limit(route_limit)))
+        ids.extend(pending_ids)
+        has_facts = self.db.scalar(select(select(UserMemory.id).where(*filters,
+            UserMemory.memory_type.not_in(["profile", "instruction"]), UserMemory.sensitivity != "sensitive").exists()))
+        return list(dict.fromkeys(ids)), bool(has_facts), set(pending_ids)
+
+    def semantic_candidates(self, user_id, project_id, vector, signature, dimensions, *, limit=32):
+        """小范围精确、大范围可用 HNSW；两者都在数据库执行，权限条件不放宽。"""
+        self._search_deadline()
+        filters = (*self._retrieval_filter(user_id, project_id),
+            UserMemory.memory_type.not_in(["profile", "instruction"]),
+            UserMemory.sensitivity != "sensitive", UserMemory.embedding_signature == signature,
+            UserMemory.search_embedding.is_not(None),
+            UserMemory.search_dimensions == literal_column(str(int(dimensions))))
+        # 最多数到 257 就停止，不为判断索引路径读取全量 ID 或正文。
+        size = self.db.scalar(select(func.count()).select_from(select(UserMemory.id).where(*filters).limit(257).subquery()))
+        use_ann = size > 256 and dimensions in ANN_DIMENSIONS
+        expression = cast(UserMemory.search_embedding, Vector(dimensions) if dimensions <= 2000 else HALFVEC(dimensions)) if use_ann else UserMemory.search_embedding
+        distance = expression.cosine_distance(vector)
+        if use_ann:
+            self.db.execute(text("SELECT set_config('hnsw.iterative_scan', 'strict_order', true), "
+                "set_config('hnsw.ef_search', '100', true), set_config('enable_sort', 'off', true)"))
+        rows = self.db.execute(select(UserMemory.id, distance).where(*filters).order_by(distance).limit(limit)).all()
+        topup = use_ann and (len(rows) < min(limit, size) or not any(1. - row[1] >= .45 for row in rows))
+        if topup:
+            # 多租户过滤后不足时走显式精确距离；不关闭权限或混用模型。
+            self.db.execute(text("SET LOCAL enable_sort = on"))
+            distance = UserMemory.search_embedding.cosine_distance(vector)
+            rows = self.db.execute(select(UserMemory.id, distance).where(*filters)
+                .order_by(distance + 0, UserMemory.id).limit(limit)).all()
+        elif use_ann:
+            self.db.execute(text("SET LOCAL enable_sort = on"))
+        return {row[0]: max(-1., min(1., 1. - row[1])) for row in rows}, {
+            "database_search": "hnsw" if use_ann else "exact", "exact_topup": topup,
+            "semantic_candidates": len(rows)}
 
     def list_for_retrieval(self, user_id: str, project_id: str | None, *, memory_ids=None,
                            include_vectors=True) -> list[UserMemory]:

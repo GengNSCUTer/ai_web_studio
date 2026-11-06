@@ -1,0 +1,10 @@
+{
+  "cases": [
+    {"case": "千条历史正常回答", "history_rows_loaded": 26, "read_cache": "miss", "status": "passed"},
+    {"case": "同问题缓存复用", "history_rows_loaded": 28, "read_cache": "hit", "status": "passed"},
+    {"case": "重生成", "history_rows_loaded": 28, "read_cache": "hit", "status": "passed"},
+    {"case": "编辑重答", "history_rows_loaded": 28, "read_cache": "miss", "status": "passed"}
+  ],
+  "browser_errors": [],
+  "synthetic_history": 1000
+}
