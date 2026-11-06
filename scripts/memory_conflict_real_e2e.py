@@ -20,6 +20,7 @@ WEB = os.getenv('AIWS_E2E_BASE_URL', 'http://127.0.0.1:32008')
 
 def run():
     projects, cases, errors = [], [], []
+    failure, candidate_diagnostics = None, None
     token = user_id = None
     client = None
     try:
@@ -92,6 +93,11 @@ def run():
         assert state == 'succeeded' and len(candidate_ids) == 1, '真实Worker没有完成一条候选提取'
         memories = request('GET', '/api/memories')
         candidate = next(row for row in memories if row['id'] == candidate_ids[0])
+        review = candidate.get('conflict_review') or {}
+        candidate_diagnostics = dict(status=candidate.get('status'), risk_level=candidate.get('risk_level'),
+            coverage_complete=review.get('coverage_complete'), diagnostics=review.get('diagnostics'),
+            pairs=[{key: pair.get(key) for key in ('relation', 'confidence', 'decision_source', 'impact')}
+                   for pair in review.get('pairs', [])])
         assert candidate['status'] == 'pending' and candidate['risk_level'] == 'conflict'
         pair = candidate['conflict_review']['pairs'][0]
         assert pair['relation'] == 'contradiction' and pair['memory_id'] == old['id']
@@ -152,6 +158,9 @@ def run():
         cases.append(dict(case='worker_browser_replacement_and_next_chat', status='passed', relation='contradiction',
                           job_status=state, browser_errors=len(errors), next_answer=''.join(answer)))
         print(json.dumps(cases[-1], ensure_ascii=False), flush=True)
+    except Exception as exc:
+        failure = dict(error_type=type(exc).__name__, candidate_diagnostics=candidate_diagnostics)
+        raise
     finally:
         if client:
             client.close()
@@ -165,6 +174,10 @@ def run():
                     db.execute(delete(UserMemory).where(UserMemory.user_id == user_id, UserMemory.project_id == project_id))
                     db.commit()
                 cleanup(user_id=user_id, project_id=project_id)
+        # 指定新报告路径时保留失败分类；不保存候选原文、Token或真实账号其他资料。
+        if failure and os.getenv('AIWS_MEMORY_CONFLICT_OUTPUT'):
+            Path(os.environ['AIWS_MEMORY_CONFLICT_OUTPUT']).write_text(json.dumps(dict(
+                cases=cases, failure=failure, temporary_data_cleaned=True), ensure_ascii=False, indent=2) + '\n')
     report = dict(model='deepseek-ai/DeepSeek-V3.2', embedding='BAAI/bge-m3', cases=cases,
                   passed=len(cases), temporary_data_cleaned=True, user_settings_unchanged=True)
     output = Path(os.getenv('AIWS_MEMORY_CONFLICT_OUTPUT', str(ROOT/'backend/evals/results/memory_conflicts_real_20261103.json')))

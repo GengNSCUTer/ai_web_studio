@@ -1,0 +1,12 @@
+{
+  "scope": "首批部署后真实记忆冲突验收；由运行日志补记，不是完整候选快照",
+  "completed_cases": ["complement", "different_scope", "duplicate"],
+  "failed_case": "worker_browser_replacement_and_next_chat",
+  "failure": {
+    "error_type": "AssertionError",
+    "check": "candidate.status == pending and candidate.risk_level == conflict",
+    "candidate_snapshot_available": false
+  },
+  "temporary_data_cleaned": true,
+  "passed": false
+}

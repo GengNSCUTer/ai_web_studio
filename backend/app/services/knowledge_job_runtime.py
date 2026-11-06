@@ -88,10 +88,11 @@ class FrozenCredentialResolver:
 
 
 class FrozenSettingService:
-    """Read-only credential/config snapshot so provider I/O does not hold a DB transaction."""
+    """只复制实际模型配置值，不能把提交后会过期的ORM对象当作网络快照。"""
 
     def __init__(self, setting: Any, embedding_api_key: str | None, rerank_api_key: str | None) -> None:
-        self.setting = setting
+        self.setting = SimpleNamespace(**{field: getattr(setting, field, None) for field in (
+            "knowledge_embedding_base_url", "knowledge_rerank_base_url")})
         self.embedding_api_key = embedding_api_key
         self.rerank_api_key = rerank_api_key
 
@@ -421,24 +422,19 @@ class KnowledgeJobWorker:
         )
         heartbeat.start()
         generation_id: str | None = None
+        from app.services.agent_graph.knowledge_index_graph import KnowledgeJobContext, run_knowledge_job_graph
+        graph_context = KnowledgeJobContext(self, lease, lost_lease)
         try:
-            if lease.job_type == "parse_document":
-                result = self._execute_parse(lease)
-                completed = not lost_lease.is_set() and self.coordinator.complete_parse(lease, result)
-            elif lease.job_type == "index_document":
-                generation_id, result = self._execute_index(lease)
-                completed = not lost_lease.is_set() and self.coordinator.activate_generation(
-                    lease,
-                    generation_id,
-                    result,
-                )
-            else:
-                raise ValueError(f"unsupported knowledge job type: {lease.job_type}")
-            if completed:
+            outcome = run_knowledge_job_graph(graph_context)
+            generation_id = graph_context.generation_id
+            if outcome["completed"]:
                 self._ack(message_id)
                 return "succeeded"
             return "lease_lost"
         except Exception as exc:
+            # 构建阶段失败时也保留本attempt generation身份，原失败策略可以标记半成品。
+            generation_id = graph_context.generation_id or (f"{lease.job_id}-v{lease.version}"
+                                                           if lease.job_type == "index_document" else None)
             transitioned = self.coordinator.fail(lease, exc, generation_id=generation_id)
             if transitioned:
                 self._ack(message_id)

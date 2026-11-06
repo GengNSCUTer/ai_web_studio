@@ -40,6 +40,20 @@ class IndexResult:
     manifest_hash: str | None = None
 
 
+@dataclass
+class IndexBuildRuntime:
+    """本次索引构建的正文/向量只在Runtime，不进入图State或外部Trace。"""
+
+    service: object
+    user_id: str
+    knowledge_base: object
+    document: object
+    generation_id: str
+    snapshot_chunks: list | None = None
+    missing: list | None = None
+    result: IndexResult | None = None
+
+
 @dataclass(frozen=True)
 class RetrievalResult:
     chunk: KnowledgeChunk
@@ -584,12 +598,14 @@ class KnowledgeIndexService:
         document: KnowledgeDocument,
         generation_id: str,
     ) -> IndexResult:
-        """Build a complete immutable Chunk + vector + BM25 snapshot without activating it.
+        """通过图构建未激活的完整快照，最后指针切换仍由Job租约事务完成。"""
+        from app.services.agent_graph.knowledge_index_graph import run_index_build_graph
+        runtime = IndexBuildRuntime(self, user_id, knowledge_base, document, generation_id)
+        return run_index_build_graph(runtime)
 
-        A failed or stale worker may leave this generation in ``failed``/``ready`` state,
-        but retrieval remains pinned to ``knowledge_base.active_index_generation``. The
-        worker performs the final pointer switch with its lease fencing token.
-        """
+    def _prepare_generation_chunks(self, runtime: IndexBuildRuntime):
+        user_id, knowledge_base, document, generation_id = (
+            runtime.user_id, runtime.knowledge_base, runtime.document, runtime.generation_id)
         if document.parse_status != "parsed" or not document.parsed_markdown_path:
             raise RuntimeError("文档尚未解析，不能生成索引。")
         markdown = KnowledgeParserService().read_markdown(
@@ -673,10 +689,14 @@ class KnowledgeIndexService:
             else:
                 chunk.embedding = reusable
 
-        # 上面只读取了已激活快照。在调用外部 Embedding API 前结束读事务，
-        # 避免数十秒的网络等待持有 PostgreSQL transaction snapshot。
+        runtime.snapshot_chunks, runtime.missing = snapshot_chunks, missing
+        # 在Embedding网络请求前释放读事务；保留的Chunk均为本次构建副本。
         db = self.chunk_repo.db
         db.commit()
+
+    def _embed_generation_chunks(self, runtime: IndexBuildRuntime):
+        user_id, knowledge_base = runtime.user_id, runtime.knowledge_base
+        missing, snapshot_chunks = runtime.missing, runtime.snapshot_chunks
 
         if missing:
             generated = asyncio.run(
@@ -707,12 +727,17 @@ class KnowledgeIndexService:
             chunk.embedding_dimensions = knowledge_base.embedding_dimensions
             chunk.embedding_version = self.EMBEDDING_VERSION
 
+    def _persist_generation_chunks(self, runtime: IndexBuildRuntime):
+        db = self.chunk_repo.db
         try:
-            db.add_all(snapshot_chunks)
+            db.add_all(runtime.snapshot_chunks)
             db.commit()
         except Exception:
             db.rollback()
             raise
+
+    def _publish_generation_lexical(self, runtime: IndexBuildRuntime):
+        knowledge_base, generation_id, snapshot_chunks = runtime.knowledge_base, runtime.generation_id, runtime.snapshot_chunks
         index_path = self.lexical_store.rebuild(
             knowledge_base_id=knowledge_base.id,
             chunks=snapshot_chunks,
@@ -730,7 +755,7 @@ class KnowledgeIndexService:
         manifest_hash = hashlib.sha256(
             json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        return IndexResult(
+        runtime.result = IndexResult(
             chunk_count=len(snapshot_chunks),
             index_path=index_path,
             manifest_hash=manifest_hash,

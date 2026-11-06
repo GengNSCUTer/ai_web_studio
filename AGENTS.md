@@ -155,6 +155,8 @@ npm run build
 
 ## 7. 面试学习进度与每日收尾
 
+- 2026-11-06 阶段6：记忆候选图和知识索引图已接入；前者源快照→模型→证据/冲突→锁内保存，后者parse/index→Chunk→Embedding→inactive向量/BM25→generation CAS。Job/Outbox/Redis/ACK仍是事实，State不存原文/凭据，记忆失租约取消模型。1180全量含PG/Redis、后台专项和真实在线记忆冲突/知识库RAG浏览器通过，docs/214；阶段7才清理legacy与做总对照。
+
 - 2026-11-06 阶段5：document_graph四阶段与可选保存审批图已接入，导出即可下载。迁移20261106_02按(step_id,runtime_key)区分审批/执行图；备份20261106-langgraph-stage5-c2b07e27在仓库外。delivery与业务提交合并节点防Saver锁互等；claim同时看Step/事件，保留当前事件过期接管。13项原生文档PG专项、1171全量及新增过期专项、在线Word/浏览器/独立进程/并列取消通过，见docs/213。无token续接、无沙箱权限变化；阶段6后台图未做，不改变学习进度。
 
 - 2026-11-06 阶段4：文件审批图wait_for_user(interrupt)/apply_decision/reconcile，原生PG，同步有界池与同审批锁。令牌只在Runtime，版本/权限/工具快照/参数/最新Revision仍由原短事务核对；20项PG含暂停/提交前后os._exit、并发、拒绝及池回收，在线语义修改/浏览器重启确认/拒绝/重复/新会话读回通过，见docs/212。Diff+正式审批不再误判为仅预览。阶段5文档审批另做；不改高风险工具范围或学习进度。

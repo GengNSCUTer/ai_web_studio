@@ -1,0 +1,13 @@
+{
+  "scope": "临时知识库；真实上传、PG/Outbox/Redis/Worker、在线bge-m3/DeepSeek-V3.2、浏览器",
+  "parse_status": "succeeded",
+  "index_status": "succeeded",
+  "active_generation": "active",
+  "chunk_count": 2,
+  "duplicate_index_reused_job": true,
+  "final_answer_facts_and_citation": true,
+  "persisted_answer": true,
+  "browser_errors": [],
+  "passed": true,
+  "temporary_data_cleaned": true
+}

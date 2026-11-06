@@ -172,6 +172,9 @@ class MemoryExtractionJobService:
 class MemoryCandidateWorker:
     """独立持久化 Worker；模型网络调用期间不持有认领事务。"""
 
+    HEARTBEAT_SECONDS = 20
+    LEASE_SECONDS = 90
+
     def __init__(
         self,
         *,
@@ -191,35 +194,73 @@ class MemoryCandidateWorker:
             from app.services.memory_index_service import MemoryIndexWorker
             return await MemoryIndexWorker(session_factory=self.session_factory).run_once()
         job_id, lease_version = claimed
+        from app.services.agent_graph.memory_extraction_graph import run_memory_extraction_graph
+        stop, lost = asyncio.Event(), asyncio.Event()
+        work = asyncio.create_task(run_memory_extraction_graph(self, job_id, lease_version))
+        heartbeat = asyncio.create_task(self._heartbeat_loop(job_id, lease_version, stop, lost, work))
         try:
-            snapshot = self._load_snapshot(job_id, lease_version)
-            if snapshot is None:
-                return True
-            raw = await asyncio.wait_for(self.provider.complete_chat(**snapshot["provider_call"]), 45)
-            # 非法输出不能冒充“没有记忆”，否则游标推进后该批消息永远丢失。
-            normalized = raw.strip()
-            fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", normalized, re.S)
-            decoded = json.loads(fenced.group(1) if fenced else normalized)
-            if not isinstance(decoded, list):
-                raise ValueError("invalid_extraction_output")
-            if any(not isinstance(item, dict)
-                   or not all(isinstance(item.get(name), str) and item[name].strip() for name in ("title", "content"))
-                   or any(item.get(name) is not None and not isinstance(item[name], str)
-                          for name in ("memory_type", "confidence", "reason", "source_message_id", "evidence_quote"))
-                   for item in decoded):
-                raise ValueError("invalid_extraction_item")
-            suggestions = MemoryService.parse_suggestion_json(
-                raw,
-                max_candidates=5,
-                source_conversation_id=snapshot["conversation_id"],
-                source_message_ids=snapshot["source_message_ids"],
-            )
-            suggestions = await self.conflicts.assess(user_id=snapshot['user_id'], project_id=snapshot['project_id'], suggestions=suggestions)
-            self._complete(job_id, lease_version, suggestions)
-            self._enqueue_backlog(job_id)
+            await work
+        except asyncio.CancelledError:
+            # 续租失效只退出旧执行者；正常停机仍向上抛取消，交给租约恢复。
+            if not lost.is_set():
+                raise
         except Exception as exc:
             self._fail(job_id, lease_version, exc)
+        finally:
+            stop.set()
+            await heartbeat
         return True
+
+    async def _heartbeat_loop(self, job_id, lease_version, stop, lost, work):
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), self.HEARTBEAT_SECONDS)
+                return
+            except asyncio.TimeoutError:
+                pass
+            try:
+                with self.session_factory() as db:
+                    job = db.scalar(select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update())
+                    if job and job.lease_version == lease_version and job.status == "succeeded":
+                        # 保存已完成，不能在积压排队节点前把自己的图取消。
+                        return
+                    if not self._owns(job, lease_version):
+                        lost.set()
+                    else:
+                        job.lease_expires_at = utcnow() + timedelta(seconds=self.LEASE_SECONDS)
+                        db.commit()
+            except Exception:
+                # 数据库不可确认时不继续保存旧结果，由持久化Job到期后重领。
+                lost.set()
+            if lost.is_set():
+                work.cancel()
+                return
+
+    @staticmethod
+    def _decode_candidates(raw, snapshot):
+        """模型JSON只产生候选；非法输出不得冒充空数组推进游标。"""
+        normalized = raw.strip()
+        fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", normalized, re.S)
+        decoded = json.loads(fenced.group(1) if fenced else normalized)
+        if not isinstance(decoded, list):
+            raise ValueError("invalid_extraction_output")
+        if any(not isinstance(item, dict)
+               or not all(isinstance(item.get(name), str) and item[name].strip() for name in ("title", "content"))
+               or any(item.get(name) is not None and not isinstance(item[name], str)
+                      for name in ("memory_type", "confidence", "reason", "source_message_id", "evidence_quote"))
+               for item in decoded):
+            raise ValueError("invalid_extraction_item")
+        return MemoryService.parse_suggestion_json(raw, max_candidates=5,
+            source_conversation_id=snapshot["conversation_id"], source_message_ids=snapshot["source_message_ids"])
+
+    def _verify_candidate_sources(self, job_id, lease_version, suggestions):
+        """语义冲突模型前过滤伪造证据，保存时还会锁内重读原文。"""
+        with self.session_factory() as db:
+            job = db.get(MemoryExtractionJob, job_id)
+            if not self._owns(job, lease_version):
+                return None
+            sources = self._load_sources(db, job)
+            return [checked for item in suggestions if (checked := verify_evidence(item, sources)) is not None]
 
     def _enqueue_backlog(self, job_id: str) -> None:
         """执行期间新增的消息在下一批处理，不等用户再发一轮。"""
@@ -244,7 +285,7 @@ class MemoryCandidateWorker:
             job.attempts = (job.attempts or 0) + 1
             job.lease_owner = self.owner
             job.lease_version = (job.lease_version or 0) + 1
-            job.lease_expires_at = now + timedelta(seconds=90)
+            job.lease_expires_at = now + timedelta(seconds=self.LEASE_SECONDS)
             job.started_at = job.started_at or now
             version = job.lease_version
             db.commit()
@@ -288,16 +329,17 @@ class MemoryCandidateWorker:
                 },
             }
 
-    def _complete(self, job_id: str, lease_version: int, suggestions: list) -> None:
+    def _complete(self, job_id: str, lease_version: int, suggestions: list) -> bool:
         with self.session_factory() as db:
             job = db.scalars(
                 select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update()
             ).first()
             if not self._owns(job, lease_version):
-                return
+                return False
             repo = UserMemoryRepository(db)
             with repo.mutation(job.user_id):
                 self._persist_results(db, repo, job, suggestions)
+            return True
 
     def _load_sources(self, db: Session, job: MemoryExtractionJob) -> list:
         ids = set(job.source_message_ids.split(","))
@@ -437,4 +479,6 @@ class MemoryCandidateWorker:
             and job.status == "running"
             and job.lease_owner == self.owner
             and job.lease_version == lease_version
+            and job.lease_expires_at is not None
+            and job.lease_expires_at.replace(tzinfo=job.lease_expires_at.tzinfo or timezone.utc) > utcnow()
         )

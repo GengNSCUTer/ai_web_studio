@@ -121,9 +121,9 @@ tags: [langgraph, migration, agent, durability]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-023 | memory_candidate_runtime.py 接 memory_extraction_graph.py：固定源快照→模型提取→原文/冲突核验→短事务保存→游标推进；向量补建仍用现有索引服务 | | |
-| TASK-024 | KnowledgeWorker 的解析→切分→embedding→BM25/向量准备→active generation切换接 knowledge_index_graph.py；Outbox/Redis消费/提交后ACK/Lease在图外基础设施层保留 | | |
-| TASK-025 | 真实隔离库测试记忆源编辑/撤销、重复Job、模型失败、索引半成品/重启/重复消息、旧generation继续可读；不将图state当Redis任务或DB事务 | | |
+| TASK-023 | memory_candidate_runtime.py 接 memory_extraction_graph.py：固定源快照→模型提取→原文/冲突核验→短事务保存→游标推进；向量补建仍用现有索引服务 | ✅ | 2026-11-06 |
+| TASK-024 | KnowledgeWorker 的解析→切分→embedding→BM25/向量准备→active generation切换接 knowledge_index_graph.py；Outbox/Redis消费/提交后ACK/Lease在图外基础设施层保留 | ✅ | 2026-11-06 |
+| TASK-025 | 真实隔离库测试记忆源编辑/撤销、重复Job、模型失败、索引半成品/重启/重复消息、旧generation继续可读；不将图state当Redis任务或DB事务 | ✅ | 2026-11-06 |
 
 退出标准：重复投递仍幂等；步骤检查点不提前ACK；记忆范围/撤销和当前数据库候选性能不回退。
 
@@ -185,3 +185,5 @@ tags: [langgraph, migration, agent, durability]
 - [Durable execution](https://docs.langchain.com/oss/python/langgraph/durable-execution)
 - [Persistence](https://docs.langchain.com/oss/python/langgraph/persistence)
 - [Interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
+
+阶段6记录见docs/214：记忆与索引图不替代Job/Outbox/Redis/ACK；网络阶段均无长事务，旧租约不可写，active generation只在完整快照后切换。1180全量、后台专项、真实在线记忆冲突及知识库RAG浏览器通过；初次记忆r1严格候选断言失败原因未定位，保留失败并补诊断，r2/r3通过不等于定位修复。阶段7负责legacy清理、分层评测/成本故障对照和最终迁移说明。

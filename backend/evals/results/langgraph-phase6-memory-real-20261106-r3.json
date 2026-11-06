@@ -1,0 +1,35 @@
+{
+  "model": "deepseek-ai/DeepSeek-V3.2",
+  "embedding": "BAAI/bge-m3",
+  "cases": [
+    {
+      "case": "complement",
+      "relation": "complement",
+      "confidence": 0.9,
+      "status": "passed"
+    },
+    {
+      "case": "different_scope",
+      "relation": "different_scope",
+      "confidence": 1.0,
+      "status": "passed"
+    },
+    {
+      "case": "duplicate",
+      "relation": "duplicate",
+      "confidence": 0.95,
+      "status": "passed"
+    },
+    {
+      "case": "worker_browser_replacement_and_next_chat",
+      "status": "passed",
+      "relation": "contradiction",
+      "job_status": "succeeded",
+      "browser_errors": 0,
+      "next_answer": "30天"
+    }
+  ],
+  "passed": 4,
+  "temporary_data_cleaned": true,
+  "user_settings_unchanged": true
+}

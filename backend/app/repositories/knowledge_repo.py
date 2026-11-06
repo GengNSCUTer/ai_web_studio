@@ -13,6 +13,8 @@ from app.models.knowledge import (
     KnowledgeEvalRun,
     KnowledgeEvalSet,
     KnowledgeJob,
+    KnowledgeIndexGeneration,
+    OutboxEvent,
     KnowledgeRetrievalLog,
 )
 
@@ -44,6 +46,13 @@ class KnowledgeBaseRepository:
         return knowledge_base
 
     def delete(self, knowledge_base: KnowledgeBase) -> None:
+        # generation没有ORM级联关系，必须与KB同事务删除；待投递事件只删除该KB的Job。
+        job_ids = select(KnowledgeJob.id).where(KnowledgeJob.knowledge_base_id == knowledge_base.id,
+                                              KnowledgeJob.user_id == knowledge_base.user_id)
+        self.db.execute(delete(OutboxEvent).where(OutboxEvent.aggregate_id.in_(job_ids)))
+        self.db.execute(delete(KnowledgeIndexGeneration).where(
+            KnowledgeIndexGeneration.knowledge_base_id == knowledge_base.id,
+            KnowledgeIndexGeneration.user_id == knowledge_base.user_id))
         self.db.execute(
             delete(KnowledgeRetrievalLog).where(
                 KnowledgeRetrievalLog.knowledge_base_id == knowledge_base.id,
