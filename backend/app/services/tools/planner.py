@@ -296,6 +296,7 @@ class LLMToolPlanner:
             "23. 文件搜索是词法匹配，不支持跨语言语义翻译；query用短关键词，准确文件名放file_name。中文搜索英文资料未命中时，先list定位真实文件名/ID，再read核实，不把一次关键词未命中说成文件不存在。不要将唯一文件直接当作目标事实，须读取核验。\n"
             "24. 用户明确要求Context7等提供方时优先使用其候选工具，不能悄悄换成网页搜索。Context7 resolve只返回库候选，必须根据真实library_id再query文档；need_more_rounds=true或用result_bindings，不能只看库简介生成API示例。查询应保留用户明确的库名、API和主题，不替换成无关内容。\n"
             "25. 用户要求官方文档时，若确知官网域名可使用搜索工具的include_domains限定来源；未知时先定位官网，不把第三方教程冒充官方正文。\n"
+            "26. 历史报告/草稿使用agent.artifacts.list定位，观察metadata.artifact_id等是可读的真实标识，后续调用agent.artifacts.read读取正文。列表预览不是全文，不重复查相同列表；文档草稿优先artifact_type=document_draft。未明确允许在线语义查找时semantic=false。\n"
             "示例 A：用户问“深圳和广州天气怎么样”，输出两个 amap.maps.weather 调用，分别 city=深圳、city=广州，depends_on=[]。\n"
             "示例 B：用户问“深圳到汕头路上有哪些服务区，顺便看天气和预计耗时”，输出驾车路线、深圳天气、汕头天气、服务区/地点搜索、网页搜索；路线和天气可并行，依赖路线结果再继续精查时设置 need_more_rounds=true。\n"
             "无依赖调用格式：{\"should_use_tools\":true,\"need_more_rounds\":false,\"calls\":[{\"id\":\"call_1\",\"tool_key\":\"...\",\"arguments\":{}}]}。"

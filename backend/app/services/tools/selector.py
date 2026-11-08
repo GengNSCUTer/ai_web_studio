@@ -55,6 +55,7 @@ class ToolCandidateSelector:
         "map_poi": re.compile(r"(附近|周边|位置|地址|在哪|哪里|地图|服务区|景点|酒店|餐厅|医院|学校|车站)"),
         "map_geo": re.compile(r"(经纬度|坐标|地理编码|行政区|区划|地址解析)"),
         "workspace_file": re.compile(r"(工作区|项目文件|文件|文档|资料|附件|报告|代码|读取|查找|修改|编辑|替换|重构|diff)"),
+        "agent_artifact": re.compile(r"产物|历史.{0,8}(?:报告|草稿|结果)|之前.{0,8}(?:报告|草稿)|artifact", re.I),
     }
 
     def __init__(self, catalog: ToolCatalog | None = None, *, max_candidates: int | None = None,
@@ -140,6 +141,11 @@ class ToolCandidateSelector:
         if web and web.tool_key not in coarse_keys:
             coarse_keys = coarse_keys[:29] + [web.tool_key]
         diagnostics['coarse_tool_keys'] = coarse_keys
+        if allowed_tool_keys is not None and len(definitions) <= self.max_candidates:
+            # 明确审核的小Skill保留全部已过滤能力；语义排序不能丢掉后续读取。
+            tools, trace = self.select(query=query, enabled=enabled, allowed_tool_keys=allowed_tool_keys,
+                recent_messages=recent_messages)
+            return tools, {**trace, "retrieval": {**diagnostics, "explicit_skill_bounded":True}}
         pool = [by_key[key] for key in coarse_keys]
         scored = [self._score_tool(tool=tool, query=query, file_hint=file_hint,
                                   skill_scope=allowed_tool_keys is not None) for tool in pool]
@@ -346,6 +352,9 @@ class ToolCandidateSelector:
         if approval_requested(query) and tool.tool_key == "workspace.files.apply_edit":
             score += 2.0
             reasons.append("explicit_file_approval_request")
+        if skill_scope:
+            score += .2
+            reasons.append("explicit_skill_capability")
         # 编辑预览虽不落正文、标为 read_only，也不应被普通文件追问一并召回。
         # 使用已有结果合同类型判断，避免只对某个工具名称写特例。
         if tool.category == "workspace_file" and tool.quality_contract.get("semantic_profile") in {"approval_draft", "file_revision"} \

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 
-def run(output):
+def run(output, *, artifact_review=False):
     from sqlalchemy import delete, select
     from app.core.database import SessionLocal
     from app.models.agent_runtime import AgentRun, AgentStep, AgentCheckpoint
@@ -108,6 +108,48 @@ def run(output):
                 "docx_bytes": len(response.content), "download_requires_approval": False})
             save()
 
+            if artifact_review:
+                import asyncio
+                from app.services.tools.executor import ToolExecutor
+                from app.services.tools.schemas import PlannedToolCall
+                from app.services.tools.catalog import ToolCatalog
+                with SessionLocal() as db:
+                    document_steps = {s.id: s.attempts for s in db.scalars(select(AgentStep).where(AgentStep.run_id == task["id"]))}
+                    executor = ToolExecutor(db=db, user_id=uid, project_id=pid, catalog=ToolCatalog(db=db,user_id=uid,project_id=pid),
+                        original_task="允许使用在线语义Embedding查找当前项目的历史报告预览")
+                    result, _ = asyncio.run(executor.execute(PlannedToolCall("semantic-history", "agent.artifacts.list",
+                        "agent_runtime", "agent_artifact", "历史产物", 1, "真实语义验收",
+                        arguments={"query":"工作区文件使用说明", "semantic":True, "artifact_type":"document_draft"})))
+                    assert result.status == "success" and result.sources
+                    entries = result.sources[0].metadata["raw"]["artifacts"]
+                    assert any(item["run_id"] == task["id"] for item in entries)
+                    # 业务是否命中与模型是否真的调用分开核验：直接收集内置Provider诊断。
+                    from app.services.artifact_semantic_ranker import ArtifactSemanticRanker
+                    scores, retrieval = asyncio.run(ArtifactSemanticRanker().rank(user_id=uid,
+                        query="工作区文件使用说明", previews=[(exported["id"], "工作区文件用途与安全边界说明")]))
+                    assert retrieval == "online_semantic_and_local_terms" and scores
+                    db.commit()
+                # 新会话未提供旧Run/Step/Artifact ID，由Planner自行list→read。
+                upgrade = client.post("/api/tools/skills/agent.artifact-review/upgrade")
+                upgrade.raise_for_status()
+                history_cid = api("/conversations", {"project_id":pid,"title":"历史文档复用验收",
+                    "model_name":"deepseek-ai/DeepSeek-V3.2"})["id"]
+                response = client.post("/api/chat/events-stream", json={"conversation_id":history_cid,
+                    "web_search_enabled":True,"tool_run_mode":"guided_research","skill_key":"agent.artifact-review",
+                    "content":"请查找当前项目此前生成的文档草稿产物，先列出历史产物，再读取其中的文档草稿，总结用途和安全边界。不要重跑文档生成，不要联网，只使用本地产物工具。"})
+                response.raise_for_status()
+                history_chat = api("/chat/runs/" + response.headers["x-chat-run-id"])
+                assert history_chat["status"] == "succeeded" and "只读" in history_chat["content"]
+                with SessionLocal() as db:
+                    runtime = db.scalar(select(AgentRun).where(AgentRun.chat_run_id == history_chat["id"]))
+                    history_steps = list(db.scalars(select(AgentStep).where(AgentStep.run_id == runtime.id, AgentStep.sequence > 0)))
+                    assert {"agent.artifacts.list","agent.artifacts.read"} <= {s.tool_key for s in history_steps}
+                    assert document_steps == {s.id:s.attempts for s in db.scalars(select(AgentStep).where(AgentStep.run_id == task["id"]))}
+                report["cases"].append({"name":"history_artifact_discovery_and_reuse", "passed":True,
+                    "online_embedding":retrieval,"new_chat_without_old_ids":True,"document_stages_reexecuted":0,
+                    "answer_chars":len(history_chat["content"])})
+                save()
+
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 context = browser.new_context(viewport={"width": 1440, "height": 1000})
@@ -145,4 +187,6 @@ def run(output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    print(json.dumps(run(parser.parse_args().output), ensure_ascii=False))
+    parser.add_argument("--artifact-review", action="store_true")
+    args = parser.parse_args()
+    print(json.dumps(run(args.output, artifact_review=args.artifact_review), ensure_ascii=False))

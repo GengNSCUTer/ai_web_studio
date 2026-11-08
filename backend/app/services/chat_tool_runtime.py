@@ -3,7 +3,6 @@
 import asyncio
 from dataclasses import asdict
 from datetime import datetime, timedelta
-import hashlib
 import json
 import time
 
@@ -418,10 +417,9 @@ def archive_partial_generation(db, chat):
     coordinator = db.scalar(select(AgentStep).where(AgentStep.run_id == agent.id, AgentStep.sequence == 0))
     payload = codec.dumps({"attempt": chat.model_attempts, "content": chat.content,
         "reasoning_content": chat.reasoning_content, "sources": json.loads(chat.sources_json)})
-    db.add(AgentArtifact(run_id=agent.id, step_id=coordinator.id, user_id=chat.user_id,
-        artifact_type="chat_generation_partial", content_hash=hashlib.sha256(payload.encode()).hexdigest(),
-        content_json=payload, preview=f"第{chat.model_attempts}次生成中断：保留{len(chat.content)}字符",
-        char_count=len(payload), prompt_state="archived"))
+    ToolInvocationRuntime.create_artifact(db, run=agent, step=coordinator,
+        artifact_type="chat_generation_partial", content_json=payload,
+        preview=f"第{chat.model_attempts}次生成中断：保留{len(chat.content)}字符", prompt_state="archived")
 
 
 def close_tool_run(db, chat, status):

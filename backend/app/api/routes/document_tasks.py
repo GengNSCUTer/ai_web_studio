@@ -15,6 +15,7 @@ from app.models.user import User
 from app.schemas.document_task import DocumentTaskCreate
 from app.services.agent_runtime_service import AgentRuntimeError
 from app.services.document_task_service import DocumentTaskService, DocumentTaskError, KIND
+from app.services.agent_artifact_store import AgentArtifactStore, ArtifactStoreError
 
 router = APIRouter(prefix="/document-tasks", tags=["document-tasks"])
 
@@ -69,6 +70,10 @@ def artifact_for_user(db, user_id, run_id, artifact_id):
                      AgentArtifact.run_id == run_id, AgentArtifact.user_id == user_id))
     if not item:
         raise DocumentTaskError("产物不存在或无权访问。")
+    try:
+        AgentArtifactStore.verify_content(item)
+    except ArtifactStoreError as exc:
+        raise DocumentTaskError(str(exc)) from exc
     return item, json.loads(item.content_json)
 
 

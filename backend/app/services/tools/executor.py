@@ -133,6 +133,14 @@ class ToolExecutor:
         if not decision.allowed:
             result, skipped_events = self._skipped(call, "工具动作或外发数据未通过原始任务范围检查。")
             return result, [*events, *skipped_events]
+        if call.tool_key == "agent.artifacts.list" and call.arguments.get("semantic"):
+            from app.services.tools.action_guard import NO_EXTERNAL_TOOLS, NO_WEB
+            task = self.action_guard.scope.original_task if self.action_guard.scope else ""
+            explicit = re.search(r"在线.{0,8}(?:语义|embedding|向量)|online.{0,12}(?:semantic|embedding)", task, re.I)
+            if not explicit or NO_EXTERNAL_TOOLS.search(task) or NO_WEB.search(task):
+                # 本地能力不能借内部Embedding偷偷把私有预览发往外部模型。
+                result, skipped_events = self._skipped(call, "在线语义查找会发送授权预览，需用户明确允许；也可关闭semantic仅本地查找。")
+                return result, [*events, *skipped_events]
         permission_resolver = getattr(self.credential_resolver, "get_workspace_permission_mode", None)
         permission_mode = permission_resolver(project_id=self.project_id) if callable(permission_resolver) else "ask"
         original_task = self.action_guard.scope.original_task if self.action_guard.scope else ''

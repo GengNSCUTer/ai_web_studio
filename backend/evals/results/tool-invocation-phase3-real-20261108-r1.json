@@ -1,0 +1,39 @@
+{
+  "scope": "共用调用内核三路径业务回归，不是恢复率或容量评测",
+  "cases": [
+    {
+      "name": "chat_search_read_answer",
+      "passed": true,
+      "elapsed_ms": 25338,
+      "steps": 2,
+      "answer_chars": 153,
+      "model": "deepseek-ai/DeepSeek-V3.2"
+    },
+    {
+      "name": "durable_confirm_worker_result",
+      "passed": true,
+      "elapsed_ms": 1232,
+      "duplicate_confirm": "same_run"
+    },
+    {
+      "name": "document_worker_export",
+      "passed": true,
+      "elapsed_ms": 6357,
+      "docx_bytes": 36952,
+      "download_requires_approval": false
+    }
+  ],
+  "passed": false,
+  "checkpoint_baseline": {
+    "count": 9,
+    "total_bytes": 294870,
+    "max_bytes": 48905
+  },
+  "checkpoint_same_payload_comparison": {
+    "checkpoints": 9,
+    "legacy_bytes": 357524,
+    "stored_bytes": 294870,
+    "reduction_fraction": 0.17524
+  },
+  "error_type": "AssertionError"
+}

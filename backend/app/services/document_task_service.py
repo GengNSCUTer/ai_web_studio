@@ -31,6 +31,7 @@ from app.services.agent_runtime_service import AgentRuntimeService
 from app.services.document_delivery_service import DocumentDeliveryService
 from app.services.durable_tool_runtime import DurableToolRunService, utcnow
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
+from app.services.agent_artifact_store import AgentArtifactStore, ArtifactStoreError
 
 
 KIND = "document_workflow"
@@ -174,6 +175,10 @@ class DocumentTaskService:
             .where(AgentArtifact.run_id == run_id, AgentStep.call_id == stage).order_by(AgentArtifact.created_at.desc()).limit(1))
         if not artifact:
             raise DocumentTaskError("上一阶段产物缺失。")
+        try:
+            AgentArtifactStore.verify_content(artifact)
+        except ArtifactStoreError as exc:
+            raise DocumentTaskError(str(exc)) from exc
         return artifact, json.loads(artifact.content_json)
 
     def save_stage(self, run, step, event, result, *, transition, existing_artifact=None):
@@ -182,11 +187,9 @@ class DocumentTaskService:
             raise DocumentTaskError("阶段产物超过持久化限额。")
         artifact = existing_artifact
         if artifact is None:
-            artifact = AgentArtifact(run_id=run.id, step_id=step.id, user_id=run.user_id,
-                artifact_type=f"document_{step.call_id}", content_hash=hashlib.sha256(payload.encode()).hexdigest(),
-                preview=(result.get("text") or result.get("file_name") or f"{step.call_id} 阶段完成")[:3000],
-                content_json=payload, char_count=len(payload))
-            self.db.add(artifact)
+            artifact = AgentArtifactStore(self.db).create(run=run, step=step,
+                artifact_type=f"document_{step.call_id}", content_json=payload, max_chars=2_000_000,
+                preview=(result.get("text") or result.get("file_name") or f"{step.call_id} 阶段完成")[:3000])
         elif artifact.run_id != run.id or artifact.step_id != step.id or artifact.user_id != run.user_id:
             raise DocumentTaskError("已保存文档产物范围不匹配。")
         self.db.flush()

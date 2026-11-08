@@ -55,9 +55,9 @@ tags: [architecture, runtime, recovery, artifact]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-007 | 新增backend/app/services/agent_artifact_store.py定义tool/evidence/draft/export/partial类型映射、归属/哈希校验、可见/时效规则；Chat/Durable/Document保存路径全部使用 | | |
-| TASK-008 | tools/providers/agent_artifacts.py的_list/_read增加有界query/类型/时效过滤并检查来源当前范围；更新已有agent.artifacts.list工具Schema，不新增任意权限；旧产物保留原类型可读 | | |
-| TASK-009 | 测试跨用户项目、过期/来源删除、内容篡改、内部日志隔离和无StepID历史复用；在线模型+浏览器验证，docs/220与推送 | | |
+| TASK-007 | 新增backend/app/services/agent_artifact_store.py定义tool/evidence/draft/export/partial类型映射、归属/哈希校验、可见/时效规则；Chat/Durable/Document保存路径全部使用 | ✅ | 2026-11-08 |
+| TASK-008 | tools/providers/agent_artifacts.py增加有界query/类型/时效和来源复核；可选在线预览精排需原任务明确同意；投影真实ID和小Skill候选保全，旧物理类型可读 | ✅ | 2026-11-08 |
+| TASK-009 | 1313全量含PG/Redis、54定向及在线新会话list→read/文档下载/浏览器r2通过，失败r1保留，docs/220；按阶段提交推送 | ✅ | 2026-11-08 |
 
 ### Implementation Phase 4
 

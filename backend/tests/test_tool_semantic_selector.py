@@ -23,6 +23,15 @@ class ToolSemanticSelectorTest(unittest.IsolatedAsyncioTestCase):
         return ToolSemanticRetriever(config=config or self.config, embedding_service=self.adapter,
                                      timeout_seconds=timeout, index_store=self.index)
 
+    async def test_explicit_small_skill_keeps_read_capability_after_list(self):
+        retriever = AsyncMock()
+        retriever.scores.return_value = ({'agent.artifacts.list': .9}, {'mode':'hybrid',
+            'coarse_tool_keys':['agent.artifacts.list']})
+        tools, _ = await ToolCandidateSelector(self.catalog, semantic_retriever=retriever).select_async(
+            query='查找并复盘此前草稿产物', enabled=True,
+            allowed_tool_keys={'agent.artifacts.list','agent.artifacts.read'})
+        self.assertEqual({tool.tool_key for tool in tools}, {'agent.artifacts.list','agent.artifacts.read'})
+
     async def test_real_vector_path_recalls_weather_without_keyword(self):
         weather = self.catalog.get('amap.maps.weather')
         self.adapter.embed_texts.return_value = [[1., 0.], [1., 0.]]

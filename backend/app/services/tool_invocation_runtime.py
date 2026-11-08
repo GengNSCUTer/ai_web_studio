@@ -6,10 +6,10 @@ Chat、固定Durable计划与文档阶段分别保留自己的租约校验和产
 
 from dataclasses import dataclass
 from contextvars import ContextVar
-import hashlib
 from typing import Any
 
 from app.models.agent_runtime import AgentArtifact
+from app.services.agent_artifact_store import AgentArtifactStore, ArtifactStoreError
 from app.services.runtime_lease import aware, utcnow
 from app.services.tools.quality import is_usable_tool_result, quality_status_for_result
 from app.services.tools.schemas import tool_execution_snapshot
@@ -109,9 +109,10 @@ class ToolInvocationRuntime:
     @staticmethod
     def validate_artifact(run, step, artifact):
         identity = InvocationIdentity.from_step(run, step)
-        if (artifact.run_id != identity.run_id or artifact.step_id != identity.step_id
-                or artifact.user_id != identity.user_id):
-            raise InvocationRuntimeError("artifact_scope_conflict", "工具产物不属于当前用户、运行和步骤。")
+        try:
+            AgentArtifactStore.validate_scope(run, step, artifact)
+        except ArtifactStoreError as exc:
+            raise InvocationRuntimeError("artifact_scope_conflict", str(exc)) from exc
         return identity
 
     @classmethod
@@ -138,8 +139,10 @@ class ToolInvocationRuntime:
 
     @staticmethod
     def verify_artifact_content(artifact):
-        if hashlib.sha256(artifact.content_json.encode("utf-8")).hexdigest() != artifact.content_hash:
-            raise InvocationRuntimeError("artifact_integrity_conflict", "已保存产物内容校验失败，不能继续复用。")
+        try:
+            AgentArtifactStore.verify_content(artifact)
+        except ArtifactStoreError as exc:
+            raise InvocationRuntimeError("artifact_integrity_conflict", str(exc)) from exc
 
     @staticmethod
     def reuse_allowed(db, executor, resolver, definition, call):
@@ -196,13 +199,12 @@ class ToolInvocationRuntime:
         if ((max_chars is not None and len(content_json) > max_chars)
                 or (max_bytes is not None and len(content_json.encode("utf-8")) > max_bytes)):
             raise InvocationRuntimeError("artifact_too_large", "产物超过持久化大小限制。")
-        artifact = AgentArtifact(run_id=run.id, step_id=step.id, user_id=run.user_id,
-            artifact_type=artifact_type, content_json=content_json,
-            content_hash=hashlib.sha256(content_json.encode("utf-8")).hexdigest(),
-            preview=preview, char_count=len(content_json), prompt_state=prompt_state)
-        db.add(artifact)
-        db.flush()
-        return artifact
+        try:
+            return AgentArtifactStore(db).create(run=run, step=step, artifact_type=artifact_type,
+                content_json=content_json, preview=preview, prompt_state=prompt_state,
+                max_chars=max_chars, max_bytes=max_bytes)
+        except ArtifactStoreError as exc:
+            raise InvocationRuntimeError("artifact_serialization_failed", str(exc)) from exc
 
     @staticmethod
     def result_payload(call, result, events) -> dict[str, Any]:

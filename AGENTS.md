@@ -155,6 +155,8 @@ npm run build
 
 ## 7. 面试学习进度与每日收尾
 
+- 2026-11-08 Runtime阶段三：agent_artifact_store统一Chat/Durable/Document所有产物构造，保留物理格式、统一逻辑类型/归属/哈希/来源和时效。历史list支持query/类型/时间；可选在线预览语义需用户原任务明确同意，默认本地，不静默外发。首轮真实只list不read失败保留；补ID投影、小Skill候选、Skill1.1.0完成条件，r2真实新会话无旧IDlist→read，原文档阶段重做0。1313含PG/Redis和54定向通过，docs/220；第四成本/故障验收仍待继续。不把内部日志开放为证据，不改Day28、简历、Ollama边界。
+
 - 2026-11-08 Runtime阶段二：共享reconcile/复用授权/内容完整性，Executor只依赖通用ContextVar；Chat检查点引用已提交结果，旧格式可读，保留4MiB展开边界。Durable敏感原始参数不持久化，服务端凭据另取；Document复用不加尝试。1296全量含PG/Redis和最后42项定向通过，真实退出/KILL恢复两场、三路径浏览器r2通过，同内容Checkpoint358038→295318字节(-17.518%)；部署期间新旧模块混用的r1失败保留。docs/219，阶段三/四仍待执行，不提前结束总目标或更新简历/学习天数。
 
 - 2026-11-08开始执行用户附件的Runtime四阶段收敛，计划plan/refactor-tool-invocation-runtime-1.md。阶段一新增tool_invocation_runtime.py，Chat/Durable共用调用归属、快照/质量、尝试与产物创建，Document接尝试上限。预览不冒充完成、崩溃不绕过最大尝试。1282全量含PG/Redis通过，在线V3.2/真实三路径与浏览器r2通过；r1脚本字段错误保留。详见docs/218。阶段二恢复决策/Checkpoint引用化、三产物管理、四成本故障验收仍待执行，不将计划写成完成；Day28及Ollama边界保持。

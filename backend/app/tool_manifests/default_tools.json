@@ -787,13 +787,17 @@
     "provider": "agent_runtime",
     "category": "agent_artifact",
     "display_name": "Agent 运行产物列表",
-    "description": "List bounded metadata and previews for durable Tool artifacts owned by the current user and project.",
-    "when_to_use": ["需要定位此前可恢复 Tool Run 生成的结构化结果时使用。"],
+    "description": "Find historical tool results, evidence, document drafts and exported reports in the current project by query, type and time range. Returns snapshot metadata; read selected IDs for details.",
+    "when_to_use": ["需要查找以前生成的报告、草稿或工具结果时使用；可提供query而不需要知道旧Step ID。"],
     "when_not_to_use": ["不能读取其他用户或其他项目的 Artifact；不能把预览当作完整原文。"],
     "input_schema": {
       "type": "object",
       "properties": {
         "run_id": {"type": "string", "maxLength": 36},
+        "query": {"type": "string", "maxLength": 300},
+        "semantic": {"type": "boolean", "default": false, "description": "仅用户原问题明确允许在线语义/Embedding查找时为true；最多24条脱敏预览发送到账号模型。默认只做本地匹配，不外发预览。"},
+        "artifact_type": {"type": "string", "enum": ["tool_result", "evidence_snapshot", "document_draft", "exported_file", "delivery_receipt"]},
+        "max_age_hours": {"type": "integer", "minimum": 1, "maximum": 720, "default": 168},
         "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10}
       },
       "additionalProperties": false
@@ -814,6 +818,10 @@
         "item_identity_paths": ["/artifact_id"]
       }
     },
+    "evidence_projection": {"version":"evidence_projection_v1", "mode":"facts_only", "allowed_source_types":["agent_artifact_list"], "fact_paths":{
+      "artifact_id":"/metadata/raw/artifacts/0/artifact_id", "artifact_type":"/metadata/raw/artifacts/0/artifact_type",
+      "second_artifact_id":"/metadata/raw/artifacts/1/artifact_id", "second_artifact_type":"/metadata/raw/artifacts/1/artifact_type",
+      "third_artifact_id":"/metadata/raw/artifacts/2/artifact_id", "third_artifact_type":"/metadata/raw/artifacts/2/artifact_type"}},
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true
@@ -823,13 +831,14 @@
     "provider": "agent_runtime",
     "category": "agent_artifact",
     "display_name": "Agent 运行产物按需读取",
-    "description": "Read a bounded structured artifact by opaque ID after tenant and project authorization.",
-    "when_to_use": ["已经拿到 artifact_id，且当前回答确实需要此前工具结果细节时使用。"],
+    "description": "Read the actual content of a historical artifact, report or document draft using an artifact_id returned by agent.artifacts.list. Listing a preview does not read the full artifact.",
+    "when_to_use": ["列出历史报告或文档草稿后，使用真实artifact_id读取其正文再回答；不能一直重复列表。"],
     "when_not_to_use": ["不能传文件路径、URL 或其他用户的 ID；单次不会返回无限长度内容。"],
     "input_schema": {
       "type": "object",
       "properties": {
         "artifact_id": {"type": "string", "minLength": 1, "maxLength": 36},
+        "max_age_hours": {"type": "integer", "minimum": 1, "maximum": 720, "default": 168},
         "max_chars": {"type": "integer", "minimum": 200, "maximum": 12000, "default": 6000}
       },
       "required": ["artifact_id"],
@@ -847,6 +856,9 @@
         "identity_paths": ["/sources/*/metadata/raw/artifact_id"]
       }
     },
+    "evidence_projection": {"version":"evidence_projection_v1", "mode":"bounded_excerpt", "allowed_source_types":["agent_artifact_read"],
+      "fact_paths":{"artifact_id":"/metadata/artifact_id","artifact_type":"/metadata/artifact_type"},
+      "content_paths":["/metadata/raw/content"],"max_sources":2,"max_chars_per_source":1200,"max_total_chars":2400},
     "risk_level": "low",
     "enabled_by_default": true,
     "read_only": true

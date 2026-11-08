@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
 import unittest
 
 import app.models  # noqa: F401
@@ -98,7 +99,7 @@ class AgentArtifactToolProviderTest(unittest.TestCase):
             step_id=step.id,
             user_id=self.user_id,
             artifact_type="tool_result",
-            content_hash="b" * 64,
+            content_hash=hashlib.sha256(json.dumps({"result": "可读取的持久化结果"}, ensure_ascii=False).encode()).hexdigest(),
             preview="脱敏产物摘要",
             content_json=json.dumps({"result": "可读取的持久化结果"}, ensure_ascii=False),
             char_count=20,
