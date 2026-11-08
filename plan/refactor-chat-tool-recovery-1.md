@@ -4,13 +4,13 @@ version: 1
 date_created: 2026-11-08
 last_updated: 2026-11-08
 owner: AI Web Studio
-status: 'In progress'
+status: 'Completed'
 tags: [architecture, chat, recovery, langgraph]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In%20progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-brightgreen)
 
 保留ChatRun作为会话和事件事实，关联runtime_kind=chat_tool_workflow的AgentRun。
 普通工具循环记录规划阶段、AgentStep和AgentArtifact；恢复时从业务提交位置重建图运行时。
@@ -33,8 +33,8 @@ tags: [architecture, chat, recovery, langgraph]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-001 | 新增chat_tool_runtime.py、tools/runtime_codec.py；使用既有AgentRun/Step/Checkpoint/Artifact表记录循环和调用 | ✅ | 2026-11-08 |
-| TASK-002 | sync_tool_graph.py按业务恢复位置进入节点，接入受Chat租约保护的原生PG Saver；Executor接入逐调用结果复用 | ✅ | 2026-11-08 |
+| TASK-001 | backend/app/services/chat_tool_runtime.py中的ChatToolPersistence.save/restore/_begin_call/_complete_call复用Agent表，tools/runtime_codec.py显式编码脱敏；迁移20261108_02/03建立父关联和可靠级联 | ✅ | 2026-11-08 |
+| TASK-002 | backend/app/services/agent_graph/sync_tool_graph.py的run_sync_tool_graph按业务位置分派；chat_tool_checkpoint.py的ChatToolPostgresSaver._verify_lease在原生保存事务复核执行权 | ✅ | 2026-11-08 |
 
 ### Implementation Phase 2
 
@@ -42,10 +42,10 @@ tags: [architecture, chat, recovery, langgraph]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-003 | chat_run_worker/service接入持久化上下文；有恢复记录的Run有限接管，保留原总截止时间 | ✅ | 2026-11-08 |
-| TASK-004 | 重新生成前归档旧片段、发送run_snapshot重置；chat-thread支持NDJSON和SSE重置 | ✅ | 2026-11-08 |
-| TASK-005 | 补SQLite及真实PG进程退出、旧租约、取消、权限变化、写入不明和在线模型浏览器测试 | ✅ | 2026-11-08 |
-| TASK-006 | 全量回归、文档、飞书回读、GitHub和CI收尾 | | |
+| TASK-003 | backend/app/services/chat_run_service.py的claim_next/reconcile/interrupt有限接管；chat_run_worker.py的_execute注入当前运行上下文，保留原总截止时间 | ✅ | 2026-11-08 |
+| TASK-004 | chat_run_service.py的start_generation与archive_partial_generation同事务归档/重置；frontend/src/components/chat-thread.tsx处理NDJSON/SSE的run_snapshot | ✅ | 2026-11-08 |
+| TASK-005 | backend/tests/test_chat_tool_recovery.py和test_chat_tool_recovery_postgres.py覆盖故障/权限；scripts/chat_tool_recovery_real_e2e.py与file_edit_approval_browser_e2e.py在线验收 | ✅ | 2026-11-08 |
+| TASK-006 | 全量1269项与前端5项通过，docs/217和飞书已回读，业务bf86ee6已推送且Actions42463787868前后端成功 | ✅ | 2026-11-08 |
 
 ## 3. Alternatives
 

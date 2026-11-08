@@ -5,6 +5,9 @@
   "new_recovery_tests": {"sqlite": 17, "postgresql": 21, "included_in_full_suite": true},
   "frontend": {"lint": "passed", "build": "passed", "node_tests_passed": 5},
   "compileall": "passed",
+  "ci": {"commit": "bf86ee64e03d8f9390838e71777edf10a899f419", "run_id": 42463787868,
+    "frontend": "success", "backend": "success", "tests_run": 1269, "passed": 1268, "skipped": 1,
+    "skip": "CI缺少服务器绝对路径Adaptive_RAG.pdf夹具；本地全量已执行该项"},
   "real_reports": [
     "chat-tool-recovery-real-20261108-r2.json",
     "chat-tool-approval-ui-final-20261108.json",
