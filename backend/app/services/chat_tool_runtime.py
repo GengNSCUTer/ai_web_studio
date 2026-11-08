@@ -19,6 +19,9 @@ from app.services.chat_run_service import ChatLeaseLost, ChatRunService
 from app.services.runtime_lease import aware, utcnow
 from app.services.tools import runtime_codec as codec
 from app.services.tools.schemas import tool_execution_snapshot, redact_sensitive_arguments, ToolTraceEvent
+from app.services.tool_invocation_runtime import (
+    InvocationOutcome, InvocationRecoveryPolicy, InvocationRuntimeError, ToolInvocationRuntime,
+)
 
 
 current_tool_persistence = ContextVar("current_tool_persistence", default=None)
@@ -137,8 +140,8 @@ class ChatToolPersistence:
                         db, run.service.executor, resolver, definition, call):
                     raise ValueError("已有工具结果的当前权限、版本或文件范围已变化")
                 artifact = db.get(AgentArtifact, state.get("artifact_id")) if state.get("artifact_id") else None
-                if artifact and (artifact.run_id != agent.id or artifact.step_id != step.id or artifact.user_id != agent.user_id):
-                    raise ValueError("工具恢复产物的用户或步骤关联不一致")
+                if artifact:
+                    ToolInvocationRuntime.validate_artifact(agent, step, artifact)
                 if artifact and saved["next_node"] == "execute" and remaining <= 0:
                     from app.services.tools.quality import is_usable_tool_result
                     response, _ = codec.loads(artifact.content_json)
@@ -249,8 +252,9 @@ class ChatToolPersistence:
             return
         for call in plan.calls:
             definition = catalog.get_or_none(call.tool_key)
-            if not definition or snapshots.get(call.tool_key) != tool_execution_snapshot(definition):
+            if not definition:
                 raise ValueError("工具定义发生变化，不能恢复旧调用")
+            ToolInvocationRuntime.verify_snapshot(definition, snapshots.get(call.tool_key))
             if not definition.enabled_by_default or not resolver.is_tool_enabled_for_workspace(
                     project_id=executor.project_id, tool_key=call.tool_key):
                 raise ValueError("工具已禁用，不能复用旧结果")
@@ -312,12 +316,11 @@ class ChatToolPersistence:
                     return "blocked", "当前权限、文件范围或凭据不再允许复用该结果。"
                 artifact = db.get(AgentArtifact, state.get("artifact_id")) if state.get("artifact_id") else None
                 if artifact:
-                    if artifact.run_id != agent.id or artifact.step_id != step.id or artifact.user_id != agent.user_id:
-                        return "blocked", "工具结果不属于当前运行步骤。"
+                    ToolInvocationRuntime.validate_artifact(agent, step, artifact)
                     restored = codec.loads(artifact.content_json)
                     self._validate_sources(db, restored[0].sources)
                     return "reused", restored
-                if step.attempts > 0 and (not definition.read_only or definition.risk_level != "low"):
+                if step.attempts > 0 and not InvocationRecoveryPolicy.for_tool(definition).allows_unknown_result_retry:
                     return "blocked", "该步骤的副作用结果未确认，已停止自动重放，请核实审批或产物。"
                 if step.attempts > 0 and step.status == "running" and step.lease_version == self.claim.version:
                     return "blocked", "同一执行权下已有相同调用正在执行，不能并发重复发送。"
@@ -345,9 +348,11 @@ class ChatToolPersistence:
                 return "blocked", "该任务实际工具请求已达到总预算，不再发起新的调用。"
             step.arguments_hash = signature
             step.arguments_json = json.dumps(redact_sensitive_arguments(call.arguments), ensure_ascii=False)
-            step.attempts += 1
-            step.status, step.lease_owner, step.lease_version = "running", self.claim.owner, self.claim.version
-            step.started_at, step.lease_expires_at = utcnow(), utcnow() + timedelta(seconds=45)
+            try:
+                ToolInvocationRuntime.start_attempt(agent, step, owner=self.claim.owner,
+                    lease_version=self.claim.version, lease_expires_at=utcnow() + timedelta(seconds=45))
+            except InvocationRuntimeError as exc:
+                return "blocked", str(exc)
             step_id = step.id
             db.commit()
             return "execute", step_id
@@ -395,19 +400,14 @@ class ChatToolPersistence:
                     or step.lease_owner != self.claim.owner or step.status != "running"):
                 raise ChatLeaseLost()
             payload = codec.dumps(result)
-            if len(payload.encode()) > 2 * 1024 * 1024:
-                raise ValueError("工具产物超过持久化大小限制")
-            artifact = AgentArtifact(run_id=agent.id, step_id=step.id, user_id=chat.user_id,
-                artifact_type="chat_tool_result", content_json=payload, content_hash=hashlib.sha256(payload.encode()).hexdigest(),
-                preview=f"{step.tool_key}：{result[0].status}", char_count=len(payload), prompt_state="stored")
-            db.add(artifact)
-            db.flush()
+            artifact = ToolInvocationRuntime.create_artifact(db, run=agent, step=step,
+                artifact_type="chat_tool_result", content_json=payload,
+                preview=f"{step.tool_key}：{result[0].status}", max_bytes=2 * 1024 * 1024)
             state = json.loads(step.result_json)
             state["artifact_id"] = artifact.id
             step.result_json = json.dumps(state)
             response = result[0]
-            step.status = ("waiting_approval" if response.status == "confirmation_required" else
-                "succeeded" if response.status == "success" and response.quality_status not in {"invalid", "uncertain"} else "failed")
+            step.status = InvocationOutcome.from_result(response).step_status
             state.update(quality_status=response.quality_status, result_status=response.status)
             step.result_json = json.dumps(state)
             step.finished_at, step.lease_owner, step.lease_expires_at = utcnow(), None, None

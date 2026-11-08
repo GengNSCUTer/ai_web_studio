@@ -1,0 +1,37 @@
+{
+  "scope": "阶段一共用调用内核业务回归，不是恢复率或容量评测",
+  "cases": [
+    {
+      "name": "chat_search_read_answer",
+      "passed": true,
+      "elapsed_ms": 25952,
+      "steps": 2,
+      "answer_chars": 125,
+      "model": "deepseek-ai/DeepSeek-V3.2"
+    },
+    {
+      "name": "durable_confirm_worker_result",
+      "passed": true,
+      "elapsed_ms": 643,
+      "duplicate_confirm": "same_run"
+    },
+    {
+      "name": "document_worker_export",
+      "passed": true,
+      "elapsed_ms": 6369,
+      "docx_bytes": 37038,
+      "download_requires_approval": false
+    }
+  ],
+  "passed": true,
+  "checkpoint_baseline": {
+    "count": 9,
+    "total_bytes": 367816,
+    "max_bytes": 60334
+  },
+  "browser": {
+    "persistent_steps": true,
+    "document_download_card": true,
+    "errors": 0
+  }
+}

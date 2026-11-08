@@ -34,7 +34,6 @@ from app.services.tools.catalog import ToolCatalog
 from app.services.tools.bindings import ToolResultBindingError, ToolResultBindingResolver
 from app.services.tools.executor import ToolExecutor
 from app.services.tools.quality import (
-    is_usable_tool_result,
     quality_error_for_result,
     quality_status_for_result,
 )
@@ -48,6 +47,7 @@ from app.services.tools.schemas import (
 from app.services.tools.validation import ToolSchemaValidationError, ToolSchemaValidator
 from app.services.skill_catalog import SkillCatalog, SkillCatalogError, SkillExecutionContext
 from app.services.durable_worker_registry import DurableWorkerRegistry
+from app.services.tool_invocation_runtime import InvocationOutcome, InvocationRuntimeError, ToolInvocationRuntime
 
 
 logger = logging.getLogger(__name__)
@@ -414,9 +414,10 @@ class DurableToolRunService:
             stored = snapshots.get(step.tool_key)
             if not isinstance(stored, dict) or not stored.get("fingerprint"):
                 raise DurableToolRuntimeError("tool_snapshot_missing", "Durable Step 缺少工具执行快照，已拒绝继续。")
-            current = tool_execution_snapshot(definition)
-            if str(stored.get("fingerprint")) != current["fingerprint"]:
-                raise DurableToolRuntimeError("tool_snapshot_mismatch", "工具定义或安全合同已变化，不能直接回放。")
+            try:
+                ToolInvocationRuntime.verify_snapshot(definition, stored)
+            except InvocationRuntimeError as exc:
+                raise DurableToolRuntimeError(exc.code, "工具定义或安全合同已变化，不能直接回放。") from exc
         # 旧 Run 没有快照时保留兼容读取和既有低风险检查；新的 Run 都会带快照，
         # 审计服务会明确标记 legacy_snapshot，避免把旧数据伪装成完整审计。
         skill = state.get("skill") if isinstance(state, dict) else None
@@ -1173,8 +1174,13 @@ class DurableToolWorker:
         # 重发尚未提交结果的请求，因此这里继续仅允许低风险只读工具。
         if not self._lock_claim(db, run, step, event, claim):
             return
-        step.attempts = int(step.attempts or 0) + 1
-        step.heartbeat_at = utcnow()
+        try:
+            ToolInvocationRuntime.start_attempt(run, step, owner=self.owner,
+                lease_version=claim.outbox_lease_version, lease_expires_at=event.lease_expires_at)
+        except InvocationRuntimeError as exc:
+            # 进程反复退出也消耗同一尝试预算，不能绕过重试上限无限请求。
+            self._retry_or_dlq(db, run, step, event, claim, str(exc))
+            return
         db.commit()
 
         executor = self.executor_factory(
@@ -1202,7 +1208,7 @@ class DurableToolWorker:
     def _complete_tool_execution(self, db, claim, run, step, event, call, result, events):
         """依据原业务质量规则提交产物、重排或失败；图检查点不能替代本事务。"""
         if result.status == "success":
-            if not is_usable_tool_result(result):
+            if not InvocationOutcome.from_result(result).dependency_ready:
                 quality_status, _ = quality_status_for_result(result)
                 if quality_status not in {"invalid", "uncertain"}:
                     quality_status = "invalid"
@@ -1218,19 +1224,7 @@ class DurableToolWorker:
                     error_message=quality_error,
                 )
                 return
-            payload = {
-                "call_id": call.call_id,
-                "tool_key": call.tool_key,
-                "sources": [source.to_public_dict() for source in result.sources],
-                "events": [event_item.to_public_dict() for event_item in events],
-                "elapsed_ms": result.elapsed_ms,
-                # 保留质量结论和结果语义，恢复、对账与后续按需读取才能区分
-                # “正常未命中”与“Provider 返回了不可用响应”。
-                "quality_status": quality_status_for_result(result)[0],
-                "quality_reasons": list(getattr(result, "quality_reasons", []) or [])[:8],
-                "quality_metadata": dict(getattr(result, "quality_metadata", {}) or {}),
-                "result_semantics": str(getattr(result, "result_semantics", "evidence") or "evidence"),
-            }
+            payload = ToolInvocationRuntime.result_payload(call, result, events)
             self._finish_success(db, run, step, event, claim, payload)
             return
         if result.status in {"skipped", "confirmation_required"}:
@@ -1432,18 +1426,15 @@ class DurableToolWorker:
             return
         preview = self._preview(safe_payload)
         if existing_artifact is None:
-            artifact = AgentArtifact(
-                run_id=run.id, step_id=step.id, user_id=run.user_id,
-                content_hash=hashlib.sha256(content_json.encode("utf-8")).hexdigest(),
-                preview=preview, content_json=content_json, char_count=len(content_json),
-            )
-            db.add(artifact)
-            db.flush()
+            artifact = ToolInvocationRuntime.create_artifact(db, run=run, step=step,
+                content_json=content_json, preview=preview, max_chars=self.MAX_ARTIFACT_CHARS)
         else:
             artifact = existing_artifact
-            if artifact.run_id != run.id or artifact.step_id != step.id or artifact.user_id != run.user_id:
+            try:
+                ToolInvocationRuntime.validate_artifact(run, step, artifact)
+            except InvocationRuntimeError as exc:
                 db.rollback()
-                raise DurableToolRuntimeError("artifact_scope_conflict", "产物范围不匹配")
+                raise DurableToolRuntimeError(exc.code, "产物范围不匹配") from exc
         step.status = "succeeded"
         step.result_json = json.dumps({"artifact_id": artifact.id, "sources_count": len(safe_payload["sources"])}, ensure_ascii=False)
         step.finished_at = utcnow()

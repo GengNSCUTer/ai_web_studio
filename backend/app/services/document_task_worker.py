@@ -9,6 +9,7 @@ from app.services.chat_provider_service import ChatProviderService, resolve_prov
 from app.services.document_task_service import DocumentTaskService, DocumentTaskError, MAX_DRAFT_CHARS, DOCUMENT_GRAPH_VERSION
 from app.services.durable_tool_runtime import utcnow
 from app.services.setting_service import SettingService
+from app.services.tool_invocation_runtime import ToolInvocationRuntime
 
 
 async def wait_for_draft(worker, claim, runtime, instruction, evidence):
@@ -56,7 +57,8 @@ def prepare_document_claim(worker, db, claim):
     if not fence(worker, db, run, step, event, claim):
         return
     service.get(run.user_id, run.id)
-    step.attempts += 1
+    ToolInvocationRuntime.start_attempt(run, step, owner=worker.owner,
+        lease_version=claim.outbox_lease_version, lease_expires_at=event.lease_expires_at)
     stage, user_id, run_id = step.call_id, run.user_id, run.id
     db.commit()
     return service, event, step, run, stage, user_id, run_id

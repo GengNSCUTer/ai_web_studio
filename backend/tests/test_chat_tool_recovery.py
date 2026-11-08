@@ -372,3 +372,15 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(restored[0], ToolCallResult)
         self.assertIsInstance(restored[0].sources[0], ExternalSource)
         self.assertEqual(restored[0].sources[0].metadata["$type"], "ToolPlan")
+
+    async def test_valid_edit_preview_is_not_persisted_as_completed_write(self):
+        _, _, persistence = self.fixture()
+        async def preview(executor, call):
+            return ToolCallResult(call, "success", [ExternalSource("workspace_file_edit_preview", "workspace",
+                "编辑预览", "仅展示Diff，文件尚未修改。")], 1, quality_status="valid", result_semantics="approval_draft"), []
+        with patch.object(ToolExecutor, "_execute", preview):
+            await self.context(persistence, FixedPlanner([self.tool("preview")]))
+        with self.sessions() as db:
+            step = db.scalar(select(AgentStep).where(AgentStep.run_id == persistence.agent_id, AgentStep.sequence > 0))
+            self.assertEqual(step.status, "preview")
+            self.assertEqual(db.get(ProjectFile, "f").parsed_text, "有效资料：项目采用短事务与明确审批。")

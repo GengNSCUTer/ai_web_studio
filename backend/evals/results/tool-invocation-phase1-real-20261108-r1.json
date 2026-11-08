@@ -1,0 +1,26 @@
+{
+  "scope": "阶段一共用调用内核业务回归，不是恢复率或容量评测",
+  "cases": [
+    {
+      "name": "chat_search_read_answer",
+      "passed": true,
+      "elapsed_ms": 67471,
+      "steps": 2,
+      "answer_chars": 126,
+      "model": "deepseek-ai/DeepSeek-V3.2"
+    },
+    {
+      "name": "durable_confirm_worker_result",
+      "passed": true,
+      "elapsed_ms": 2769,
+      "duplicate_confirm": "same_run"
+    }
+  ],
+  "passed": false,
+  "checkpoint_baseline": {
+    "count": 11,
+    "total_bytes": 496190,
+    "max_bytes": 63319
+  },
+  "error_type": "KeyError"
+}
