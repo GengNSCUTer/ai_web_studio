@@ -132,6 +132,32 @@ class AgentArtifactStoreTest(unittest.TestCase):
         self.db.commit()
         self.assertFalse(AgentArtifactStore(self.db).reusable(run, derived))
 
+    def test_document_draft_inherits_evidence_lifecycle(self):
+        run, evidence_step, evidence = self.artifact(kind="document_evidence", payload={"sources": []})
+        run.runtime_kind = "document_workflow"
+        draft_step = AgentStep(run_id=run.id, sequence=2, call_id="draft", tool_key="document.draft",
+            arguments_json="{}", arguments_hash="b"*64, status="succeeded")
+        self.db.add(draft_step)
+        self.db.flush()
+        draft = AgentArtifactStore(self.db).create(run=run, step=draft_step, artifact_type="document_draft",
+            content_json='{"text":"已生成的报告"}')
+        self.db.commit()
+        self.assertTrue(AgentArtifactStore(self.db).reusable(run, draft))
+        # 文档隐式依赖同Run的取证产物，不能因未显式携带artifact_id而漏掉撤销和过期。
+        for state in ("revoked", "expired", "archived"):
+            with self.subTest(state=state):
+                evidence.prompt_state = state
+                self.db.commit()
+                self.assertFalse(AgentArtifactStore(self.db).reusable(run, draft))
+        evidence.prompt_state = "stored"
+        evidence.created_at = utcnow() - timedelta(days=8)
+        self.db.commit()
+        self.assertFalse(AgentArtifactStore(self.db).reusable(run, draft))
+        evidence.created_at = utcnow()
+        evidence_step.status = "failed"
+        self.db.commit()
+        self.assertFalse(AgentArtifactStore(self.db).reusable(run, draft))
+
     def test_semantic_flag_cannot_silently_send_previews_outside_user_intent(self):
         from app.services.tools.executor import ToolExecutor
         from app.services.tools.catalog import ToolCatalog

@@ -1,6 +1,7 @@
 """真实模型、HTTP、浏览器、独立 Worker 进程和文件验收，固定账号可复跑。"""
 
 import base64
+import argparse
 import asyncio
 import io
 import json
@@ -72,7 +73,7 @@ def cleanup(pid, cid):
         path.unlink(missing_ok=True)
 
 
-def run():
+def run(output=None):
     suffix = uuid4().hex[:10]
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == "1528713326@qq.com"))
@@ -91,7 +92,7 @@ def run():
         source_id = source.file_id
     stopped = False
     errors = []
-    results = {}
+    results = {"passed": False, "scope": "在线模型/真实文件/独立文档阶段Worker/浏览器/审批与取消"}
     try:
         with SessionLocal() as db:
             catalog = ToolCatalog(db=db, user_id=uid, project_id=pid)
@@ -202,11 +203,22 @@ def run():
                 results["conversation_projection"] = "one_message_per_run"
             assert not errors, errors
             context.close(); browser.close()
-        print(json.dumps(results, ensure_ascii=False))
+        results["passed"] = True
+        return results
+    except Exception as exc:
+        # 保存失败批次，只记录类型，不输出可能包含配置或凭据的异常详情。
+        results["error_type"] = type(exc).__name__
+        raise
     finally:
         if stopped: ctl("start")
         cleanup(pid, cid)
+        results["temporary_data_cleaned"] = True
+        if output is not None:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path)
+    print(json.dumps(run(parser.parse_args().output), ensure_ascii=False))

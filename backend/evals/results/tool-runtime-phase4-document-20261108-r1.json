@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "scope": "在线模型/真实文件/独立文档阶段Worker/浏览器/审批与取消",
+  "real_file_tool": "executor_read_succeeded",
+  "duplicate_create": "one_run",
+  "separate_process_resume": "evidence_draft_export_persisted",
+  "word_download": "valid_docx_with_sources",
+  "download_only": "succeeded_without_approval_or_project_file",
+  "approval_save": "succeeded_once",
+  "browser": "desktop_mobile_no_errors",
+  "parallel_task_and_cancel": "independent_artifacts_preserved",
+  "conversation_projection": "one_message_per_run",
+  "temporary_data_cleaned": true
+}

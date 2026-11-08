@@ -154,6 +154,10 @@ class AgentArtifactStore:
                         AgentArtifact.user_id == run.user_id, AgentArtifact.artifact_type == "document_evidence").limit(1))
                 if not evidence:
                     return False
+                # 草稿/导出隐式依赖取证步骤，继承同一撤销、时效、步骤状态与归属检查。
+                if evidence.id != artifact.id and not self.reusable(run, evidence,
+                        max_age_hours=max_age_hours, _visited=visited, _budget=budget):
+                    return False
                 self.verify_content(evidence)
                 for record in json.loads(evidence.content_json).get("sources", []):
                     if record.get("kind") == "project_file":

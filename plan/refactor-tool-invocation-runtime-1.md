@@ -2,7 +2,7 @@
 goal: 收敛Chat、Durable和Document的通用执行记录、恢复协议与产物管理
 version: 1
 date_created: 2026-11-08
-last_updated: 2026-11-08
+last_updated: 2026-11-09
 owner: AI Web Studio
 status: 'In progress'
 tags: [architecture, runtime, recovery, artifact]
@@ -65,8 +65,8 @@ tags: [architecture, runtime, recovery, artifact]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-010 | 新增scripts/tool_runtime_reliability_e2e.py，对照正常/故障的单工具、多轮、并发DAG、文档、审批和不明副作用；输出JSON/Markdown报告与调用/SQL/检查点计量 | | |
-| TASK-011 | 运行真实PG/Worker/在线V3.2/浏览器验收与全量测试，保留失败批次；比较阶段一基线和最终检查点成本，核对权限及取消无回归 | | |
+| TASK-010 | scripts/tool_runtime_reliability_e2e.py的7场景和两个版本各10次正常对照通过；在线多轮、文档、审批及不明副作用分开记录，docs/221 | ✅ | 2026-11-09 |
+| TASK-011 | 最终1314全量含PG/Redis、45定向、前端lint/build/5项及在线真实Worker/浏览器/文件通过；审阅补隐式取证生命周期传播，失败保留 | ✅ | 2026-11-09 |
 | TASK-012 | 更新docs/04—07、159—162与README、AGENTS及docs/221收口；飞书定点同步回读，GitHub提交推送且CI成功，逐项审计本计划 | | |
 
 ## 3. Alternatives
