@@ -155,6 +155,8 @@ npm run build
 
 ## 7. 面试学习进度与每日收尾
 
+- 2026-11-08 Runtime阶段二：共享reconcile/复用授权/内容完整性，Executor只依赖通用ContextVar；Chat检查点引用已提交结果，旧格式可读，保留4MiB展开边界。Durable敏感原始参数不持久化，服务端凭据另取；Document复用不加尝试。1296全量含PG/Redis和最后42项定向通过，真实退出/KILL恢复两场、三路径浏览器r2通过，同内容Checkpoint358038→295318字节(-17.518%)；部署期间新旧模块混用的r1失败保留。docs/219，阶段三/四仍待执行，不提前结束总目标或更新简历/学习天数。
+
 - 2026-11-08开始执行用户附件的Runtime四阶段收敛，计划plan/refactor-tool-invocation-runtime-1.md。阶段一新增tool_invocation_runtime.py，Chat/Durable共用调用归属、快照/质量、尝试与产物创建，Document接尝试上限。预览不冒充完成、崩溃不绕过最大尝试。1282全量含PG/Redis通过，在线V3.2/真实三路径与浏览器r2通过；r1脚本字段错误保留。详见docs/218。阶段二恢复决策/Checkpoint引用化、三产物管理、四成本故障验收仍待执行，不将计划写成完成；Day28及Ollama边界保持。
 
 - 2026-11-08后续改造：普通Chat领取与关联AgentRun(chat_tool_workflow)同事务，计划所有Step、逐调用Artifact和业务Checkpoint持久化；复用原生PG池，图写入受父Chat owner/version/expiry/generation/范围保护。失租约有限接管（最多三次）；最终生成最多两次，旧片段归档并用run_snapshot替换正文，不续Token。未提交的副作用不自动重放，换call_id不能绕过；预算保留绝对截止时间并按真实尝试计数。迁移20261108_02/03及备份20261108-chat-tools-recovery-02已执行，说明docs/217；最终验证以该文和收尾报告为准，不把下条216的“不重跑”当当前口径。学习仍Day28，不加载Ollama。

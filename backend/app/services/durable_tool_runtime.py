@@ -201,6 +201,11 @@ class DurableToolRunService:
                 }
             except ToolSchemaValidationError as exc:
                 raise DurableToolRuntimeError("schema_invalid", str(exc)) from exc
+            if redact_sensitive_arguments(arguments) != arguments:
+                # 恢复用参数不是脱敏审计；当前没有加密输入仓，不能悄悄持久化密钥
+                # 或在恢复时把***当真值执行。凭据继续由服务端Resolver按用户取用。
+                raise DurableToolRuntimeError("sensitive_arguments_not_recoverable",
+                    "参数包含不应持久化的敏感值，请使用服务端凭据配置或重新提供非敏感输入。")
             call_id = str(raw.get("call_id") or f"step-{index}").strip()
             if not call_id or len(call_id) > 64:
                 raise DurableToolRuntimeError("invalid_call_id", "Tool Run 的 call_id 长度必须为 1 到 64。")
@@ -1170,19 +1175,8 @@ class DurableToolWorker:
             self._finish_terminal(db, run, step, event, claim, status="skipped", error_code=exc.code, error_message=str(exc))
             return
 
-        # 外部调用前提交本次尝试；等待依赖不计执行尝试。崩溃后的新租约可能
-        # 重发尚未提交结果的请求，因此这里继续仅允许低风险只读工具。
         if not self._lock_claim(db, run, step, event, claim):
             return
-        try:
-            ToolInvocationRuntime.start_attempt(run, step, owner=self.owner,
-                lease_version=claim.outbox_lease_version, lease_expires_at=event.lease_expires_at)
-        except InvocationRuntimeError as exc:
-            # 进程反复退出也消耗同一尝试预算，不能绕过重试上限无限请求。
-            self._retry_or_dlq(db, run, step, event, claim, str(exc))
-            return
-        db.commit()
-
         executor = self.executor_factory(
             db=db,
             user_id=run.user_id,
@@ -1191,7 +1185,9 @@ class DurableToolWorker:
             assistant_message_id=run.assistant_message_id,
             catalog=ToolCatalog(db=db, user_id=run.user_id, project_id=run.project_id),
         )
-        if isinstance(executor, ToolExecutor):
+        checker = executor if isinstance(executor, ToolExecutor) else ToolExecutor(db=db, user_id=run.user_id,
+            project_id=run.project_id, catalog=ToolCatalog(db=db, user_id=run.user_id, project_id=run.project_id))
+        if isinstance(checker, ToolExecutor):
             # 同会话已绑定的用户原消息优先；没有源会话的API计划是用户显式提交的固定能力范围。
             saved = json.loads(run.input_json)
             frozen_scope = saved.get("action_scope")
@@ -1199,10 +1195,38 @@ class DurableToolWorker:
                 # 旧任务缺少冻结原任务时不恢复其网络授权，需由用户重新发起。
                 frozen_scope = {"original_task": "旧任务缺少动作范围，禁止对外调用", "confirmed_tool_keys": []}
             scope = ActionScope(str(frozen_scope.get("original_task") or ""), frozenset(frozen_scope.get("confirmed_tool_keys") or []))
-            executor.action_guard = ToolActionGuard(scope)
+            checker.action_guard = ToolActionGuard(scope)
             for artifact in db.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run.id, AgentArtifact.user_id == run.user_id)):
-                executor.action_guard.remember_sources(json.loads(artifact.content_json).get("sources", []))
-            db.commit()
+                checker.action_guard.remember_sources(json.loads(artifact.content_json).get("sources", []))
+        saved_state = self._json_object(step.result_json)
+        artifact = db.scalar(select(AgentArtifact).where(AgentArtifact.step_id == step.id,
+            AgentArtifact.run_id == run.id, AgentArtifact.user_id == run.user_id).limit(1))
+        definition = checker.catalog.get_or_none(call.tool_key)
+        try:
+            if artifact and saved_state.get("artifact_id") != artifact.id:
+                raise InvocationRuntimeError("artifact_state_conflict", "业务产物与步骤状态不一致，需先对账。")
+            decision = ToolInvocationRuntime.reconcile(run, step, definition, artifact=artifact,
+                artifact_expected=bool(saved_state.get("artifact_id")))
+            if decision.action == "reuse":
+                if not ToolInvocationRuntime.reuse_allowed(db, checker, checker.credential_resolver, definition, call):
+                    raise InvocationRuntimeError("artifact_permission_changed", "当前权限或资源范围不再允许复用结果。")
+                self._finish_success(db, run, step, event, claim,
+                    json.loads(artifact.content_json), existing_artifact=artifact)
+                return
+            if decision.action == "block":
+                if decision.code == "attempts_exhausted":
+                    self._retry_or_dlq(db, run, step, event, claim, decision.reason)
+                else:
+                    self._finish_terminal(db, run, step, event, claim, status="failed",
+                        error_code=decision.code, error_message=decision.reason)
+                return
+            # 等待依赖或复用产物不计尝试，所有实际请求前使用同一有界登记。
+            ToolInvocationRuntime.start_attempt(run, step, owner=self.owner,
+                lease_version=claim.outbox_lease_version, lease_expires_at=event.lease_expires_at)
+        except InvocationRuntimeError as exc:
+            self._finish_terminal(db, run, step, event, claim, status="failed", error_code=exc.code, error_message=str(exc))
+            return
+        db.commit()
         return executor, call, run, step, event
 
     def _complete_tool_execution(self, db, claim, run, step, event, call, result, events):

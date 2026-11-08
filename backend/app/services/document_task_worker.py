@@ -3,7 +3,8 @@
 import asyncio
 import json
 
-from app.models.agent_runtime import AgentOutboxEvent, AgentRun, AgentStep
+from app.models.agent_runtime import AgentArtifact, AgentOutboxEvent, AgentRun, AgentStep
+from sqlalchemy import select
 from app.repositories.setting_repo import UserSettingRepository
 from app.services.chat_provider_service import ChatProviderService, resolve_provider_base_url
 from app.services.document_task_service import DocumentTaskService, DocumentTaskError, MAX_DRAFT_CHARS, DOCUMENT_GRAPH_VERSION
@@ -57,8 +58,16 @@ def prepare_document_claim(worker, db, claim):
     if not fence(worker, db, run, step, event, claim):
         return
     service.get(run.user_id, run.id)
-    ToolInvocationRuntime.start_attempt(run, step, owner=worker.owner,
-        lease_version=claim.outbox_lease_version, lease_expires_at=event.lease_expires_at)
+    saved = db.scalar(select(AgentArtifact).where(AgentArtifact.run_id == run.id, AgentArtifact.step_id == step.id,
+        AgentArtifact.user_id == run.user_id).limit(1))
+    if saved:
+        ToolInvocationRuntime.validate_artifact(run, step, saved)
+        ToolInvocationRuntime.verify_artifact_content(saved)
+        if json.loads(step.result_json or "{}").get("artifact_id") != saved.id:
+            raise DocumentTaskError("文档产物与步骤记录不一致，需先对账。")
+    else:
+        ToolInvocationRuntime.start_attempt(run, step, owner=worker.owner,
+            lease_version=claim.outbox_lease_version, lease_expires_at=event.lease_expires_at)
     stage, user_id, run_id = step.call_id, run.user_id, run.id
     db.commit()
     return service, event, step, run, stage, user_id, run_id

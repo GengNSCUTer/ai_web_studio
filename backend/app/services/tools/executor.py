@@ -62,8 +62,8 @@ class ToolExecutor:
         self.action_guard = ToolActionGuard(ActionScope(original_task) if original_task is not None else None)
 
     async def execute(self, call: PlannedToolCall) -> tuple[ToolCallResult, list[ToolTraceEvent]]:
-        from app.services.chat_tool_runtime import current_tool_persistence
-        persistence = current_tool_persistence.get()
+        from app.services.tool_invocation_runtime import current_invocation_runtime
+        persistence = current_invocation_runtime.get()
         if persistence is not None:
             return await persistence.execute(self, call, self._execute)
         return await self._execute(call)

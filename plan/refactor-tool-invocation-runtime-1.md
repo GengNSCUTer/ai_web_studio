@@ -45,9 +45,9 @@ tags: [architecture, runtime, recovery, artifact]
 
 | Task | Description | Completed | Date |
 |------|-------------|-----------|------|
-| TASK-004 | tool_invocation_runtime.py增加reconcile决策，Chat._begin_call和durable_graph._preflight共同处理已提交、结果缺失、未知副作用、尝试耗尽；复用前重新授权/验证版本 | | |
-| TASK-005 | chat_tool_runtime.py的save/restore使用引用编码替代重复ToolCallResult/ToolTrace结果，校验Artifact哈希/范围并重建；增加体积计量，旧v1可读，新格式明确版本 | | |
-| TASK-006 | 增加结果提交前后、图保存前后os._exit、并发接管、参数脱敏、取消与旧租约测试；全量回归、真实Worker验证、docs/219和推送 | | |
+| TASK-004 | tool_invocation_runtime.py增加reconcile决策，Chat._begin_call和durable_graph._preflight共同处理已提交、结果缺失、未知副作用、尝试耗尽；复用前重新授权/验证版本 | ✅ | 2026-11-08 |
+| TASK-005 | chat_tool_runtime.py的save/restore使用引用编码替代重复ToolCallResult/ToolTrace结果，校验Artifact哈希/范围并重建；增加体积计量，旧v1可读，新格式明确版本 | ✅ | 2026-11-08 |
+| TASK-006 | 1296全量含PG/Redis、42项最终定向及在线进程退出/KILL恢复/三路径浏览器通过，检查点同内容节省17.518%，docs/219；按阶段提交推送 | ✅ | 2026-11-08 |
 
 ### Implementation Phase 3
 

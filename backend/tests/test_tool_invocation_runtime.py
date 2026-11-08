@@ -11,6 +11,8 @@ import unittest
 from sqlalchemy import select
 
 from app.models.agent_runtime import AgentArtifact, AgentRun, AgentStep
+from app.models.agent_runtime import AgentOutboxEvent
+from app.models.tool_config import WorkspaceToolSetting
 from app.services.runtime_lease import utcnow
 from app.services.tool_invocation_runtime import (
     InvocationIdentity, InvocationOutcome, InvocationRecoveryPolicy, InvocationRuntimeError, ToolInvocationRuntime,
@@ -146,6 +148,70 @@ class InvocationJournalTest(unittest.TestCase):
                 ToolInvocationRuntime.start_attempt(run, step, owner="expired", lease_version=1,
                     lease_expires_at=utcnow() - timedelta(seconds=1))
             self.assertEqual(step.attempts, 0)
+
+    def test_recovery_decision_prioritizes_committed_result_over_attempt_limit(self):
+        definition = ToolDefinition("workspace.files.list", "workspace", "test", "test", "test")
+        with self.SessionLocal() as db:
+            run, step = self.fixture(db)
+            artifact = ToolInvocationRuntime.create_artifact(db, run=run, step=step, content_json="{}")
+            step.attempts = step.max_attempts
+            step.status = "succeeded"
+            decision = ToolInvocationRuntime.reconcile(run, step, definition, artifact=artifact)
+            self.assertEqual(decision.action, "reuse")
+            missing = ToolInvocationRuntime.reconcile(run, step, definition, artifact_expected=True)
+            self.assertEqual((missing.action, missing.code), ("block", "committed_result_missing"))
+
+    def test_unknown_write_cannot_be_retried_without_trusted_reconciler(self):
+        definition = ToolDefinition("workspace.files.list", "workspace", "test", "test", "test", read_only=False)
+        with self.SessionLocal() as db:
+            run, step = self.fixture(db)
+            step.attempts = 1
+            step.status = "running"
+            decision = ToolInvocationRuntime.reconcile(run, step, definition)
+            self.assertEqual((decision.action, decision.code), ("block", "side_effect_unknown"))
+
+    def reopen_committed(self, db, run, step):
+        event = db.scalar(select(AgentOutboxEvent).where(AgentOutboxEvent.step_id == step.id))
+        # 模拟结果已经提交、调度事件/终态未一致收口的对账窗口，不发送新外部请求。
+        event.status, event.available_at, event.lease_owner, event.lease_expires_at = "pending", utcnow(), None, None
+        run.status, step.status = "queued", "pending"
+        db.commit()
+
+    def test_durable_reuses_committed_artifact_without_another_attempt(self):
+        with self.SessionLocal() as db:
+            run, step = self.fixture(db)
+            run_id, step_id = run.id, step.id
+        worker = durable.DurableToolWorker(session_factory=self.SessionLocal, executor_factory=durable.SuccessfulExecutor)
+        asyncio.run(worker.run_once())
+        with self.SessionLocal() as db:
+            self.reopen_committed(db, db.get(AgentRun, run_id), db.get(AgentStep, step_id))
+        asyncio.run(worker.run_once())
+        with self.SessionLocal() as db:
+            self.assertEqual((db.get(AgentStep, step_id).status, db.get(AgentStep, step_id).attempts), ("succeeded", 1))
+            self.assertEqual(len(list(db.scalars(select(AgentArtifact).where(AgentArtifact.step_id == step_id)))), 1)
+
+    def test_durable_cached_result_does_not_bypass_current_permission(self):
+        with self.SessionLocal() as db:
+            run, step = self.fixture(db)
+            run_id, step_id = run.id, step.id
+        worker = durable.DurableToolWorker(session_factory=self.SessionLocal, executor_factory=durable.SuccessfulExecutor)
+        asyncio.run(worker.run_once())
+        with self.SessionLocal() as db:
+            self.reopen_committed(db, db.get(AgentRun, run_id), db.get(AgentStep, step_id))
+            db.add(WorkspaceToolSetting(project_id=self.project_id, tool_key="workspace.files.list", is_enabled=False))
+            db.commit()
+        asyncio.run(worker.run_once())
+        with self.SessionLocal() as db:
+            step = db.get(AgentStep, step_id)
+            self.assertEqual((step.status, step.attempts), ("failed", 1))
+            self.assertEqual(step.error_code, "artifact_permission_changed")
+
+    def test_durable_rejects_sensitive_execution_input_before_persisting(self):
+        with self.assertRaisesRegex(durable.DurableToolRuntimeError, "敏感值"):
+            self._enqueue([{"call_id": "secret", "tool_key": "workspace.files.search",
+                "arguments": {"query": "password=example-test-only"}}])
+        with self.SessionLocal() as db:
+            self.assertIsNone(db.scalar(select(AgentRun)))
 
 
 if __name__ == "__main__":

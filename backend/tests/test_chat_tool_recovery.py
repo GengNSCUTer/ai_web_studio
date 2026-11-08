@@ -18,6 +18,7 @@ from app.models.project_file import ProjectFile
 from app.models.tool_config import WorkspaceAgentPolicy, WorkspaceToolSetting
 from app.services.chat_run_service import ChatLeaseLost, ChatRunService
 from app.services.chat_tool_runtime import ChatToolPersistence, current_tool_persistence
+from app.services.chat_tool_snapshot import ChatToolSnapshotCodec
 from app.services.external_context_service import ExternalContextService
 from app.services.runtime_lease import utcnow
 from app.services.tools.executor import ToolExecutor
@@ -322,7 +323,7 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
             with self.sessions() as db:
                 checkpoint = db.scalar(select(AgentCheckpoint).where(AgentCheckpoint.run_id == first.agent_id)
                     .order_by(AgentCheckpoint.state_version.desc()).limit(1))
-                data = codec.loads(checkpoint.planner_state_json)
+                data = ChatToolSnapshotCodec(db, db.get(AgentRun, first.agent_id)).loads(checkpoint.planner_state_json)
                 data["wall_deadline"] = (utcnow() - timedelta(seconds=1)).isoformat()
                 checkpoint.planner_state_json = codec.dumps(data)
                 db.commit()
@@ -384,3 +385,18 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
             step = db.scalar(select(AgentStep).where(AgentStep.run_id == persistence.agent_id, AgentStep.sequence > 0))
             self.assertEqual(step.status, "preview")
             self.assertEqual(db.get(ProjectFile, "f").parsed_text, "有效资料：项目采用短事务与明确审批。")
+
+    async def test_legacy_snapshot_restores_without_repeating_completed_tools(self):
+        rid, _, first = self.fixture()
+        await self.context(first, FixedPlanner([self.tool("A")]))
+        with self.sessions() as db:
+            agent = db.get(AgentRun, first.agent_id)
+            checkpoint = db.scalar(select(AgentCheckpoint).where(AgentCheckpoint.run_id == agent.id)
+                .order_by(AgentCheckpoint.state_version.desc()).limit(1))
+            saved = ChatToolSnapshotCodec(db, agent).loads(checkpoint.planner_state_json)
+            checkpoint.planner_state_json = codec.dumps(saved)
+            db.commit()
+        second = self.expire_and_claim(rid)
+        with patch.object(ToolExecutor, "_execute", side_effect=AssertionError("旧快照不得重做工具")):
+            result = await self.context(second, FixedPlanner([]))
+        self.assertIn("短事务", result.context_text)

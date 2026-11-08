@@ -1,7 +1,6 @@
 """Chat工具业务进度：复用Agent表，所有提交受父Chat租约和generation约束。"""
 
 import asyncio
-from contextvars import ContextVar
 from dataclasses import asdict
 from datetime import datetime, timedelta
 import hashlib
@@ -13,18 +12,18 @@ from sqlalchemy import func, select
 from app.models.agent_runtime import AgentApproval, AgentArtifact, AgentCheckpoint, AgentRun, AgentStep
 from app.models.conversation import Conversation
 from app.models.project import Project
-from app.models.project_file import ProjectFile
 from app.models.message import Message
 from app.services.chat_run_service import ChatLeaseLost, ChatRunService
 from app.services.runtime_lease import aware, utcnow
 from app.services.tools import runtime_codec as codec
 from app.services.tools.schemas import tool_execution_snapshot, redact_sensitive_arguments, ToolTraceEvent
 from app.services.tool_invocation_runtime import (
-    InvocationOutcome, InvocationRecoveryPolicy, InvocationRuntimeError, ToolInvocationRuntime,
+    InvocationOutcome, InvocationRuntimeError, ToolInvocationRuntime, current_invocation_runtime,
 )
+from app.services.chat_tool_snapshot import ChatToolSnapshotCodec
 
 
-current_tool_persistence = ContextVar("current_tool_persistence", default=None)
+current_tool_persistence = current_invocation_runtime
 RUNTIME = "chat_tool_workflow"
 VERSION = "langgraph_chat_tools_v1"
 LOOP_FIELDS = (
@@ -99,7 +98,7 @@ class ChatToolPersistence:
                 .order_by(AgentCheckpoint.state_version.desc()).limit(1))
             if not checkpoint:
                 return "plan"
-            saved = codec.loads(checkpoint.planner_state_json)
+            saved = ChatToolSnapshotCodec(db, agent).loads(checkpoint.planner_state_json)
             if saved["version"] != VERSION or saved["policy"] != self.policy or saved["skill"] != self.skill:
                 raise ValueError("工具运行版本、Skill或预算已变化，不能继续旧计划")
             if saved.get("parameters_redacted") and saved["next_node"] == "execute":
@@ -142,6 +141,7 @@ class ChatToolPersistence:
                 artifact = db.get(AgentArtifact, state.get("artifact_id")) if state.get("artifact_id") else None
                 if artifact:
                     ToolInvocationRuntime.validate_artifact(agent, step, artifact)
+                    ToolInvocationRuntime.verify_artifact_content(artifact)
                 if artifact and saved["next_node"] == "execute" and remaining <= 0:
                     from app.services.tools.quality import is_usable_tool_result
                     response, _ = codec.loads(artifact.content_json)
@@ -178,20 +178,20 @@ class ChatToolPersistence:
             "wall_deadline": self.wall_deadline.isoformat(), "tool_snapshots": snapshots}
         # 凭据形状的调用参数不能在脱敏后被当成原始参数重放。
         saved["parameters_redacted"] = any(redact_sensitive_arguments(call.arguments) != call.arguments for call in plan.calls) if plan else False
-        encoded = codec.dumps(saved)
-        if len(encoded.encode()) > 4 * 1024 * 1024:
-            raise ValueError("工具恢复记录超过大小限制")
         with self.sessions() as db:
             _, agent = self._lock(db)
             if next_node == "execute" and plan:
                 self._save_plan(db, agent, run, plan)
             if next_node == "observe" and getattr(run, "workflow_result", None):
                 self._record_outcomes(db, agent, run)
+            encoded, snapshot_metrics = ChatToolSnapshotCodec(db, agent).dumps(saved)
+            if len(encoded.encode()) > 4 * 1024 * 1024:
+                raise ValueError("工具恢复记录超过大小限制")
             agent.state_version += 1
             agent.planner_state_json = json.dumps({"runtime_engine": VERSION, "next_node": next_node,
                 "round": run.round_index, "chat_run_id": self.claim.run_id,
                 "workflow_status": run.workflow_aggregate_status, "next_action": run.next_action,
-                "terminal_reason": run.terminal_reason})
+                "terminal_reason": run.terminal_reason, "snapshot_metrics": snapshot_metrics})
             db.add(AgentCheckpoint(run_id=agent.id, state_version=agent.state_version,
                 step_sequence=agent.current_step, planner_state_json=encoded,
                 remaining_budget_json=json.dumps(run.budget.to_trace_payload())))
@@ -315,17 +315,14 @@ class ChatToolPersistence:
                 if not self._reuse_allowed(db, executor, resolver, definition, call):
                     return "blocked", "当前权限、文件范围或凭据不再允许复用该结果。"
                 artifact = db.get(AgentArtifact, state.get("artifact_id")) if state.get("artifact_id") else None
-                if artifact:
-                    ToolInvocationRuntime.validate_artifact(agent, step, artifact)
+                decision = ToolInvocationRuntime.reconcile(agent, step, definition, artifact=artifact,
+                    artifact_expected=bool(state.get("artifact_id")), active_owner=self.claim.owner, active_version=self.claim.version)
+                if decision.action == "reuse":
                     restored = codec.loads(artifact.content_json)
                     self._validate_sources(db, restored[0].sources)
                     return "reused", restored
-                if step.attempts > 0 and not InvocationRecoveryPolicy.for_tool(definition).allows_unknown_result_retry:
-                    return "blocked", "该步骤的副作用结果未确认，已停止自动重放，请核实审批或产物。"
-                if step.attempts > 0 and step.status == "running" and step.lease_version == self.claim.version:
-                    return "blocked", "同一执行权下已有相同调用正在执行，不能并发重复发送。"
-                if step.attempts >= step.max_attempts:
-                    return "blocked", "该步骤已达到恢复尝试上限。"
+                if decision.action == "block":
+                    return "blocked", decision.reason
             else:
                 if not definition.read_only:
                     prior = db.scalar(select(AgentStep.id).where(AgentStep.run_id == agent.id,
@@ -357,31 +354,7 @@ class ChatToolPersistence:
             db.commit()
             return "execute", step_id
 
-    @staticmethod
-    def _reuse_allowed(db, executor, resolver, definition, call):
-        if not definition.enabled_by_default or not executor.action_guard.check(definition, call.arguments).allowed:
-            return False
-        if not definition.read_only and resolver.get_workspace_permission_mode(project_id=executor.project_id) == "read_only":
-            return False
-        if not resolver.is_tool_enabled_for_workspace(project_id=executor.project_id, tool_key=call.tool_key):
-            return False
-        if definition.credential_required or definition.credential_optional:
-            credential = resolver.resolve(user_id=executor.user_id, provider_key=definition.credential_provider)
-            if not credential.is_enabled and not (definition.credential_optional and credential.source in {"missing", "env_fallback_disabled"}):
-                return False
-        if call.arguments.get("file_id"):
-            item = db.get(ProjectFile, str(call.arguments["file_id"]), populate_existing=True)
-            if not item or item.user_id != executor.user_id or item.project_id != executor.project_id:
-                return False
-            from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
-            if WorkspaceFileToolProvider.is_sensitive_file_name(item.file_name):
-                return False
-        if call.arguments.get("artifact_id"):
-            item = db.get(AgentArtifact, str(call.arguments["artifact_id"]), populate_existing=True)
-            run = db.get(AgentRun, item.run_id) if item else None
-            if not item or not run or item.user_id != executor.user_id or run.user_id != executor.user_id or run.project_id != executor.project_id:
-                return False
-        return True
+    _reuse_allowed = staticmethod(ToolInvocationRuntime.reuse_allowed)
 
     @staticmethod
     def _validate_sources(db, sources):

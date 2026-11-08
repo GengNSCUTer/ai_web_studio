@@ -9,9 +9,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from langsmith import tracing_context
-from sqlalchemy import select
-
-from app.models.agent_runtime import AgentArtifact, AgentStep
+from app.models.agent_runtime import AgentStep
 from app.services.durable_checkpoint_service import (
     CheckpointIdentity, CheckpointLeaseLost, durable_checkpointer,
 )
@@ -49,21 +47,8 @@ def _outcome(context):
 
 async def _preflight(state: DurableGraphState, runtime: Runtime[DurableGraphContext]):
     context = runtime.context
-    # 业务事务可能早于图检查点提交。先复核已提交产物，不能仅按图位置重复请求。
-    saved = context.db.scalar(select(AgentArtifact).where(
-        AgentArtifact.step_id == context.claim.step_id, AgentArtifact.run_id == context.run.id,
-        AgentArtifact.user_id == context.run.user_id,
-    ))
-    if saved:
-        step = context.db.get(AgentStep, context.claim.step_id)
-        result = json.loads(step.result_json or "{}")
-        if result.get("artifact_id") != saved.id:
-            raise RuntimeError("业务产物与步骤状态不一致，需对账后再执行")
-        from app.models.agent_runtime import AgentOutboxEvent
-        event = context.db.get(AgentOutboxEvent, context.claim.outbox_event_id)
-        context.worker._finish_success(context.db, context.run, step, event, context.claim,
-            json.loads(saved.content_json), existing_artifact=saved)
-        return {"phase": "reused_business_artifact", "ready": False, **_outcome(context)}
+    # 统一业务预检先核对当前版本/授权，再由共享恢复决策复用已提交结果。
+    # 原生图位置不授予复用权限，也不证明外部请求成功。
     context.prepared = context.worker._prepare_tool_execution(context.db, context.claim)
     return {"phase": "preflight", "ready": context.prepared is not None}
 

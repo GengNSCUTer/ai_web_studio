@@ -5,6 +5,7 @@ Chat、固定Durable计划与文档阶段分别保留自己的租约校验和产
 """
 
 from dataclasses import dataclass
+from contextvars import ContextVar
 import hashlib
 from typing import Any
 
@@ -12,6 +13,10 @@ from app.models.agent_runtime import AgentArtifact
 from app.services.runtime_lease import aware, utcnow
 from app.services.tools.quality import is_usable_tool_result, quality_status_for_result
 from app.services.tools.schemas import tool_execution_snapshot
+
+
+# Executor只依赖通用调用上下文；具体Chat/固定任务协调器决定何时绑定。
+current_invocation_runtime = ContextVar("current_invocation_runtime", default=None)
 
 
 class InvocationRuntimeError(ValueError):
@@ -84,6 +89,13 @@ class InvocationOutcome:
         return cls(status, result.status, quality, semantics, usable)
 
 
+@dataclass(frozen=True)
+class InvocationRecoveryDecision:
+    action: str
+    code: str
+    reason: str
+
+
 class ToolInvocationRuntime:
     """协调器共享的身份、尝试和产物提交协议，无独立commit与网络重试。"""
 
@@ -101,6 +113,61 @@ class ToolInvocationRuntime:
                 or artifact.user_id != identity.user_id):
             raise InvocationRuntimeError("artifact_scope_conflict", "工具产物不属于当前用户、运行和步骤。")
         return identity
+
+    @classmethod
+    def reconcile(cls, run, step, definition, *, artifact=None, artifact_expected=False,
+                  active_owner=None, active_version=None):
+        """基于当前业务事实作恢复决定；调用方须先复核租约与当前授权。"""
+        InvocationIdentity.from_step(run, step)
+        if definition is None:
+            return InvocationRecoveryDecision("block", "tool_missing", "工具已不可用，不能恢复或复用旧结果。")
+        if artifact is not None:
+            cls.validate_artifact(run, step, artifact)
+            cls.verify_artifact_content(artifact)
+            return InvocationRecoveryDecision("reuse", "committed_result", "复用已提交结果快照。")
+        if artifact_expected or step.status == "succeeded":
+            return InvocationRecoveryDecision("block", "committed_result_missing", "已提交步骤缺少对应结果，请先对账。")
+        if int(step.attempts or 0) > 0 and not InvocationRecoveryPolicy.for_tool(definition).allows_unknown_result_retry:
+            return InvocationRecoveryDecision("block", "side_effect_unknown", "该步骤的副作用结果未确认，已停止自动重放，请核实审批或产物。")
+        if (active_owner is not None and step.status == "running" and step.attempts
+                and step.lease_owner == active_owner and step.lease_version == active_version):
+            return InvocationRecoveryDecision("block", "invocation_inflight", "同一执行权下已有相同调用正在执行，不能并发重复发送。")
+        if int(step.attempts or 0) >= int(step.max_attempts or 0):
+            return InvocationRecoveryDecision("block", "attempts_exhausted", "该步骤已达到恢复尝试上限。")
+        return InvocationRecoveryDecision("execute", "new_or_retryable", "允许在当前预算内执行。")
+
+    @staticmethod
+    def verify_artifact_content(artifact):
+        if hashlib.sha256(artifact.content_json.encode("utf-8")).hexdigest() != artifact.content_hash:
+            raise InvocationRuntimeError("artifact_integrity_conflict", "已保存产物内容校验失败，不能继续复用。")
+
+    @staticmethod
+    def reuse_allowed(db, executor, resolver, definition, call):
+        """复用同样受当前动作范围、项目配置、凭据与文件ACL约束。"""
+        from app.models.agent_runtime import AgentRun
+        from app.models.project_file import ProjectFile
+        from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
+        if not definition.enabled_by_default or not executor.action_guard.check(definition, call.arguments).allowed:
+            return False
+        if not definition.read_only and resolver.get_workspace_permission_mode(project_id=executor.project_id) == "read_only":
+            return False
+        if not resolver.is_tool_enabled_for_workspace(project_id=executor.project_id, tool_key=call.tool_key):
+            return False
+        if definition.credential_required or definition.credential_optional:
+            credential = resolver.resolve(user_id=executor.user_id, provider_key=definition.credential_provider)
+            if not credential.is_enabled and not (definition.credential_optional and credential.source in {"missing", "env_fallback_disabled"}):
+                return False
+        if call.arguments.get("file_id"):
+            item = db.get(ProjectFile, str(call.arguments["file_id"]), populate_existing=True)
+            if (not item or item.user_id != executor.user_id or item.project_id != executor.project_id
+                    or WorkspaceFileToolProvider.is_sensitive_file_name(item.file_name)):
+                return False
+        if call.arguments.get("artifact_id"):
+            item = db.get(AgentArtifact, str(call.arguments["artifact_id"]), populate_existing=True)
+            run = db.get(AgentRun, item.run_id) if item else None
+            if not item or not run or item.user_id != executor.user_id or run.user_id != executor.user_id or run.project_id != executor.project_id:
+                return False
+        return True
 
     @staticmethod
     def start_attempt(run, step, *, owner, lease_version, lease_expires_at):

@@ -23,7 +23,7 @@ def run(output):
     from playwright.sync_api import sync_playwright, expect
 
     token, uid, pid, fid, _ = prepare_fixture()
-    report = {"scope": "阶段一共用调用内核业务回归，不是恢复率或容量评测", "cases": [], "passed": False}
+    report = {"scope": "共用调用内核三路径业务回归，不是恢复率或容量评测", "cases": [], "passed": False}
     errors = []
 
     def save():
@@ -61,6 +61,8 @@ def run(output):
             assert chat["status"] == "succeeded" and "# 阶段 4.6A 临时文件" in chat["content"]
             assert events[-1]["type"] == "done"
             with SessionLocal() as db:
+                from app.services.chat_tool_snapshot import ChatToolSnapshotCodec
+                from app.services.tools import runtime_codec as codec
                 agent = db.scalar(select(AgentRun).where(AgentRun.chat_run_id == chat["id"]))
                 steps = list(db.scalars(select(AgentStep).where(AgentStep.run_id == agent.id, AgentStep.sequence > 0)))
                 assert {"workspace.files.search", "workspace.files.read"} <= {s.tool_key for s in steps}
@@ -68,6 +70,11 @@ def run(output):
                 checkpoints = list(db.scalars(select(AgentCheckpoint).where(AgentCheckpoint.run_id == agent.id)))
                 sizes = [len(c.planner_state_json.encode()) for c in checkpoints]
                 report["checkpoint_baseline"] = {"count": len(sizes), "total_bytes": sum(sizes), "max_bytes": max(sizes)}
+                legacy_sizes = [len(codec.dumps(ChatToolSnapshotCodec(db, agent).loads(c.planner_state_json)).encode())
+                    for c in checkpoints]
+                report["checkpoint_same_payload_comparison"] = {"checkpoints": len(sizes),
+                    "legacy_bytes": sum(legacy_sizes), "stored_bytes": sum(sizes),
+                    "reduction_fraction": round(1 - sum(sizes) / sum(legacy_sizes), 5)}
             report["cases"].append({"name": "chat_search_read_answer", "passed": True,
                 "elapsed_ms": round((time.monotonic() - started) * 1000), "steps": len(steps),
                 "answer_chars": len(chat["content"]), "model": "deepseek-ai/DeepSeek-V3.2"})
