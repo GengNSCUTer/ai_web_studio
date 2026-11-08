@@ -7,6 +7,7 @@ from app.core.database import SessionLocal, engine
 from app.core.startup import ensure_runtime_schema
 from app.services.approval_checkpoint_service import approval_pool_lifespan
 from app.services.chat_run_worker import ChatRunWorker
+from app.services.durable_checkpoint_service import checkpoint_pool_lifespan
 from app.services.provider_client_pool import start_provider_client_pool, close_provider_client_pool
 
 
@@ -18,7 +19,8 @@ async def main():
     start_provider_client_pool()
     try:
         with approval_pool_lifespan(engine.url):
-            await worker.run_forever()
+            async with checkpoint_pool_lifespan(engine.url):
+                await worker.run_forever()
     finally:
         await close_provider_client_pool()
 

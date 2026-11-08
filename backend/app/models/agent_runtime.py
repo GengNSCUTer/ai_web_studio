@@ -13,8 +13,13 @@ class AgentRun(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
-    conversation_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id"), nullable=True, index=True)
-    assistant_message_id: Mapped[str | None] = mapped_column(ForeignKey("messages.id"), nullable=True, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.id", deferrable=True, initially="DEFERRED"), nullable=True, index=True)
+    assistant_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("messages.id", deferrable=True, initially="DEFERRED"), nullable=True, index=True)
+    # 普通Chat工具图与父ChatRun一对一；删除父消息时一并清理工具产物和图线程。
+    chat_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_runs.id", ondelete="CASCADE"), nullable=True, unique=True, index=True)
     # file_edit / durable_tool_workflow。运行类型让恢复器知道如何解释 checkpoint，
     # 不能再把所有 Run 都假定为单一文件 Diff。
     runtime_kind: Mapped[str] = mapped_column(String(48), default="file_edit", index=True)

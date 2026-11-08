@@ -14,8 +14,8 @@ class ChatExecutionContext:
     """模型流式执行所需的完整上下文。
 
     这是 prepare 阶段和 streaming 阶段之间的交接对象：
-    prepare 阶段负责填好 conversation/message/prompt/provider/diagnostics，
-    route 里的 StreamingResponse 只消费这个对象去调用模型并落库结果。
+    prepare阶段填好conversation/message/prompt/provider/diagnostics；
+    独立Chat Worker消费它调用生成服务并保存结果，HTTP仅订阅已持久化事件。
     """
 
     conversation_repo: ConversationRepository

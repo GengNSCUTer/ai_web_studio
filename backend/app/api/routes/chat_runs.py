@@ -90,7 +90,10 @@ async def subscribe_events(run_id, user_id, *, after=0, sse=True, sessions=Sessi
                 if event["type"] == "answer_delta":
                     yield event["text"]
                 elif event["type"] == "run_snapshot":
-                    yield snapshot["content"]
+                    if event.get("reason") == "generation_restarted":
+                        # 纯文本流没有替换事件，终止旧订阅；完整结果仍可通过Run快照读取。
+                        return
+                    yield event["run"]["content"]
                 continue
             payload = json.dumps({**event, "event_id": sequence, "run_id": run_id}, ensure_ascii=False)
             yield f"id: {run_id}:{sequence}\nevent: chat\ndata: {payload}\n\n" if sse else payload + "\n"

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models.agent_runtime import (
     AgentApproval,
+    AgentArtifact,
     AgentCheckpoint,
     AgentRun,
     AgentStep,
@@ -695,7 +696,9 @@ class AgentRuntimeService:
         ).first()
         approvals = list(self.db.scalars(select(AgentApproval).where(AgentApproval.run_id == run.id)).all())
         drafts = list(self.db.scalars(select(PatchDraft).where(PatchDraft.run_id == run.id)).all())
-        return {"run": run, "steps": steps, "checkpoint": checkpoint, "approvals": approvals, "drafts": drafts}
+        artifacts = list(self.db.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run.id)).all())
+        return {"run": run, "steps": steps, "checkpoint": checkpoint, "approvals": approvals, "drafts": drafts,
+                "artifacts": artifacts}
 
     def _ensure_current_revision(self, project_file: ProjectFile) -> FileRevision:
         return ensure_current_revision(db=self.db, project_file=project_file)

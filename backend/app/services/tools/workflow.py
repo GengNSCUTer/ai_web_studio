@@ -506,13 +506,10 @@ class ToolWorkflowFeedback:
 
 @dataclass
 class ToolRunCallLedger:
-    """In-memory ledger for one synchronous Chat tool run.
+    """阻止同一循环在终态失败后重新发送相同参数。
 
-    It intentionally has no database backing: synchronous Chat is not a
-    durable runtime.  The ledger only prevents a later re-plan from executing
-    an identical Tool + canonical-arguments pair after a terminal failure that
-    the current request cannot safely repair by retrying.  Different arguments
-    remain valid re-plans; durable retry/replay uses its own persisted policy.
+    对象本身在内存工作；Chat持久化层将阻断账本随业务快照保存并在接管后恢复。
+    改变参数仍需重新经过执行器，不能借新call_id绕过不明副作用保护。
     """
 
     _blockers_by_fingerprint: dict[str, ToolStepOutcome] = field(default_factory=dict)
@@ -551,7 +548,7 @@ class ToolWorkflowService:
     """执行一份 ToolPlan 内有上限的调用图。
 
     这里负责依赖顺序、并行、单次计划的重复调用抑制、fallback 和 Trace。
-    外层 ExternalContextService 才负责最多五轮的 observe -> re-plan。
+    外层工具图按当前模式的轮次和预算执行observe -> re-plan。
     """
 
     max_tool_calls = 5

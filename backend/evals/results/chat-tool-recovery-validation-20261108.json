@@ -1,0 +1,22 @@
+{
+  "scope": "Chat与工具统一持久化恢复；不是RAG或200任务评测",
+  "date": "2026-11-08",
+  "backend": {"run": 1269, "passed": 1269, "skipped": 0, "postgresql": true, "redis": true},
+  "new_recovery_tests": {"sqlite": 17, "postgresql": 21, "included_in_full_suite": true},
+  "frontend": {"lint": "passed", "build": "passed", "node_tests_passed": 5},
+  "compileall": "passed",
+  "real_reports": [
+    "chat-tool-recovery-real-20261108-r2.json",
+    "chat-tool-approval-ui-final-20261108.json",
+    "chat-tool-recovery-http-final-20261108.json"
+  ],
+  "retained_failed_reports": [
+    "chat-tool-recovery-real-20261108-r1.json",
+    "chat-tool-approval-ui-20261108-r1.json"
+  ],
+  "limits": {"worker_claims": 3, "final_generation_attempts": 2, "original_deadline_preserved": true,
+    "token_continuation": false, "unknown_write_auto_replay": false, "exactly_once_external_requests": false},
+  "schema": "20261108_03",
+  "backup_outside_repository": "20261108-chat-tools-recovery-02",
+  "ollama_loaded": false
+}

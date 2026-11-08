@@ -520,7 +520,9 @@ function isToolTraceEvent(event: ChatStreamEvent): event is ToolTraceEvent {
     event.type === "tool_call_error" ||
     event.type === "tool_call_fallback" ||
     event.type === "tool_fallback" ||
-    event.type === "tool_query_rewrite"
+    event.type === "tool_query_rewrite" ||
+    event.type === "tool_persistence" ||
+    event.type === "tool_result_reused"
   );
 }
 
@@ -1056,6 +1058,7 @@ export function ChatThread({
             answer = event.run.content; reasoning = event.run.reasoning_content;
             sources = event.run.external_sources; audit = event.run.citation_audit;
             messageStatus = runMessageStatus(event.run.status);
+            events = [];
           } else if (isToolTraceEvent(event)) events = [...events, event];
           restore(answer, reasoning, sources, audit, messageStatus, events);
         });
@@ -1606,7 +1609,14 @@ export function ChatThread({
         const parsed = parseStreamEvents(eventBuffer);
         eventBuffer = parsed.rest;
         for (const streamEvent of parsed.events) {
-          if (streamEvent.type === "run_status") {
+          if (streamEvent.type === "run_snapshot") {
+            assistantText = streamEvent.run.content;
+            reasoningText = streamEvent.run.reasoning_content;
+            externalSources = streamEvent.run.external_sources;
+            citationAudit = streamEvent.run.citation_audit;
+            toolEvents = [];
+            terminalStatus = runMessageStatus(streamEvent.run.status);
+          } else if (streamEvent.type === "run_status") {
             terminalStatus = runMessageStatus(streamEvent.status);
           } else if (streamEvent.type === "context_info") {
             onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
@@ -1644,7 +1654,14 @@ export function ChatThread({
       eventBuffer += decoder.decode();
       const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
       for (const streamEvent of finalParsed.events) {
-        if (streamEvent.type === "run_status") {
+        if (streamEvent.type === "run_snapshot") {
+          assistantText = streamEvent.run.content;
+          reasoningText = streamEvent.run.reasoning_content;
+          externalSources = streamEvent.run.external_sources;
+          citationAudit = streamEvent.run.citation_audit;
+          toolEvents = [];
+          terminalStatus = runMessageStatus(streamEvent.run.status);
+        } else if (streamEvent.type === "run_status") {
           terminalStatus = runMessageStatus(streamEvent.status);
         } else if (streamEvent.type === "context_info") {
           onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
@@ -1981,7 +1998,14 @@ export function ChatThread({
         const parsed = parseStreamEvents(eventBuffer);
         eventBuffer = parsed.rest;
         for (const streamEvent of parsed.events) {
-          if (streamEvent.type === "run_status") {
+          if (streamEvent.type === "run_snapshot") {
+            assistantText = streamEvent.run.content;
+            reasoningText = streamEvent.run.reasoning_content;
+            externalSources = streamEvent.run.external_sources;
+            citationAudit = streamEvent.run.citation_audit;
+            toolEvents = [];
+            terminalStatus = runMessageStatus(streamEvent.run.status);
+          } else if (streamEvent.type === "run_status") {
             terminalStatus = runMessageStatus(streamEvent.status);
           } else if (streamEvent.type === "context_info") {
             onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
@@ -2021,7 +2045,14 @@ export function ChatThread({
       eventBuffer += decoder.decode();
       const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
       for (const streamEvent of finalParsed.events) {
-        if (streamEvent.type === "run_status") {
+        if (streamEvent.type === "run_snapshot") {
+          assistantText = streamEvent.run.content;
+          reasoningText = streamEvent.run.reasoning_content;
+          externalSources = streamEvent.run.external_sources;
+          citationAudit = streamEvent.run.citation_audit;
+          toolEvents = [];
+          terminalStatus = runMessageStatus(streamEvent.run.status);
+        } else if (streamEvent.type === "run_status") {
           terminalStatus = runMessageStatus(streamEvent.status);
         } else if (streamEvent.type === "context_info") {
           onContextInfoChange(streamEvent.info, streamEvent.conversation_id);

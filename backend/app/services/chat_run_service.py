@@ -7,7 +7,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 
 from app.core.config import settings
 from app.models.chat_run import ChatRun, ChatRunEvent
@@ -22,6 +22,8 @@ from app.services.runtime_lease import aware, owns_live_lease, utcnow
 ACTIVE = ("queued", "running", "cancel_requested")
 TERMINAL = ("succeeded", "cancelled", "failed", "expired", "interrupted")
 LEASE_SECONDS = 45
+MAX_WORKER_ATTEMPTS = 3
+MAX_GENERATION_ATTEMPTS = 2
 
 
 @dataclass(frozen=True)
@@ -177,7 +179,13 @@ class ChatRunService:
         run.lease_owner, run.lease_version = owner, run.lease_version + 1
         run.heartbeat_at = now
         run.lease_expires_at = now + timedelta(seconds=LEASE_SECONDS)
-        run.deadline_at = now + timedelta(seconds=settings.chat_run_total_seconds)
+        # 接管不能重置任务总时长，否则每次重启都可以无限续命。
+        run.deadline_at = run.deadline_at or now + timedelta(seconds=settings.chat_run_total_seconds)
+        from app.services.chat_tool_runtime import ensure_tool_run
+        _, coordinator = ensure_tool_run(self.db, run, self.db.get(Conversation, run.conversation_id))
+        if coordinator.status != "succeeded":
+            coordinator.lease_owner, coordinator.lease_version = owner, run.lease_version
+            coordinator.lease_expires_at, coordinator.heartbeat_at = run.lease_expires_at, now
         self._event(run, {"type": "run_status", "status": "running", "run_id": run.id})
         claim = ChatClaim(run.id, owner, run.lease_version)
         self.db.commit()
@@ -195,6 +203,12 @@ class ChatRunService:
             return False
         run.heartbeat_at = utcnow()
         run.lease_expires_at = utcnow() + timedelta(seconds=LEASE_SECONDS)
+        from app.models.agent_runtime import AgentRun, AgentStep
+        # Chat工具Step服从父Run执行权，不再创建另一组独立心跳；投影当前有效租约便于诊断。
+        self.db.execute(update(AgentStep).where(AgentStep.run_id.in_(select(AgentRun.id).where(
+            AgentRun.chat_run_id == run.id)), AgentStep.status == "running",
+            AgentStep.lease_owner == claim.owner, AgentStep.lease_version == claim.version).values(
+                heartbeat_at=run.heartbeat_at, lease_expires_at=run.lease_expires_at))
         self.db.commit()
         return True
 
@@ -202,11 +216,19 @@ class ChatRunService:
         run = self._locked_claim(claim)
         if not run:
             return False
-        # 请求可能发出却没有首Token，仍记一次尝试，崩溃后不可透明重试。
-        if run.model_attempts:
+        # 最多两次最终生成；仅已建立恢复记录的任务可以走Worker接管路径。
+        if run.model_attempts >= MAX_GENERATION_ATTEMPTS:
             self.db.rollback()
             return False
-        run.model_attempts = 1 if uses_model else 0
+        if run.model_attempts:
+            from app.services.chat_tool_runtime import archive_partial_generation
+            archive_partial_generation(self.db, run)
+            run.content, run.reasoning_content, run.sources_json = "", "", "[]"
+            run.citation_audit_json = None
+            self._message(run, "streaming")
+            # 旧事件仍可审计；订阅者收到此快照时替换当前回答，而不是拼接两次生成。
+            self._event(run, {"type": "run_snapshot", "run": self.snapshot(run), "reason": "generation_restarted"})
+        run.model_attempts += 1 if uses_model else 0
         run.phase = "generate"
         self._event(run, {"type": "run_phase", "phase": "generate"})
         self.db.commit()
@@ -283,6 +305,8 @@ class ChatRunService:
     def _terminal(self, run, status, error_code, *, write_message=True):
         run.status, run.phase, run.error_code = status, "terminal", error_code
         run.finished_at, run.lease_owner, run.lease_expires_at = utcnow(), None, None
+        from app.services.chat_tool_runtime import close_tool_run
+        close_tool_run(self.db, run, status)
         if write_message:
             self._message(run, self._message_status(status))
         self._event(run, {"type": "run_status", "status": status, "run_id": run.id, "error_code": error_code})
@@ -304,11 +328,57 @@ class ChatRunService:
                 self._terminal(run, "expired", "queue_timeout")
             elif run.status == "cancel_requested":
                 self._terminal(run, "cancelled", "user_cancelled")
+            elif self._can_recover(run):
+                self._requeue(run, "worker_lease_expired")
             else:
                 self._terminal(run, "interrupted", "worker_lease_expired")
         if commit:
             self.db.commit()
         return len(runs)
+
+    def _can_recover(self, run):
+        from app.models.agent_runtime import AgentRun
+        from app.services.chat_tool_runtime import ChatToolPersistence, VERSION
+        if run.lease_version >= MAX_WORKER_ATTEMPTS or run.model_attempts >= MAX_GENERATION_ATTEMPTS or not run.deadline_at or aware(run.deadline_at) <= utcnow():
+            return False
+        message = self.db.get(Message, run.assistant_message_id, populate_existing=True)
+        if not message or message.generation_id != run.generation_id:
+            return False
+        agent = self.db.scalar(select(AgentRun).where(AgentRun.idempotency_key == ChatToolPersistence.key(run.id)))
+        try:
+            state = json.loads(agent.input_json) if agent else {}
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(state, dict):
+            return False
+        return (agent.chat_run_id == run.id if agent else False) and state.get("runtime_engine") == VERSION and state.get("generation_id") == run.generation_id
+
+    def _requeue(self, run, reason):
+        run.status, run.phase, run.error_code = "queued", "recovering", None
+        run.lease_owner, run.lease_expires_at = None, None
+        run.queued_expires_at = min(aware(run.deadline_at), utcnow() + timedelta(seconds=settings.chat_run_queue_seconds))
+        self._event(run, {"type": "run_status", "status": "queued", "run_id": run.id,
+            "reason": reason, "recovery_attempt": run.lease_version})
+
+    def interrupt(self, claim, *, content=None, reasoning=None, error_code="worker_interrupted"):
+        run = self._locked_claim(claim, allow_cancel=True)
+        if not run:
+            return False
+        if run.status == "cancel_requested":
+            self._terminal(run, "cancelled", "user_cancelled")
+        elif run.deadline_at and aware(run.deadline_at) <= utcnow():
+            self._terminal(run, "expired", "run_total_timeout")
+        elif self._can_recover(run):
+            if content is not None:
+                run.content = content[:settings.chat_run_max_chars]
+            if reasoning is not None:
+                run.reasoning_content = reasoning[:max(0, settings.chat_run_max_chars - len(run.content))]
+            self._message(run, "streaming")
+            self._requeue(run, error_code)
+        else:
+            self._terminal(run, "interrupted", error_code)
+        self.db.commit()
+        return True
 
     def prune_events(self):
         cutoff = utcnow() - timedelta(days=settings.chat_run_event_retention_days)

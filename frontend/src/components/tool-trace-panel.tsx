@@ -37,6 +37,14 @@ export function toolEventKey(event: ToolTraceEvent, index: number) {
 
 export function formatToolEvent(event: ToolTraceEvent, uiLanguage: UILanguage) {
   const isChinese = uiLanguage === "zh-CN";
+  if (event.type === "tool_persistence") {
+    return isChinese
+      ? event.recovered ? "已恢复工具运行，复用已保存结果并继续未完成步骤" : "本轮工具计划和结果将持久化保存，支持Worker接管"
+      : event.recovered ? "Tool run recovered from saved results" : "Tool plan and results are persisted for recovery";
+  }
+  if (event.type === "tool_result_reused") {
+    return isChinese ? `复用已提交结果：${event.tool_key}（原时间点快照，未重新调用）` : `Reused committed result: ${event.tool_key} (original snapshot)`;
+  }
   if (event.type === "tool_planner_start") {
     return isChinese
       ? `开始工具规划：${event.planner ?? "planner"}，候选工具 ${valueToText(event.available_tools_count)} 个`
@@ -147,9 +155,12 @@ export function formatToolEvent(event: ToolTraceEvent, uiLanguage: UILanguage) {
       ? `${event.display_name ?? event.tool_key ?? "工具"} 调用失败，耗时 ${elapsed}：${event.error ?? "未知错误"}`
       : `${event.display_name ?? event.tool_key ?? "Tool"} failed in ${elapsed}: ${event.error ?? "unknown error"}`;
   }
-  return isChinese
-    ? `工具回退：${event.from_tool_key ?? "原工具"} -> ${event.to_tool_key ?? "备用工具"}`
-    : `Tool fallback: ${event.from_tool_key ?? "primary"} -> ${event.to_tool_key ?? "fallback"}`;
+  if (event.type === "tool_call_fallback") {
+    return isChinese
+      ? `工具回退：${event.from_tool_key ?? "原工具"} -> ${event.to_tool_key ?? "备用工具"}`
+      : `Tool fallback: ${event.from_tool_key ?? "primary"} -> ${event.to_tool_key ?? "fallback"}`;
+  }
+  return isChinese ? `执行事件：${event.type}` : `Execution event: ${event.type}`;
 }
 
 function toolEventDetails(event: ToolTraceEvent, uiLanguage: UILanguage) {
@@ -217,6 +228,35 @@ function toolEventDetails(event: ToolTraceEvent, uiLanguage: UILanguage) {
     rows.push([isChinese ? "LLM 原始输出" : "LLM output", event.raw_preview]);
   }
   return rows;
+}
+
+function ChatToolRunDetails({ runId, english }: { runId: string; english: boolean }) {
+  const [result, setResult] = useState<{ status: string; steps: Array<{ tool_key: string; status: string; attempts: number }> } | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  async function refresh() {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/backend/agent-runtime/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(english ? "Cannot read tool run" : "暂时无法读取工具运行记录");
+      const snapshot = await response.json();
+      setResult({ status: snapshot.run.status, steps: snapshot.steps.filter((step: { sequence: number }) => step.sequence > 0) });
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "读取失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+  return <div className="mt-2 grid gap-1 break-words">
+    <button type="button" disabled={loading} onClick={() => void refresh()} className="justify-self-start rounded-lg border border-[var(--hairline)] px-2 py-1 hover:bg-[var(--soft-bg)] disabled:opacity-50">
+      {loading ? (english ? "Loading..." : "读取中…") : result ? (english ? "Refresh saved steps" : "刷新持久化步骤") : (english ? "View saved steps" : "查看持久化步骤")}
+    </button>
+    {error ? <p role="alert">{error}</p> : null}
+    {result ? <><p>{english ? "Tool run" : "工具运行"}：{result.status}</p>
+      <ul>{result.steps.map((step, index) => <li key={`${step.tool_key}-${index}`}>{step.tool_key} · {step.status} · {english ? "Attempts" : "实际尝试"} {step.attempts}</li>)}</ul>
+    </> : null}
+  </div>;
 }
 
 function DurableHandoffActions({
@@ -374,8 +414,8 @@ function DurableHandoffActions({
       ) : null}
       <p className="mb-2 text-[10px] leading-4 text-[var(--ink-soft)]">
         {uiLanguage === "zh-CN"
-          ? "当前 Chat 按同步流程处理。后台预览只接受低风险只读步骤；已有成功任务会复用结果，失败任务只有再次确认才会重试查询。"
-          : "This chat follows the synchronous flow. Preview only accepts low-risk read-only steps; successful plans reuse results, while failed plans need a new confirmation to retry."}
+          ? "本轮 Chat 工具步骤已持久化保存。下方可预览独立后台重执行，只接受低风险只读步骤；已有成功后台任务会复用结果，失败后需再次确认才重试查询。"
+          : "Chat tool steps are persisted. You may preview a separate low-risk, read-only background execution below; successful background plans reuse results, while failed plans need confirmation to retry."}
       </p>
       {!preview && !run && state !== "error" ? (
         <button
@@ -624,6 +664,8 @@ export function ToolTracePanel({
                 </a>
               ) : null}
             </div>
+            {event.type === "tool_persistence" && typeof event.agent_run_id === "string" ?
+              <ChatToolRunDetails runId={event.agent_run_id} english={uiLanguage !== "zh-CN"} /> : null}
             {toolEventDetails(event, uiLanguage).length > 0 ? (
               <details className="mt-2 rounded-lg border border-[var(--hairline)] bg-[var(--soft-bg)] px-2 py-1">
                 <summary className="cursor-pointer select-none text-[10px] font-medium text-[var(--ink-strong)]">

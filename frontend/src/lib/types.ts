@@ -480,7 +480,9 @@ export type ToolTraceEvent = {
     | "tool_call_error"
     | "tool_call_fallback"
     | "tool_fallback"
-    | "tool_query_rewrite";
+    | "tool_query_rewrite"
+    | "tool_persistence"
+    | "tool_result_reused";
   plan?: ToolPlanPayload;
   call_id?: string;
   tool_key?: string;

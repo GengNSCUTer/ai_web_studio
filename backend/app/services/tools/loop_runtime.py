@@ -18,7 +18,7 @@ from app.services.tools.db_boundary import release_read_transaction
 
 
 class SyncToolRun:
-    """每次请求独立的业务上下文；不写入图检查点，不跨用户复用。"""
+    """每次执行独占的业务对象；Chat Worker可由业务快照重建，不跨用户复用对象。"""
 
     def __init__(self, service, *, query, enabled, max_chars, recent_messages=None,
                  planner_runtime=None, skill_context=None, budget=None):
@@ -139,6 +139,11 @@ class SyncToolRun:
             planner_kwargs["skill_context"] = self.skill_context
         # Catalog/权限查询及上一轮只读收尾不能持有连接等待Embedding或Planner。
         release_read_transaction(self.service.db)
+        from app.services.chat_tool_runtime import current_tool_persistence
+        persistence = current_tool_persistence.get()
+        if persistence is not None:
+            # 规划请求也会耗时和失败，崩溃不能把已消耗轮次和工具截止时间归零。
+            await asyncio.to_thread(persistence.save, self, "plan")
         planning_started = time.perf_counter()
         try:
             self.plan = await asyncio.wait_for(
@@ -242,11 +247,14 @@ class SyncToolRun:
         # call_ledger)` 协议。正式 ToolWorkflowService 才接受并执行
         # Policy 的单计划调用/并发额度，不能靠替身绕过生产路径。
         if isinstance(self.service.workflow, ToolWorkflowService):
+            from app.services.chat_tool_runtime import current_tool_persistence
+            persistence = current_tool_persistence.get()
             workflow_kwargs.update(
                 {
                     "max_tool_calls": min(
                         self.service.run_policy.max_calls_per_plan,
-                        self.budget.remaining_tool_calls,
+                        # 恢复计划包含已提交调用；其重放不占外部请求额度，逐调用由PG重新计数。
+                        self.service.run_policy.max_calls_per_plan if persistence else self.budget.remaining_tool_calls,
                     ),
                     "max_parallel_calls": self.service.run_policy.max_parallel_calls,
                     "deadline": self.budget.deadline,
@@ -272,7 +280,10 @@ class SyncToolRun:
 
     def observe_round(self) -> bool:
         """合并质量、依赖和完成反馈；返回是否需要下一轮。"""
-        self.budget.record_attempted_tool_calls(self.workflow_result.aggregate.attempted_steps)
+        from app.services.chat_tool_runtime import current_tool_persistence
+        persistence = current_tool_persistence.get()
+        if persistence is None:
+            self.budget.record_attempted_tool_calls(self.workflow_result.aggregate.attempted_steps)
         self.events.extend(self.workflow_result.events)
         self.used_call_ids.update(event.payload["call_id"] for event in self.workflow_result.events
             if isinstance(event.payload.get("call_id"),str) and event.payload["call_id"])

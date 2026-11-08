@@ -104,7 +104,7 @@ class ChatRunTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.snapshot(second)["status"], "succeeded")
         self.assertEqual(self.snapshot(second)["last_event_id"], count)
 
-    def test_lease_expiry_preserves_partial_without_retry_or_late_write(self):
+    def test_lease_expiry_requeues_partial_without_accepting_old_writer(self):
         run = self.create()
         claim = self.call("claim_next", "A")
         self.call("start_generation", claim)
@@ -112,10 +112,12 @@ class ChatRunTest(unittest.IsolatedAsyncioTestCase):
         with self.sessions() as db:
             db.get(ChatRun, run).lease_expires_at = utcnow() - timedelta(seconds=1)
             db.commit()
-        self.assertIsNone(self.call("claim_next", "B"))
+        second = self.call("claim_next", "B")
+        self.assertIsNotNone(second)
         self.assertFalse(self.call("finish", claim, status="succeeded", content="覆盖"))
         snap = self.snapshot(run)
-        self.assertEqual((snap["status"], snap["content"], snap["model_attempts"]), ("interrupted", "已落库", 1))
+        self.assertEqual((snap["status"], snap["content"], snap["model_attempts"]), ("running", "已落库", 1))
+        self.assertGreater(second.version, claim.version)
 
     def test_cross_user_read_and_cancel_are_denied(self):
         run = self.create()

@@ -94,7 +94,7 @@ class ChatRunPostgresTest(unit.ChatRunTest):
             self.assertEqual(message.content, snap["content"])
             self.assertEqual(message.status, "done" if snap["status"] == "succeeded" else "cancelled")
 
-    def test_process_dies_after_partial_commit_does_not_restart_model(self):
+    def test_process_dies_after_partial_commit_requeues_before_restart_generation(self):
         run = self.create()
         env = {**os.environ, "TEST_CHAT_DATABASE": self.engine.url.render_as_string(hide_password=False),
                "TEST_CHAT_RUN": run}
@@ -116,10 +116,13 @@ os._exit(17)
         with self.sessions() as db:
             db.get(ChatRun, run).lease_expires_at = utcnow() - timedelta(seconds=1)
             db.commit()
-        self.assertIsNone(self.call("claim_next", "new-worker"))
+        second = self.call("claim_next", "new-worker")
+        self.assertIsNotNone(second)
         snap = self.snapshot(run)
         self.assertEqual((snap["status"], snap["content"], snap["model_attempts"]),
-                         ("interrupted", "崩溃前已保存", 1))
+                         ("running", "崩溃前已保存", 1))
+        self.assertTrue(self.call("start_generation", second))
+        self.assertEqual((self.snapshot(run)["content"], self.snapshot(run)["model_attempts"]), ("", 2))
 
     async def test_uncancellable_adapter_late_result_is_rejected_by_real_executor(self):
         from backend.tests import test_tool_executor as fixtures

@@ -61,3 +61,22 @@ test("末尾同序号快照也能结束订阅，主动断开不调用取消接�
     globalThis.fetch = previous;
   }
 });
+
+test("生成重启快照替换旧片段，后续事件只追加到新回答", async () => {
+  const previous = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(
+      frame(1, { type: "answer_delta", text: "旧回答半句" }) +
+      frame(2, { type: "run_snapshot", reason: "generation_restarted", run: { status: "running", content: "" } }) +
+      frame(3, { type: "answer_delta", text: "新回答" }) + frame(4, { type: "done" }),
+    );
+    let answer = "";
+    await subscribeChatRun("r", new AbortController().signal, (event) => {
+      if (event.type === "run_snapshot") answer = event.run.content;
+      else if (event.type === "answer_delta") answer += event.text;
+    });
+    assert.equal(answer, "新回答");
+  } finally {
+    globalThis.fetch = previous;
+  }
+});

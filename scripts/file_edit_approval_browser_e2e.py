@@ -42,12 +42,12 @@ def cleanup_edit(user_id, project_id):
     cleanup(user_id, project_id)
 
 
-def main():
+def main(output=None):
     token, user_id, project_id, file_id = fixture()
     errors = []
     approval_request = {}
     report = {"model": "deepseek-ai/DeepSeek-V3.2", "passed": False}
-    output = Path(__file__).resolve().parents[1] / "backend/evals/results/file_edit_approval_browser_20261104.json"
+    output = output or Path(__file__).resolve().parents[1] / "backend/evals/results/file_edit_approval_browser_20261104.json"
     try:
         with SessionLocal() as db:
             if ToolCredentialResolver(db).get_workspace_permission_mode(project_id=project_id) != "ask":
@@ -81,6 +81,13 @@ def main():
                     if not file_row.parsed_text.startswith(OLD + "\n"):
                         raise AssertionError("只读预览阶段文件被修改。")
                     report["preview_did_not_write"] = True
+                # 普通Chat现已保存AgentStep；从真实界面查询，不依赖测试直接读取ORM对象。
+                # 查询成功后按钮会改名“刷新”，用稳定事件文字定位父面板。
+                panel = page.locator("details.reasoning-panel").filter(has_text="tool_persistence").first
+                panel.locator(":scope > summary").click()
+                panel.get_by_role("button", name="查看持久化步骤", exact=True).click()
+                expect(panel.get_by_text(re.compile("实际尝试")).first).to_be_visible(timeout=15000)
+                report["persistent_step_ui_verified"] = True
                 send(page, "现在正式申请修改 evaluation-notes.md：把“# Evaluation note”替换为“# 评测笔记”。请使用受控修改流程创建等待我确认的审批，不要绕过审批写入。")
                 with SessionLocal() as db:
                     conversation_ids = list(db.scalars(select(Conversation.id).where(Conversation.project_id == project_id)))
@@ -163,4 +170,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path)
+    main(parser.parse_args().output)

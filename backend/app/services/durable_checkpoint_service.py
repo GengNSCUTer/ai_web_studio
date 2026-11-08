@@ -150,7 +150,7 @@ class LeaseFencedPostgresSaver(AsyncPostgresSaver):
 
 
 @asynccontextmanager
-async def durable_checkpointer(url, identity):
+async def durable_checkpointer(url, identity, *, saver_type=LeaseFencedPostgresSaver):
     """进程托管时取池连接；单次脚本使用短生命周期池，结束即释放。"""
     conninfo = checkpoint_conninfo(url)
     pool = _pools.get(asyncio.get_running_loop(), {}).get(conninfo)
@@ -165,7 +165,7 @@ async def durable_checkpointer(url, identity):
                 WHERE r.id=%s AND s.id=%s AND r.user_id=%s AND r.project_id IS NOT DISTINCT FROM %s
                 ON CONFLICT(thread_id) DO NOTHING""",
                 (identity.thread_id, identity.thread_id.split(":", 1)[0], identity.run_id, identity.step_id, identity.user_id, identity.project_id))
-            yield LeaseFencedPostgresSaver(conn, identity)
+            yield saver_type(conn, identity)
     finally:
         if own_pool:
             await pool.close()

@@ -1,6 +1,6 @@
 """Chat准备主图：消息骨架、运行时、上下文子图与流式交接。
 
-准备先于HTTP流开始；生成与保存由chat_stream_graph接续，路由保留NDJSON适配及取消收口。
+独立Chat Worker执行准备，生成与保存由chat_stream_graph接续，HTTP只订阅已保存的事件。
 """
 
 from __future__ import annotations

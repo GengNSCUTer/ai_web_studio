@@ -140,11 +140,10 @@ def resolve_tool_run_policy(mode: str | None = None) -> ToolRunPolicy:
 
 @dataclass
 class ToolRunBudget:
-    """单次同步请求的内存态预算账本。
+    """一次交互式工具循环的内存预算账本。
 
-    它不替代 Durable Run 的数据库 Checkpoint，也不提供跨请求恢复；请求结束后
-    即释放。计数只反映已经真正进入执行阶段的调用，预算截断产生的 blocked
-    Outcome 不会重复扣减额度。
+    Chat Worker由持久化层保存/恢复计数和绝对截止时间；本对象不承担数据库写入。
+    独立内部调用仍可仅在内存使用，预算截断产生的blocked不重复扣减额度。
     """
 
     policy: ToolRunPolicy

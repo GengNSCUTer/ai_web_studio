@@ -19,6 +19,7 @@ from app.services.chat_execution_service import ChatExecutionService
 from app.services.chat_provider_service import ChatProviderService
 from app.services.chat_run_guard import current_chat_guard
 from app.services.chat_run_service import ChatLeaseLost, ChatRunService
+from app.services.chat_tool_runtime import ChatToolPersistence, current_tool_persistence
 from app.services.durable_worker_registry import DurableWorkerRegistry
 from app.services.runtime_lease import aware, utcnow, watch_lease
 
@@ -58,7 +59,7 @@ class ChatRunWorker:
         if not claim:
             return False
         if self.stop.is_set():
-            await asyncio.to_thread(self._call, "finish", claim, status="interrupted", error_code="worker_stopped_before_start")
+            await asyncio.to_thread(self._call, "interrupt", claim, error_code="worker_stopped_before_start")
             return True
         partial = {"content": None, "reasoning": None}
         task = asyncio.create_task(self._execute(claim, partial))
@@ -72,8 +73,8 @@ class ChatRunWorker:
             await asyncio.to_thread(self._call, "finish", claim, status="expired", error_code="run_total_timeout",
                 content=partial["content"], reasoning=partial["reasoning"])
         except asyncio.CancelledError:
-            # 主动取消由数据库状态决定；进程停机则标中断，不静默重新生成。
-            await asyncio.to_thread(self._call, "finish", claim, status="interrupted", error_code="worker_interrupted",
+            # 主动取消优先；有恢复记录的停机可重新排队，不把旧半截正文拼到新回答。
+            await asyncio.to_thread(self._call, "interrupt", claim, error_code="worker_interrupted",
                 content=partial["content"], reasoning=partial["reasoning"])
         except Exception as exc:
             code = "output_budget_exhausted" if isinstance(exc, ValueError) else "prepare_or_worker_error"
@@ -90,7 +91,10 @@ class ChatRunWorker:
         from app.services.chat_stream_service import generate_chat_events, _stream_citation_audit, _public_stream_error
 
         token = current_chat_guard.set(lambda: self._guard(claim))
+        persistence = ChatToolPersistence(self.sessions, claim)
+        persistence_token = current_tool_persistence.set(persistence)
         try:
+            await asyncio.to_thread(persistence.initialize)
             with self.sessions() as db:
                 run = db.get(ChatRun, claim.run_id)
                 if not run:
@@ -116,7 +120,8 @@ class ChatRunWorker:
                     assistant_message=assistant, **options))
                 context.max_tokens = min(context.max_tokens or output_tokens, output_tokens)
                 context.context_stats.update(chat_run_id=claim.run_id, chat_run_lease_version=claim.version,
-                                             chat_run_output_token_limit=context.max_tokens)
+                                             chat_run_output_token_limit=context.max_tokens,
+                                             chat_tool_run_id=persistence.agent_id)
                 if not await asyncio.to_thread(self._call, "start_generation", claim,
                     uses_model=context.verified_file_edit_answer is None):
                     raise ChatLeaseLost()
@@ -183,6 +188,7 @@ class ChatRunWorker:
                             next_chunk.cancel()
                             await asyncio.gather(next_chunk, return_exceptions=True)
         finally:
+            current_tool_persistence.reset(persistence_token)
             current_chat_guard.reset(token)
 
     def _enqueue_memory(self, run_id):

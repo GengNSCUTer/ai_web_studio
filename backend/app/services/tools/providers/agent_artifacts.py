@@ -37,7 +37,9 @@ class AgentArtifactToolProvider:
         statement = (
             select(AgentArtifact, AgentRun)
             .join(AgentRun, AgentRun.id == AgentArtifact.run_id)
-            .where(AgentArtifact.user_id == self.user_id, AgentRun.user_id == self.user_id)
+            .where(AgentArtifact.user_id == self.user_id, AgentRun.user_id == self.user_id,
+                # 恢复日志不是正式交付物，不能让模型再把自身Trace当作新证据递归读取。
+                AgentArtifact.artifact_type.notin_(("chat_tool_result", "chat_generation_partial")))
         )
         return statement.where(AgentRun.project_id == self.project_id)
 

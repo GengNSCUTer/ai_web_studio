@@ -155,6 +155,8 @@ npm run build
 
 ## 7. 面试学习进度与每日收尾
 
+- 2026-11-08后续改造：普通Chat领取与关联AgentRun(chat_tool_workflow)同事务，计划所有Step、逐调用Artifact和业务Checkpoint持久化；复用原生PG池，图写入受父Chat owner/version/expiry/generation/范围保护。失租约有限接管（最多三次）；最终生成最多两次，旧片段归档并用run_snapshot替换正文，不续Token。未提交的副作用不自动重放，换call_id不能绕过；预算保留绝对截止时间并按真实尝试计数。迁移20261108_02/03及备份20261108-chat-tools-recovery-02已执行，说明docs/217；最终验证以该文和收尾报告为准，不把下条216的“不重跑”当当前口径。学习仍Day28，不加载Ollama。
+
 - 2026-11-08 Chat改造完成：普通HTTP只创建ChatRun+消息并订阅，独立chat-worker运行现有图，事件可SSE/NDJSON重放；浏览器关闭不取消，停止走POST。Run/Message/事件同事务，owner/version/expiry/generation复核；取消先提交不接收迟到正文。Worker崩溃标interrupted，不透明重跑或续Token。新迁移20261108_01，备份仓库外20261108-chat-run-01；唯一Supervisor Chat角色与健康/备份脚本已接入。主实现chat_run_service/worker/chat_stream_service，说明docs/216；Ollama只模拟，不加载本地模型。业务c111346/Actions42454572211双绿，1231项CI中1230通过/1缺服务器PDF跳过（本地补测通过），PG/Redis已执行、前端4项、真实浏览器页面146Token后关页+Web重启继续17,288字符、停止/重复/文件工具通过。r3标记缺失失败保留且原因未知，不能说已定位修复；Worker真实停止探针503/恢复200通过。学习仍Day28补强，不擅自开始新天。
 
 - 2026-11-06最终：阶段0—7图迁移及计划验收完成，业务代码617a916/CI42187341791前后端成功，最终文档/证据提交另记。完整1188含PG/Redis通过；最终200题r2为176完整/23部分/1失败（F02规划超时→默认网页兜底，被原意图拒绝，无网络或写入），不是100%；独立12题首次12/12，文档20/20、审批20/20；30次资源采样最长闲置事务2ms，非生产容量。真实浏览器后台/审批重启/文档独立进程通过，详见docs/215及comparison-r2。简历v4三格式按176/200更新并一页检查；飞书/本地资料按最终报告更新。学习仍Day28补强，不擅自开始新天或加载Ollama；下条“仍运行”是完成前快照。

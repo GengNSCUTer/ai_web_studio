@@ -98,7 +98,9 @@ def get_agent_run(
             "id": checkpoint.id,
             "step_sequence": checkpoint.step_sequence,
             "state_version": checkpoint.state_version,
-            "planner_state": json.loads(checkpoint.planner_state_json or "{}"),
+            # Chat恢复快照含受控工具原文，不作为通用运行详情回显；这里只展示编排摘要。
+            "planner_state": json.loads(snapshot["run"].planner_state_json or "{}") if snapshot["run"].runtime_kind == "chat_tool_workflow"
+                else json.loads(checkpoint.planner_state_json or "{}"),
             "observations": json.loads(checkpoint.observations_json or "[]"),
             "remaining_budget": json.loads(checkpoint.remaining_budget_json or "{}"),
             "created_at": checkpoint.created_at,
