@@ -1,0 +1,24 @@
+{
+  "business_commit": "c1113469d76aeb0681487762703da20053ceed7a",
+  "ci_run_id": 42454572211,
+  "ci_backend": {
+    "scheduled": 1231,
+    "passed": 1230,
+    "skipped": 1,
+    "failed": 0,
+    "postgres_and_redis_executed": true,
+    "skip_reason": "服务器外部Adaptive_RAG.pdf不在GitHub仓库，旧PDF夹具冒烟跳过",
+    "skipped_case_rerun_locally": "passed"
+  },
+  "ci_frontend": {
+    "lint": "passed",
+    "build": "passed",
+    "node_tests": {"passed": 4, "failed": 0, "skipped": 0}
+  },
+  "local_full_before_final_provider_changes": {"passed": 1228, "failed": 0, "skipped": 0},
+  "real_browser_report": "chat-run-real-20261108-r4.json",
+  "real_final_http_report": "chat-run-http-final-20261108.json",
+  "real_worker_health_report": "chat-run-worker-health-20261108.json",
+  "preserved_failed_browser_report": "chat-run-real-20261108-r3.json",
+  "scope": "Chat解耦/取消/重连/租约/可靠性验收；未重跑200业务题或RAG百题，不代表生产容量或答案通用准确率"
+}

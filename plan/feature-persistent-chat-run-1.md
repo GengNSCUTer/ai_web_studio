@@ -3,13 +3,13 @@ goal: 普通Chat持久化任务、订阅重连与统一取消
 version: 1.0
 date_created: 2026-11-08
 last_updated: 2026-11-08
-status: 'In progress'
+status: 'Completed'
 tags: [chat, worker, streaming, cancellation]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In_progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-brightgreen)
 
 将生成从HTTP生命周期移到独立Worker，保留现有LangGraph、Executor和消息generation控制。数据库保存ChatRun与单调递增事件；SSE/NDJSON只读取，不拥有生成任务。
 
@@ -53,7 +53,9 @@ tags: [chat, worker, streaming, cancellation]
 |------|-------------|-----------|------|
 | TASK-006 | PG并发重复创建/取消完成竞争/旧Worker/过期/事件游标/跨用户；可控Provider取消/迟到/无透明重试测试 | ✅ | 2026-11-08 |
 | TASK-007 | 在线模型生成接收至少100Token后关闭浏览器，完成后重开验证完整正文且调用一次；主动停止/新发/浏览器错误检查 | ✅ | 2026-11-08 |
-| TASK-008 | 全量PG/Redis、前端lint/build/浏览器、部署检查，docs/04—07/216/README及飞书同步，保留真实边界 | | |
+| TASK-008 | 全量PG/Redis、前端lint/build/浏览器、部署检查，docs/04—07/216/README及飞书同步，保留真实边界 | ✅ | 2026-11-08 |
+
+完成证据：业务提交c111346，Actions42454572211前后端成功，1231项后端中1230通过/1缺服务器论文PDF跳过（本地补测通过），PG/Redis实际执行；前端lint/build/Node4项通过。严格浏览器r4实际可见146Token后关页/Web重启，后台17,288字符正常stop并回读全文，最终生成逻辑尝试1；HTTP最终冒烟和真实Worker停止/恢复健康探针通过，原r3结尾标记失败保留。详见docs/216及backend/evals/results/chat-run-*20261108*。
 
 ## 3. Alternatives
 

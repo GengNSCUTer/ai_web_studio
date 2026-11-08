@@ -1,0 +1,8 @@
+{
+  "status": "passed",
+  "chat_worker_stopped": 503,
+  "web_ready_while_stopped": 200,
+  "durable_worker_while_chat_stopped": "ok",
+  "chat_worker_restored": 200,
+  "active_runs_before_test": 0
+}
