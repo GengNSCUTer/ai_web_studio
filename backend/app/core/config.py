@@ -67,6 +67,15 @@ class Settings:
     chat_first_token_timeout_seconds: float = float(os.getenv("CHAT_FIRST_TOKEN_TIMEOUT_SECONDS", "120"))
     chat_stream_idle_timeout_seconds: float = float(os.getenv("CHAT_STREAM_IDLE_TIMEOUT_SECONDS", "120"))
     chat_stream_total_timeout_seconds: float = float(os.getenv("CHAT_STREAM_TOTAL_TIMEOUT_SECONDS", "900"))
+    # 生成任务的配额与浏览器订阅数量无关；时限覆盖上下文/工具和最终回答。
+    chat_run_queue_seconds: int = int(os.getenv("CHAT_RUN_QUEUE_SECONDS", "300"))
+    chat_run_total_seconds: int = int(os.getenv("CHAT_RUN_TOTAL_SECONDS", "900"))
+    chat_run_max_output_tokens: int = int(os.getenv("CHAT_RUN_MAX_OUTPUT_TOKENS", "8192"))
+    chat_run_max_chars: int = int(os.getenv("CHAT_RUN_MAX_CHARS", "200000"))
+    chat_run_event_max_bytes: int = int(os.getenv("CHAT_RUN_EVENT_MAX_BYTES", "8388608"))
+    chat_run_global_concurrency: int = int(os.getenv("CHAT_RUN_GLOBAL_CONCURRENCY", "16"))
+    chat_worker_concurrency: int = int(os.getenv("CHAT_WORKER_CONCURRENCY", "4"))
+    chat_run_event_retention_days: int = int(os.getenv("CHAT_RUN_EVENT_RETENTION_DAYS", "7"))
     # Web 事件循环内的 Provider 客户端数量与每个客户端的 HTTP 连接上限。
     provider_client_pool_max_size: int = int(os.getenv("PROVIDER_CLIENT_POOL_MAX_SIZE", "32"))
     provider_client_pool_wait_seconds: float = float(os.getenv("PROVIDER_CLIENT_POOL_WAIT_SECONDS", "10"))

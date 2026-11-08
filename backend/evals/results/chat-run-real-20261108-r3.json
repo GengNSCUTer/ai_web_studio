@@ -1,0 +1,13 @@
+{
+  "scope": "真实在线DeepSeek-V3.2、唯一托管ChatWorker、浏览器和PostgreSQL；不调用Ollama",
+  "cases": [],
+  "status": "failed",
+  "error_type": "AssertionError",
+  "run_states": [
+    {
+      "status": "succeeded",
+      "phase": "terminal",
+      "error_code": null
+    }
+  ]
+}

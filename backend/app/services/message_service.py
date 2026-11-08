@@ -199,7 +199,7 @@ class MessageService:
                 self.repo.db.refresh(attachment)
         return attachments
 
-    def reset_assistant_for_regeneration(self, assistant_message: Message) -> None:
+    def reset_assistant_for_regeneration(self, assistant_message: Message, *, commit: bool = True) -> None:
         conversation_id = assistant_message.conversation_id
         try:
             conversation = self.repo.lock_conversation(conversation_id)
@@ -216,8 +216,9 @@ class MessageService:
             self._reset_assistant(locked)
             self.repo.save(locked)
             self._touch_conversation(conversation_id)
-            self._commit()
-            self.repo.db.refresh(locked)
+            if commit:
+                self._commit()
+                self.repo.db.refresh(locked)
         except Exception:
             self.repo.db.rollback()
             raise
@@ -230,6 +231,7 @@ class MessageService:
         content: str,
         uploads: list[UploadItemReference] | None,
         user_id: str,
+        commit: bool = True,
     ) -> list[Attachment] | None:
         """原子保存编辑后的用户消息、附件替换和 assistant 重置。"""
 
@@ -262,11 +264,12 @@ class MessageService:
             self._reset_assistant(locked_assistant)
             self.repo.save(locked_assistant)
             self._touch_conversation(user_message.conversation_id)
-            self.repo.db.commit()
-            self.repo.db.refresh(user_message)
-            self.repo.db.refresh(locked_assistant)
-            for attachment in attachments or []:
-                self.repo.db.refresh(attachment)
+            if commit:
+                self.repo.db.commit()
+                self.repo.db.refresh(user_message)
+                self.repo.db.refresh(locked_assistant)
+                for attachment in attachments or []:
+                    self.repo.db.refresh(attachment)
             return attachments
         except Exception:
             self.repo.db.rollback()

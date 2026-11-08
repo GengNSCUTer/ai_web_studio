@@ -26,7 +26,7 @@ def inspect_services(*, backend: str, frontend: str) -> dict:
             capture_output=True, text=True, timeout=5, check=False,
         )
         states = {parts[0]: parts[1] for line in result.stdout.splitlines() if len(parts := line.split()) >= 2}
-        expected = {"backend", "frontend", "knowledge-worker", "memory-worker", "durable-worker"}
+        expected = {"backend", "frontend", "knowledge-worker", "memory-worker", "durable-worker", "chat-worker"}
         checks["processes"] = {
             # 外部 Redis 模式下可选 redis 进程为 STOPPED，ctl 会返回非零；只判断必需角色。
             "ok": all(states.get(name) == "RUNNING" for name in expected),

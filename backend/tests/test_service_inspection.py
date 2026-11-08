@@ -13,7 +13,7 @@ class ServiceInspectionTest(unittest.TestCase):
     def test_worker_health_failure_is_not_hidden_by_running_processes(self):
         processes = "\n".join(
             f"{name} RUNNING pid 1" for name in (
-                "backend", "frontend", "knowledge-worker", "memory-worker", "durable-worker"
+                "backend", "frontend", "knowledge-worker", "memory-worker", "durable-worker", "chat-worker"
             )
         )
         for worker_status in (200, 503):

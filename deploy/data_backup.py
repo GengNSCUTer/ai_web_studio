@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 from app.core.config import settings
 
-WRITERS = ("backend", "knowledge-worker", "memory-worker", "durable-worker")
+WRITERS = ("backend", "knowledge-worker", "memory-worker", "durable-worker", "chat-worker")
 
 
 def pg_env(url):

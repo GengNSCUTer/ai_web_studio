@@ -292,10 +292,15 @@ class MessageRepository:
         # 前端切会话/服务重启可能留下 streaming 消息。读取消息列表时顺手把长时间未更新的流式消息标失败，
         # 避免用户永远看到“模型正在思考”。15 分钟是保守阈值，防止误伤真实慢请求。
         stale_before = datetime.now(timezone.utc) - timedelta(minutes=15)
+        from app.models.chat_run import ChatRun
+        managed = select(ChatRun.id).where(ChatRun.assistant_message_id == Message.id,
+            ChatRun.generation_id == Message.generation_id,
+            ChatRun.status.in_(("queued", "running", "cancel_requested"))).exists()
         stmt = select(Message).where(
             Message.conversation_id == conversation_id,
             Message.role == "assistant",
             Message.status == "streaming",
+            ~managed,
         ).with_for_update()
         messages = list(self.db.scalars(stmt).all())
         if not messages:

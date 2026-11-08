@@ -26,6 +26,7 @@ from app.models.knowledge import (
     OutboxEvent,
 )
 from app.models.message import Message
+from app.models.chat_run import ChatRun, ChatRunEvent
 from app.models.observability import ChatRuntimeMetric
 from app.models.project import Project
 from app.models.project_file import ProjectFile
@@ -77,6 +78,8 @@ __all__ = [
     "KnowledgeRetrievalLog",
     "OutboxEvent",
     "Message",
+    "ChatRun",
+    "ChatRunEvent",
     "ChatRuntimeMetric",
     "McpServer",
     "McpTool",

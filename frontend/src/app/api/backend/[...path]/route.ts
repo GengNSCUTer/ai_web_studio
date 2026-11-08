@@ -24,6 +24,8 @@ async function proxy(request: NextRequest, path: string[]) {
   if (accept) {
     headers.set("accept", accept);
   }
+  const lastEventId = request.headers.get("last-event-id");
+  if (lastEventId) headers.set("last-event-id", lastEventId);
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
@@ -40,6 +42,7 @@ async function proxy(request: NextRequest, path: string[]) {
     body: body && body.byteLength > 0 ? body : undefined,
     cache: "no-store",
     redirect: "manual",
+    signal: request.signal,
   });
 
   const responseHeaders = new Headers();
@@ -53,6 +56,7 @@ async function proxy(request: NextRequest, path: string[]) {
   if (upstreamCacheControl) {
     responseHeaders.set("cache-control", upstreamCacheControl);
   }
+  if (upstreamContentType?.includes("text/event-stream")) responseHeaders.set("x-accel-buffering", "no");
   if (upstreamContentDisposition) {
     responseHeaders.set("content-disposition", upstreamContentDisposition);
   }

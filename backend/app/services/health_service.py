@@ -38,11 +38,22 @@ def check_durable_worker() -> bool:
             SELECT EXISTS (
                 SELECT 1 FROM agent_worker_heartbeats
                 WHERE status IN ('idle', 'running')
+                  AND owner NOT LIKE 'chat-worker:%%'
                   AND heartbeat_at >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 second')
             )
             """,
             (DurableWorkerRegistry.STALE_SECONDS,),
         ).fetchone()
+        return bool(row and row[0])
+
+
+def check_chat_worker() -> bool:
+    with _connect_postgres() as connection:
+        row = connection.execute("""
+            SELECT EXISTS (SELECT 1 FROM agent_worker_heartbeats
+            WHERE owner LIKE 'chat-worker:%%' AND status IN ('idle', 'running')
+            AND heartbeat_at >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 second'))
+            """, (DurableWorkerRegistry.STALE_SECONDS,)).fetchone()
         return bool(row and row[0])
 
 
@@ -80,8 +91,8 @@ async def readiness() -> dict[str, object]:
 
 async def worker_readiness() -> dict[str, object]:
     """后台能力单独返回状态，避免 Worker 故障使普通 Chat 被摘流。"""
-    durable = await _probe(check_durable_worker)
+    durable, chat = await asyncio.gather(_probe(check_durable_worker), _probe(check_chat_worker))
     return {
-        "status": "ready" if durable["status"] == "ok" else "not_ready",
-        "checks": {"durable_worker": durable},
+        "status": "ready" if durable["status"] == chat["status"] == "ok" else "not_ready",
+        "checks": {"durable_worker": durable, "chat_worker": chat},
     }

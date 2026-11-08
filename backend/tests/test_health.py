@@ -22,6 +22,9 @@ class HealthTest(unittest.TestCase):
         app = FastAPI()
         app.include_router(router)
         self.client = TestClient(app)
+        chat = patch("app.services.health_service.check_chat_worker", return_value=True)
+        chat.start()
+        self.addCleanup(chat.stop)
 
     @patch("app.services.health_service.check_redis")
     @patch("app.services.health_service.check_postgres")
@@ -70,6 +73,13 @@ class HealthTest(unittest.TestCase):
         self.assertNotIn("private-db-password", response.text)
         self.assertEqual(response.json()["checks"]["durable_worker"]["status"], "unavailable")
 
+    @patch("app.services.health_service.check_durable_worker", return_value=True)
+    def test_chat_worker_down_cannot_be_hidden_by_durable_worker(self, worker):
+        with patch("app.services.health_service.check_chat_worker", return_value=False):
+            response = self.client.get("/health/workers")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["checks"]["chat_worker"]["status"], "unavailable")
+
     def test_probe_timeout_returns_unavailable(self):
         with patch("app.services.health_service.asyncio.wait_for", new_callable=AsyncMock,
                    side_effect=TimeoutError), patch("app.services.health_service.asyncio.to_thread", new=Mock(return_value=None)):
@@ -97,11 +107,11 @@ class WorkerHealthPostgresTest(unittest.TestCase):
                 def connect():
                     connection = psycopg.connect(url, connect_timeout=2)
                     connection.execute(
-                        "CREATE TEMP TABLE agent_worker_heartbeats (status text, heartbeat_at timestamptz)"
+                        "CREATE TEMP TABLE agent_worker_heartbeats (status text, heartbeat_at timestamptz, owner text DEFAULT 'agent-worker:test')"
                     )
                     for status, age in rows:
                         connection.execute(
-                            "INSERT INTO agent_worker_heartbeats VALUES (%s, CURRENT_TIMESTAMP - (%s * INTERVAL '1 second'))",
+                            "INSERT INTO agent_worker_heartbeats (status,heartbeat_at) VALUES (%s, CURRENT_TIMESTAMP - (%s * INTERVAL '1 second'))",
                             (status, age),
                         )
                     return connection

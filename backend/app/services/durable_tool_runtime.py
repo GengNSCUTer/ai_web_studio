@@ -1551,6 +1551,8 @@ class DurableToolWorker:
     ) -> bool:
         """以数据库当前值拒绝已接管、已过期或已取消任务的旧执行者写入。"""
 
+        from app.services.runtime_lease import owns_live_lease
+
         db.expire_all()
         locked_event = db.scalars(
             select(AgentOutboxEvent)
@@ -1561,10 +1563,7 @@ class DurableToolWorker:
         if (
             not locked_event
             or locked_event.status != "running"
-            or locked_event.lease_owner != self.owner
-            or locked_event.lease_version != claim.outbox_lease_version
-            or not locked_event.lease_expires_at
-            or self._aware(locked_event.lease_expires_at) <= utcnow()
+            or not owns_live_lease(locked_event, owner=self.owner, version=claim.outbox_lease_version)
         ):
             db.rollback()
             return False

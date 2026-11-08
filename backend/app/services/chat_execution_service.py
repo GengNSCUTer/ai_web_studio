@@ -30,15 +30,16 @@ from app.services.tokenizer_service import TokenizerEstimator
 
 
 class ChatExecutionService:
-    """Chat 主链路门面。
+    """Chat准备图门面，不直接调用最终回答模型。
 
-    这层不直接调用模型，也不直接拼 prompt；它负责把一次聊天请求拆成两个阶段：
-    1. ChatTurnBootstrapper：确认/创建会话，写入 user 消息和 assistant 占位消息。
-    2. ChatContextAssemblyService：把记忆、附件、工具、知识库、摘要和上下文预算组装成模型输入。
+    正式HTTP入口先在ChatRunService原子创建消息与任务；独立Worker以existing输入
+    组装记忆、工具、RAG、摘要和预算。new图入口仍供独立服务测试及显式内部调用，
+    不再由Web请求持有生成生命周期。
     """
 
-    def __init__(self, *, db: Session, current_user: User) -> None:
+    def __init__(self, *, db: Session, current_user: User, manage_prepare_failure: bool = True) -> None:
         self.db = db
+        self.manage_prepare_failure = manage_prepare_failure
         self.current_user = current_user
         self.conversation_repo = ConversationRepository(db)
         self.project_repo = ProjectRepository(db)
@@ -129,6 +130,9 @@ class ChatExecutionService:
     def _mark_prepare_cancelled(self, assistant_message: object, *, generation_id: str | None) -> None:
         """准备阶段被上游任务取消时，按生成版本收口，避免遗留 streaming 占位。"""
 
+        if not self.manage_prepare_failure:
+            self.db.rollback()
+            return
         try:
             self.db.rollback()
             self.message_service.save_generation_result(
@@ -148,6 +152,9 @@ class ChatExecutionService:
 
         保存失败时不覆盖原始异常，避免错误收口掩盖真正的 Prepare 故障。
         """
+        if not self.manage_prepare_failure:
+            self.db.rollback()
+            return
         try:
             # Context Assembly 内部可能刚经历过 flush/commit 异常，此时 Session 处于
             # PendingRollbackError 状态；必须先 rollback，才能保存失败状态。

@@ -6,6 +6,7 @@ import { proxyBackendChatStream } from "@/lib/chat-stream-proxy";
 export const runtime = "nodejs";
 
 type EditLastUserRequestPayload = {
+  clientRequestId?: string;
   conversationId?: string;
   userMessageId?: string;
   assistantMessageId?: string;
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
   }
 
   return proxyBackendChatStream("/api/chat/edit-last-user-stream", token, {
+    client_request_id: payload.clientRequestId,
     conversation_id: payload.conversationId,
     user_message_id: payload.userMessageId,
     assistant_message_id: payload.assistantMessageId,

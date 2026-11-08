@@ -12,7 +12,8 @@ from app.services.provider_client_pool import ProviderClientPool, get_provider_c
 @dataclass(frozen=True)
 class OllamaChatEvent:
     type: str
-    text: str
+    text: str = ""
+    data: dict | None = None
 
 
 class OllamaService:
@@ -62,6 +63,7 @@ class OllamaService:
         model_name: str,
         messages: list[dict[str, str]],
         thinking_enabled: bool = False,
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[OllamaChatEvent, None]:
         payload = {
             "model": model_name,
@@ -70,6 +72,8 @@ class OllamaService:
             "think": thinking_enabled,
             "keep_alive": settings.ollama_keep_alive,
         }
+        if max_tokens is not None:
+            payload["options"] = {"num_predict": max(1, int(max_tokens))}
 
         async with self._http_client() as client:
             try:
@@ -101,6 +105,9 @@ class OllamaService:
                         if chunk:
                             yield OllamaChatEvent(type="answer_delta", text=chunk)
                         if data.get("done"):
+                            reason = data.get("done_reason")
+                            if reason in {"length", "stop"}:
+                                yield OllamaChatEvent(type="provider_finish", data={"finish_reason": reason})
                             break
             except httpx.ConnectError as exc:
                 raise RuntimeError("无法连接到 Ollama 服务，请检查地址和服务状态") from exc

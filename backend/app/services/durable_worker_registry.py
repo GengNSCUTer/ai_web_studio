@@ -80,7 +80,8 @@ class DurableWorkerRegistry:
     def summary(self, *, user_id: str) -> dict[str, object]:
         now = _now()
         cutoff = now - timedelta(seconds=self.STALE_SECONDS)
-        workers = list(self.db.scalars(select(AgentWorkerHeartbeat)).all())
+        workers = list(self.db.scalars(select(AgentWorkerHeartbeat).where(
+            ~AgentWorkerHeartbeat.owner.like("chat-worker:%"))).all())
         online = [row for row in workers if row.status != "stopped" and _aware(row.heartbeat_at) >= cutoff]
         stale = [row for row in workers if row.status != "stopped" and _aware(row.heartbeat_at) < cutoff]
         queued_cutoff = now - timedelta(seconds=self.QUEUED_ALERT_SECONDS)

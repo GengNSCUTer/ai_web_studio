@@ -62,6 +62,8 @@ class ToolExecutor:
         self.action_guard = ToolActionGuard(ActionScope(original_task) if original_task is not None else None)
 
     async def execute(self, call: PlannedToolCall) -> tuple[ToolCallResult, list[ToolTraceEvent]]:
+        from app.services.chat_run_guard import check_chat_execution
+        await check_chat_execution()
         definition = self.catalog.get_or_none(call.tool_key)
         if not definition:
             return self._skipped(call, f"未知工具：{call.tool_key}")
@@ -203,6 +205,7 @@ class ToolExecutor:
                 result, skipped_events = self._skipped(call, "当前工作区为只读模式，已阻止该工具。")
                 return result, [*events, *skipped_events]
             if call.tool_key == "workspace.files.apply_edit" and self.db and self.user_id:
+                await check_chat_execution()
                 from app.services.agent_runtime_service import AgentRuntimeError, AgentRuntimeService
 
                 # 该工具在审批服务内执行，不经过普通适配器；同样记录实际尝试的脱敏参数。
@@ -450,11 +453,13 @@ class ToolExecutor:
             # 权限/凭据已复制为值，等待HTTP/文件线程前释放只读事务。
             # 不能提交尚未保存的业务写入；文件审批有独立的原有提交入口。
             release_read_transaction(self.db)
+            await check_chat_execution()
             sources, adapter_metadata = await self.adapter_runner.run(
                 definition=definition,
                 call=call,
                 api_key=credential.api_key if credential else None,
             )
+            await check_chat_execution()
             result_semantics = self._trusted_result_semantics(
                 definition=definition,
                 adapter_metadata=adapter_metadata,

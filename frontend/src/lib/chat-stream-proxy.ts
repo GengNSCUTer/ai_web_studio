@@ -6,6 +6,7 @@ const SAFE_STREAM_HEADERS = [
   "x-context-notices",
   "x-context-stats",
   "x-context-details",
+  "x-chat-run-id",
 ] as const;
 
 function safeHeaderValue(value: string | null, maxLength = 4096) {

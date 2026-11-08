@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useEffectEvent, useRef, useState } from "react";
+import { subscribeChatRun, runMessageStatus, type ChatRunSnapshot } from "@/lib/chat-run-events";
 
 import { AttachmentPreviewModal } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
@@ -578,6 +579,8 @@ type ChatStreamEvent =
   | { type: "citation_audit"; audit: CitationAudit }
   | { type: "model_error"; error?: string; error_code?: string; assistant_message_id?: string }
   | { type: "stream_error"; error?: string }
+  | { type: "run_status"; status: string }
+  | { type: "run_snapshot"; run: ChatRunSnapshot }
   | ToolTraceEvent
   | { type: "done"; assistant_message_id?: string };
 
@@ -677,6 +680,8 @@ export function ChatThread({
   const didSyncAfterRequestRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const userStopRequestedRef = useRef(false);
+  const chatRunIdRef = useRef<string | null>(null);
+  const [recoveryTrigger, setRecoveryTrigger] = useState(0);
   const text = THREAD_TEXT[uiLanguage];
   const statEntries = Object.entries(contextInfo?.stats ?? {});
   const statMap = Object.fromEntries(statEntries);
@@ -1013,6 +1018,88 @@ export function ChatThread({
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
+
+  const recoverChatRun = useEffectEvent(async (conversationId: string, controller: AbortController) => {
+    if (isGenerating || isLoadingMessages) return;
+    try {
+      const runs = await requestJson<ChatRunSnapshot[]>(`/api/backend/chat/runs?conversation_id=${encodeURIComponent(conversationId)}`, { signal: controller.signal });
+      const run = runs[0];
+      if (!run || controller.signal.aborted) return;
+      const restore = (content: string, reasoning: string, sources: ExternalSource[], audit: CitationAudit | null, status: string, events?: ToolTraceEvent[]) => {
+        setThreadMessages((current) => current.map((message) => message.id === run.assistant_message_id ? {
+          ...message, content, reasoningContent: reasoning, externalSources: sources, citationAudit: audit,
+          status, ...(events ? { toolEvents: events } : {}),
+        } : message));
+      };
+      restore(run.content, run.reasoning_content, run.external_sources, run.citation_audit, runMessageStatus(run.status));
+      if (runMessageStatus(run.status) !== "streaming") return;
+      chatRunIdRef.current = run.id;
+      abortControllerRef.current = controller;
+      setIsGenerating(true);
+      setStreamingStartedAt(Date.now());
+      let answer = "", reasoning = "";
+      let sources: ExternalSource[] = [], audit: CitationAudit | null = null;
+      let events: ToolTraceEvent[] = [];
+      let messageStatus = "streaming";
+      try {
+        await subscribeChatRun(run.id, controller.signal, (raw) => {
+          const event = raw as ChatStreamEvent;
+          if (event.type === "answer_delta") answer += event.text;
+          else if (event.type === "reasoning_delta") reasoning += event.text;
+          else if (event.type === "tool_sources") sources = event.sources;
+          else if (event.type === "citation_audit") audit = event.audit;
+          else if (event.type === "context_info") onContextInfoChange(event.info, conversationId);
+          else if (event.type === "run_status") messageStatus = runMessageStatus(event.status);
+          else if (event.type === "done") messageStatus = "done";
+          else if (event.type === "model_error") { messageStatus = "failed"; setLocalError(event.error ?? text.replyModelFailed); }
+          else if (event.type === "run_snapshot") {
+            answer = event.run.content; reasoning = event.run.reasoning_content;
+            sources = event.run.external_sources; audit = event.run.citation_audit;
+            messageStatus = runMessageStatus(event.run.status);
+          } else if (isToolTraceEvent(event)) events = [...events, event];
+          restore(answer, reasoning, sources, audit, messageStatus, events);
+        });
+        if (!controller.signal.aborted) syncAfterRequest();
+      } finally {
+        if (chatRunIdRef.current === run.id) {
+          chatRunIdRef.current = null;
+          abortControllerRef.current = null;
+          setIsGenerating(false);
+          setStreamingStartedAt(null);
+        }
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) setLocalError(`连接中断，后台任务仍可继续；重新联网或刷新会话可恢复查看。${requestErrorMessage(error)}`);
+    }
+  });
+
+  useEffect(() => {
+    if (!activeConversationId || isLoadingMessages) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => { void recoverChatRun(activeConversationId, controller); }, 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [activeConversationId, isLoadingMessages, recoveryTrigger]);
+
+  useEffect(() => {
+    const online = () => setRecoveryTrigger((current) => current + 1);
+    window.addEventListener("online", online);
+    return () => {
+      window.removeEventListener("online", online);
+      // 这里只停止订阅。卸载/关闭页面不能转成用户主动取消。
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  async function stopChatRun() {
+    userStopRequestedRef.current = true;
+    const runId = chatRunIdRef.current;
+    if (!runId) return;
+    try {
+      await requestJson(`/api/backend/chat/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+    } catch (error) {
+      setLocalError(`停止请求未确认，请重试。${requestErrorMessage(error)}`);
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1462,6 +1549,7 @@ export function ChatThread({
     const controller = new AbortController();
     abortControllerRef.current = controller;
     userStopRequestedRef.current = false;
+    chatRunIdRef.current = null;
 
     try {
       const response = await fetch(endpoint, {
@@ -1469,11 +1557,13 @@ export function ChatThread({
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, clientRequestId: crypto.randomUUID() }),
         cache: "no-store",
         signal: controller.signal,
       });
 
+      chatRunIdRef.current = response.headers.get("x-chat-run-id");
+      if (userStopRequestedRef.current) await stopChatRun();
       onContextInfoChange(
         {
           notices: parseContextNoticesHeader(response.headers.get("x-context-notices")),
@@ -1501,6 +1591,7 @@ export function ChatThread({
       let toolEvents: ToolTraceEvent[] = [];
       let eventBuffer = "";
       let streamErrorReason: string | null = null;
+      let terminalStatus = "streaming";
 
       while (true) {
         const { value, done } = await reader.read();
@@ -1515,7 +1606,9 @@ export function ChatThread({
         const parsed = parseStreamEvents(eventBuffer);
         eventBuffer = parsed.rest;
         for (const streamEvent of parsed.events) {
-          if (streamEvent.type === "context_info") {
+          if (streamEvent.type === "run_status") {
+            terminalStatus = runMessageStatus(streamEvent.status);
+          } else if (streamEvent.type === "context_info") {
             onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
           } else if (streamEvent.type === "answer_delta") {
             assistantText += streamEvent.text;
@@ -1551,7 +1644,9 @@ export function ChatThread({
       eventBuffer += decoder.decode();
       const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
       for (const streamEvent of finalParsed.events) {
-        if (streamEvent.type === "context_info") {
+        if (streamEvent.type === "run_status") {
+          terminalStatus = runMessageStatus(streamEvent.status);
+        } else if (streamEvent.type === "context_info") {
           onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
         } else if (streamEvent.type === "answer_delta") {
           assistantText += streamEvent.text;
@@ -1580,7 +1675,7 @@ export function ChatThread({
                 externalSources,
                 citationAudit,
                 toolEvents,
-                status: "done",
+                status: terminalStatus,
               }
             : message
         )
@@ -1599,18 +1694,20 @@ export function ChatThread({
           message.id === assistantMessageId
             ? {
                 ...message,
-                status: isUserStop ? "cancelled" : "failed",
+                status: chatRunIdRef.current ? "streaming" : "failed",
               }
             : message
         )
       );
       if (!isUserStop) {
-        setLocalError(isAbort ? text.replyStreamFailed : requestErrorMessage(error));
+        setLocalError(chatRunIdRef.current ? "连接中断，后台仍继续生成，正在尝试恢复订阅。" : (isAbort ? text.replyStreamFailed : requestErrorMessage(error)));
       }
       syncAfterRequest();
       throw error;
     } finally {
       setIsGenerating(false);
+      if (chatRunIdRef.current) setRecoveryTrigger((current) => current + 1);
+      chatRunIdRef.current = null;
       abortControllerRef.current = null;
       userStopRequestedRef.current = false;
     }
@@ -1796,6 +1893,7 @@ export function ChatThread({
     const controller = new AbortController();
     abortControllerRef.current = controller;
     userStopRequestedRef.current = false;
+    chatRunIdRef.current = null;
 
     try {
       const response = await fetch("/api/chat", {
@@ -1804,6 +1902,7 @@ export function ChatThread({
           "content-type": "application/json",
         },
         body: JSON.stringify({
+          clientRequestId: crypto.randomUUID(),
           conversationId: requestConversationId,
           modelName: selectedModel,
           systemPrompt,
@@ -1829,6 +1928,8 @@ export function ChatThread({
 
       const responseConversationId =
         response.headers.get("x-conversation-id") ?? requestConversationId;
+      chatRunIdRef.current = response.headers.get("x-chat-run-id");
+      if (userStopRequestedRef.current) await stopChatRun();
       onContextInfoChange(
         {
           notices: parseContextNoticesHeader(response.headers.get("x-context-notices")),
@@ -1863,6 +1964,7 @@ export function ChatThread({
       let toolEvents: ToolTraceEvent[] = [];
       let eventBuffer = "";
       let streamErrorReason: string | null = null;
+      let terminalStatus = "streaming";
       let persistedAssistantMessageId: string | null = null;
 
       while (true) {
@@ -1879,7 +1981,9 @@ export function ChatThread({
         const parsed = parseStreamEvents(eventBuffer);
         eventBuffer = parsed.rest;
         for (const streamEvent of parsed.events) {
-          if (streamEvent.type === "context_info") {
+          if (streamEvent.type === "run_status") {
+            terminalStatus = runMessageStatus(streamEvent.status);
+          } else if (streamEvent.type === "context_info") {
             onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
           } else if (streamEvent.type === "answer_delta") {
             assistantText += streamEvent.text;
@@ -1917,7 +2021,9 @@ export function ChatThread({
       eventBuffer += decoder.decode();
       const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
       for (const streamEvent of finalParsed.events) {
-        if (streamEvent.type === "context_info") {
+        if (streamEvent.type === "run_status") {
+          terminalStatus = runMessageStatus(streamEvent.status);
+        } else if (streamEvent.type === "context_info") {
           onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
         } else if (streamEvent.type === "answer_delta") {
           assistantText += streamEvent.text;
@@ -1949,7 +2055,7 @@ export function ChatThread({
                 externalSources,
                 citationAudit,
                 toolEvents,
-                status: "done",
+                status: terminalStatus,
               }
             : message
         )
@@ -1964,7 +2070,7 @@ export function ChatThread({
       const isUserStop = isAbort && userStopRequestedRef.current;
       setStreamingStartedAt(null);
       setStreamingElapsedSeconds(0);
-      if (!isUserStop) {
+      if (!isUserStop && !chatRunIdRef.current) {
         setComposer(content);
         setUploadedItems(pendingUploads);
       }
@@ -1973,17 +2079,19 @@ export function ChatThread({
           message.id === tempAssistantMessageId
             ? {
                 ...message,
-                status: isUserStop ? "cancelled" : "failed",
+                status: chatRunIdRef.current ? "streaming" : "failed",
               }
             : message
         )
       );
       if (!isUserStop) {
-        setLocalError(isAbort ? text.replyStreamFailed : requestErrorMessage(sendError));
+        setLocalError(chatRunIdRef.current ? "连接中断，后台仍继续生成，正在尝试恢复订阅。" : (isAbort ? text.replyStreamFailed : requestErrorMessage(sendError)));
       }
       syncAfterRequest();
     } finally {
       setIsGenerating(false);
+      if (chatRunIdRef.current) setRecoveryTrigger((current) => current + 1);
+      chatRunIdRef.current = null;
       abortControllerRef.current = null;
       userStopRequestedRef.current = false;
     }
@@ -2138,10 +2246,7 @@ export function ChatThread({
           onToggleAttachmentChunk={toggleAttachmentChunk}
           onComposerKeyDown={handleComposerKeyDown}
           onSubmit={handleSubmit}
-          onStopGenerating={() => {
-            userStopRequestedRef.current = true;
-            abortControllerRef.current?.abort();
-          }}
+          onStopGenerating={() => { void stopChatRun(); }}
         />
       </footer>
 

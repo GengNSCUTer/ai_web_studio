@@ -17,7 +17,7 @@ class ServiceCheckTest(unittest.TestCase):
     def test_external_redis_does_not_trigger_false_alarm(self, get, run):
         get.return_value = httpx.Response(200, json={"checks": {}})
         states = "\n".join(f"{role} RUNNING pid 1" for role in
-                           ("backend", "frontend", "knowledge-worker", "memory-worker", "durable-worker"))
+                           ("backend", "frontend", "knowledge-worker", "memory-worker", "durable-worker", "chat-worker"))
         run.return_value = subprocess.CompletedProcess([], 3, stdout=states + "\nredis STOPPED", stderr="")
         self.assertTrue(inspect_services(backend="http://backend", frontend="http://frontend")["ok"])
 

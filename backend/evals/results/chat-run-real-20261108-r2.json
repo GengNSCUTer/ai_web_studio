@@ -1,0 +1,36 @@
+{
+  "scope": "真实在线DeepSeek-V3.2、唯一托管ChatWorker、浏览器和PostgreSQL；不调用Ollama",
+  "cases": [
+    {
+      "case": "收到100Token后彻底关闭浏览器并重开",
+      "status": "passed",
+      "received_cl100k_tokens_before_close": 150,
+      "chars_before_close": 808,
+      "final_chars": 2157,
+      "worker_final_generation_attempts": 1,
+      "content_matches_database": true,
+      "complete_after_browser_closed": true,
+      "web_restarted_without_restarting_worker": true
+    },
+    {
+      "case": "活跃任务SSE重连/真实停止/重复停止",
+      "status": "passed",
+      "final_status": "cancelled",
+      "partial_chars": 2,
+      "model_attempts": 1,
+      "duplicate_cancel_no_new_event": true
+    },
+    {
+      "case": "取消后新发/真实文件工具/最终回答/尾游标重放",
+      "status": "passed",
+      "tools": [
+        "workspace.files.read",
+        "workspace.files.search"
+      ],
+      "answer_chars": 210,
+      "langgraph": true
+    }
+  ],
+  "browser_errors": [],
+  "status": "passed"
+}

@@ -160,9 +160,10 @@ class ChatProviderService:
                 model_name=model_name,
                 messages=messages,
                 thinking_enabled=thinking_enabled,
+                max_tokens=max_tokens,
             )) as events:
                 async for event in events:
-                    yield ChatStreamEvent(type=event.type, text=event.text)
+                    yield ChatStreamEvent(type=event.type, text=event.text, data=getattr(event, "data", None))
             return
 
         if provider_type == "anthropic":
@@ -228,8 +229,12 @@ class ChatProviderService:
             except httpx.TimeoutException as exc:
                 raise RuntimeError("模型服务响应超时，请稍后重试") from exc
 
+            finish_reason = None
             try:
                 async for chunk in stream:
+                    reason = getattr(chunk.choices[0], "finish_reason", None) if chunk.choices else None
+                    if isinstance(reason, str):
+                        finish_reason = reason if reason in {"stop", "length", "content_filter", "tool_calls", "function_call"} else "other"
                     delta = chunk.choices[0].delta if chunk.choices else None
                     # 兼容硅基流动/Qwen/DeepSeek-R1 等 OpenAI-compatible 扩展字段。
                     reasoning = self._extract_delta_attr(delta, "reasoning_content")
@@ -257,6 +262,9 @@ class ChatProviderService:
                                 "prompt_cache_usage_support": capabilities.cache_usage_support,
                             },
                         )
+                if finish_reason is not None:
+                    # 区分完整结束与达到输出上限；不把任何Provider原始异常或正文当结束原因。
+                    yield ChatStreamEvent(type="provider_finish", data={"finish_reason": finish_reason})
             except httpx.TimeoutException as exc:
                 raise RuntimeError("模型服务响应超时，请稍后重试") from exc
             finally:

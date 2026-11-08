@@ -1,0 +1,8 @@
+{
+  "status": "passed",
+  "ndjson_to_worker": true,
+  "run_snapshot_matches_answer": true,
+  "sse_tail_snapshot": true,
+  "worker_final_generation_attempts": 1,
+  "provider_finish_reason": "stop"
+}

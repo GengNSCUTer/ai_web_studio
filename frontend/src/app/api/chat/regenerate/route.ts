@@ -6,6 +6,7 @@ import { proxyBackendChatStream } from "@/lib/chat-stream-proxy";
 export const runtime = "nodejs";
 
 type RegenerateRequestPayload = {
+  clientRequestId?: string;
   conversationId?: string;
   assistantMessageId?: string;
   modelName?: string;
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
   }
 
   return proxyBackendChatStream("/api/chat/regenerate-last-stream", token, {
+    client_request_id: payload.clientRequestId,
     conversation_id: payload.conversationId,
     assistant_message_id: payload.assistantMessageId,
     model_name: payload.modelName,

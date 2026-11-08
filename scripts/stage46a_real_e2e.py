@@ -13,7 +13,6 @@ import sys
 import uuid
 from pathlib import Path
 
-from playwright.sync_api import expect, sync_playwright
 from sqlalchemy import delete, select
 
 
@@ -190,6 +189,9 @@ def cleanup(*, user_id: str, project_id: str) -> None:
 
 
 def run() -> None:
+    # 仅浏览器入口加载Playwright，HTTP/Worker测试可独立复用临时数据夹具。
+    from playwright.sync_api import expect, sync_playwright
+
     token, user_id, project_id, file_id, project_name = prepare_fixture()
     console_errors: list[str] = []
     captured_chat: dict = {}

@@ -1,6 +1,8 @@
 # 单机部署与运行检查
 
-适用范围是 Linux 下的个人自部署工作台。PostgreSQL/pgvector 复用已有服务；本目录管理 API、Next.js、知识库/记忆/Durable 三个 Worker，必要时还可托管本地 Redis。运行代码与数据备份是两件事，备份恢复和版本化迁移在七项优化计划第二批处理。
+适用范围是 Linux 下的个人自部署工作台。PostgreSQL/pgvector 复用已有服务；本目录管理 API、Next.js、知识库/记忆/Durable/Chat 四个 Worker，必要时还可托管本地 Redis。运行代码与数据备份是两件事，备份恢复和版本化迁移在七项优化计划第二批处理。
+
+2026-11-08新增普通Chat独立进程：先执行20261108_01迁移，再用`bash deploy/run_services.sh ctl reread`和`ctl update`加入唯一`chat-worker`。Web只创建Run和订阅事件，关闭页面不停止生成；POST取消才撤回执行权。`/health/workers`分别检查Chat与Durable心跳，Web依赖就绪不表示生成Worker在线。默认用户2个未完成任务、全局16个运行任务、每Worker4并发、排队300秒/执行900秒、输出8192Token、20万字符与8MiB事件；详见环境样例和[216说明](../docs/216_Chat独立任务与统一取消_2026-11-08.md)。备份暂停写入者时必须包括Chat Worker，不启动同职责的旧Screen实例。
 
 ## 安装
 

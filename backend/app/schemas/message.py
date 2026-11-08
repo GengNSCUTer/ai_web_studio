@@ -49,6 +49,7 @@ class MessageBulkDeleteRequest(BaseModel):
 
 
 class ChatStreamRequest(BaseModel):
+    client_request_id: str | None = Field(default=None, min_length=1, max_length=128)
     conversation_id: str | None = None
     title: str | None = Field(default=None, max_length=255)
     content: MessageContent
@@ -75,6 +76,7 @@ class ChatStreamRequest(BaseModel):
 
 
 class ChatRegenerateRequest(BaseModel):
+    client_request_id: str | None = Field(default=None, min_length=1, max_length=128)
     conversation_id: str
     assistant_message_id: str
     model_name: str | None = Field(default=None, max_length=128)
@@ -89,6 +91,7 @@ class ChatRegenerateRequest(BaseModel):
 
 
 class ChatEditLastUserRequest(BaseModel):
+    client_request_id: str | None = Field(default=None, min_length=1, max_length=128)
     conversation_id: str
     user_message_id: str
     assistant_message_id: str

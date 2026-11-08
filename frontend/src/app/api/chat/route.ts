@@ -16,6 +16,7 @@ type UIMessage = {
 };
 
 type ChatRequestPayload = {
+  clientRequestId?: string;
   messages?: UIMessage[];
   conversationId?: string;
   modelName?: string;
@@ -76,6 +77,7 @@ export async function POST(request: NextRequest) {
   }
 
   return proxyBackendChatStream("/api/chat/events-stream", token, {
+    client_request_id: payload.clientRequestId,
     conversation_id: payload.conversationId,
     content,
     model_name: payload.modelName,

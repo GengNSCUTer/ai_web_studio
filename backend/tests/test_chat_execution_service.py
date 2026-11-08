@@ -898,7 +898,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 chat_stream_idle_timeout_seconds=1.0,
                 chat_stream_total_timeout_seconds=1.0,
             )
-            with patch("app.api.routes.chat.settings", timeout_settings):
+            with patch("app.services.chat_stream_service.settings", timeout_settings):
                 response = _build_streaming_response(context, SlowFirstTokenProvider(), event_stream=True)
                 body = "".join([chunk async for chunk in response.body_iterator])
 
@@ -922,7 +922,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 chat_stream_idle_timeout_seconds=0.01,
                 chat_stream_total_timeout_seconds=1.0,
             )
-            with patch("app.api.routes.chat.settings", timeout_settings):
+            with patch("app.services.chat_stream_service.settings", timeout_settings):
                 response = _build_streaming_response(context, IdleProvider(), event_stream=True)
                 body = "".join([chunk async for chunk in response.body_iterator])
 
@@ -947,7 +947,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 chat_stream_idle_timeout_seconds=1.0,
                 chat_stream_total_timeout_seconds=0.025,
             )
-            with patch("app.api.routes.chat.settings", timeout_settings):
+            with patch("app.services.chat_stream_service.settings", timeout_settings):
                 response = _build_streaming_response(context, EndlessSlowProvider(), event_stream=True)
                 body = "".join([chunk async for chunk in response.body_iterator])
 
@@ -1135,7 +1135,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.db.refresh(assistant_message)
 
             with patch(
-                "app.api.routes.chat.ChatExecutionService.prepare_existing_turn_execution",
+                "app.services.chat_execution_service.ChatExecutionService.prepare_existing_turn_execution",
                 new=AsyncMock(return_value=SimpleNamespace()),
             ), patch(
                 "app.api.routes.chat._build_streaming_response",
@@ -1155,7 +1155,10 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 )
 
             self.assertEqual(response.status_code, 200)
-            refreshed = self.db.get(Message, assistant_message.id)
+            from app.models.chat_run import ChatRun
+            queued = self.db.scalar(select(ChatRun).limit(1))
+            self.assertEqual(queued.status, "queued")
+            refreshed = self.db.get(Message, queued.assistant_message_id)
             self.assertEqual(refreshed.status, "streaming")
             self.assertEqual(refreshed.content, "")
             self.assertIsNone(refreshed.reasoning_content)
@@ -1407,7 +1410,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.db.refresh(assistant_message)
 
             with patch(
-                "app.api.routes.chat.ChatExecutionService.prepare_existing_turn_execution",
+                "app.services.chat_execution_service.ChatExecutionService.prepare_existing_turn_execution",
                 new=AsyncMock(return_value=SimpleNamespace()),
             ), patch(
                 "app.api.routes.chat._build_streaming_response",
@@ -1430,8 +1433,11 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 )
 
             self.assertEqual(response.status_code, 200)
-            refreshed_user = self.db.get(Message, user_message.id)
-            refreshed_assistant = self.db.get(Message, assistant_message.id)
+            from app.models.chat_run import ChatRun
+            queued = self.db.scalar(select(ChatRun).limit(1))
+            self.assertEqual(queued.status, "queued")
+            refreshed_user = self.db.get(Message, queued.user_message_id)
+            refreshed_assistant = self.db.get(Message, queued.assistant_message_id)
             self.assertEqual(refreshed_user.content, "新问题")
             self.assertEqual(refreshed_assistant.status, "streaming")
             self.assertEqual(refreshed_assistant.content, "")

@@ -11,6 +11,7 @@ from app.api.routes import (
     agent_runtime,       # 可恢复 Agent Run/Step/Approval 控制面
     auth,                # 认证/登录授权相关接口
     chat,                # 对话聊天核心接口
+    chat_runs,           # 独立生成任务与事件订阅
     conversations,      # 会话管理接口
     health,              # 服务健康检查接口
     knowledge,           # 知识库管理接口
@@ -104,6 +105,7 @@ app.include_router(plugins.router, prefix="/api")
 app.include_router(document_tasks.router, prefix="/api")
 # 注册聊天交互主路由
 app.include_router(chat.router, prefix="/api")
+app.include_router(chat_runs.router, prefix="/api")
 # 注册文件上传路由
 app.include_router(uploads.router, prefix="/api")
 

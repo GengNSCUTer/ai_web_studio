@@ -87,33 +87,38 @@ class ResourceQuotaTest(unittest.TestCase):
                 self.assertEqual(list(db.scalars(select(ResourceLease))), [])
         asyncio.run(scenario())
 
-    def test_chat_limit_precedes_prepare_and_lasts_until_stream_finishes(self):
+    def test_background_chat_quota_survives_creation_response_until_terminal(self):
+        from app.core.database import Base
+        from app.api.deps import get_db
+        from app.api.routes import chat_runs
+        from app.models.user import User
+        from app.services.chat_execution_service import ChatExecutionService
+        from app.services import chat_run_service
+
+        Base.metadata.create_all(self.engine)
+        with self.sessions() as db:
+            db.add(User(id="a", email="quota@test.invalid"))
+            db.commit()
+
         async def scenario():
             app = FastAPI()
-            app.include_router(chat.router)
+            app.include_router(chat_runs.router)
             app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id="a")
-            entered, release = asyncio.Event(), asyncio.Event()
-            async def prepare(*args):
-                entered.set()
-                return object()
-            def response(*args, **kwargs):
-                async def body():
-                    yield b"first\n"
-                    await release.wait()
-                    yield b"done\n"
-                return StreamingResponse(body())
-            payload = {"content": "测试额度", "model_name": "test"}
-            with patch.object(quota, "ResourceQuotaService", return_value=self.service), \
-                    patch("app.api.resource_limits.settings", replace(quota.settings, user_chat_concurrency=1)), \
-                    patch.object(chat.ChatExecutionService, "prepare_chat_execution", side_effect=prepare) as prepare_mock, \
-                    patch.object(chat, "_build_streaming_response", side_effect=response):
+            def database():
+                with self.sessions() as db:
+                    yield db
+            app.dependency_overrides[get_db] = database
+            with patch.object(chat_run_service, "settings", replace(quota.settings, user_chat_concurrency=1)), \
+                    patch.object(ChatExecutionService, "prepare_existing_turn_execution") as prepare:
                 async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-                    first = asyncio.create_task(client.post("/chat/events-stream", json=payload))
-                    await asyncio.wait_for(entered.wait(), 3)
-                    rejected = await client.post("/chat/events-stream", json=payload)
+                    first = await client.post("/chat/runs", json={"content": "第一个回答"})
+                    self.assertEqual(first.status_code, 202)
+                    # 创建响应已结束，额度仍由数据库未完成Run占用，不归还给下一次请求。
+                    rejected = await client.post("/chat/runs", json={"content": "第二个回答"})
                     self.assertEqual(rejected.status_code, 429)
-                    self.assertEqual(prepare_mock.call_count, 1)
-                    release.set()
-                    self.assertEqual((await first).status_code, 200)
-                    self.assertEqual((await client.post("/chat/events-stream", json=payload)).status_code, 200)
+                    prepare.assert_not_called()
+                    cancelled = await client.post(f"/chat/runs/{first.json()['id']}/cancel")
+                    self.assertEqual(cancelled.json()["status"], "cancelled")
+                    accepted = await client.post("/chat/runs", json={"content": "停止后重新提问"})
+                    self.assertEqual(accepted.status_code, 202)
         asyncio.run(scenario())
