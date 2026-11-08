@@ -4,13 +4,13 @@ version: 1
 date_created: 2026-11-08
 last_updated: 2026-11-09
 owner: AI Web Studio
-status: 'In progress'
+status: 'Completed'
 tags: [architecture, runtime, recovery, artifact]
 ---
 
 # Introduction
 
-![Status: In progress](https://img.shields.io/badge/status-In%20progress-yellow)
+![Status: Completed](https://img.shields.io/badge/status-Completed-brightgreen)
 
 基于bf86ee6及当前6cbcd6a核对用户提供的源码分析。复用Agent表、ToolExecutor和原生PG检查点；统一单次调用的身份、尝试、结果提交及恢复判断，不合并Chat/Durable Worker，不删除文档业务图。分阶段测试、文档同步、提交推送；不修改简历或Day28学习状态。
 
@@ -67,7 +67,7 @@ tags: [architecture, runtime, recovery, artifact]
 |------|-------------|-----------|------|
 | TASK-010 | scripts/tool_runtime_reliability_e2e.py的7场景和两个版本各10次正常对照通过；在线多轮、文档、审批及不明副作用分开记录，docs/221 | ✅ | 2026-11-09 |
 | TASK-011 | 最终1314全量含PG/Redis、45定向、前端lint/build/5项及在线真实Worker/浏览器/文件通过；审阅补隐式取证生命周期传播，失败保留 | ✅ | 2026-11-09 |
-| TASK-012 | 更新docs/04—07、159—162与README、AGENTS及docs/221收口；飞书定点同步回读，GitHub提交推送且CI成功，逐项审计本计划 | | |
+| TASK-012 | docs/04—07、159—162、README、AGENTS和221完成；飞书四份定点回读成功，最终业务提交d2832e9/Actions42498828391双绿，REQ/TEST审计见221 | ✅ | 2026-11-09 |
 
 ## 3. Alternatives
 
@@ -107,3 +107,7 @@ tags: [architecture, runtime, recovery, artifact]
 - [Chat持久化实现](../docs/217_Chat与工具统一持久化恢复_2026-11-08.md)
 - [前次计划](refactor-chat-tool-recovery-1.md)
 - 用户附件：883864a7-2102-4474-b139-a86deec10550/pasted-text-1.txt，作为设计分析，不将其中建议误写成已实现能力。
+
+## 9. Completion Audit
+
+12项任务均已完成，所有需求/约束及TEST-001—005已逐项核对，证据表见[最终验收221](../docs/221_统一执行内核最终验收与成本对照_2026-11-09.md)。最后业务修复先复现文档隐式取证生命周期遗漏，再通过1314项含PG/Redis、45项定向和最终在线四路径。前三阶段与最终业务提交分别推送、CI成功；最后说明文档另行提交，不追加功能范围。不明副作用、Token重启和沙箱等边界继续明确保留。
