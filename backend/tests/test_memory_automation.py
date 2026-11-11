@@ -277,7 +277,7 @@ class MemoryAutomationTest(unittest.TestCase):
             self.assertEqual(db.get(Conversation, self.conv).memory_extraction_cursor, 0)
             self.assertEqual(db.get(MemoryExtractionJob, job.id).status, "pending")
 
-    def test_explicit_request_bypasses_interval_but_not_disabled_extraction(self):
+    def test_explicit_request_bypasses_interval_and_automatic_toggle(self):
         with self.sessions() as db:
             setting = db.scalar(select(UserSetting))
             setting.memory_auto_candidate_turn_interval = 50
@@ -285,6 +285,10 @@ class MemoryAutomationTest(unittest.TestCase):
         self.assertIsNotNone(self.enqueue())
         with self.sessions() as db:
             db.scalar(select(UserSetting)).memory_auto_candidate_enabled = False
+            db.commit()
+        self.assertIsNotNone(self.enqueue())
+        with self.sessions() as db:
+            db.scalar(select(UserSetting)).memory_enabled = False
             db.commit()
         self.assertIsNone(self.enqueue())
 

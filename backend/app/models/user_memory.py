@@ -101,6 +101,11 @@ class MemoryExtractionJob(Base):
     source_message_ids: Mapped[str] = mapped_column(Text)
     source_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     cursor_end: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    trigger_action: Mapped[str] = mapped_column(String(24), default="extract_now", nullable=False)
+    trigger_reason: Mapped[str] = mapped_column(String(64), default="legacy_batch", nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 控制请求只记录目标 ID/版本与结果，不将“忘记”句子保存为用户事实。
+    control_result: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)

@@ -10,7 +10,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from alembic.migration import MigrationContext
 
-from app.core.migrations import FIRST_REVISION, require_current_schema, upgrade_database
+from app.core.migrations import FIRST_REVISION, require_current_schema, upgrade_database, migration_config
+from alembic import command
 from app.services.resource_quota_service import ResourceQuotaService
 from fastapi import HTTPException
 
@@ -80,6 +81,28 @@ class MigrationPostgresTest(unittest.TestCase):
         require_current_schema(self.engine)
         with self.engine.connect() as c:
             self.assertEqual(c.execute(text("select count(*) from users where id='kept'")).scalar(), 1)
+
+    def test_memory_trigger_migration_preserves_cursor_and_round_trips(self):
+        upgrade_database(self.engine, target="20261108_03")
+        with self.engine.begin() as c:
+            c.execute(text("insert into users(id,email) values ('u','trigger-migration@example.test')"))
+            c.execute(text("insert into conversations(id,user_id,title,model_name,is_archived,is_pinned,memory_extraction_cursor) "
+                           "values ('c','u','test','test',false,false,17)"))
+            c.execute(text("insert into memory_extraction_jobs(id,user_id,conversation_id,idempotency_key,source_message_ids,"
+                           "cursor_end,status,attempts,max_attempts,lease_version,result_count) "
+                           "values ('j','u','c','old','m',17,'succeeded',1,3,1,0)"))
+        upgrade_database(self.engine)
+        with self.engine.connect() as c:
+            self.assertEqual(tuple(c.execute(text("select memory_scan_cursor,memory_extraction_cursor,memory_trigger_state "
+                                                 "from conversations where id='c'")).one()), (17, 17, None))
+            self.assertEqual(tuple(c.execute(text("select trigger_action,trigger_reason,priority from memory_extraction_jobs "
+                                                 "where id='j'")).one()), ("extract_now", "legacy_batch", 0))
+        with self.engine.begin() as c:
+            config = migration_config()
+            config.attributes["connection"] = c
+            command.downgrade(config, "20261108_03")
+        upgrade_database(self.engine)
+        require_current_schema(self.engine)
 
     def test_unknown_legacy_schema_is_rejected_without_version_stamp(self):
         with self.engine.begin() as c:

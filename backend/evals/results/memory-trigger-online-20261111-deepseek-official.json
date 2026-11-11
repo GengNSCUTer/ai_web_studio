@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-11",
+  "provider": "openai-compatible",
+  "base_url_host": "api.deepseek.com",
+  "model": "deepseek-flash",
+  "conversations": 6,
+  "chat_turns": 9,
+  "cases": [
+    {"case": "四轮普通问答", "extraction_jobs": 0, "status": "passed"},
+    {"case": "稳定事实首轮提取及原文核验生效", "status": "passed"},
+    {"case": "新会话召回实际已启用记忆", "status": "passed"},
+    {"case": "自动提取关闭仍接受显式请求且保持待审", "status": "passed"},
+    {"case": "模糊撤销没有误删", "status": "passed"},
+    {"case": "精确撤销当前范围待审记忆", "status": "passed"},
+    {"case": "真实浏览器控制请求通知与管理入口", "status": "passed", "browser_errors": 0}
+  ],
+  "scope": "临时项目、真实在线 Chat/独立 Worker/数据库/浏览器；不代表线上通用准确率"
+}

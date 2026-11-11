@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-11",
+  "backend_full_regression": {
+    "tests": 1333,
+    "status": "passed",
+    "postgresql_integration_enabled": true,
+    "elapsed_seconds": 671.537,
+    "note": "完整回归之后又补三项边界回归，最新记忆集合另行执行；不相加宣称唯一用例数量。"
+  },
+  "final_memory_regression": {"tests": 55, "status": "passed"},
+  "post_online_regression": {"tests": 71, "status": "passed", "includes_postgresql_and_migrations": true},
+  "postgresql_memory_and_migration": {"tests": 16, "status": "passed"},
+  "frontend_eslint": "passed",
+  "frontend_production_build": "passed",
+  "frontend_node_tests": {"tests": 5, "status": "passed"},
+  "python_compileall": "passed",
+  "git_diff_check": "passed",
+  "trigger_replay": {"cases": 12, "user_turns": 44, "passed": 12, "controlled_old_calls": 10, "controlled_new_calls": 6},
+  "live_online_extraction": "passed_deepseek_official_deepseek_flash_6_conversations_9_turns",
+  "live_control_worker_and_browser": "passed_with_synthetic_completed_turn_sources",
+  "migration": "20261111_01",
+  "backup": "completed_outside_repository",
+  "github_push": "authorized_after_online_validation"
+}

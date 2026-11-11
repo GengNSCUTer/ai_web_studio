@@ -1,0 +1,154 @@
+{
+  "scope": "12个构造顺序对话；只比较触发时机，提取模型为受控空数组，不衡量事实提取精度或真实Token成本",
+  "cases": [
+    {
+      "case": "项目决定及时提取",
+      "expected_turns": [
+        1
+      ],
+      "old_trigger_turns": [
+        4
+      ],
+      "new_trigger_turns": [
+        1
+      ],
+      "new_extraction_calls": 1,
+      "passed": true
+    },
+    {
+      "case": "长期偏好及时提取",
+      "expected_turns": [
+        1
+      ],
+      "old_trigger_turns": [
+        4
+      ],
+      "new_trigger_turns": [
+        1
+      ],
+      "new_extraction_calls": 1,
+      "passed": true
+    },
+    {
+      "case": "更正独立识别",
+      "expected_turns": [
+        3
+      ],
+      "old_trigger_turns": [
+        4
+      ],
+      "new_trigger_turns": [
+        3
+      ],
+      "new_extraction_calls": 1,
+      "passed": true
+    },
+    {
+      "case": "显式记住及时提取",
+      "expected_turns": [
+        1
+      ],
+      "old_trigger_turns": [
+        1
+      ],
+      "new_trigger_turns": [
+        1
+      ],
+      "new_extraction_calls": 1,
+      "passed": true
+    },
+    {
+      "case": "纯问答不提取",
+      "expected_turns": [],
+      "old_trigger_turns": [
+        4
+      ],
+      "new_trigger_turns": [],
+      "new_extraction_calls": 0,
+      "passed": true
+    },
+    {
+      "case": "临时要求不持久化",
+      "expected_turns": [],
+      "old_trigger_turns": [
+        4
+      ],
+      "new_trigger_turns": [],
+      "new_extraction_calls": 0,
+      "passed": true
+    },
+    {
+      "case": "外部引用不授权",
+      "expected_turns": [],
+      "old_trigger_turns": [
+        4
+      ],
+      "new_trigger_turns": [],
+      "new_extraction_calls": 0,
+      "passed": true
+    },
+    {
+      "case": "敏感内容不触发",
+      "expected_turns": [],
+      "old_trigger_turns": [
+        4
+      ],
+      "new_trigger_turns": [],
+      "new_extraction_calls": 0,
+      "passed": true
+    },
+    {
+      "case": "未定信息等待补全",
+      "expected_turns": [],
+      "old_trigger_turns": [
+        4
+      ],
+      "new_trigger_turns": [],
+      "new_extraction_calls": 0,
+      "passed": true
+    },
+    {
+      "case": "未知表达保留批次兜底",
+      "expected_turns": [
+        4
+      ],
+      "old_trigger_turns": [
+        4
+      ],
+      "new_trigger_turns": [
+        4
+      ],
+      "new_extraction_calls": 1,
+      "passed": true
+    },
+    {
+      "case": "缓冲遇到确定决定合并",
+      "expected_turns": [
+        3
+      ],
+      "old_trigger_turns": [],
+      "new_trigger_turns": [
+        3
+      ],
+      "new_extraction_calls": 1,
+      "passed": true
+    },
+    {
+      "case": "撤销不调用提取模型",
+      "expected_turns": [
+        1
+      ],
+      "old_trigger_turns": [],
+      "new_trigger_turns": [
+        1
+      ],
+      "new_extraction_calls": 0,
+      "passed": true
+    }
+  ],
+  "passed": 12,
+  "total": 12,
+  "user_turns": 44,
+  "old_extraction_calls": 10,
+  "new_extraction_calls": 6
+}

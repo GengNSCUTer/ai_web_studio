@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-11",
+  "model": "deepseek-ai/DeepSeek-V3.2",
+  "online_chat_extraction_status": "blocked",
+  "first_chat": "failed",
+  "independent_provider_probe": {
+    "http_status": 402,
+    "reason": "account_balance_insufficient"
+  },
+  "live_extraction_pass_claimed": false,
+  "local_model_started": false,
+  "separate_control_validation": {
+    "source": "synthetic_completed_turn_fixture_not_real_chat",
+    "database": "real_postgresql",
+    "worker": "independent_process",
+    "precise_revocation": "passed",
+    "ambiguous_review": "passed",
+    "browser_notice": "passed",
+    "browser_errors": 0,
+    "extraction_model_calls": 0
+  },
+  "next_validation": "恢复在线额度后，执行 scripts/memory_trigger_real_e2e.py；不把控制请求测试当成在线提取成功。"
+}

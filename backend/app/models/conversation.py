@@ -34,6 +34,9 @@ class Conversation(Base):
     context_summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 仅在候选与任务结果同事务提交成功后推进；与滚动摘要边界分别管理。
     memory_extraction_cursor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 扫描与成功提取分别推进；缓冲保存来源 ID/摘要，不复制对话正文。
+    memory_scan_cursor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    memory_trigger_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     # prompt prefix 观测字段只用于缓存/诊断，不参与业务权限判断。
     last_prompt_prefix_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_prompt_prefix_token_count: Mapped[int | None] = mapped_column(nullable=True)

@@ -3,9 +3,11 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
+from app.models.message import Message
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.message_repo import MessageRepository
@@ -111,12 +113,9 @@ def enqueue_extraction_job(
 ) -> MemoryExtractionJobResponse:
     if not ConversationRepository(db).get_by_user(conversation_id, current_user.id):
         raise HTTPException(status_code=404, detail="Conversation not found")
-    messages = MessageRepository(db).list_by_conversation(conversation_id)
-    assistant = next(
-        (message for message in reversed(messages) if getattr(message, "role", None) == "assistant"
-         and message.status == "done"),
-        None,
-    )
+    assistant = db.scalar(select(Message).where(Message.conversation_id == conversation_id,
+        Message.role == "assistant", Message.status == "done").order_by(
+            Message.sequence.desc().nulls_last(), Message.created_at.desc(), Message.id.desc()).limit(1))
     if not assistant:
         raise HTTPException(status_code=400, detail="Conversation has no completed assistant turn")
     job = MemoryExtractionJobService(db).enqueue_after_turn(

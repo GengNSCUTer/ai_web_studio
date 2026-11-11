@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 type ActivityItem = {
   event_id: string;
-  memory_id: string;
+  job_id: string;
+  memory_id: string | null;
   title: string;
   content: string;
   status: string;
@@ -77,6 +78,7 @@ export function MemoryActivityPanel({ conversationId, refreshKey, uiLanguage }: 
   }, [conversationId, refreshKey, revision]);
 
   async function revoke(item: ActivityItem) {
+    if (!item.memory_id) return;
     mutationEpoch.current += 1;
     setRevokingId(item.memory_id);
     try {
@@ -99,9 +101,11 @@ export function MemoryActivityPanel({ conversationId, refreshKey, uiLanguage }: 
   const labels: Record<string, string> = zh ? {
     active: "已记住", pending: "待确认，尚未生效", revoked: "已撤销",
     rejected: "已拒绝", superseded: "已更正，旧版本不再使用", expired: "已过期", disabled: "已停用",
+    needs_review: "需要确认，未修改记忆",
   } : {
     active: "Remembered", pending: "Needs review, not active", revoked: "Revoked",
     rejected: "Rejected", superseded: "Superseded", expired: "Expired", disabled: "Disabled",
+    needs_review: "Needs confirmation, memories unchanged",
   };
   return (
     <section aria-label={zh ? "后台记忆通知" : "Background memory updates"} aria-live="polite"
@@ -140,7 +144,7 @@ export function MemoryActivityPanel({ conversationId, refreshKey, uiLanguage }: 
         <div id="memory-activity-details" className="max-h-44 overflow-y-auto pr-1">
           {activity?.has_pending_jobs ? <p className="mt-1">{zh ? "正在后台整理记忆，完成后会在这里通知。" : "Organizing memories in the background. Updates will appear here."}</p> : null}
           {activity?.items.slice(0, 8).map((item) => (
-            <div key={item.event_id} data-testid={`memory-notice-${item.memory_id}`} className="mt-2 border-t border-[var(--hairline)] pt-2">
+            <div key={item.event_id} data-testid={`memory-notice-${item.memory_id ?? item.job_id}`} className="mt-2 border-t border-[var(--hairline)] pt-2">
               <div className="flex items-center justify-between gap-3">
                 <span className="min-w-0 break-words">{labels[item.status] ?? item.status}：{item.title}</span>
                 {item.status === "active" ? <button type="button" disabled={revokingId !== null}

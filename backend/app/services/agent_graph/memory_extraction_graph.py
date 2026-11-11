@@ -15,6 +15,7 @@ class MemoryExtractionState(TypedDict, total=False):
     phase: str
     ready: bool
     candidate_count: int
+    control_request: bool
 
 
 @dataclass
@@ -30,7 +31,14 @@ class MemoryExtractionContext:
 async def _snapshot(state: MemoryExtractionState, runtime: Runtime[MemoryExtractionContext]):
     ctx = runtime.context
     ctx.snapshot = ctx.worker._load_snapshot(ctx.job_id, ctx.lease_version)
-    return {"phase": "source_snapshot", "ready": ctx.snapshot is not None}
+    return {"phase": "source_snapshot", "ready": ctx.snapshot is not None,
+            "control_request": bool(ctx.snapshot and ctx.snapshot.get("control_request"))}
+
+
+async def _control(state: MemoryExtractionState, runtime: Runtime[MemoryExtractionContext]):
+    ctx = runtime.context
+    completed = ctx.worker._complete_control(ctx.job_id, ctx.lease_version)
+    return {"phase": "control_committed", "ready": completed}
 
 
 async def _extract(state: MemoryExtractionState, runtime: Runtime[MemoryExtractionContext]):
@@ -70,14 +78,15 @@ async def _backlog(state: MemoryExtractionState, runtime: Runtime[MemoryExtracti
 def build_memory_extraction_graph():
     graph = StateGraph(MemoryExtractionState, context_schema=MemoryExtractionContext)
     for name, node in (("snapshot", _snapshot), ("extract", _extract), ("verify", _verify),
-                       ("conflicts", _conflicts), ("persist", _persist), ("backlog", _backlog)):
+                       ("conflicts", _conflicts), ("persist", _persist), ("control", _control), ("backlog", _backlog)):
         graph.add_node(name, node)
     graph.add_edge(START, "snapshot")
-    graph.add_conditional_edges("snapshot", lambda s: "extract" if s["ready"] else END)
+    graph.add_conditional_edges("snapshot", lambda s: ("control" if s["control_request"] else "extract") if s["ready"] else END)
     graph.add_edge("extract", "verify")
     graph.add_conditional_edges("verify", lambda s: "conflicts" if s["ready"] else END)
     graph.add_edge("conflicts", "persist")
     graph.add_conditional_edges("persist", lambda s: "backlog" if s["ready"] else END)
+    graph.add_conditional_edges("control", lambda s: "backlog" if s["ready"] else END)
     graph.add_edge("backlog", END)
     return graph.compile(name="aiws_memory_extraction_v1")
 

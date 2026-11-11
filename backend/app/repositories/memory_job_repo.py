@@ -44,7 +44,7 @@ class MemoryExtractionJobRepository:
                 ),
                 or_(MemoryExtractionJob.available_at.is_(None), MemoryExtractionJob.available_at <= now),
             )
-            .order_by(MemoryExtractionJob.created_at.asc())
+            .order_by(MemoryExtractionJob.priority.desc(), MemoryExtractionJob.created_at.asc())
             .with_for_update(skip_locked=True)
             .limit(1)
         )

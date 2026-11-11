@@ -113,6 +113,9 @@ class MemoryExtractionJobResponse(BaseModel):
     max_attempts: int
     result_count: int
     cursor_end: int = 0
+    trigger_action: str = "extract_now"
+    trigger_reason: str = "legacy_batch"
+    priority: int = 0
     error_code: str | None = None
     error_message: str | None = None
     created_at: datetime
@@ -121,7 +124,7 @@ class MemoryExtractionJobResponse(BaseModel):
 
 class MemoryActivityItem(BaseModel):
     event_id: str
-    memory_id: str
+    memory_id: str | None
     job_id: str
     title: str
     content: str

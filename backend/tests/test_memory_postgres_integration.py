@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 import app.models  # noqa: F401
 from app.core.database import Base
 from app.models.user import User
+from app.models.user_setting import UserSetting
 from app.models.user_memory import UserMemory
 from app.models.conversation import Conversation
 from app.models.message import Message
@@ -139,6 +140,39 @@ class MemoryPostgresIntegrationTest(unittest.TestCase):
             self.assertEqual(len(jobs), 1)
             self.assertEqual(jobs[0].source_message_ids, user_id)
             self.assertEqual(db.get(Conversation, conv_id).memory_extraction_cursor, 0)
+
+    def test_event_enqueue_and_buffer_are_atomic_under_concurrent_turn_hooks(self):
+        with Session(self.engine) as db:
+            SettingService(UserSettingRepository(db)).get_or_create_user_settings(self.user_id)
+            setting = db.scalar(select(UserSetting).where(UserSetting.user_id == self.user_id))
+            setting.memory_auto_candidate_enabled = True
+            setting.memory_auto_candidate_turn_interval = 4
+            conv = Conversation(user_id=self.user_id, model_name="test")
+            db.add(conv)
+            db.flush()
+            first = Message(conversation_id=conv.id, sequence=1, role="user", content="暂定采用 MySQL，尚未决定")
+            last = Message(conversation_id=conv.id, sequence=3, role="user", content="我的项目最终决定使用 PostgreSQL。")
+            assistant = Message(conversation_id=conv.id, sequence=4, role="assistant", status="done", content="收到")
+            db.add_all([first, last, assistant])
+            db.commit()
+            conv_id, assistant_id, source_ids = conv.id, assistant.id, {first.id, last.id}
+        barrier = Barrier(4)
+        def enqueue(_):
+            with Session(self.engine) as db:
+                barrier.wait(timeout=10)
+                job = MemoryExtractionJobService(db).enqueue_after_turn(user_id=self.user_id,
+                    conversation_id=conv_id, assistant_message_id=assistant_id)
+                return job.id
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            ids = list(pool.map(enqueue, range(4)))
+        self.assertEqual(len(set(ids)), 1)
+        with Session(self.engine) as db:
+            jobs = list(db.scalars(select(MemoryExtractionJob).where(MemoryExtractionJob.conversation_id == conv_id)))
+            self.assertEqual(len(jobs), 1)
+            self.assertEqual(set(jobs[0].source_message_ids.split(",")), source_ids)
+            conv = db.get(Conversation, conv_id)
+            self.assertEqual((conv.memory_scan_cursor, conv.memory_extraction_cursor), (3, 0))
+            self.assertEqual({row["id"] for row in json.loads(conv.memory_trigger_state)["pending"]}, source_ids)
 
     def test_two_candidates_cannot_both_replace_same_old_version(self):
         outcomes = self.approvals(self.candidate_ids)
