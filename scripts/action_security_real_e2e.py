@@ -1,6 +1,7 @@
 """验证本地恶意反馈和正常公网查询；只输出脱敏结果，临时项目最终清理。"""
 
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import os
 from pathlib import Path
 
@@ -110,11 +111,11 @@ def run():
                 response = client.post("/api/conversations", json={"project_id": project_id, "title": scenario,
                                        "model_name": "deepseek-ai/DeepSeek-V3.2"})
                 response.raise_for_status()
-                with client.stream("POST", "/api/chat/events-stream", json={"conversation_id": response.json()["id"],
+                with chat_stream(client, "/api/chat/runs", json={"conversation_id": response.json()["id"],
                      "content": query, "model_name": "deepseek-ai/DeepSeek-V3.2", "web_search_enabled": True,
                      "tool_run_mode": "guided_research"}) as stream:
                     stream.raise_for_status()
-                    events = [json.loads(line) for line in stream.iter_lines() if line.strip()]
+                    events = list(iter_sse_events(stream.iter_lines()))
                 assert any(event.get("type") == "done" for event in events), "流未正常结束"
                 rows.append(collect(project_id, scenario))
                 print(json.dumps({"scenario": scenario, "passed": True}), flush=True)

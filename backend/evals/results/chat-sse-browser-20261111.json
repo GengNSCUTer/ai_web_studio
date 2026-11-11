@@ -1,0 +1,35 @@
+{
+  "status": "passed",
+  "model": "deepseek-flash",
+  "cases": [
+    {
+      "case": "新问答",
+      "status": "passed",
+      "create_status": 202,
+      "model_attempts": 1,
+      "database_matches": true,
+      "answer_chars": 12
+    },
+    {
+      "case": "重新生成",
+      "status": "passed",
+      "create_status": 202,
+      "model_attempts": 1,
+      "database_matches": true,
+      "answer_chars": 12
+    },
+    {
+      "case": "编辑重答",
+      "status": "passed",
+      "create_status": 202,
+      "model_attempts": 1,
+      "database_matches": true,
+      "answer_chars": 11
+    }
+  ],
+  "browser_errors": 0,
+  "same_assistant_three_generation_ids": true,
+  "refresh_no_new_run": true,
+  "wire_protocol": "POST_JSON_create_GET_SSE_events",
+  "scope": "真实在线模型/浏览器/独立Worker/PostgreSQL"
+}

@@ -1,6 +1,7 @@
 """隔离进程中的真实HTTP MCP/在线模型/Next.js浏览器验收，不修改日常服务私网策略。"""
 
 import json
+from chat_sse_client import browser_chat_response, sse_events
 import os
 import socket
 import subprocess
@@ -154,10 +155,10 @@ def run():
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
                 page.screenshot(path="/tmp/aiws-mcp-resources-mobile.png", full_page=True)
                 state["days"] = 41
-                response = context.request.post(web + "/api/backend/chat/regenerate-last-stream", data={
+                response = browser_chat_response(context.request, web, kind="regenerate", data={
                     "conversation_id": cid, "assistant_message_id": mid, "model_name": "deepseek-ai/DeepSeek-V3.2"}, timeout=MODEL_TIMEOUT_MS)
                 assert response.ok
-                events = [json.loads(line) for line in response.text().splitlines() if line.strip()]
+                events = sse_events(response.text())
                 assert events[-1]["type"] == "done"
                 with SessionLocal() as db:
                     answer = db.get(Message, mid)

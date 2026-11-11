@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -116,10 +117,41 @@ class MemoryExtractionJobResponse(BaseModel):
     trigger_action: str = "extract_now"
     trigger_reason: str = "legacy_batch"
     priority: int = 0
+    semantic_action: str | None = None
+    semantic_confidence: str | None = None
+    semantic_model_called: bool = False
     error_code: str | None = None
     error_message: str | None = None
     created_at: datetime
     finished_at: datetime | None = None
+
+
+class MemoryTriggerLabel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_action: Literal["extract", "extract_now", "revise", "revoke", "buffer", "skip"]
+    review_reason: Literal["correct", "missed_trigger", "false_trigger", "needs_context", "wrong_action"]
+
+
+class MemoryTriggerDecisionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    conversation_id: str
+    project_id: str | None = None
+    message_id: str
+    observed_turn_id: str | None = None
+    policy_version: str
+    action: str
+    reason: str
+    outcome: str
+    job_id: str | None = None
+    job_created: bool
+    semantic_action: str | None = None
+    semantic_confidence: str | None = None
+    semantic_model_called: bool
+    expected_action: str | None = None
+    review_reason: str | None = None
+    reviewed_at: datetime | None = None
+    created_at: datetime
 
 
 class MemoryActivityItem(BaseModel):

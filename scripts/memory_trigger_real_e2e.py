@@ -1,6 +1,7 @@
 """在线对话→独立记忆 Worker→持久化与浏览器通知；只清理临时项目。"""
 
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import os
 from pathlib import Path
 import sys
@@ -47,13 +48,10 @@ def run():
 
     def chat(conv, question):
         text, done, details = [], False, {}
-        with client.stream("POST", "/api/chat/events-stream", json={"conversation_id": conv,
+        with chat_stream(client, "/api/chat/runs", json={"conversation_id": conv,
                 "content": question, "model_name": model}) as response:
             assert response.is_success
-            for line in response.iter_lines():
-                if not line.strip():
-                    continue
-                event = json.loads(line)
+            for event in iter_sse_events(response.iter_lines()):
                 assert event["type"] not in {"error", "stream_error", "model_error"}, "真实模型生成失败"
                 if event["type"] == "answer_delta":
                     text.append(event["text"])

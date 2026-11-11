@@ -68,13 +68,14 @@ def main():
             for marker in ("POOL_FIRST_OK", "POOL_SECOND_OK"):
                 composer.fill(f"本次仅验证对话传输，请只回答 {marker}。不联网，不检索，不调用工具。")
                 expect(page.get_by_role("button", name="发送消息")).to_be_enabled()
-                with page.expect_response(lambda response: response.url.rstrip("/").endswith("/api/chat") and response.request.method == "POST") as pending:
+                with page.expect_response(lambda response: response.url.rstrip("/").endswith("/api/backend/chat/runs") and response.request.method == "POST") as pending:
                     page.get_by_role("button", name="发送消息").click()
                 response = pending.value
-                if response.status != 200:
+                if response.status != 202:
                     raise AssertionError(f"Chat HTTP {response.status}")
-                response.body()
-                # 完成后输入框为空，发送按钮理应禁用；以停止按钮消失判断流收口。
+                response.json()
+                expect(page.get_by_text(marker, exact=True)).to_be_visible()
+                # 创建响应结束不代表任务完成；等待正文后再确认停止按钮消失。
                 expect(page.get_by_role("button", name="停止生成")).to_have_count(0)
                 with SessionLocal() as db:
                     rows = list(db.scalars(select(Message).where(Message.conversation_id == conversation_id, Message.role == "assistant").order_by(Message.created_at, Message.sequence)))

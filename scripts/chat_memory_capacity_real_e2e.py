@@ -1,6 +1,7 @@
 """固定账号、在线模型验证千条历史的对话/重复召回/重生成/编辑重答与浏览器。"""
 
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -62,12 +63,11 @@ def run():
         question = "容量验收暗号是什么？仅依据当前已保存背景简短回答。"
         def chat(name, path, payload):
             events = []
-            with client.stream("POST", path, json=payload) as response:
+            with chat_stream(client, path, json=payload) as response:
                 assert response.is_success, f"{name} HTTP {response.status_code}"
                 aid = response.headers["x-assistant-message-id"]
-                for line in response.iter_lines():
-                    if line.strip():
-                        events.append(json.loads(line))
+                for event in iter_sse_events(response.iter_lines()):
+                    events.append(event)
             assert not any(e["type"] in {"error", "model_error", "stream_error"} for e in events)
             answer = "".join(e["text"] for e in events if e["type"] == "answer_delta")
             assert "CedarCapN42" in answer and any(e["type"] == "done" for e in events), name
@@ -81,14 +81,14 @@ def run():
                            "read_cache": info["details"]["memory_retrieval"].get("read_cache"), "status": "passed"})
             return aid
 
-        chat("千条历史正常回答", "/api/chat/events-stream", {"conversation_id": cid, "content": question})
-        aid = chat("同问题缓存复用", "/api/chat/events-stream", {"conversation_id": cid, "content": question})
+        chat("千条历史正常回答", "/api/chat/runs", {"conversation_id": cid, "content": question})
+        aid = chat("同问题缓存复用", "/api/chat/runs", {"conversation_id": cid, "content": question})
         assert report[-1]["read_cache"] == "hit"
-        chat("重生成", "/api/chat/regenerate-last-stream", {"conversation_id": cid, "assistant_message_id": aid})
+        chat("重生成", "/api/chat/runs/regenerate", {"conversation_id": cid, "assistant_message_id": aid})
         with SessionLocal() as db:
             user_message_id = db.scalar(select(Message.id).where(Message.conversation_id == cid,
                 Message.role == "user").order_by(Message.sequence.desc()).limit(1))
-        chat("编辑重答", "/api/chat/edit-last-user-stream", {"conversation_id": cid, "assistant_message_id": aid,
+        chat("编辑重答", "/api/chat/runs/edit", {"conversation_id": cid, "assistant_message_id": aid,
             "user_message_id": user_message_id, "content": "容量验收暗号是什么？请只输出暗号。"})
         errors = []
         with sync_playwright() as playwright:

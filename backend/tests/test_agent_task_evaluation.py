@@ -172,7 +172,13 @@ class AgentTaskEvaluationTest(unittest.TestCase):
         import httpx
         case = {'category': 'no_tool', 'mode': 'quick_chat', 'query': '苹果',
                 'expected': {'no_tools': True, 'facts': [['苹果']]}}
-        transport = httpx.MockTransport(lambda req: httpx.Response(200, text='{"type":"done"}\n'))
+        def respond(request):
+            if request.method == "POST" and request.url.path == "/api/chat/runs":
+                return httpx.Response(202, json={"id": "r"})
+            self.assertEqual((request.method, request.url.path), ("GET", "/api/chat/runs/r/events"))
+            return httpx.Response(200, text='id: r:1\nevent: chat\ndata: {"type":"done","event_id":1}\n\n',
+                                  headers={"content-type": "text/event-stream"})
+        transport = httpx.MockTransport(respond)
         snapshot = {'answer': '香蕉', 'assistant_status': 'done', 'source_map': [], 'calls': [], 'events': [], 'runtime_stats': {}}
         with httpx.Client(transport=transport, base_url='http://test') as client:
             runner = PilotRunner(client, 'u', {}, Path('/tmp'), 1)

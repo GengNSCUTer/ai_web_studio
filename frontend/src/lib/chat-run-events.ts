@@ -25,52 +25,57 @@ export async function subscribeChatRun(
   signal: AbortSignal,
   onEvent: (event: Record<string, unknown>) => void,
 ) {
-  let cursor = 0;
-  // 只重试订阅，绝不重发创建或模型请求；慢客户端不阻塞Worker。
-  for (let attempt = 0; ; attempt += 1) {
-    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-    try {
-      const response = await fetch(`/api/backend/chat/runs/${encodeURIComponent(runId)}/events?after=${cursor}`, {
-        signal, cache: "no-store", headers: { accept: "text/event-stream" },
-      });
-      if (!response.ok || !response.body) throw new Error("订阅暂时不可用");
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let terminal = false;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          buffer += decoder.decode(value, { stream: !done });
-          const frames = buffer.split(/\r?\n\r?\n/);
-          buffer = frames.pop() ?? "";
-          for (const frame of frames) {
-            const data = frame.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
-            if (!data) continue;
-            const event = JSON.parse(data) as Record<string, unknown>;
-            const sequence = Number(event.event_id);
-            if (sequence <= cursor && event.type !== "run_snapshot") continue;
-            cursor = sequence;
-            onEvent(event);
-            const state = event.type === "run_snapshot" ? (event.run as ChatRunSnapshot).status : String(event.status ?? "");
-            if (event.type === "done" || event.type === "model_error" || runMessageStatus(state) !== "streaming") terminal = true;
-          }
-          if (done) break;
-        }
-      } finally {
-        await reader.cancel().catch(() => {});
-        reader.releaseLock();
-      }
-      if (terminal) return;
-      throw new Error("订阅连接中断");
-    } catch (error) {
-      if (signal.aborted || attempt >= 4) throw error;
-      await new Promise<void>((resolve, reject) => {
-        const finish = () => { signal.removeEventListener("abort", abort); resolve(); };
-        const timer = window.setTimeout(finish, Math.min(4000, 500 * 2 ** attempt));
-        const abort = () => { window.clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
-        signal.addEventListener("abort", abort, { once: true });
-      });
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+  return new Promise<void>((resolve, reject) => {
+    // 同源Cookie由Next代理转换鉴权；SSE分帧、断线重连和Last-Event-ID由浏览器负责。
+    const source = new EventSource(`/api/backend/chat/runs/${encodeURIComponent(runId)}/events`);
+    let lastHandled = 0, consecutiveErrors = 0, settled = false;
+
+    function finish(error?: unknown) {
+      if (settled) return;
+      settled = true;
+      source.close();
+      source.removeEventListener("chat", handleMessage);
+      source.removeEventListener("error", handleError);
+      signal.removeEventListener("abort", abort);
+      if (error) reject(error);
+      else resolve();
     }
-  }
+
+    function abort() { finish(new DOMException("Aborted", "AbortError")); }
+
+    function handleMessage(message: Event) {
+      try {
+        const frame = message as MessageEvent<string>;
+        const event = JSON.parse(frame.data) as Record<string, unknown>;
+        const sequence = event?.event_id;
+        if (!Number.isSafeInteger(sequence) || Number(sequence) < 0 || frame.lastEventId !== `${runId}:${sequence}`) {
+          throw new Error("订阅事件游标无效");
+        }
+        // 此序号只做业务去重；续传游标由EventSource保存，不用它手动重建连接。
+        if (Number(sequence) < lastHandled || (sequence === lastHandled && event.type !== "run_snapshot")) return;
+        onEvent(event);
+        lastHandled = Number(sequence);
+        consecutiveErrors = 0;
+        const state = event.type === "run_snapshot" ? (event.run as ChatRunSnapshot).status : String(event.status ?? "");
+        if (event.type === "done" || event.type === "model_error" || runMessageStatus(state) !== "streaming") finish();
+      } catch (error) {
+        // 原生游标可能已前进，坏事件不能忽略后继续，须显式失败后由页面恢复。
+        finish(error);
+      }
+    }
+
+    function handleError() {
+      consecutiveErrors += 1;
+      // 不手写重试/退避；仅防止没有业务进展时无限占用界面。
+      if (source.readyState === EventSource.CLOSED || consecutiveErrors >= 5) {
+        finish(new Error("聊天订阅已中断，请检查登录或网络后重新打开会话。"));
+      }
+    }
+
+    source.addEventListener("chat", handleMessage);
+    source.addEventListener("error", handleError);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
 }

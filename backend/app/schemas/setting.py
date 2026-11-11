@@ -30,6 +30,7 @@ class UserSettingResponse(BaseModel):
     memory_max_chars: int
     memory_auto_candidate_enabled: bool
     memory_auto_activate_enabled: bool = False
+    memory_semantic_trigger_enabled: bool = False
     memory_auto_candidate_turn_interval: int
     ui_language: str
     theme_mode: str
@@ -69,6 +70,7 @@ class UserSettingUpdate(BaseModel):
     memory_max_chars: int | None = None
     memory_auto_candidate_enabled: bool | None = None
     memory_auto_activate_enabled: bool | None = None
+    memory_semantic_trigger_enabled: bool | None = None
     memory_auto_candidate_turn_interval: int | None = Field(default=None, ge=1, le=50)
     ui_language: str | None = Field(default=None, max_length=16)
     theme_mode: str | None = Field(default=None, max_length=16)

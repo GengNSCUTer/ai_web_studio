@@ -17,7 +17,6 @@ import {
   cloneUploadItems,
 } from "@/lib/attachments";
 import type {
-  ContextDiagnosticDetails,
   CitationAudit,
   ContextGovernanceInfo,
   ExternalSource,
@@ -354,80 +353,6 @@ const THREAD_TEXT = {
   },
 } as const;
 
-function parseContextStatsHeader(value: string | null): Record<string, string> {
-  if (!value) {
-    return {};
-  }
-
-  if (value.startsWith("json64:")) {
-    try {
-      const decoded = atob(value.slice("json64:".length));
-      const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
-      const text = new TextDecoder().decode(bytes);
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      return Object.fromEntries(
-        Object.entries(parsed).map(([key, item]) => [key, item === null || item === undefined ? "" : String(item)])
-      );
-    } catch {
-      return {};
-    }
-  }
-
-  return value
-    .split(";")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .reduce<Record<string, string>>((acc, item) => {
-      const [key, ...rest] = item.split("=");
-      if (!key || rest.length === 0) {
-        return acc;
-      }
-      acc[key.trim()] = rest.join("=").trim();
-      return acc;
-    }, {});
-}
-
-function parseContextNoticesHeader(value: string | null): string[] {
-  if (!value) {
-    return [];
-  }
-
-  try {
-    const decoded = atob(value);
-    const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
-    const text = new TextDecoder().decode(bytes);
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
-    }
-  } catch {
-    // fallback for legacy plain-text header format
-  }
-
-  return value
-    .split("|")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function parseContextDetailsHeader(
-  value: string | null
-): ContextDiagnosticDetails | null {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    const decoded = atob(value);
-    const bytes = Uint8Array.from(decoded, (char) => char.charCodeAt(0));
-    const text = new TextDecoder().decode(bytes);
-    const parsed = JSON.parse(text) as ContextDiagnosticDetails;
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 function buildDraftTitle(content: string, uiLanguage: UILanguage) {
   const normalized = content.trim().replace(/\s+/g, " ");
   return normalized.slice(0, 24) || (uiLanguage === "en-US" ? "New Chat" : "新对话");
@@ -585,27 +510,6 @@ type ChatStreamEvent =
   | { type: "run_snapshot"; run: ChatRunSnapshot }
   | ToolTraceEvent
   | { type: "done"; assistant_message_id?: string };
-
-function parseStreamEvents(buffer: string) {
-  const lines = buffer.split("\n");
-  const rest = lines.pop() ?? "";
-  const events: ChatStreamEvent[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(trimmed) as ChatStreamEvent;
-      if (parsed && typeof parsed === "object" && "type" in parsed) {
-        events.push(parsed);
-      }
-    } catch {
-      // Ignore malformed partial chunks; the server always emits newline-delimited JSON.
-    }
-  }
-  return { events, rest };
-}
 
 export function ChatThread({
   initialConversationId,
@@ -1039,29 +943,8 @@ export function ChatThread({
       abortControllerRef.current = controller;
       setIsGenerating(true);
       setStreamingStartedAt(Date.now());
-      let answer = "", reasoning = "";
-      let sources: ExternalSource[] = [], audit: CitationAudit | null = null;
-      let events: ToolTraceEvent[] = [];
-      let messageStatus = "streaming";
       try {
-        await subscribeChatRun(run.id, controller.signal, (raw) => {
-          const event = raw as ChatStreamEvent;
-          if (event.type === "answer_delta") answer += event.text;
-          else if (event.type === "reasoning_delta") reasoning += event.text;
-          else if (event.type === "tool_sources") sources = event.sources;
-          else if (event.type === "citation_audit") audit = event.audit;
-          else if (event.type === "context_info") onContextInfoChange(event.info, conversationId);
-          else if (event.type === "run_status") messageStatus = runMessageStatus(event.status);
-          else if (event.type === "done") messageStatus = "done";
-          else if (event.type === "model_error") { messageStatus = "failed"; setLocalError(event.error ?? text.replyModelFailed); }
-          else if (event.type === "run_snapshot") {
-            answer = event.run.content; reasoning = event.run.reasoning_content;
-            sources = event.run.external_sources; audit = event.run.citation_audit;
-            messageStatus = runMessageStatus(event.run.status);
-            events = [];
-          } else if (isToolTraceEvent(event)) events = [...events, event];
-          restore(answer, reasoning, sources, audit, messageStatus, events);
-        });
+        await subscribeIntoAssistant(run, run.assistant_message_id, controller.signal);
         if (!controller.signal.aborted) syncAfterRequest();
       } finally {
         if (chatRunIdRef.current === run.id) {
@@ -1515,6 +1398,40 @@ export function ChatThread({
     }
   }
 
+  async function subscribeIntoAssistant(run: ChatRunSnapshot, messageId: string, signal: AbortSignal) {
+    let answer = "", reasoning = "";
+    let sources: ExternalSource[] = [], audit: CitationAudit | null = null;
+    let events: ToolTraceEvent[] = [];
+    let status = "streaming";
+    await subscribeChatRun(run.id, signal, (raw) => {
+      const event = raw as ChatStreamEvent;
+      if (event.type === "answer_delta") answer += event.text;
+      else if (event.type === "reasoning_delta") reasoning += event.text;
+      else if (event.type === "tool_sources") sources = event.sources ?? [];
+      else if (event.type === "citation_audit") audit = event.audit;
+      else if (event.type === "context_info") onContextInfoChange(event.info, event.conversation_id);
+      else if (event.type === "run_status") status = runMessageStatus(event.status);
+      else if (event.type === "done") status = "done";
+      else if (event.type === "model_error" || event.type === "stream_error") {
+        status = "failed";
+        setLocalError(event.error ?? text.replyModelFailed);
+      } else if (event.type === "run_snapshot") {
+        answer = event.run.content;
+        reasoning = event.run.reasoning_content;
+        sources = event.run.external_sources;
+        audit = event.run.citation_audit;
+        status = runMessageStatus(event.run.status);
+        events = [];
+        onContextInfoChange(event.run.context_info, run.conversation_id);
+      } else if (isToolTraceEvent(event)) events = [...events, event];
+      setThreadMessages((current) => current.map((message) => message.id === messageId ? {
+        ...message, content: answer, reasoningContent: reasoning, externalSources: sources,
+        citationAudit: audit, toolEvents: events, status,
+      } : message));
+    });
+    return status;
+  }
+
   async function streamIntoExistingAssistant(
     endpoint: string,
     payload: Record<string, unknown>,
@@ -1555,148 +1472,14 @@ export function ChatThread({
     chatRunIdRef.current = null;
 
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ ...payload, clientRequestId: crypto.randomUUID() }),
-        cache: "no-store",
+      const run = await requestJson<ChatRunSnapshot>(endpoint, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, client_request_id: crypto.randomUUID() }),
         signal: controller.signal,
       });
-
-      chatRunIdRef.current = response.headers.get("x-chat-run-id");
+      chatRunIdRef.current = run.id;
       if (userStopRequestedRef.current) await stopChatRun();
-      onContextInfoChange(
-        {
-          notices: parseContextNoticesHeader(response.headers.get("x-context-notices")),
-          stats: parseContextStatsHeader(response.headers.get("x-context-stats")),
-          details: parseContextDetailsHeader(response.headers.get("x-context-details")),
-        },
-        response.headers.get("x-conversation-id") ?? conversationId
-      );
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Request failed: ${response.status}`);
-      }
-
-      if (!response.body) {
-        throw new Error("响应体为空，无法开始流式读取");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantText = "";
-      let reasoningText = "";
-      let externalSources: ExternalSource[] = [];
-      let citationAudit: CitationAudit | null = null;
-      let toolEvents: ToolTraceEvent[] = [];
-      let eventBuffer = "";
-      let streamErrorReason: string | null = null;
-      let terminalStatus = "streaming";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
-        if (!value) {
-          continue;
-        }
-
-        eventBuffer += decoder.decode(value, { stream: true });
-        const parsed = parseStreamEvents(eventBuffer);
-        eventBuffer = parsed.rest;
-        for (const streamEvent of parsed.events) {
-          if (streamEvent.type === "run_snapshot") {
-            assistantText = streamEvent.run.content;
-            reasoningText = streamEvent.run.reasoning_content;
-            externalSources = streamEvent.run.external_sources;
-            citationAudit = streamEvent.run.citation_audit;
-            toolEvents = [];
-            terminalStatus = runMessageStatus(streamEvent.run.status);
-          } else if (streamEvent.type === "run_status") {
-            terminalStatus = runMessageStatus(streamEvent.status);
-          } else if (streamEvent.type === "context_info") {
-            onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
-          } else if (streamEvent.type === "answer_delta") {
-            assistantText += streamEvent.text;
-          } else if (streamEvent.type === "reasoning_delta") {
-            reasoningText += streamEvent.text;
-          } else if (streamEvent.type === "citation_audit") {
-            citationAudit = streamEvent.audit;
-          } else if (streamEvent.type === "tool_sources") {
-            externalSources = streamEvent.sources ?? [];
-          } else if (isToolTraceEvent(streamEvent)) {
-            toolEvents = [...toolEvents, streamEvent];
-          } else if (streamEvent.type === "model_error" || streamEvent.type === "stream_error") {
-            streamErrorReason = streamEvent.error || text.replyModelFailed;
-          }
-        }
-        setThreadMessages((current) =>
-          current.map((message) =>
-            message.id === assistantMessageId
-              ? {
-                  ...message,
-                  content: assistantText,
-                  reasoningContent: reasoningText,
-                  externalSources,
-                  citationAudit,
-                  toolEvents,
-                  status: "streaming",
-                }
-              : message
-          )
-        );
-      }
-
-      eventBuffer += decoder.decode();
-      const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
-      for (const streamEvent of finalParsed.events) {
-        if (streamEvent.type === "run_snapshot") {
-          assistantText = streamEvent.run.content;
-          reasoningText = streamEvent.run.reasoning_content;
-          externalSources = streamEvent.run.external_sources;
-          citationAudit = streamEvent.run.citation_audit;
-          toolEvents = [];
-          terminalStatus = runMessageStatus(streamEvent.run.status);
-        } else if (streamEvent.type === "run_status") {
-          terminalStatus = runMessageStatus(streamEvent.status);
-        } else if (streamEvent.type === "context_info") {
-          onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
-        } else if (streamEvent.type === "answer_delta") {
-          assistantText += streamEvent.text;
-        } else if (streamEvent.type === "reasoning_delta") {
-          reasoningText += streamEvent.text;
-        } else if (streamEvent.type === "citation_audit") {
-          citationAudit = streamEvent.audit;
-        } else if (streamEvent.type === "tool_sources") {
-          externalSources = streamEvent.sources ?? [];
-        } else if (isToolTraceEvent(streamEvent)) {
-          toolEvents = [...toolEvents, streamEvent];
-        } else if (streamEvent.type === "model_error" || streamEvent.type === "stream_error") {
-          streamErrorReason = streamEvent.error || text.replyModelFailed;
-        }
-      }
-      if (streamErrorReason) {
-        throw new Error(streamErrorReason);
-      }
-      setThreadMessages((current) =>
-        current.map((message) =>
-          message.id === assistantMessageId
-            ? {
-                ...message,
-                content: assistantText,
-                reasoningContent: reasoningText,
-                externalSources,
-                citationAudit,
-                toolEvents,
-                status: terminalStatus,
-              }
-            : message
-        )
-      );
+      await subscribeIntoAssistant(run, assistantMessageId, controller.signal);
 
       setStreamingStartedAt(null);
       setStreamingElapsedSeconds(0);
@@ -1737,17 +1520,17 @@ export function ChatThread({
     }
 
     try {
-      await streamIntoExistingAssistant("/api/chat/regenerate", {
-        conversationId,
-        assistantMessageId,
-        modelName: selectedModel,
-        systemPrompt,
-        thinkingEnabled: isDeepThinkingEnabled,
-        webSearchEnabled: isWebSearchEnabled,
-        knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
-        knowledgeBaseIds: selectedKnowledgeBaseIds,
-        skillKey: selectedSkillKey,
-        toolRunMode,
+      await streamIntoExistingAssistant("/api/backend/chat/runs/regenerate", {
+        conversation_id: conversationId,
+        assistant_message_id: assistantMessageId,
+        model_name: selectedModel,
+        system_prompt: systemPrompt,
+        thinking_enabled: isDeepThinkingEnabled,
+        web_search_enabled: isWebSearchEnabled,
+        knowledge_base_id: selectedKnowledgeBaseIds[0] || null,
+        knowledge_base_ids: selectedKnowledgeBaseIds,
+        skill_key: selectedSkillKey,
+        tool_run_mode: toolRunMode,
       }, assistantMessageId);
     } catch {
       // localError 已在 helper 中设置
@@ -1817,20 +1600,20 @@ export function ChatThread({
     );
 
     try {
-      await streamIntoExistingAssistant("/api/chat/edit-last-user", {
-        conversationId,
-        userMessageId: messageId,
-        assistantMessageId: latestAssistantMessageId,
+      await streamIntoExistingAssistant("/api/backend/chat/runs/edit", {
+        conversation_id: conversationId,
+        user_message_id: messageId,
+        assistant_message_id: latestAssistantMessageId,
         content: nextContent,
         attachments: nextAttachments,
-        modelName: selectedModel,
-        systemPrompt,
-        thinkingEnabled: isDeepThinkingEnabled,
-        webSearchEnabled: isWebSearchEnabled,
-        knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
-        knowledgeBaseIds: selectedKnowledgeBaseIds,
-        skillKey: selectedSkillKey,
-        toolRunMode,
+        model_name: selectedModel,
+        system_prompt: systemPrompt,
+        thinking_enabled: isDeepThinkingEnabled,
+        web_search_enabled: isWebSearchEnabled,
+        knowledge_base_id: selectedKnowledgeBaseIds[0] || null,
+        knowledge_base_ids: selectedKnowledgeBaseIds,
+        skill_key: selectedSkillKey,
+        tool_run_mode: toolRunMode,
       }, latestAssistantMessageId);
     } catch {
       // 用户消息在后端已被更新，失败时保留编辑结果，只标记回答失败。
@@ -1913,188 +1696,28 @@ export function ChatThread({
     chatRunIdRef.current = null;
 
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
+      const run = await requestJson<ChatRunSnapshot>("/api/backend/chat/runs", {
+        method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          clientRequestId: crypto.randomUUID(),
-          conversationId: requestConversationId,
-          modelName: selectedModel,
-          systemPrompt,
-          title: buildDraftTitle(content, uiLanguage),
-          attachments: pendingUploads,
-          thinkingEnabled: isDeepThinkingEnabled,
-          webSearchEnabled: isWebSearchEnabled,
-          knowledgeBaseId: selectedKnowledgeBaseIds[0] || null,
-          knowledgeBaseIds: selectedKnowledgeBaseIds,
-          mcpResources: selectedMcpResources,
-          skillKey: selectedSkillKey,
-          toolRunMode,
-          messages: [
-            {
-              role: "user",
-              parts: [{ type: "text", text: content }],
-            },
-          ],
+          client_request_id: crypto.randomUUID(), conversation_id: requestConversationId,
+          content, model_name: selectedModel, system_prompt: systemPrompt,
+          title: buildDraftTitle(content, uiLanguage), attachments: pendingUploads,
+          thinking_enabled: isDeepThinkingEnabled, web_search_enabled: isWebSearchEnabled,
+          knowledge_base_id: selectedKnowledgeBaseIds[0] || null, knowledge_base_ids: selectedKnowledgeBaseIds,
+          mcp_resources: selectedMcpResources, skill_key: selectedSkillKey, tool_run_mode: toolRunMode,
         }),
-        cache: "no-store",
         signal: controller.signal,
       });
-
-      const responseConversationId =
-        response.headers.get("x-conversation-id") ?? requestConversationId;
-      chatRunIdRef.current = response.headers.get("x-chat-run-id");
+      chatRunIdRef.current = run.id;
       if (userStopRequestedRef.current) await stopChatRun();
-      onContextInfoChange(
-        {
-          notices: parseContextNoticesHeader(response.headers.get("x-context-notices")),
-          stats: parseContextStatsHeader(response.headers.get("x-context-stats")),
-          details: parseContextDetailsHeader(response.headers.get("x-context-details")),
-        },
-        responseConversationId
-      );
-      if (
-        !response.headers.get("x-context-stats") &&
-        !response.headers.get("x-context-notices") &&
-        !response.headers.get("x-context-details")
-      ) {
-        setIsContextPanelOpen(false);
-      }
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Request failed: ${response.status}`);
-      }
-
-      if (!response.body) {
-        throw new Error("响应体为空，无法开始流式读取");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantText = "";
-      let reasoningText = "";
-      let externalSources: ExternalSource[] = [];
-      let citationAudit: CitationAudit | null = null;
-      let toolEvents: ToolTraceEvent[] = [];
-      let eventBuffer = "";
-      let streamErrorReason: string | null = null;
-      let terminalStatus = "streaming";
-      let persistedAssistantMessageId: string | null = null;
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
-
-        if (!value) {
-          continue;
-        }
-
-        eventBuffer += decoder.decode(value, { stream: true });
-        const parsed = parseStreamEvents(eventBuffer);
-        eventBuffer = parsed.rest;
-        for (const streamEvent of parsed.events) {
-          if (streamEvent.type === "run_snapshot") {
-            assistantText = streamEvent.run.content;
-            reasoningText = streamEvent.run.reasoning_content;
-            externalSources = streamEvent.run.external_sources;
-            citationAudit = streamEvent.run.citation_audit;
-            toolEvents = [];
-            terminalStatus = runMessageStatus(streamEvent.run.status);
-          } else if (streamEvent.type === "run_status") {
-            terminalStatus = runMessageStatus(streamEvent.status);
-          } else if (streamEvent.type === "context_info") {
-            onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
-          } else if (streamEvent.type === "answer_delta") {
-            assistantText += streamEvent.text;
-          } else if (streamEvent.type === "reasoning_delta") {
-            reasoningText += streamEvent.text;
-          } else if (streamEvent.type === "citation_audit") {
-            citationAudit = streamEvent.audit;
-          } else if (streamEvent.type === "tool_sources") {
-            externalSources = streamEvent.sources ?? [];
-          } else if (isToolTraceEvent(streamEvent)) {
-            toolEvents = [...toolEvents, streamEvent];
-          } else if (streamEvent.type === "done" && streamEvent.assistant_message_id) {
-            persistedAssistantMessageId = streamEvent.assistant_message_id;
-          } else if (streamEvent.type === "model_error" || streamEvent.type === "stream_error") {
-            streamErrorReason = streamEvent.error || text.replyModelFailed;
-          }
-        }
-        setThreadMessages((current) =>
-          current.map((message) =>
-            message.id === tempAssistantMessageId
-              ? {
-                  ...message,
-                  content: assistantText,
-                  reasoningContent: reasoningText,
-                  externalSources,
-                  citationAudit,
-                  toolEvents,
-                  status: "streaming",
-                }
-              : message
-          )
-        );
-      }
-
-      eventBuffer += decoder.decode();
-      const finalParsed = parseStreamEvents(`${eventBuffer}\n`);
-      for (const streamEvent of finalParsed.events) {
-        if (streamEvent.type === "run_snapshot") {
-          assistantText = streamEvent.run.content;
-          reasoningText = streamEvent.run.reasoning_content;
-          externalSources = streamEvent.run.external_sources;
-          citationAudit = streamEvent.run.citation_audit;
-          toolEvents = [];
-          terminalStatus = runMessageStatus(streamEvent.run.status);
-        } else if (streamEvent.type === "run_status") {
-          terminalStatus = runMessageStatus(streamEvent.status);
-        } else if (streamEvent.type === "context_info") {
-          onContextInfoChange(streamEvent.info, streamEvent.conversation_id);
-        } else if (streamEvent.type === "answer_delta") {
-          assistantText += streamEvent.text;
-        } else if (streamEvent.type === "reasoning_delta") {
-          reasoningText += streamEvent.text;
-        } else if (streamEvent.type === "citation_audit") {
-          citationAudit = streamEvent.audit;
-        } else if (streamEvent.type === "tool_sources") {
-          externalSources = streamEvent.sources ?? [];
-        } else if (isToolTraceEvent(streamEvent)) {
-          toolEvents = [...toolEvents, streamEvent];
-        } else if (streamEvent.type === "done" && streamEvent.assistant_message_id) {
-          persistedAssistantMessageId = streamEvent.assistant_message_id;
-        } else if (streamEvent.type === "model_error" || streamEvent.type === "stream_error") {
-          streamErrorReason = streamEvent.error || text.replyModelFailed;
-        }
-      }
-      if (streamErrorReason) {
-        throw new Error(streamErrorReason);
-      }
-      setThreadMessages((current) =>
-        current.map((message) =>
-          message.id === tempAssistantMessageId
-            ? {
-                ...message,
-                id: persistedAssistantMessageId ?? message.id,
-                content: assistantText,
-                reasoningContent: reasoningText,
-                externalSources,
-                citationAudit,
-                toolEvents,
-                status: terminalStatus,
-              }
-            : message
-        )
-      );
+      setIsContextPanelOpen(false);
+      const status = await subscribeIntoAssistant(run, tempAssistantMessageId, controller.signal);
+      setThreadMessages((current) => current.map((message) => message.id === tempAssistantMessageId
+        ? { ...message, id: run.assistant_message_id } : message));
+      if (status === "done") setLocalError(null);
 
       setStreamingStartedAt(null);
       setStreamingElapsedSeconds(0);
-      setLocalError(null);
       syncAfterRequest();
     } catch (sendError) {
       const isAbort = sendError instanceof DOMException && sendError.name === "AbortError";

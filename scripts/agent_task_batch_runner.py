@@ -1,6 +1,7 @@
 """业务评测的真实执行适配层；不替代业务服务，不修改用户模型配置。"""
 
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 from pathlib import Path
 import re
 import shutil
@@ -198,7 +199,7 @@ class PilotRunner:
         stream_events, error_type, usage_count, final_usage, http_status = [], None, 0, None, None
         deadline = time.monotonic() + self.timeout
         try:
-            with self.client.stream('POST', '/api/chat/events-stream', json={
+            with chat_stream(self.client, '/api/chat/runs', json={
                 'conversation_id': conversation_id, 'content': query, 'model_name': MODEL,
                 'web_search_enabled': True, 'tool_run_mode': case['mode'],
                 'knowledge_base_ids': [knowledge['id']] if knowledge else [],
@@ -206,16 +207,14 @@ class PilotRunner:
                 http_status=response.status_code
                 if response.is_error:
                     raise RuntimeError(f'Chat接口HTTP {response.status_code}')
-                for line in response.iter_lines():
+                for event in iter_sse_events(response.iter_lines()):
                     if time.monotonic() > deadline:
                         raise RuntimeError('Chat超过总时长上限')
-                    if line.strip():
-                        event = json.loads(line)
-                        # 增量正文以数据库最终消息为准，避免报告重复几千段Token。
-                        if event.get('type') == 'provider_usage':
-                            usage_count, final_usage = usage_count + 1, event
-                        elif event.get('type') not in {'answer_delta', 'reasoning_delta'}:
-                            stream_events.append(event)
+                    # 增量正文以数据库最终消息为准，避免报告重复几千段Token。
+                    if event.get('type') == 'provider_usage':
+                        usage_count, final_usage = usage_count + 1, event
+                    elif event.get('type') not in {'answer_delta', 'reasoning_delta'}:
+                        stream_events.append(event)
         except (httpx.HTTPError, ValueError, RuntimeError) as exc:
             error_type = type(exc).__name__
         row = self.chat_snapshot(conversation_id)

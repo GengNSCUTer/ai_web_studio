@@ -10,6 +10,7 @@ from typing import Any
 
 import anyio
 from fastapi.responses import StreamingResponse
+from app.services.chat_sse import encode_chat_sse
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -137,7 +138,7 @@ def _truncate_header_text(value: Any, max_chars: int) -> Any:
 def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, Any]:
     """压缩上下文诊断头。
 
-    完整来源、工具 trace 会通过 NDJSON body 或消息接口读取；header 只保留少量摘要，
+    完整来源、工具 trace 会通过 SSE 事件或消息接口读取；header 只保留少量摘要，
     防止代理/浏览器因为 header 过大直接中断流式响应。
     """
     compact: dict[str, Any] = {}
@@ -226,9 +227,9 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
     return compact
 
 
-def _encode_stream_event(event_type: str, **payload: Any) -> str:
-    # 前端按行读取 NDJSON；每个事件必须以换行结束。
-    return json.dumps({"type": event_type, **payload}, ensure_ascii=False) + "\n"
+def _stream_event(event_type: str, **payload: Any) -> dict:
+    # 进程内传递业务对象；仅HTTP订阅边界编码为SSE。
+    return {"type": event_type, **payload}
 
 
 def _persist_stream_result(
@@ -360,10 +361,9 @@ def _build_streaming_response(
     context: ChatExecutionContext,
     provider_service: ChatProviderService,
     *,
-    event_stream: bool = False,
     persist_callback=None,
     stream_only: bool = False,
-) -> StreamingResponse | AsyncIterator[str]:
+) -> StreamingResponse | AsyncIterator[dict]:
     """统一生成/超时/审计/收口；Worker只拿迭代器，内部兼容调用可包装响应。
 
     正式Web路径不调用本函数启动模型，只订阅Worker已经持久化的事件。
@@ -393,24 +393,23 @@ def _build_streaming_response(
                 reasoning_parts=reasoning_parts, assistant_message_id=assistant_message_id,
                 conversation_id=conversation_id, user_id=user_id, postgresql=postgresql)
         try:
-            if event_stream:
-                # 诊断不能仅依赖有大小上限的响应头；NDJSON 内发送一份完整、安全的摘要。
-                yield _encode_stream_event("context_info", conversation_id=conversation_id, info={
-                    "notices": context.context_notices,
-                    "stats": {key: str(value) for key, value in context.context_stats.items() if key != "memory_retrieval"},
-                    "details": _compact_context_details_for_header(context.context_details),
-                })
-                # 工具事件先发给前端，让用户看到“为什么调用工具、调用了什么、是否成功”。
-                for tool_event in context.tool_events:
-                    event_type = str(tool_event.get("type") or "")
-                    payload = {key: value for key, value in tool_event.items() if key != "type"}
-                    if event_type:
-                        yield _encode_stream_event(event_type, **payload)
-                if context.tool_events or context.external_sources:
-                    yield _encode_stream_event(
-                        "tool_sources",
-                        sources=context.external_sources,
-                    )
+            # 诊断通过业务事件发送，最终由订阅边界编码为SSE。
+            yield _stream_event("context_info", conversation_id=conversation_id, info={
+                "notices": context.context_notices,
+                "stats": {key: str(value) for key, value in context.context_stats.items() if key != "memory_retrieval"},
+                "details": _compact_context_details_for_header(context.context_details),
+            })
+            # 工具事件先发给前端，让用户看到“为什么调用工具、调用了什么、是否成功”。
+            for tool_event in context.tool_events:
+                event_type = str(tool_event.get("type") or "")
+                payload = {key: value for key, value in tool_event.items() if key != "type"}
+                if event_type:
+                    yield _stream_event(event_type, **payload)
+            if context.tool_events or context.external_sources:
+                yield _stream_event(
+                    "tool_sources",
+                    sources=context.external_sources,
+                )
             async def verified_edit_events():
                 yield ChatStreamEvent(type='answer_delta', text=context.verified_file_edit_answer)
 
@@ -450,19 +449,17 @@ def _build_streaming_response(
                     if event.type == "provider_finish" and event.data:
                         reason = str(event.data.get("finish_reason") or "unknown")
                         context.context_stats["provider_finish_reason"] = reason
-                        if event_stream:
-                            yield _encode_stream_event("provider_finish", finish_reason=reason)
+                        yield _stream_event("provider_finish", finish_reason=reason)
                         if reason == "length":
                             raise ChatOutputLimitError()
                         continue
                     if event.type == "reasoning_delta":
                         # reasoning_delta 是深度思考过程；单独存储，避免混入最终回答正文。
-                        if event_stream:
-                            yield _encode_stream_event("reasoning_delta", text=event.text)
+                        yield _stream_event("reasoning_delta", text=event.text)
                         continue
                     if event.type == "answer_delta":
                         # answer_delta 才是最终回答正文。
-                        yield _encode_stream_event("answer_delta", text=event.text) if event_stream else event.text
+                        yield _stream_event("answer_delta", text=event.text)
                         continue
                     if event.type == "provider_usage" and event.data:
                         # usage 事件来自 Provider 最终 chunk，不包含凭据；它让前端/测试能够
@@ -487,29 +484,25 @@ def _build_streaming_response(
                                 ),
                             }
                         )
-                        if event_stream:
-                            yield _encode_stream_event("provider_usage", **event.data)
+                        yield _stream_event("provider_usage", **event.data)
 
             # 图生成节点结束后由独立节点保存；路由只按保存结果输出终态事件。
             if stream_context.error is not None:
                 raise stream_context.error
             persisted = stream_context.persisted
             if not persisted:
-                if event_stream:
-                    yield _encode_stream_event(
-                        "model_error",
-                        error="该回答已被新的生成请求接管。",
-                        error_code="generation_superseded",
-                        assistant_message_id=assistant_message_id,
-                    )
+                yield _stream_event(
+                    "model_error",
+                    error="该回答已被新的生成请求接管。",
+                    error_code="generation_superseded",
+                    assistant_message_id=assistant_message_id,
+                )
                 return
-            if event_stream:
-                yield _encode_stream_event("citation_audit", audit=context.context_details["citation_audit"])
-                yield _encode_stream_event("done", assistant_message_id=assistant_message_id)
+            yield _stream_event("citation_audit", audit=context.context_details["citation_audit"])
+            yield _stream_event("done", assistant_message_id=assistant_message_id)
         except asyncio.CancelledError:
-            # 客户端主动停止或连接断开时，保存 partial content，前端用 cancelled 展示“已停止”。
-            # Starlette 的断连取消会影响当前取消作用域。短时间 shield 数据库收口，
-            # 否则异步驱动刚开始 await 时又被取消，partial 回答可能永久留在 streaming。
+            # 生成任务被取消时保存部分内容；浏览器断开只影响SSE订阅，不取消Worker生成器。
+            # 短时间屏蔽外部取消以完成数据库收口，避免部分回答永久留在streaming。
             with anyio.move_on_after(10, shield=True) as save_scope:
                 try:
                     await save("cancelled")
@@ -533,33 +526,34 @@ def _build_streaming_response(
             else:
                 persisted = await save("failed")
             if not persisted:
-                if event_stream:
-                    yield _encode_stream_event(
-                        "model_error",
-                        error="该回答已被新的生成请求接管。",
-                        error_code="generation_superseded",
-                        assistant_message_id=assistant_message_id,
-                    )
-                return
-            if event_stream:
-                error_code, public_error = _public_stream_error(exc)
-                yield _encode_stream_event("citation_audit", audit=context.context_details["citation_audit"])
-                yield _encode_stream_event(
+                yield _stream_event(
                     "model_error",
-                    error=public_error,
-                    error_code=error_code,
+                    error="该回答已被新的生成请求接管。",
+                    error_code="generation_superseded",
                     assistant_message_id=assistant_message_id,
                 )
                 return
-            raise
+            error_code, public_error = _public_stream_error(exc)
+            yield _stream_event("citation_audit", audit=context.context_details["citation_audit"])
+            yield _stream_event(
+                "model_error",
+                error=public_error,
+                error_code=error_code,
+                assistant_message_id=assistant_message_id,
+            )
+            return
 
     if postgresql:
         db.close()
     if stream_only:
         return text_generator()
+    async def sse_generator():
+        async with aclosing(text_generator()) as events:
+            async for event in events:
+                yield encode_chat_sse(event)
     response = StreamingResponse(
-        text_generator(),
-        media_type="application/x-ndjson; charset=utf-8" if event_stream else "text/plain; charset=utf-8",
+        sse_generator(),
+        media_type="text/event-stream",
         headers={
             "cache-control": "no-cache, no-transform",
             "x-conversation-id": conversation_id,
@@ -577,5 +571,5 @@ def _build_streaming_response(
 
 def generate_chat_events(context, provider_service, *, persist_callback):
     """只返回异步事件迭代器，不创建HTTP响应或订阅连接。"""
-    return _build_streaming_response(context, provider_service, event_stream=True,
+    return _build_streaming_response(context, provider_service,
         persist_callback=persist_callback, stream_only=True)

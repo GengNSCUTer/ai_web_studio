@@ -7,6 +7,7 @@ from typing import Any, TypedDict
 from langgraph.graph import START, END, StateGraph
 from langgraph.runtime import Runtime
 from langsmith import tracing_context
+from app.services.memory_semantic_gate import parse_semantic_result, TIMEOUT_SECONDS
 
 
 class MemoryExtractionState(TypedDict, total=False):
@@ -16,6 +17,10 @@ class MemoryExtractionState(TypedDict, total=False):
     ready: bool
     candidate_count: int
     control_request: bool
+    semantic_decision: str
+    trigger_action: str | None
+    semantic_eligible: bool
+    semantic_resume: str | None
 
 
 @dataclass
@@ -32,7 +37,10 @@ async def _snapshot(state: MemoryExtractionState, runtime: Runtime[MemoryExtract
     ctx = runtime.context
     ctx.snapshot = ctx.worker._load_snapshot(ctx.job_id, ctx.lease_version)
     return {"phase": "source_snapshot", "ready": ctx.snapshot is not None,
-            "control_request": bool(ctx.snapshot and ctx.snapshot.get("control_request"))}
+            "control_request": bool(ctx.snapshot and ctx.snapshot.get("control_request")),
+            "semantic_eligible": bool(ctx.snapshot and ctx.snapshot.get("semantic_eligible")),
+            "semantic_resume": ctx.snapshot.get("semantic_resume") if ctx.snapshot else None,
+            "trigger_action": ctx.snapshot.get("trigger_action") if ctx.snapshot else None}
 
 
 async def _control(state: MemoryExtractionState, runtime: Runtime[MemoryExtractionContext]):
@@ -45,6 +53,35 @@ async def _extract(state: MemoryExtractionState, runtime: Runtime[MemoryExtracti
     ctx = runtime.context
     ctx.raw = await asyncio.wait_for(ctx.worker.provider.complete_chat(**ctx.snapshot["provider_call"]), 45)
     return {"phase": "model_returned"}
+
+
+async def _semantic_gate(state: MemoryExtractionState, runtime: Runtime[MemoryExtractionContext]):
+    ctx = runtime.context
+    saved = state.get("semantic_resume")
+    if saved:
+        # 判断已提交但来源尚未消费时，仅重做锁内收口，不重复请求语义模型。
+        completed = (ctx.worker._complete_semantic_skip(ctx.job_id, ctx.lease_version) if saved == "skip"
+            else ctx.worker._defer_semantic_buffer(ctx.job_id, ctx.lease_version))
+        return {"phase": "semantic_resumed", "ready": completed,
+                "semantic_decision": "complete" if completed else "stop"}
+    if not ctx.worker._reserve_semantic_call(ctx.job_id, ctx.lease_version):
+        return {"phase": "semantic_not_scheduled", "semantic_decision": "fallback"}
+    try:
+        raw = await asyncio.wait_for(ctx.worker.provider.complete_chat(**ctx.snapshot["semantic_call"]), TIMEOUT_SECONDS)
+        action, confidence, reason = parse_semantic_result(raw)
+    except Exception:
+        action, confidence, reason = "buffer", "low", "semantic_gate_unavailable"
+    if not ctx.worker._record_semantic_decision(ctx.job_id, ctx.lease_version, action, confidence):
+        return {"phase": "lease_lost", "semantic_decision": "stop"}
+    if action == "skip" and confidence == "high":
+        completed = ctx.worker._complete_semantic_skip(ctx.job_id, ctx.lease_version)
+        return {"phase": "semantic_skipped", "ready": completed, "semantic_decision": "complete" if completed else "stop"}
+    if action == "buffer" and confidence == "high" and not ctx.snapshot.get("semantic_buffer_full"):
+        completed = ctx.worker._defer_semantic_buffer(ctx.job_id, ctx.lease_version)
+        return {"phase": "semantic_buffered", "ready": completed, "semantic_decision": "complete" if completed else "stop"}
+    # 缓冲满窗时也走原提取链释放位置，避免新事实永远没有扫描空间。
+    # 低置信度 skip 不能直接结束，否则 Job 会停留 running 并反复重领。
+    return {"phase": "semantic_checked", "ready": True, "semantic_decision": "fallback"}
 
 
 async def _verify(state: MemoryExtractionState, runtime: Runtime[MemoryExtractionContext]):
@@ -77,11 +114,15 @@ async def _backlog(state: MemoryExtractionState, runtime: Runtime[MemoryExtracti
 
 def build_memory_extraction_graph():
     graph = StateGraph(MemoryExtractionState, context_schema=MemoryExtractionContext)
-    for name, node in (("snapshot", _snapshot), ("extract", _extract), ("verify", _verify),
+    for name, node in (("snapshot", _snapshot), ("semantic_gate", _semantic_gate), ("extract", _extract), ("verify", _verify),
                        ("conflicts", _conflicts), ("persist", _persist), ("control", _control), ("backlog", _backlog)):
         graph.add_node(name, node)
     graph.add_edge(START, "snapshot")
-    graph.add_conditional_edges("snapshot", lambda s: ("control" if s["control_request"] else "extract") if s["ready"] else END)
+    graph.add_conditional_edges("snapshot", lambda s: "control" if s.get("control_request") else (
+        "semantic_gate" if s["ready"] and (s.get("semantic_eligible") or s.get("semantic_resume"))
+        else ("extract" if s["ready"] else END)))
+    graph.add_conditional_edges("semantic_gate", lambda s: "backlog" if s.get("semantic_decision") == "complete"
+        else END if s.get("semantic_decision") == "stop" else "extract")
     graph.add_edge("extract", "verify")
     graph.add_conditional_edges("verify", lambda s: "conflicts" if s["ready"] else END)
     graph.add_edge("conflicts", "persist")

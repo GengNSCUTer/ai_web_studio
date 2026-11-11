@@ -1786,6 +1786,24 @@ export function SettingsCenter({
                       />
                       {uiLanguage === "zh-CN" ? "自动提取记忆候选" : "Auto-extract memory candidates"}
                     </label>
+                    <label className="flex items-start gap-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(userSettings.memory_semantic_trigger_enabled)}
+                        onChange={(event) => setUserSettings((current) => ({
+                          ...current,
+                          memory_semantic_trigger_enabled: event.target.checked,
+                        }))}
+                      />
+                      <span>
+                        {uiLanguage === "zh-CN" ? "低频语义复核缓冲信息" : "Review buffered information with the model"}
+                        <span className="mt-1 block text-xs leading-5 text-[var(--ink-muted)]">
+                          {uiLanguage === "zh-CN"
+                            ? "默认关闭。自动提取开启且积累至少 4 条待定信息时，使用当前模型复核；每用户 60 秒至多一次，可能产生额外费用。不直接启用或修改记忆。"
+                            : "Off by default. With auto-extraction enabled, review batches of at least 4 buffered messages at most once per user per 60 seconds. Uses your model and may add cost; does not activate or edit memories."}
+                        </span>
+                      </span>
+                    </label>
                     <label className="flex items-center gap-3 rounded-2xl border border-[var(--hairline)] bg-[var(--soft-bg)] px-4 py-3 text-sm">
                       <input
                         type="checkbox"

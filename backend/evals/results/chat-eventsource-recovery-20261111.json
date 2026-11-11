@@ -1,0 +1,48 @@
+{
+  "scope": "账号当前在线模型、唯一托管ChatWorker、浏览器和PostgreSQL；不调用Ollama",
+  "model": "deepseek-flash",
+  "cases": [
+    {
+      "case": "收到100Token后彻底关闭浏览器并重开",
+      "status": "passed",
+      "received_cl100k_tokens_before_close": 176,
+      "chars_before_close": 767,
+      "browser_visible_cl100k_tokens_before_close": 172,
+      "final_chars": 3136,
+      "worker_final_generation_attempts": 1,
+      "content_matches_database": true,
+      "complete_after_browser_closed": true,
+      "web_restarted_without_restarting_worker": true
+    },
+    {
+      "case": "活跃任务SSE重连/真实停止/重复停止",
+      "status": "passed",
+      "final_status": "cancelled",
+      "partial_chars": 88,
+      "model_attempts": 1,
+      "duplicate_cancel_no_new_event": true
+    },
+    {
+      "case": "取消后新发/真实文件工具/最终回答/尾游标重放",
+      "status": "passed",
+      "tools": [
+        "workspace.files.read",
+        "workspace.files.search"
+      ],
+      "answer_chars": 383,
+      "langgraph": true
+    }
+  ],
+  "latest_attempt": {
+    "case": "关闭浏览器后完成",
+    "status": "succeeded",
+    "error_code": null,
+    "answer": "# PostgreSQL Transactions: A 12-Part Tutorial\n\n**1. What a transaction is.** A PostgreSQL transaction groups several statements into one all-or-nothing unit. Either every change is committed and becomes visible to other sessions, or none of it survives. Postgres records changes in the write-ahead log before touching data files, so a crash in the middle of a transaction leaves your tables exactly as they were.\n\n**2. BEGIN and COMMIT.** Open a block, then persist it:\n```sql\nBEGIN;\nUPDATE accounts SET balance = balance - 100 WHERE id = 1;\nUPDATE accounts SET balance = balance + 100 WHERE id = 2;\nCOMMIT;\n```\nBoth rows change together, or neither does — the classic money-transfer guarantee.\n\n**3. ROLLBACK.** Discard everything since `BEGIN`:\n```sql\nBEGIN;\nDELETE FROM orders WHERE id = 42;\nROLLBACK;  -- order 42 still exists\n```\nRollback is cheap in Postgres; it simply marks the transaction's changes as dead.\n\n**4. Autocommit.** Without `BEGIN`, each statement is its own transaction. A bare `INSERT ...;` commits the instant it finishes, which is why psql reports `INSERT 0 1` immediately. There is no open block to roll back unless you explicitly start one.\n\n**5. Savepoints.** Roll back part of a transaction while keeping the rest:\n```sql\nBEGIN;\nINSERT INTO t VALUES (1);\nSAVEPOINT sp1;\nINSERT INTO t VALUES (2);\nROLLBACK TO sp1;   -- removes 2, keeps 1\nCOMMIT;\n```\n\n**6. Isolation levels.** Postgres offers `READ COMMITTED` (the default), `REPEATABLE READ`, and `SERIALIZABLE`. Set it per transaction: `BEGIN ISOLATION LEVEL REPEATABLE READ;`. Higher levels trade concurrency for stronger guarantees.\n\n**7. READ COMMITTED.** Each *statement* takes a fresh snapshot. Two identical `SELECT`s inside one transaction can return different rows if another session committed in between. This is fine for most OLTP work but surprising when you expect stability.\n\n**8. REPEATABLE READ.** One snapshot serves the whole transaction, so repeated reads agree. If a concurrent session updates a row you then try to modify, you get `ERROR: could not serialize access due to concurrent update` and must retry the transaction.\n\n**9. SERIALIZABLE.** Adds predicate locking so the outcome matches some serial execution order. It may abort with a serialization failure, so always wrap it in a retry loop:\n```sql\nBEGIN ISOLATION LEVEL SERIALIZABLE;\n-- reads and writes\nCOMMIT;\n```\n\n**10. Row locking.** `SELECT ... FOR UPDATE` blocks competing writers until your transaction ends:\n```sql\nBEGIN;\nSELECT balance FROM accounts WHERE id = 1 FOR UPDATE;\nUPDATE accounts SET balance = balance - 100 WHERE id = 1;\nCOMMIT;\n```\nUse `FOR UPDATE NOWAIT` to fail fast rather than queue.\n\n**11. Deadlocks.** Two sessions locking rows in opposite order will deadlock; Postgres detects it and aborts one with `deadlock detected`. Prevent it by always locking rows in a consistent order, such as ascending `id`.\n\n**12. Best practices.** Keep transactions short, never hold one open waiting on user input, retry on serialization and deadlock errors, and bound runaway work with `SET LOCAL statement_timeout = '5s';` inside the block.\n\nCHAT_RUN_COMPLETE_20261108",
+    "provider_finish_reason": "stop",
+    "output_tokens": 1760,
+    "output_limit": 8192,
+    "runtime_verified": true
+  },
+  "browser_errors": [],
+  "status": "passed"
+}

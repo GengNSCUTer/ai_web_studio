@@ -1,6 +1,7 @@
 """真实在线记忆关系、后台提取、浏览器审核与后续Chat；只创建合成临时资料。"""
 
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import os
 import time
 from pathlib import Path
@@ -139,13 +140,10 @@ def run():
         later = request('POST', '/api/conversations', {'project_id':project_id,'title':'新会话复核记忆',
                                                       'model_name':'deepseek-ai/DeepSeek-V3.2'})
         answer, injected, done = [], [], False
-        with client.stream('POST', '/api/chat/events-stream', json={'conversation_id':later['id'],
+        with chat_stream(client, '/api/chat/runs', json={'conversation_id':later['id'],
             'content':'根据项目记忆，项目资料默认保留几天？仅回答天数。', 'model_name':'deepseek-ai/DeepSeek-V3.2'}) as response:
             assert response.is_success
-            for line in response.iter_lines():
-                if not line.strip():
-                    continue
-                event = json.loads(line)
+            for event in iter_sse_events(response.iter_lines()):
                 assert event['type'] != 'error', '后续Chat生成失败'
                 if event['type'] == 'answer_delta':
                     answer.append(event['text'])

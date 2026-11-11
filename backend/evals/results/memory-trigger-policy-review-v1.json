@@ -1,0 +1,73 @@
+{
+  "dataset_version": "memory-trigger-review-v1",
+  "source": "人工整理的规则正反例与当前面试复盘样本，不代表线上用户分布",
+  "policy_version": "rules-v2",
+  "evaluation": "rules_only_replay",
+  "total": 48,
+  "correct": 45,
+  "action_accuracy": 0.9375,
+  "trigger_precision": 1.0,
+  "trigger_recall": 0.85,
+  "false_trigger_rate": 0.0,
+  "miss_rate": 0.15,
+  "confusion": {
+    "tp": 17,
+    "fp": 0,
+    "fn": 3,
+    "tn": 28
+  },
+  "by_label": {
+    "extract_now": {
+      "total": 11,
+      "correct": 8,
+      "precision": 1.0,
+      "recall": 0.7273
+    },
+    "revise": {
+      "total": 5,
+      "correct": 5,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "revoke": {
+      "total": 4,
+      "correct": 4,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "buffer": {
+      "total": 10,
+      "correct": 10,
+      "precision": 0.8333,
+      "recall": 1.0
+    },
+    "skip": {
+      "total": 18,
+      "correct": 18,
+      "precision": 0.9474,
+      "recall": 1.0
+    }
+  },
+  "errors": [
+    {
+      "id": "s13",
+      "text": "我的项目使用 PostgreSQL，问题是如何优化索引？",
+      "expected": "extract_now",
+      "predicted": "skip"
+    },
+    {
+      "id": "s22",
+      "text": "数据库已经定为 PostgreSQL。",
+      "expected": "extract_now",
+      "predicted": "buffer"
+    },
+    {
+      "id": "s45",
+      "text": "每周二是固定的项目评审日。",
+      "expected": "extract_now",
+      "predicted": "buffer"
+    }
+  ],
+  "additional_semantic_call_attempts": 0,
+  "model_call_scope": "offline_rules_no_model_invoked"
+}

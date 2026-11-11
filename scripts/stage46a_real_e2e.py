@@ -212,7 +212,7 @@ def run() -> None:
             )
 
             def capture_request(request) -> None:
-                if request.method == "POST" and request.url.rstrip("/").endswith("/api/chat"):
+                if request.method == "POST" and request.url.rstrip("/").endswith("/api/backend/chat/runs"):
                     try:
                         captured_chat.update(request.post_data_json or {})
                     except Exception:
@@ -269,7 +269,7 @@ def run() -> None:
             page.screenshot(path="/tmp/stage46a-real-e2e.png", full_page=True)
             browser.close()
 
-        if captured_chat.get("toolRunMode") != "workspace_review":
+        if captured_chat.get("tool_run_mode") != "workspace_review":
             raise AssertionError("浏览器请求没有携带 workspace_review 运行模式。")
         if console_errors:
             raise AssertionError("浏览器出现错误：\n" + "\n".join(console_errors[:5]))

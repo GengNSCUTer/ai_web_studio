@@ -5,6 +5,7 @@
 
 import argparse
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import os
 import sys
 import time
@@ -82,12 +83,11 @@ def run(output: Path):
         def chat(name, path, payload, *, tool=False, rag=False):
             events = []
             started = time.monotonic()
-            with client.stream("POST", path, json=payload) as response:
+            with chat_stream(client, path, json=payload) as response:
                 assert response.is_success, f"{name}: HTTP {response.status_code}"
                 aid = response.headers["x-assistant-message-id"]
-                for line in response.iter_lines():
-                    if line.strip():
-                        events.append(json.loads(line))
+                for event in iter_sse_events(response.iter_lines()):
+                    events.append(event)
             assert events[-1]["type"] == "done", f"{name}:未正常结束"
             assert not any(e["type"] == "model_error" for e in events), name
             answer = "".join(e["text"] for e in events if e["type"] == "answer_delta")
@@ -133,38 +133,38 @@ def run(output: Path):
             return aid, gid
 
         cid = conversation("普通")
-        aid, old_gid = chat("普通对话", "/api/chat/events-stream", {
+        aid, old_gid = chat("普通对话", "/api/chat/runs", {
             "conversation_id": cid, "content": "请用一句话解释什么是数据库事务。"})
-        new_aid, new_gid = chat("重生成", "/api/chat/regenerate-last-stream", {
+        new_aid, new_gid = chat("重生成", "/api/chat/runs/regenerate", {
             "conversation_id": cid, "assistant_message_id": aid})
         assert new_aid == aid and old_gid != new_gid
         with SessionLocal() as db:
             mid = db.scalar(select(Message.id).where(Message.conversation_id == cid,
                 Message.role == "user").order_by(Message.sequence.desc()).limit(1))
-        _, edited_gid = chat("编辑重答", "/api/chat/edit-last-user-stream", {
+        _, edited_gid = chat("编辑重答", "/api/chat/runs/edit", {
             "conversation_id": cid, "assistant_message_id": aid,
             "user_message_id": mid, "content": "请用一句话解释事务的原子性。"})
         assert edited_gid != new_gid
         fixture = json.loads((ROOT / "backend/evals/paper_100_chinese_20261028.json").read_text())
         question = fixture["cases"][0]["query"]
-        chat("RAG", "/api/chat/events-stream", {"conversation_id": conversation("RAG"),
+        chat("RAG", "/api/chat/runs", {"conversation_id": conversation("RAG"),
             "content": question, "knowledge_base_id": fixture["knowledge_base_id"]}, rag=True)
         file_query = "请搜索并读取 stage46a-readme.md，报告文件第一行及用途，只读文件，不联网不修改。"
-        chat("工具", "/api/chat/events-stream", {"conversation_id": conversation("工具"),
+        chat("工具", "/api/chat/runs", {"conversation_id": conversation("工具"),
             "content": file_query, "web_search_enabled": True, "tool_run_mode": "workspace_review",
             "skill_key": "workspace.document-review"}, tool=True)
-        chat("混合RAG与工具", "/api/chat/events-stream", {"conversation_id": conversation("混合"),
+        chat("混合RAG与工具", "/api/chat/runs", {"conversation_id": conversation("混合"),
             "content": f"请完成两项独立任务：1. {file_query} 2. 用已选择论文库回答：{question} 请简短分项说明并引用来源。",
             "web_search_enabled": True, "tool_run_mode": "workspace_review",
             "skill_key": "workspace.document-review",
             "knowledge_base_id": fixture["knowledge_base_id"]}, tool=True, rag=True)
         cid = conversation("停止")
-        with client.stream("POST", "/api/chat/events-stream", json={"conversation_id": cid,
+        with chat_stream(client, "/api/chat/runs", json={"conversation_id": cid,
             "content": "请详细介绍数据库事务隔离级别及其示例，至少1500字。"}) as response:
             assert response.is_success
             aid = response.headers["x-assistant-message-id"]
-            for line in response.iter_lines():
-                if line and json.loads(line)["type"] == "answer_delta":
+            for event in iter_sse_events(response.iter_lines()):
+                if event["type"] == "answer_delta":
                     break
         deadline = time.monotonic() + 15
         status = "streaming"

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, load_only
 
 from app.core.database import SessionLocal
 from app.models.user_memory import MemoryExtractionJob, UserMemory
+from app.models.memory_trigger_decision import MemoryTriggerDecision
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user_setting import UserSetting
@@ -30,7 +31,8 @@ from app.services.memory_extraction_policy import (
 )
 from app.services.setting_service import SettingService
 from app.services.memory_conflict_service import MemoryConflictService
-from app.services.memory_trigger_policy import classify_memory_signal, forget_target, read_trigger_state
+from app.services.memory_trigger_policy import POLICY_VERSION, classify_memory_signal, forget_target, read_trigger_state
+from app.services.memory_semantic_gate import semantic_prompt, MIN_BUFFER_MESSAGES, COOLDOWN_SECONDS
 
 
 def utcnow() -> datetime:
@@ -91,6 +93,15 @@ class MemoryExtractionJobService:
             return None
         if setting and not setting.memory_enabled:
             # 关闭期间的对话不能在重新开启后被自动补记；手动提取另有显式入口。
+            disabled_sources = list(self.db.scalars(select(Message).where(
+                Message.conversation_id == conversation_id, Message.role == "user",
+                Message.sequence > (conversation.memory_scan_cursor or 0),
+                Message.sequence < assistant.sequence).order_by(Message.sequence.desc()).limit(50)))
+            rows = self._record_decisions(user_id=user_id, conversation=conversation,
+                observed_turn_id=assistant.id, decisions=[(item, classify_memory_signal(item.content),
+                    {"memory_enabled": False}) for item in disabled_sources])
+            for row in rows:
+                row.outcome = "memory_disabled"
             conversation.memory_scan_cursor = max(conversation.memory_scan_cursor or 0, assistant.sequence or 0)
             conversation.memory_trigger_state = json.dumps({"project_id": conversation.project_id, "pending": []})
             self.db.commit()
@@ -115,14 +126,12 @@ class MemoryExtractionJobService:
             MemoryExtractionJob.conversation_id == conversation_id,
             MemoryExtractionJob.status.in_(["pending", "running"])
         ).order_by(MemoryExtractionJob.created_at).limit(1))
-        if outstanding:
-            self.db.commit()
-            return outstanding
         state = read_trigger_state(conversation.memory_trigger_state)
         if state and state.get("project_id") != conversation.project_id:
             # 移动项目不能把旧范围缓冲静默写进新项目；只接收移动后本次的用户输入。
             state = {}
             conversation.memory_scan_cursor = max(0, assistant.sequence - 2)
+        deferred_buffer = bool(state.get("semantic_deferred"))
         pending_ids = [item.get("id") for item in state.get("pending", []) if isinstance(item, dict)][:50]
         pending = list(self.db.scalars(select(Message).where(Message.id.in_(pending_ids),
             Message.conversation_id == conversation_id, Message.role == "user", Message.sequence < assistant.sequence)
@@ -141,32 +150,62 @@ class MemoryExtractionJobService:
                 MemoryExtractionJob.idempotency_key.in_(failed_keys)))
             failed_sources = {source_id for row in failures for source_id in row.split(",")}
         signals = []
+        decisions = []
         seen = set()
+        # 一轮只查询一次有限历史与有效记忆数量，避免每个来源再查询数据库。
+        recent = list(self.db.scalars(select(Message).where(Message.conversation_id == conversation.id,
+            Message.role == "user", Message.sequence < assistant.sequence).order_by(
+                Message.sequence.desc()).limit(6)))
+        active_ids = select(UserMemory.id).where(*UserMemoryRepository(self.db)._retrieval_filter(
+            user_id, conversation.project_id)).limit(100).subquery()
+        active_count = self.db.scalar(select(func.count()).select_from(active_ids)) or 0
         for item in [*pending, *new]:
             if item.id in seen or item.id in failed_sources:
                 continue
             seen.add(item.id)
+            context = self._trigger_context(conversation=conversation, source=item,
+                recent=recent, active_count=active_count)
             decision = classify_memory_signal(item.content)
+            decisions.append((item, decision, context))
             if (force or decision.action != "skip") and (force or automatic or decision.reason in {"explicit_remember", "explicit_forget"}):
                 signals.append((item, decision))
         if new:
             conversation.memory_scan_cursor = max(cursor, max(item.sequence for item in new))
         signals.sort(key=lambda pair: pair[0].sequence)
         # 只存引用与既有来源摘要；每次选取时重新分类，编辑/删除不会继续沿用旧判断。
-        state = {"project_id": conversation.project_id, "pending": [
+        state = {"project_id": conversation.project_id, "semantic_deferred": deferred_buffer, "pending": [
             {"id": item.id, "digest": source_digest(item)} for item, _ in signals]}
         conversation.memory_trigger_state = json.dumps(state)
+        decision_rows = self._record_decisions(user_id=user_id, conversation=conversation,
+            decisions=decisions, observed_turn_id=assistant.id)
+        allowed_ids = {item.id for item, _ in signals}
+        for row in decision_rows:
+            if row.action != "skip" and row.message_id not in allowed_ids:
+                row.outcome = "automatic_disabled"
+        if outstanding:
+            linked = set(outstanding.source_message_ids.split(","))
+            for row in decision_rows:
+                if row.message_id in linked:
+                    row.outcome = "existing_job"
+                    row.job_id = outstanding.id
+                elif row.message_id in allowed_ids:
+                    row.outcome = "deferred_existing_job"
+            self.db.commit()
+            return outstanding
         interval = max(1, min(int(getattr(setting, "memory_auto_candidate_turn_interval", 4) or 4), 50))
         urgent = max((decision for _, decision in signals), key=lambda decision: decision.priority, default=None)
         if not signals or (not force and not urgent.priority and len(signals) < interval):
             self.db.commit()
             return None
-        action = urgent.action if urgent.priority else "extract_now"
+        action = urgent.action if urgent.priority else "buffer"
         reason = "manual_request" if force else urgent.reason if urgent.priority else "batch_fallback"
         # 撤销独立处理；不得将控制语句和其他事实一起交给提取模型。
         source = [item for item, decision in signals if decision.action == "revoke"][:1] if action == "revoke" else [
             item for item, decision in sorted(signals, key=lambda pair: (-pair[1].priority, pair[0].sequence))
             if decision.action != "revoke"]
+        if action == "buffer" and (getattr(setting, "memory_semantic_trigger_enabled", False) or deferred_buffer):
+            # 高置信度 buffer 保留旧来源；新输入必须进入下一批，避免旧满批次反复挡住新上下文。
+            source.sort(key=lambda item: item.sequence, reverse=True)
         # 优先容纳重要事件，余量按最早来源补齐；未选中的来源留在持久缓冲中。
         batch: list[object] = []
         chars = 0
@@ -183,6 +222,7 @@ class MemoryExtractionJobService:
             if force and existing.status == "failed":
                 # 仅显式重新提取才能重试终态失败；刷新证据快照，不重复创建 Job。
                 existing.source_snapshot = source_snapshot(source)
+                existing.source_message_ids = ",".join(item.id for item in source)
                 existing.cursor_end = source[-1].sequence
                 existing.trigger_action = action
                 existing.trigger_reason = reason
@@ -195,6 +235,10 @@ class MemoryExtractionJobService:
                 existing.finished_at = None
                 existing.error_code = None
                 existing.error_message = None
+            for row in decision_rows:
+                if row.message_id in set(existing.source_message_ids.split(",")):
+                    row.job_id = existing.id
+                    row.outcome = "existing_job"
             self.db.commit()
             return existing
         job = MemoryExtractionJob(
@@ -218,6 +262,12 @@ class MemoryExtractionJobService:
                 UserMemory.content == target).limit(2)))
             job.control_result = json.dumps({"targets": [{"id": row.id, "version": row.version} for row in matches]})
         self.db.add(job)
+        self.db.flush()
+        for row in decision_rows:
+            if row.message_id in {item.id for item in source}:
+                row.job_id = job.id
+                row.job_created = True
+                row.outcome = "queued"
         try:
             self.db.commit()
             self.db.refresh(job)
@@ -225,6 +275,49 @@ class MemoryExtractionJobService:
         except IntegrityError:
             self.db.rollback()
             return repo.get_by_idempotency_key(key)
+
+    @staticmethod
+    def _trigger_context(*, conversation: Conversation, source: object, recent: list,
+                         active_count: int) -> dict:
+        """构造不含正文的上下文特征，供审计和离线分析使用。"""
+        source_sequence = getattr(source, "sequence", 0) or 0
+        recent_messages = [item for item in recent if item.sequence < source_sequence][:3]
+        return {
+            "project_scoped": conversation.project_id is not None,
+            "recent_user_turns": len(recent_messages),
+            "active_memory_count": int(active_count),
+            "message_chars": min(len(getattr(source, "content", "") or ""), 2000),
+            "has_question_mark": bool(re.search(r"[?？]", getattr(source, "content", "") or "")),
+            "has_existing_memory_scope": bool(active_count),
+            "recent_decision_signal": any(
+                classify_memory_signal(item.content).action in {"extract_now", "revise"}
+                for item in recent_messages
+            ),
+        }
+
+    def _record_decisions(self, *, user_id: str, conversation: Conversation,
+                          decisions: list[tuple[object, object, dict]], observed_turn_id: str) -> list[MemoryTriggerDecision]:
+        rows: list[MemoryTriggerDecision] = []
+        existing = {(row.message_id, row.source_digest): row for row in self.db.scalars(select(MemoryTriggerDecision).where(
+            MemoryTriggerDecision.conversation_id == conversation.id,
+            MemoryTriggerDecision.observed_turn_id == observed_turn_id,
+            MemoryTriggerDecision.policy_version == POLICY_VERSION))}
+        for message, decision, context in decisions:
+            digest = source_digest(message)
+            exists = existing.get((message.id, digest))
+            if exists:
+                rows.append(exists)
+                continue
+            row = MemoryTriggerDecision(user_id=user_id, conversation_id=conversation.id,
+                project_id=conversation.project_id, message_id=message.id, source_digest=digest,
+                observed_turn_id=observed_turn_id,
+                policy_version=POLICY_VERSION, action=decision.action, reason=decision.reason,
+                outcome="skipped" if decision.action == "skip" else "buffered",
+                priority=decision.priority, context_json=json.dumps(context, ensure_ascii=False))
+            self.db.add(row)
+            rows.append(row)
+        self.db.flush()
+        return rows
 
 
 class MemoryCandidateWorker:
@@ -374,26 +467,42 @@ class MemoryCandidateWorker:
             existing_text = MemoryService(
                 UserMemoryRepository(db), ConversationRepository(db)
             ).build_existing_memory_text(job.user_id, project_id=job.project_id)
-            return {
+            provider_call = {
+                "provider_type": settings.provider_type,
+                "base_url": resolve_provider_base_url(provider_type=settings.provider_type,
+                    configured_ollama_base_url=settings.ollama_base_url,
+                    configured_api_base_url=settings.api_base_url),
+                "api_key": setting_service.resolve_provider_api_key(job.user_id),
+                "model_name": settings.default_model,
+                "messages": _candidate_prompt(recent_text=recent_text, existing_text=existing_text),
+                "temperature": 0.1, "top_p": 0.8, "max_tokens": 1600,
+            }
+            eligible = bool(job.trigger_action == "buffer" and not job.semantic_model_called
+                and settings.memory_semantic_trigger_enabled
+                and len(messages) >= MIN_BUFFER_MESSAGES)
+            buffer_full = len(read_trigger_state(conversation.memory_trigger_state).get("pending", [])) >= 50
+            result = {
                 "user_id": job.user_id,
                 "project_id": job.project_id,
                 "conversation_id": job.conversation_id,
                 "source_message_ids": job.source_message_ids,
-                "provider_call": {
-                    "provider_type": settings.provider_type,
-                    "base_url": resolve_provider_base_url(
-                        provider_type=settings.provider_type,
-                        configured_ollama_base_url=settings.ollama_base_url,
-                        configured_api_base_url=settings.api_base_url,
-                    ),
-                    "api_key": setting_service.resolve_provider_api_key(job.user_id),
-                    "model_name": settings.default_model,
-                    "messages": _candidate_prompt(recent_text=recent_text, existing_text=existing_text),
-                    "temperature": 0.1,
-                    "top_p": 0.8,
-                    "max_tokens": 1600,
-                },
+                "provider_call": provider_call,
+                "trigger_action": job.trigger_action,
+                "semantic_eligible": eligible,
+                "semantic_resume": job.semantic_action if job.semantic_confidence == "high"
+                    and job.semantic_action in {"skip", "buffer"}
+                    and not (job.semantic_action == "buffer" and buffer_full) else None,
+                "semantic_buffer_full": buffer_full,
             }
+            if eligible:
+                recent = list(db.scalars(select(Message).where(Message.conversation_id == job.conversation_id,
+                    Message.role == "user", Message.sequence <= job.cursor_end).order_by(
+                        Message.sequence.desc()).limit(4)))
+                result["semantic_call"] = {**provider_call, "temperature": 0.0, "max_tokens": 240,
+                    "messages": semantic_prompt(source_text=recent_text,
+                        recent_context=_source_text(list(reversed(recent)), max_chars=4000),
+                        existing_text=redact_source(existing_text)[:2000], project_scoped=job.project_id is not None)}
+            return result
 
     def _complete(self, job_id: str, lease_version: int, suggestions: list) -> bool:
         with self.session_factory() as db:
@@ -537,7 +646,73 @@ class MemoryCandidateWorker:
         state["project_id"] = conversation.project_id
         consumed = set(job.source_message_ids.split(","))
         state["pending"] = [item for item in state.get("pending", []) if item.get("id") not in consumed]
+        if not state["pending"]:
+            state["semantic_deferred"] = False
         conversation.memory_trigger_state = json.dumps(state)
+
+    def _reserve_semantic_call(self, job_id: str, lease_version: int) -> bool:
+        """网络前提交用户级调用间隔与 Job 标记；崩溃重领不再次增加价值判断调用。"""
+        with self.session_factory() as db:
+            job = db.scalar(select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update())
+            if not self._owns(job, lease_version) or job.trigger_action != "buffer" or job.semantic_model_called:
+                return False
+            with UserMemoryRepository(db).mutation(job.user_id):
+                conversation = db.scalar(select(Conversation).where(Conversation.id == job.conversation_id,
+                    Conversation.user_id == job.user_id).with_for_update())
+                if not conversation or conversation.project_id != job.project_id:
+                    raise ValueError("conversation_scope_changed")
+                sources = self._load_sources(db, job)
+                settings = db.scalar(select(UserSetting).where(UserSetting.user_id == job.user_id).with_for_update())
+                self._check_consent(job, settings)
+                if not settings.memory_semantic_trigger_enabled or len(sources) < MIN_BUFFER_MESSAGES:
+                    return False
+                last = settings.memory_semantic_last_checked_at
+                if last and last.replace(tzinfo=last.tzinfo or timezone.utc) > utcnow() - timedelta(seconds=COOLDOWN_SECONDS):
+                    return False
+                settings.memory_semantic_last_checked_at = utcnow()
+                job.semantic_model_called = True
+                db.execute(update(MemoryTriggerDecision).where(MemoryTriggerDecision.job_id == job.id)
+                    .values(semantic_model_called=True))
+            return True
+
+    def _record_semantic_decision(self, job_id: str, lease_version: int, action: str,
+                                  confidence: str) -> bool:
+        """结果只记录动作与置信度；不持久化模型自由文本，以免复制隐私。"""
+        with self.session_factory() as db:
+            job = db.scalar(select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update())
+            if not self._owns(job, lease_version):
+                return False
+            self._load_sources(db, job)
+            job.semantic_action, job.semantic_confidence = action, confidence
+            db.execute(update(MemoryTriggerDecision).where(MemoryTriggerDecision.job_id == job.id)
+                .values(semantic_action=action, semantic_confidence=confidence))
+            db.commit()
+            return True
+
+    def _complete_semantic_skip(self, job_id: str, lease_version: int) -> bool:
+        # 复用原文/范围/撤销/开关/租约检查，而不是只把 Job 标成成功。
+        return self._complete(job_id, lease_version, [])
+
+    def _defer_semantic_buffer(self, job_id: str, lease_version: int) -> bool:
+        """等待后续上下文，不消费来源；同一批次幂等键不再排队直到有新输入。"""
+        with self.session_factory() as db:
+            job = db.scalar(select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update())
+            if not self._owns(job, lease_version):
+                return False
+            with UserMemoryRepository(db).mutation(job.user_id):
+                conversation = db.scalar(select(Conversation).where(Conversation.id == job.conversation_id,
+                    Conversation.user_id == job.user_id).with_for_update())
+                if not conversation or conversation.project_id != job.project_id:
+                    raise ValueError("conversation_scope_changed")
+                self._load_sources(db, job)
+                settings = db.scalar(select(UserSetting).where(UserSetting.user_id == job.user_id).with_for_update())
+                self._check_consent(job, settings)
+                job.status, job.result_count, job.finished_at = "succeeded", 0, utcnow()
+                job.lease_owner, job.lease_expires_at = None, None
+                state = read_trigger_state(conversation.memory_trigger_state)
+                state["semantic_deferred"] = True
+                conversation.memory_trigger_state = json.dumps(state)
+            return True
 
     def _complete_control(self, job_id, lease_version):
         """撤销仅接受原始用户明确命令和唯一精确目标；不调用模型猜目标。"""

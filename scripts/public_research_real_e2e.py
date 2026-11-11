@@ -174,7 +174,7 @@ def run() -> None:
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
                 page.on("request", lambda request: requests.append(request.post_data_json)
-                        if request.method == "POST" and request.url.rstrip("/").endswith("/api/chat") else None)
+                        if request.method == "POST" and request.url.rstrip("/").endswith("/api/backend/chat/runs") else None)
                 page.goto(BASE_URL + "/chat", wait_until="networkidle", timeout=60_000)
                 expect(page.get_by_placeholder("输入你的问题")).to_be_visible(timeout=30_000)
                 settings = page.evaluate("""async () => {

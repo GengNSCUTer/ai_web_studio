@@ -17,6 +17,8 @@ from app.schemas.memory import (
     MemoryActivityResponse,
     MemoryReviewRequest,
     MemoryConflictCheckRequest,
+    MemoryTriggerDecisionResponse,
+    MemoryTriggerLabel,
     UserMemoryCreate,
     UserMemoryResponse,
     UserMemoryUpdate,
@@ -32,6 +34,33 @@ from app.services.setting_service import SettingService
 from app.services.memory_conflict_service import MemoryConflictService
 
 router = APIRouter(prefix="/memories", tags=["memories"])
+
+
+@router.get("/trigger-decisions", response_model=list[MemoryTriggerDecisionResponse])
+def list_trigger_decisions(response: Response, conversation_id: str | None = None,
+    limit: int = Query(50, ge=1, le=100), db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
+    from app.models.memory_trigger_decision import MemoryTriggerDecision
+    from app.services.memory_trigger_review_service import owned_decisions
+    response.headers["Cache-Control"] = "no-store"
+    query = owned_decisions(current_user.id)
+    if conversation_id:
+        if not ConversationRepository(db).get_by_user(conversation_id, current_user.id):
+            raise HTTPException(404, "Conversation not found")
+        query = query.where(MemoryTriggerDecision.conversation_id == conversation_id)
+    return list(db.scalars(query.order_by(MemoryTriggerDecision.created_at.desc(),
+        MemoryTriggerDecision.id.desc()).limit(limit)))
+
+
+@router.post("/trigger-decisions/{decision_id}/label", response_model=MemoryTriggerDecisionResponse)
+def review_trigger_decision(decision_id: str, payload: MemoryTriggerLabel, response: Response,
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from app.services.memory_trigger_review_service import label_decision
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return label_decision(db, current_user.id, decision_id, payload)
+    except LookupError as exc:
+        raise HTTPException(404, "Trigger decision not found") from exc
 
 
 def _build_recent_messages_text(messages: list[object], *, max_chars: int = 12000) -> str:

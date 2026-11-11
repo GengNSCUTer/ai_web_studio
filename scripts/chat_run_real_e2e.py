@@ -24,9 +24,12 @@ def run(output):
     from app.models.message import Message
     from app.models.observability import ChatRuntimeMetric
     from app.models.tool_trace import ToolCallRun, ToolRouteRun
+    from app.models.user_setting import UserSetting
 
     token, uid, pid, _, _ = prepare_fixture()
-    report = {"scope": "真实在线DeepSeek-V3.2、唯一托管ChatWorker、浏览器和PostgreSQL；不调用Ollama", "cases": []}
+    with SessionLocal() as db:
+        model = db.scalar(select(UserSetting.default_model).where(UserSetting.user_id == uid))
+    report = {"scope": "账号当前在线模型、唯一托管ChatWorker、浏览器和PostgreSQL；不调用Ollama", "model": model, "cases": []}
     errors, run_ids = [], []
     client = httpx.Client(base_url="http://127.0.0.1:32007", timeout=240,
                           headers={"Authorization": f"Bearer {token}"})
@@ -37,7 +40,7 @@ def run(output):
 
     def conversation(title):
         response = client.post("/api/conversations", json={"project_id": pid, "title": title,
-                              "model_name": "deepseek-ai/DeepSeek-V3.2"})
+                              "model_name": model})
         response.raise_for_status()
         return response.json()["id"]
 
@@ -74,7 +77,7 @@ def run(output):
             browser, page = browser_page(p, cid)
             try:
                 page.get_by_placeholder("输入你的问题").fill(
-                    "Do not use any tools. Write a detailed 1800-word English tutorial about PostgreSQL transactions, "
+                    "Do not use any tools. Write a detailed 600-word English tutorial about PostgreSQL transactions, "
                     "with 12 numbered sections and concrete examples. At the very end write exactly: CHAT_RUN_COMPLETE_20261108")
                 page.get_by_role("button", name="发送消息", exact=True).click()
                 end, run_id = time.monotonic() + 60, None

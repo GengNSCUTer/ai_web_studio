@@ -1,4 +1,4 @@
-"""Chat生成与保存终态的图；HTTP/NDJSON协议仍由路由适配。"""
+"""Chat生成与保存终态的图；内部传递业务事件，HTTP边界统一编码SSE。"""
 
 from __future__ import annotations
 

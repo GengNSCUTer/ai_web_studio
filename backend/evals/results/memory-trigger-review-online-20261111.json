@@ -1,0 +1,28 @@
+{
+  "model": "deepseek-flash",
+  "conversations": 2,
+  "chat_turns": 5,
+  "cases": [
+    {
+      "case": "浏览器开启语义复核、保存与刷新保持",
+      "status": "passed",
+      "browser_errors": 0
+    },
+    {
+      "case": "四轮真实 Chat→一次语义复核→原提取及原文核验待审",
+      "status": "passed",
+      "semantic_action": "extract_now",
+      "verified_pending_candidates": 4
+    },
+    {
+      "case": "真实观测查询和人工标签接口，无正文复制",
+      "status": "passed"
+    },
+    {
+      "case": "普通问答零提取 Job、零语义复核",
+      "status": "passed"
+    }
+  ],
+  "provenance": "controlled_online_scenarios_not_organic_user_labels",
+  "scope": "真实在线模型、独立记忆Worker、PostgreSQL、浏览器；不是通用模型准确率或计费调用量"
+}

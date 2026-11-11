@@ -71,19 +71,27 @@ def main() -> None:
 
         # 页面其它初始化接口只需要可渲染的最小响应；流式请求和审批接口单独断言。
         page.route(
-            "**/api/chat",
+            "**/api/backend/chat/runs",
+            lambda route: route.fulfill(status=202, content_type="application/json", body=json.dumps({
+                "id": "sse-ui-run", "conversation_id": "e2e-conversation", "assistant_message_id": "assistant-e2e",
+                "status": "queued",
+            })),
+        )
+        page.route(
+            "**/api/backend/chat/runs/sse-ui-run/events?*",
             lambda route: route.fulfill(
                 status=200,
                 headers={
-                    "content-type": "application/x-ndjson; charset=utf-8",
+                    "content-type": "text/event-stream; charset=utf-8",
                     "x-conversation-id": "e2e-conversation",
                 },
                 body=(
-                    '{"type":"tool_confirmation_required","call_id":"e2e-call",'
+                    'id: sse-ui-run:1\nevent: chat\ndata: {"event_id":1,"type":"tool_confirmation_required","call_id":"e2e-call",'
                     '"tool_key":"workspace.files.apply_edit","display_name":"工作区文件受控修改",'
                     '"status":"waiting_approval","approval_id":"approval-e2e",'
                     '"file_name":"notes.md","diff_text":"-旧内容\\n+新内容",'
-                    '"reason":"已生成持久化 Diff，需用户确认"}\n'
+                    '"reason":"已生成持久化 Diff，需用户确认"}\n\n'
+                    'id: sse-ui-run:2\nevent: chat\ndata: {"event_id":2,"type":"done","assistant_message_id":"assistant-e2e"}\n\n'
                 ),
             ),
         )
@@ -129,7 +137,7 @@ def main() -> None:
             page.wait_for_timeout(2000)
             page.reload(wait_until="networkidle")
 
-        # 已登录页面应有聊天输入；真实聊天请求被受控 NDJSON 替身接管。
+        # 已登录页面应有聊天输入；用受控Run创建与SSE订阅替身验证审批卡片。
         if page.get_by_placeholder("输入你的问题").count() == 0:
             page.screenshot(path="/tmp/stage46a-failure.png", full_page=True)
             raise AssertionError(f"未进入聊天页：{page.url}\n{page.locator('body').inner_text()[:2000]}")

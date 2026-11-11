@@ -1,0 +1,51 @@
+{
+  "status": "passed",
+  "model": "deepseek-flash",
+  "cases": [
+    {
+      "case": "新问答",
+      "status": "passed",
+      "create_status": 202,
+      "model_attempts": 1,
+      "database_matches": true,
+      "answer_chars": 12
+    },
+    {
+      "case": "重新生成",
+      "status": "passed",
+      "create_status": 202,
+      "model_attempts": 1,
+      "database_matches": true,
+      "answer_chars": 12
+    },
+    {
+      "case": "编辑重答",
+      "status": "passed",
+      "create_status": 202,
+      "model_attempts": 1,
+      "database_matches": true,
+      "answer_chars": 11
+    },
+    {
+      "case": "原生自动续订",
+      "status": "passed",
+      "create_status": 202,
+      "model_attempts": 1,
+      "database_matches": true,
+      "answer_chars": 1860
+    }
+  ],
+  "browser_errors": 0,
+  "same_assistant_three_generation_ids": true,
+  "refresh_no_new_run": true,
+  "native_eventsource": true,
+  "automatic_last_event_id": true,
+  "proxy_cursor_forwarded": true,
+  "resumed_ui_matches_database": true,
+  "terminal_closed": true,
+  "single_eventsource_instance_reconnected": true,
+  "expected_transport_console_errors": 1,
+  "reconnect_scope": "SIGKILL独立前端组、Supervisor自动重启，Chromium同一原生对象续订；Worker不重启、非伪造响应",
+  "wire_protocol": "POST_JSON_create_native_EventSource_GET_SSE",
+  "scope": "真实在线模型/浏览器/独立Worker/PostgreSQL"
+}

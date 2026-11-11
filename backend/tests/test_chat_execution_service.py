@@ -18,7 +18,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.core.config import settings
-from fastapi.responses import PlainTextResponse
 from app.models import *  # noqa: F403 - import all models so metadata contains every table.
 from app.models.attachment import Attachment
 from app.models.conversation import Conversation
@@ -29,12 +28,11 @@ from app.repositories.attachment_repo import AttachmentRepository
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.message_repo import MessageGenerationConflict, MessageRepository
 from app.repositories.setting_repo import UserSettingRepository
-from app.api.routes.chat import (
+from app.services.chat_stream_service import (
     _build_streaming_response,
     _persist_stream_result,
-    edit_last_user_stream,
-    regenerate_last_answer_stream,
 )
+from app.api.routes.chat_runs import edit_chat_run, regenerate_chat_run
 from app.schemas.message import ChatEditLastUserRequest, ChatRegenerateRequest, ChatStreamRequest
 from app.schemas.upload import UploadItemReference
 from app.services.chat_execution_service import (
@@ -321,7 +319,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         async def run_test() -> None:
             context = self._create_stream_context()
-            response = _build_streaming_response(context, DoneProvider(), event_stream=True)
+            response = _build_streaming_response(context, DoneProvider())
             chunks = [chunk async for chunk in response.body_iterator]
 
             self.db.refresh(context.assistant_message)
@@ -341,7 +339,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
         async def run_test():
             context = self._create_stream_context()
             context.verified_file_edit_answer = '本轮没有创建真实审批，也未执行文件写入。'
-            response = _build_streaming_response(context, ForbiddenProvider(), event_stream=True)
+            response = _build_streaming_response(context, ForbiddenProvider())
             chunks = ''.join([part async for part in response.body_iterator])
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, 'done')
@@ -375,7 +373,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 context = await service.prepare_chat_execution(payload)
 
             provider = EvidenceAwareProvider()
-            response = _build_streaming_response(context, provider, event_stream=True)
+            response = _build_streaming_response(context, provider)
             body = "".join([chunk async for chunk in response.body_iterator])
 
             self.db.refresh(context.assistant_message)
@@ -411,8 +409,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
             context = self._create_stream_context()
             context.external_sources = [{"citation_label": "[KB1]", "used_in_prompt": True,
                 "metadata": {"citation_scope": "final_prompt", "citation_body_chars": 4}}]
-            body = "".join([part async for part in _build_streaming_response(context, CitedProvider(), event_stream=True).body_iterator])
-            events = [json.loads(line) for line in body.splitlines()]
+            body = "".join([part async for part in _build_streaming_response(context, CitedProvider()).body_iterator])
+            events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
             audit_event = next(item for item in events if item["type"] == "citation_audit")
             self.assertEqual(audit_event["audit"]["status"], "needs_review")
             self.assertEqual(audit_event["audit"]["unknown_labels"], ["[KB99]"])
@@ -435,7 +433,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         async def run_test() -> None:
             context = self._create_stream_context()
-            response = _build_streaming_response(context, CancelledProvider(), event_stream=True)
+            response = _build_streaming_response(context, CancelledProvider())
 
             with self.assertRaises(asyncio.CancelledError):
                 async for _ in response.body_iterator:
@@ -459,7 +457,6 @@ class ChatExecutionServiceTest(unittest.TestCase):
             response = _build_streaming_response(
                 context,
                 CancelledBeforeTokenProvider(),
-                event_stream=True,
             )
 
             with self.assertRaises(asyncio.CancelledError):
@@ -496,7 +493,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
         async def run_test() -> None:
             context = self._create_stream_context()
             provider = ClosableProvider()
-            response = _build_streaming_response(context, provider, event_stream=True)
+            response = _build_streaming_response(context, provider)
             body = "".join([chunk async for chunk in response.body_iterator])
 
             self.assertIn('"error_code": "provider_error"', body)
@@ -514,7 +511,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         async def run_test() -> None:
             context = self._create_stream_context()
-            response = _build_streaming_response(context, FailedProvider(), event_stream=True)
+            response = _build_streaming_response(context, FailedProvider())
             chunks = [chunk async for chunk in response.body_iterator]
 
             self.db.refresh(context.assistant_message)
@@ -899,7 +896,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 chat_stream_total_timeout_seconds=1.0,
             )
             with patch("app.services.chat_stream_service.settings", timeout_settings):
-                response = _build_streaming_response(context, SlowFirstTokenProvider(), event_stream=True)
+                response = _build_streaming_response(context, SlowFirstTokenProvider())
                 body = "".join([chunk async for chunk in response.body_iterator])
 
             self.db.refresh(context.assistant_message)
@@ -923,7 +920,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 chat_stream_total_timeout_seconds=1.0,
             )
             with patch("app.services.chat_stream_service.settings", timeout_settings):
-                response = _build_streaming_response(context, IdleProvider(), event_stream=True)
+                response = _build_streaming_response(context, IdleProvider())
                 body = "".join([chunk async for chunk in response.body_iterator])
 
             self.db.refresh(context.assistant_message)
@@ -948,7 +945,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 chat_stream_total_timeout_seconds=0.025,
             )
             with patch("app.services.chat_stream_service.settings", timeout_settings):
-                response = _build_streaming_response(context, EndlessSlowProvider(), event_stream=True)
+                response = _build_streaming_response(context, EndlessSlowProvider())
                 body = "".join([chunk async for chunk in response.body_iterator])
 
             self.db.refresh(context.assistant_message)
@@ -1102,7 +1099,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_regenerate_route_reuses_last_turn_and_streams_answer(self) -> None:
+    def test_regenerate_resource_reuses_last_turn_and_queues_run(self) -> None:
         async def run_test() -> None:
             conversation = Conversation(
                 user_id=self.user.id,
@@ -1134,27 +1131,20 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.db.refresh(user_message)
             self.db.refresh(assistant_message)
 
-            with patch(
-                "app.services.chat_execution_service.ChatExecutionService.prepare_existing_turn_execution",
-                new=AsyncMock(return_value=SimpleNamespace()),
-            ), patch(
-                "app.api.routes.chat._build_streaming_response",
-                return_value=PlainTextResponse("ok"),
-            ):
-                response = await regenerate_last_answer_stream(
-                    ChatRegenerateRequest(
-                        conversation_id=conversation.id,
-                        assistant_message_id=assistant_message.id,
-                        model_name="qwen-test",
-                        system_prompt="用中文回答。",
-                        thinking_enabled=False,
-                        web_search_enabled=False,
-                    ),
-                    db=self.db,
-                    current_user=self.user,
-                )
+            response = regenerate_chat_run(
+                ChatRegenerateRequest(
+                    conversation_id=conversation.id,
+                    assistant_message_id=assistant_message.id,
+                    model_name="qwen-test",
+                    system_prompt="用中文回答。",
+                    thinking_enabled=False,
+                    web_search_enabled=False,
+                ),
+                db=self.db,
+                user=self.user,
+            )
 
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response["status"], "queued")
             from app.models.chat_run import ChatRun
             queued = self.db.scalar(select(ChatRun).limit(1))
             self.assertEqual(queued.status, "queued")
@@ -1379,7 +1369,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
         self.assertEqual(context.assistant_message.status, "failed")
         self.assertNotEqual(context.assistant_message.generation_id, old_generation_id)
 
-    def test_edit_last_user_route_updates_message_and_streams_answer(self) -> None:
+    def test_edit_resource_updates_message_and_queues_run(self) -> None:
         async def run_test() -> None:
             conversation = Conversation(
                 user_id=self.user.id,
@@ -1409,30 +1399,23 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.db.refresh(user_message)
             self.db.refresh(assistant_message)
 
-            with patch(
-                "app.services.chat_execution_service.ChatExecutionService.prepare_existing_turn_execution",
-                new=AsyncMock(return_value=SimpleNamespace()),
-            ), patch(
-                "app.api.routes.chat._build_streaming_response",
-                return_value=PlainTextResponse("ok"),
-            ):
-                response = await edit_last_user_stream(
-                    ChatEditLastUserRequest(
-                        conversation_id=conversation.id,
-                        user_message_id=user_message.id,
-                        assistant_message_id=assistant_message.id,
-                        content="新问题",
-                        attachments=[],
-                        model_name="qwen-test",
-                        system_prompt="用中文回答。",
-                        thinking_enabled=False,
-                        web_search_enabled=False,
-                    ),
-                    db=self.db,
-                    current_user=self.user,
-                )
+            response = edit_chat_run(
+                ChatEditLastUserRequest(
+                    conversation_id=conversation.id,
+                    user_message_id=user_message.id,
+                    assistant_message_id=assistant_message.id,
+                    content="新问题",
+                    attachments=[],
+                    model_name="qwen-test",
+                    system_prompt="用中文回答。",
+                    thinking_enabled=False,
+                    web_search_enabled=False,
+                ),
+                db=self.db,
+                user=self.user,
+            )
 
-            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response["status"], "queued")
             from app.models.chat_run import ChatRun
             queued = self.db.scalar(select(ChatRun).limit(1))
             self.assertEqual(queued.status, "queued")

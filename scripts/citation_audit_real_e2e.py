@@ -1,6 +1,7 @@
 """真实在线Chat、工具、浏览器审计与刷新；另用明确标记的夹具检查警告展示。"""
 
 import json
+from chat_sse_client import browser_chat_response, sse_events
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, expect
@@ -69,12 +70,12 @@ def run():
             with SessionLocal() as db:
                 rag_conversation = Conversation(user_id=uid, project_id=pid, title="引用审计RAG验收", model_name="deepseek-ai/DeepSeek-V3.2")
                 db.add(rag_conversation); db.commit(); rag_cid = rag_conversation.id
-            response = context.request.post(BASE_URL + "/api/backend/chat/events-stream", data={
+            response = browser_chat_response(context.request, BASE_URL, data={
                 "conversation_id": rag_cid, "content": fixture["cases"][0]["query"],
                 "knowledge_base_id": fixture["knowledge_base_id"], "web_search_enabled": False,
                 "model_name": "deepseek-ai/DeepSeek-V3.2"}, timeout=MODEL_TIMEOUT_MS)
             assert response.ok, "真实RAG请求未成功"
-            events = [json.loads(line) for line in response.text().splitlines() if line.strip()]
+            events = sse_events(response.text())
             rag_audit = next(item["audit"] for item in events if item["type"] == "citation_audit")
             assert events[-1]["type"] == "done" and any(label.startswith("[KB") for label in rag_audit["available_labels"])
             with SessionLocal() as db:

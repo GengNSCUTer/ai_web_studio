@@ -159,6 +159,7 @@ class SettingService:
             memory_max_chars=cls.DEFAULT_MEMORY_MAX_CHARS,
             memory_auto_candidate_enabled=cls.DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED,
             memory_auto_activate_enabled=cls.DEFAULT_MEMORY_AUTO_ACTIVATE_ENABLED,
+            memory_semantic_trigger_enabled=False,
             memory_auto_candidate_turn_interval=cls.DEFAULT_MEMORY_AUTO_CANDIDATE_TURN_INTERVAL,
             ui_language=cls.DEFAULT_UI_LANGUAGE,
             theme_mode=cls.DEFAULT_THEME_MODE,
@@ -485,6 +486,7 @@ class SettingService:
                 "memory_enabled": setting.memory_enabled,
                 "memory_max_chars": setting.memory_max_chars,
                 "memory_auto_activate_enabled": bool(getattr(setting, "memory_auto_activate_enabled", False)),
+                "memory_semantic_trigger_enabled": bool(getattr(setting, "memory_semantic_trigger_enabled", False)),
                 "memory_auto_candidate_enabled": getattr(
                     setting, "memory_auto_candidate_enabled", self.DEFAULT_MEMORY_AUTO_CANDIDATE_ENABLED
                 ),

@@ -1,7 +1,8 @@
-"""最后部署版本的旧NDJSON入口与新Run/SSE端到端冒烟，不输出凭据。"""
+"""最后部署版本的统一Run/SSE端到端冒烟，不输出凭据。"""
 
 import argparse
 import json
+from chat_sse_client import chat_response, sse_events
 from pathlib import Path
 import sys
 
@@ -20,11 +21,11 @@ def run(output):
             created = client.post("/api/conversations", json={"title": "Chat最终部署冒烟", "project_id": pid,
                                   "model_name": "deepseek-ai/DeepSeek-V3.2"})
             created.raise_for_status()
-            response = client.post("/api/chat/events-stream", json={"conversation_id": created.json()["id"],
+            response = chat_response(client, "/api/chat/runs", json={"conversation_id": created.json()["id"],
                                    "content": "不调用工具。请只回答2+2的数值。"})
             response.raise_for_status()
             run_id = response.headers["x-chat-run-id"]
-            events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+            events = sse_events(response.text)
             assert events[-1]["type"] == "done"
             snap = client.get(f"/api/chat/runs/{run_id}").json()
             answer = "".join(e["text"] for e in events if e["type"] == "answer_delta")
@@ -33,7 +34,7 @@ def run(output):
             replay.raise_for_status()
             assert '"type": "run_snapshot"' in replay.text
             assert client.get(f"/api/chat/runs/{run_id}").json()["model_attempts"] == 1
-            report = {"status": "passed", "ndjson_to_worker": True, "run_snapshot_matches_answer": True,
+            report = {"status": "passed", "sse_run_worker": True, "run_snapshot_matches_answer": True,
                 "sse_tail_snapshot": True, "worker_final_generation_attempts": 1,
                 "provider_finish_reason": next(e["finish_reason"] for e in events if e["type"] == "provider_finish")}
         output.parent.mkdir(parents=True, exist_ok=True)

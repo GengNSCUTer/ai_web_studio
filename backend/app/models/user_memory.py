@@ -106,6 +106,9 @@ class MemoryExtractionJob(Base):
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # 控制请求只记录目标 ID/版本与结果，不将“忘记”句子保存为用户事实。
     control_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    semantic_action: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    semantic_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    semantic_model_called: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import re
 import statistics
 import sys
@@ -177,10 +178,10 @@ def run(output: Path, backend: str):
                 try:
                     response=client.post("/api/conversations",json=dict(title=f"tool-eval-{index}",project_id=project_id,model_name="deepseek-ai/DeepSeek-V3.2"))
                     response.raise_for_status(); cid=response.json()["id"]
-                    with client.stream("POST","/api/chat/events-stream",json=dict(conversation_id=cid,content=case["query"],
+                    with chat_stream(client, "/api/chat/runs",json=dict(conversation_id=cid,content=case["query"],
                         model_name="deepseek-ai/DeepSeek-V3.2",web_search_enabled=True,tool_run_mode="workspace_review")) as stream:
                         stream.raise_for_status()
-                        events=[json.loads(line) for line in stream.iter_lines() if line.strip()]
+                        events=list(iter_sse_events(stream.iter_lines()))
                     with SessionLocal() as db:
                         route=db.scalar(select(ToolRouteRun).where(ToolRouteRun.conversation_id==cid).order_by(ToolRouteRun.created_at.desc()))
                         if route is None:

@@ -6,6 +6,8 @@ import re
 
 from app.services.memory_extraction_policy import explicit_remember, redact_source, REDACTED
 
+POLICY_VERSION = "rules-v2"
+
 
 @dataclass(frozen=True)
 class MemorySignal:
@@ -15,7 +17,7 @@ class MemorySignal:
 
 
 _FORGET = re.compile(r"^(?:请|帮我)?(?:忘记|忘掉|删除长期记忆|撤销长期记忆)[：:\s]*(.+)$|^(?:please\s+)?forget\s*[:：]?\s+(.+)$", re.I | re.S)
-_EXTERNAL = re.compile(r"^(?:>|```|[“\"「]|以下(?:是|为)|(?:网页|文档|论文|别人|他|她|系统提示|工具返回|引用).{0,12}(?:说|写|内容|要求|提到)|(?:the (?:document|website)|he|she) says)", re.I)
+_EXTERNAL = re.compile(r"^(?:>|```|[“\"「]|以下(?:是|为)|(?:网页|文档|论文|别人|他|她|系统提示|工具返回|引用).{0,20}(?:说|写|内容|要求|提到)|(?:the (?:document|website)|he|she) says)", re.I)
 _TEMPORARY = re.compile(r"仅(?:限|这)|只(?:在|限|这)|今天|这次|本次|本轮|临时|today|this (?:time|turn)|for now", re.I)
 _TENTATIVE = re.compile(r"如果|假设|可能|也许|不确定|考虑|暂定|还没决定|待定|maybe|perhaps|consider|not sure|\bif\b", re.I)
 _CORRECTION = re.compile(r"^(?:更正|纠正|更新(?:一下)?(?:记忆)?|之前.{0,35}(?:不对|说错)|(?:我的项目|本项目|项目|我们|我).{0,25}(?:改用|不再|已改|改为))|^(?:correction|update my memory)\b", re.I)
@@ -23,6 +25,7 @@ _STABLE = re.compile(r"^(?:以后|今后|长期|默认).{0,30}(?:回答|使用|�
 _QUESTION = re.compile(r"[?？]$|^(?:什么是|怎么|如何|为什么|解释|介绍一下|请解释|请介绍|帮我(?:查|搜索|总结)|what\b|how\b|why\b|explain\b)", re.I)
 _ACK = re.compile(r"^(?:好(?:的)?|谢谢|收到|明白(?:了)?|继续|ok|thanks|thank you)[。！!\s]*$", re.I)
 _NO_SAVE = re.compile(r"^(?:请)?(?:别|不要|无需)(?:再)?(?:记住|保存|记录)|^(?:please )?(?:do not|don't) (?:remember|save)", re.I)
+_QUOTED = re.compile(r'“[^”]*”|‘[^’]*’|「[^」]*」|"[^"\n]*"')
 
 
 def forget_target(text: str) -> str | None:
@@ -51,6 +54,11 @@ def classify_memory_signal(text: str) -> MemorySignal:
         return MemorySignal("buffer", "tentative_statement")
     if explicit_remember(text):
         return MemorySignal("extract_now", "explicit_remember", 90)
+    # 引用中的陈述不能代表用户自己；原文仍留在消息表，核验链不使用掩码。
+    unquoted = _QUOTED.sub("", text).strip()
+    if unquoted != text and not (_STABLE.search(unquoted) or _CORRECTION.search(unquoted)):
+        return MemorySignal("skip", "quoted_statement")
+    text = unquoted
     if _CORRECTION.search(text):
         return MemorySignal("revise", "explicit_correction", 80)
     if _QUESTION.search(text) or _ACK.fullmatch(text):

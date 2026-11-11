@@ -45,6 +45,7 @@ from app.models.tool_search import ToolSearchEntry
 from app.models.user import User
 from app.models.resource_lease import ResourceLease
 from app.models.user_memory import MemoryExtractionJob, UserMemory
+from app.models.memory_trigger_decision import MemoryTriggerDecision
 from app.models.user_setting import UserSetting
 from app.models.plugin import PluginInstallation, PluginRelease, ProjectPlugin, PluginSubmission, SandboxJob, SandboxWorkerState
 from sqlalchemy import event
@@ -94,6 +95,7 @@ __all__ = [
     "UserSkillInstallation",
     "User",
     "UserMemory",
+    "MemoryTriggerDecision",
     "MemoryExtractionJob",
     "UserSetting",
     "WorkspaceToolSetting",

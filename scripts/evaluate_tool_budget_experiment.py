@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import math
 import re
 import statistics
@@ -195,9 +196,7 @@ def run_case(client: httpx.Client, *, project_id: str, mode: str, name: str, que
     conversation_id = response.json()["id"]
     events = []
     first_answer_ms = None
-    with client.stream(
-        "POST",
-        "/api/chat/events-stream",
+    with chat_stream(client, "/api/chat/runs",
         json={
             "conversation_id": conversation_id,
             "content": query,
@@ -207,10 +206,7 @@ def run_case(client: httpx.Client, *, project_id: str, mode: str, name: str, que
         },
     ) as stream:
         stream.raise_for_status()
-        for line in stream.iter_lines():
-            if not line.strip():
-                continue
-            event = json.loads(line)
+        for event in iter_sse_events(stream.iter_lines()):
             events.append(event)
             if event.get("type") == "answer_delta" and first_answer_ms is None:
                 first_answer_ms = round((time.perf_counter() - started) * 1000, 1)

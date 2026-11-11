@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from chat_sse_client import chat_response, sse_events
 from pathlib import Path
 import subprocess
 import sys
@@ -38,11 +39,11 @@ def run(output):
                                                           "model_name": "deepseek-ai/DeepSeek-V3.2"})
         response.raise_for_status()
         cid = response.json()["id"]
-        response = client.post("/api/chat/events-stream", json={"conversation_id": cid,
+        response = chat_response(client, "/api/chat/runs", json={"conversation_id": cid,
             "content": "在工作区先搜索再读取stage46a-readme.md，告诉我第一行原文和用途；只读文件，不联网不修改。",
             "web_search_enabled": True, "skill_key": "workspace.document-review", "tool_run_mode": "workspace_review"})
         response.raise_for_status()
-        events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+        events = sse_events(response.text)
         assert events[-1]["type"] == "done", "在线Chat未完成"
         assert any(event["type"] == "tool_call_end" for event in events), "未真实执行文件工具"
         with SessionLocal() as db:

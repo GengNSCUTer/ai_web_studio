@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import os
 from pathlib import Path
 import re
@@ -66,13 +67,10 @@ def run():
         return request("POST", "/api/conversations", {"title": "记忆第一步验收", "model_name": model, "project_id": project_id})["id"]
 
     def chat(conv_id, content):
-        with client.stream("POST", "/api/chat/events-stream", json={"conversation_id": conv_id, "content": content, "model_name": model}, headers={"Accept": "application/x-ndjson"}) as response:
+        with chat_stream(client, "/api/chat/runs", json={"conversation_id": conv_id, "content": content, "model_name": model}, headers={"Accept": "text/event-stream"}) as response:
             assert response.is_success, f"Chat API 返回 {response.status_code}"
             answer, done = [], False
-            for line in response.iter_lines():
-                if not line.strip():
-                    continue
-                event = json.loads(line)
+            for event in iter_sse_events(response.iter_lines()):
                 if event["type"] == "answer_delta":
                     answer.append(event["text"])
                 if event["type"] == "error":

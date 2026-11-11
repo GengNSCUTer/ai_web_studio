@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from chat_sse_client import sse_events
 import re
 import sys
 from pathlib import Path
@@ -17,7 +18,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app.api.routes.chat import _build_streaming_response  # noqa: E402
+from app.services.chat_stream_service import _build_streaming_response  # noqa: E402
 from app.core.database import SessionLocal  # noqa: E402
 from app.models.conversation import Conversation  # noqa: E402
 from app.models.message import Message  # noqa: E402
@@ -141,12 +142,10 @@ async def run_case(*, user_id: str, project_id: str, first_file_id: str) -> dict
             raise AssertionError("超时状态没有进入最终模型的实际输入。")
 
         assistant_id = context.assistant_message.id
-        response = _build_streaming_response(context, ChatProviderService(), event_stream=True)
+        response = _build_streaming_response(context, ChatProviderService())
         events = []
         async for chunk in response.body_iterator:
-            for line in chunk.splitlines():
-                if line:
-                    events.append(json.loads(line))
+            events.extend(sse_events(chunk))
         if not any(event.get("type") == "done" for event in events):
             raise AssertionError("真实最终回答流未正常完成。")
 
@@ -209,7 +208,7 @@ async def run_unavailable_planner_case(*, user_id: str, project_id: str) -> dict
         if not any("未取得本轮要求核验" in str(message.get("content")) for message in context.history_messages):
             raise AssertionError("规划未完成状态没有进入最终模型实际输入。")
         assistant_id = context.assistant_message.id
-        response = _build_streaming_response(context, ChatProviderService(), event_stream=True)
+        response = _build_streaming_response(context, ChatProviderService())
         async for _ in response.body_iterator:
             pass
     with SessionLocal() as db:

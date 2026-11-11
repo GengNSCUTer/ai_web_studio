@@ -679,6 +679,7 @@ export type UserSettings = {
   memory_max_chars: number;
   memory_auto_candidate_enabled: boolean;
   memory_auto_activate_enabled?: boolean;
+  memory_semantic_trigger_enabled?: boolean;
   memory_auto_candidate_turn_interval: number;
   ui_language: string;
   theme_mode: string;

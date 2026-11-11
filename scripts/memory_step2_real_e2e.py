@@ -7,6 +7,7 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import os
 from pathlib import Path
 import sys
@@ -58,12 +59,9 @@ def run():
 
     def chat(conv, content):
         answer, done = [], False
-        with client.stream("POST", "/api/chat/events-stream", json={"conversation_id": conv, "content": content, "model_name": model}) as response:
+        with chat_stream(client, "/api/chat/runs", json={"conversation_id": conv, "content": content, "model_name": model}) as response:
             assert response.is_success, "真实 Chat 未启动"
-            for line in response.iter_lines():
-                if not line.strip():
-                    continue
-                event = json.loads(line)
+            for event in iter_sse_events(response.iter_lines()):
                 assert event["type"] != "error", "真实 Chat 出错"
                 if event["type"] == "answer_delta":
                     answer.append(event["text"])

@@ -174,7 +174,7 @@ class ChatRunWorker:
                             except StopAsyncIteration:
                                 break
                             next_chunk = None
-                            event = json.loads(chunk)
+                            event = chunk
                             if event["type"] in {"done", "model_error", "citation_audit"}:
                                 continue
                             if pending and event["type"] in {"answer_delta", "reasoning_delta"} and pending[-1]["type"] == event["type"]:

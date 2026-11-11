@@ -17,7 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_current_user
-from app.api.routes import chat, uploads
+from app.api.routes import uploads
 from app.models.resource_lease import ResourceLease
 from app.services import resource_quota_service as quota
 

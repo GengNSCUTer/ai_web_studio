@@ -8,8 +8,10 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
@@ -54,6 +56,54 @@ class ChatRunTest(unittest.IsolatedAsyncioTestCase):
     def snapshot(self, run_id):
         with self.sessions() as db:
             return ChatRunService.snapshot(db.get(ChatRun, run_id))
+
+    def client(self, user="u"):
+        from app.api.deps import get_db, get_current_user
+        from app.api.routes.chat_runs import router
+        from app.api.resource_limits import chat_subscription_capacity
+        app = FastAPI()
+        app.include_router(router, prefix="/api")
+        def database():
+            with self.sessions() as db:
+                yield db
+        app.dependency_overrides[get_db] = database
+        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=user)
+        app.dependency_overrides[chat_subscription_capacity] = lambda: None
+        return TestClient(app)
+
+    def test_sse_is_only_format_and_all_legacy_stream_routes_are_removed(self):
+        run = self.create()
+        claim = self.call("claim_next", "A")
+        self.call("append", claim, [{"type": "answer_delta", "text": "中文结果"}])
+        self.call("finish", claim, status="succeeded")
+        with self.client() as client:
+            for old in ("text-stream", "events-stream", "regenerate-last-stream", "edit-last-user-stream"):
+                self.assertEqual(client.post("/api/chat/" + old, json={}).status_code, 404)
+            response = client.get(f"/api/chat/runs/{run}/events")
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.headers["content-type"].startswith("text/event-stream"))
+            self.assertIn("event: chat\ndata: ", response.text)
+            self.assertIn("中文结果", response.text)
+            self.assertIn(f"id: {run}:", response.text)
+            self.assertEqual(response.headers["x-chat-run-id"], run)
+            self.assertEqual(client.get(f"/api/chat/runs/{run}/events?format=ndjson").status_code, 422)
+            self.assertEqual(client.get(f"/api/chat/runs/{run}/events?format=text").status_code, 422)
+        from app.main import app
+        self.assertNotIn("/api/chat/events-stream", {getattr(route, "path", None) for route in app.routes})
+
+    def test_sse_cursor_ownership_and_header_recovery(self):
+        run = self.create()
+        claim = self.call("claim_next", "A")
+        self.call("append", claim, [{"type": "answer_delta", "text": "正文"}])
+        self.call("finish", claim, status="succeeded")
+        last = self.snapshot(run)["last_event_id"]
+        with self.client() as client:
+            response = client.get(f"/api/chat/runs/{run}/events", headers={"Last-Event-ID": f"{run}:{last}"})
+            self.assertIn('"type": "run_snapshot"', response.text)
+            for invalid in (f"wrong:{last}", f"{run}:-1", f"{run}:999", "broken"):
+                self.assertEqual(client.get(f"/api/chat/runs/{run}/events", headers={"Last-Event-ID": invalid}).status_code, 400)
+        with self.client("v") as client:
+            self.assertEqual(client.get(f"/api/chat/runs/{run}/events").status_code, 404)
 
     def test_duplicate_create_reuses_messages_and_rejects_changed_input(self):
         run = self.create()

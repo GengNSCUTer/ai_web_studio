@@ -1,6 +1,7 @@
 """固定账号真实在线模型、多会话、记忆治理及浏览器诊断验收；不输出凭据。"""
 
 import json
+from chat_sse_client import chat_stream, iter_sse_events
 import os
 import sys
 import time
@@ -55,14 +56,11 @@ def run():
         conv = request("POST", "/api/conversations", {"title": name, "model_name": model, "project_id": project})["id"]
         started = time.monotonic()
         text, done = [], None
-        with client.stream("POST", "/api/chat/events-stream", json={"conversation_id": conv,
+        with chat_stream(client, "/api/chat/runs", json={"conversation_id": conv,
             "content": question, "model_name": model}) as response:
             assert response.is_success, "在线 Chat 启动失败"
             details = {}
-            for line in response.iter_lines():
-                if not line.strip():
-                    continue
-                event = json.loads(line)
+            for event in iter_sse_events(response.iter_lines()):
                 assert event["type"] not in {"error", "model_error", "stream_error"}, "在线 Chat 模型异常"
                 if event["type"] == "answer_delta":
                     text.append(event["text"])

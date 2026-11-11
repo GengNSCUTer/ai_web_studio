@@ -3,6 +3,7 @@
 import argparse
 import io
 import json
+from chat_sse_client import chat_response, sse_events
 from pathlib import Path
 import sys
 import time
@@ -52,11 +53,11 @@ def run(output, *, artifact_review=False):
             cid = api("/conversations", {"project_id": pid, "title": "调用内核三路径回归",
                 "model_name": "deepseek-ai/DeepSeek-V3.2"})["id"]
             started = time.monotonic()
-            response = client.post("/api/chat/events-stream", json={"conversation_id": cid,
+            response = chat_response(client, "/api/chat/runs", json={"conversation_id": cid,
                 "tool_run_mode": "guided_research", "web_search_enabled": True,
                 "content": "请先搜索定位stage46a-readme.md，再用文件工具读取正文，逐字引用第一行，说明用途。只读，不联网。"})
             response.raise_for_status()
-            events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+            events = sse_events(response.text)
             chat = api("/chat/runs/" + response.headers["x-chat-run-id"])
             assert chat["status"] == "succeeded" and "# 阶段 4.6A 临时文件" in chat["content"]
             assert events[-1]["type"] == "done"
@@ -134,7 +135,7 @@ def run(output, *, artifact_review=False):
                 upgrade.raise_for_status()
                 history_cid = api("/conversations", {"project_id":pid,"title":"历史文档复用验收",
                     "model_name":"deepseek-ai/DeepSeek-V3.2"})["id"]
-                response = client.post("/api/chat/events-stream", json={"conversation_id":history_cid,
+                response = chat_response(client, "/api/chat/runs", json={"conversation_id":history_cid,
                     "web_search_enabled":True,"tool_run_mode":"guided_research","skill_key":"agent.artifact-review",
                     "content":"请查找当前项目此前生成的文档草稿产物，先列出历史产物，再读取其中的文档草稿，总结用途和安全边界。不要重跑文档生成，不要联网，只使用本地产物工具。"})
                 response.raise_for_status()

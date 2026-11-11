@@ -24,7 +24,7 @@ from app.models.observability import ChatRuntimeMetric
 from app.models.user import User
 from app.models.user_memory import MemoryExtractionJob
 from app.models.user_setting import UserSetting
-from app.api.routes.chat import _build_streaming_response
+from app.services.chat_stream_service import _build_streaming_response
 from app.repositories.message_repo import MessageRepository
 from app.services.message_service import MessageService
 from app.services.chat_persistence_service import ChatPersistenceSnapshot, persist_stream_result
@@ -239,7 +239,7 @@ class ChatPersistencePostgresIntegrationTest(unittest.TestCase):
                     "app.services.chat_persistence_service._get_async_session_factory",
                     return_value=self.async_session_factory,
                 ):
-                    response = _build_streaming_response(context, Provider(), event_stream=True)
+                    response = _build_streaming_response(context, Provider())
                     # 长时间模型流开始前，请求侧同步会话已不持有数据库事务。
                     self.assertFalse(db.in_transaction())
                     return "".join([chunk async for chunk in response.body_iterator])
@@ -294,7 +294,7 @@ class ChatPersistencePostgresIntegrationTest(unittest.TestCase):
                     "app.services.chat_persistence_service._get_async_session_factory",
                     return_value=self.async_session_factory,
                 ):
-                    response = _build_streaming_response(context, Provider(), event_stream=True)
+                    response = _build_streaming_response(context, Provider())
                     with self.assertRaises(asyncio.CancelledError):
                         async for _ in response.body_iterator:
                             pass

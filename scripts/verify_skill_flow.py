@@ -119,7 +119,7 @@ def run() -> None:
         )
 
         def capture_chat_request(request) -> None:
-            if request.method == "POST" and request.url.rstrip("/").endswith("/api/chat"):
+            if request.method == "POST" and request.url.rstrip("/").endswith("/api/backend/chat/runs"):
                 try:
                     captured_payload.update(request.post_data_json or {})
                 except Exception:
@@ -169,7 +169,7 @@ def run() -> None:
             }""",
             timeout=240_000,
         )
-        if captured_payload.get("skillKey") != SKILL_KEY:
+        if captured_payload.get("skill_key") != SKILL_KEY:
             raise AssertionError("Frontend chat request did not include the selected skillKey")
         page.screenshot(path="/tmp/aiws-skill-flow-desktop.png", full_page=True)
 

@@ -117,7 +117,7 @@ def run():
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
                 page.on("request", lambda request: requests.append(request.post_data_json)
-                        if request.method == "POST" and request.url.rstrip("/").endswith("/api/chat") else None)
+                        if request.method == "POST" and request.url.rstrip("/").endswith("/api/backend/chat/runs") else None)
                 page.goto(f"{BASE_URL}/chat", wait_until="networkidle", timeout=60_000)
                 expect(page.get_by_placeholder("输入你的问题")).to_be_visible(timeout=30_000)
                 page.locator("select").nth(0).select_option(project_id)
@@ -149,7 +149,7 @@ def run():
                     page.wait_for_load_state("networkidle")
                     expect(page.get_by_test_id("tool-run-mode-selector")).to_have_value("workspace_review")
                     print(json.dumps({"completed_scenario": scenario}, ensure_ascii=False), flush=True)
-                if errors or len(requests) != 3 or any(request.get("skillKey") for request in requests):
+                if errors or len(requests) != 3 or any(request.get("skill_key") for request in requests):
                     raise AssertionError("浏览器错误、请求数量或 Skill 状态异常。")
                 page.screenshot(path="/tmp/tool-candidates-step3.png", full_page=True)
                 print(json.dumps({"cases": results, "browser_errors": 0}, ensure_ascii=False, sort_keys=True))

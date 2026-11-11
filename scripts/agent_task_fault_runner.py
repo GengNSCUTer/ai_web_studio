@@ -40,7 +40,7 @@ def run_probe(runner,case,project_id,files,conversation_id):
         payload={'conversation_id':conversation_id,'content':'只回复收到','web_search_enabled':True}
         if probe=='invalid_chat_schema':payload['content']=None
         else:payload['skill_key']='nonexistent-eval-skill-'+uuid4().hex[:8]
-        response=request('POST','/api/chat/events-stream',json=payload)
+        response=request('POST','/api/chat/runs',json=payload)
         checks['invalid_request_rejected']=response.status_code in ({422} if probe=='invalid_chat_schema' else {400,404,409,422})
     elif probe=='invalid_handoff_token':
         response=request('POST','/api/agent-runtime/tool-handoffs/confirm',json={'handoff_token':'synthetic-invalid-token-padding-'+uuid4().hex})

@@ -26,11 +26,11 @@
 
 当前主聊天链路是：
 
-- 前端 `fetch + ReadableStream`
-- Next BFF `/api/chat`
-- FastAPI `/api/chat/events-stream`（`/api/chat/text-stream` 仅保留为旧的纯文本兼容入口）
+- 前端原生 `EventSource`
+- Next 通用鉴权代理 `/api/backend/chat/runs...`
+- `POST /api/chat/runs` 创建持久任务，`GET /api/chat/runs/{id}/events` 统一 SSE 订阅；编辑与重生成用 `/runs/edit`、`/runs/regenerate`，取消用独立 `/runs/{id}/cancel`。旧POST流、NDJSON和纯文本Chat入口已移除。
 
-不再使用旧的 AI SDK `useChat / TextStreamChatTransport` 方案，也不再使用旧的手写 SSE 主链路。
+当前使用原生 `EventSource` 解析与订阅SSE，浏览器断线重连时自动发送 `Last-Event-ID`，经同源Next代理透传给后端。已删除手写fetch读流、分帧和指数退避；仅保留业务去重、终态/取消关闭，以及连续五次无业务进展错误时的提示。页面重开新建EventSource后从已保存事件/快照恢复。创建/查询/取消仍使用普通JSON请求，不再使用 AI SDK `useChat / TextStreamChatTransport` 或按行JSON兼容流。
 
 ## 开发启动
 

@@ -31,6 +31,8 @@ class UserSetting(Base):
     memory_max_chars: Mapped[int] = mapped_column(Integer, default=4000)
     memory_auto_candidate_enabled: Mapped[bool] = mapped_column(default=False)
     memory_auto_activate_enabled: Mapped[bool] = mapped_column(default=False)
+    memory_semantic_trigger_enabled: Mapped[bool] = mapped_column(default=False)
+    memory_semantic_last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     memory_auto_candidate_turn_interval: Mapped[int] = mapped_column(Integer, default=4)
     ui_language: Mapped[str] = mapped_column(String(16), default="zh-CN")
     theme_mode: Mapped[str] = mapped_column(String(16), default="system")

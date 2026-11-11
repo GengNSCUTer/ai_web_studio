@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes.chat import _stringify_stats
+from app.services.chat_stream_service import _stringify_stats
 from app.core.config import settings
 from app.core.database import Base
 from app.models import *  # noqa: F403 - ensure all metadata is registered.
