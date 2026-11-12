@@ -1,0 +1,30 @@
+{
+  "dataset_version": "memory-trigger-mixed-v1-20261112",
+  "source": "针对混合陈述/问题的人工构造补充集，不是自然用户标注或通用语义能力评测",
+  "cases": [
+    {"id":"m01","text":"我的项目使用 PostgreSQL，问题是如何优化索引？","expected":"extract_now"},
+    {"id":"m02","text":"我的项目采用 MySQL。如何查看慢查询？","expected":"extract_now"},
+    {"id":"m03","text":"我喜欢简短回答；为什么索引失效？","expected":"extract_now"},
+    {"id":"m04","text":"My project uses PostgreSQL. How do I optimize indexes?","expected":"extract_now"},
+    {"id":"m05","text":"I prefer short answers, what is MVCC?","expected":"extract_now"},
+    {"id":"m06","text":"我们使用 Redis！怎么设置过期时间？","expected":"extract_now"},
+    {"id":"m07","text":"我的项目使用 PostgreSQL\n请解释隔离级别？","expected":"extract_now"},
+    {"id":"m08","text":"我的项目是否使用 PostgreSQL，如何确认？","expected":"skip"},
+    {"id":"m09","text":"我的项目应该使用 PostgreSQL，还是 MySQL？","expected":"skip"},
+    {"id":"m10","text":"我的项目使用 PostgreSQL 吗？怎么检查？","expected":"skip"},
+    {"id":"m11","text":"我的项目使用什么数据库，如何选择？","expected":"skip"},
+    {"id":"m12","text":"我的项目使用 PostgreSQL？","expected":"skip"},
+    {"id":"m13","text":"如何确认我的项目使用 PostgreSQL？","expected":"skip"},
+    {"id":"m14","text":"我在论文中看到‘我的项目使用 PostgreSQL’，如何理解？","expected":"skip"},
+    {"id":"m15","text":"网页说：我的项目采用 MySQL，如何理解？","expected":"skip"},
+    {"id":"m16","text":"我的项目今天使用 PostgreSQL，如何优化索引？","expected":"skip"},
+    {"id":"m17","text":"请不要记住，我的项目使用 PostgreSQL，如何优化索引？","expected":"skip"},
+    {"id":"m18","text":"我的项目可能使用 PostgreSQL，如何优化索引？","expected":"buffer"},
+    {"id":"m19","text":"如果我的项目使用 PostgreSQL，如何优化索引？","expected":"buffer"},
+    {"id":"m20","text":"My project uses which database, how can I check?","expected":"skip"},
+    {"id":"m21","text":"My project uses PostgreSQL, should I switch?","expected":"extract_now"},
+    {"id":"m22","text":"我的项目使用，如何优化索引？","expected":"skip"},
+    {"id":"m23","text":"更正：我的项目改用 PostgreSQL。如何迁移？","expected":"revise"},
+    {"id":"m24","text":"仅这次我的项目使用 PostgreSQL，怎么配置？","expected":"skip"}
+  ]
+}

@@ -82,7 +82,9 @@ class MemoryExtractionJobService:
         ).execution_options(populate_existing=True).with_for_update())
         if not conversation:
             return None
-        setting = UserSettingRepository(self.db).get_by_user(user_id)
+        # 重新读取同意状态，不能复用当前Session中早先缓存的开关值。
+        setting = self.db.scalar(select(UserSetting).where(UserSetting.user_id == user_id)
+            .execution_options(populate_existing=True))
         automatic = bool(setting and setting.memory_auto_candidate_enabled)
 
         assistant = self.db.scalar(select(Message).where(Message.conversation_id == conversation_id,
@@ -92,16 +94,7 @@ class MemoryExtractionJobService:
             self.db.commit()
             return None
         if setting and not setting.memory_enabled:
-            # 关闭期间的对话不能在重新开启后被自动补记；手动提取另有显式入口。
-            disabled_sources = list(self.db.scalars(select(Message).where(
-                Message.conversation_id == conversation_id, Message.role == "user",
-                Message.sequence > (conversation.memory_scan_cursor or 0),
-                Message.sequence < assistant.sequence).order_by(Message.sequence.desc()).limit(50)))
-            rows = self._record_decisions(user_id=user_id, conversation=conversation,
-                observed_turn_id=assistant.id, decisions=[(item, classify_memory_signal(item.content),
-                    {"memory_enabled": False}) for item in disabled_sources])
-            for row in rows:
-                row.outcome = "memory_disabled"
+            # 总开关关闭后不读正文、不分类或新增触发观测，仅推进位置以避免重新开启时补记。
             conversation.memory_scan_cursor = max(conversation.memory_scan_cursor or 0, assistant.sequence or 0)
             conversation.memory_trigger_state = json.dumps({"project_id": conversation.project_id, "pending": []})
             self.db.commit()

@@ -1,0 +1,54 @@
+{
+  "dataset_version": "memory-trigger-mixed-v1-20261112",
+  "source": "针对混合陈述/问题的人工构造补充集，不是自然用户标注或通用语义能力评测",
+  "policy_version": "rules-v3",
+  "evaluation": "rules_only_replay",
+  "total": 24,
+  "correct": 24,
+  "action_accuracy": 1.0,
+  "trigger_precision": 1.0,
+  "trigger_recall": 1.0,
+  "false_trigger_rate": 0.0,
+  "miss_rate": 0.0,
+  "confusion": {
+    "tp": 9,
+    "fp": 0,
+    "fn": 0,
+    "tn": 15
+  },
+  "by_label": {
+    "extract_now": {
+      "total": 8,
+      "correct": 8,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "revise": {
+      "total": 1,
+      "correct": 1,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "revoke": {
+      "total": 0,
+      "correct": 0,
+      "precision": null,
+      "recall": null
+    },
+    "buffer": {
+      "total": 2,
+      "correct": 2,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "skip": {
+      "total": 13,
+      "correct": 13,
+      "precision": 1.0,
+      "recall": 1.0
+    }
+  },
+  "errors": [],
+  "additional_semantic_call_attempts": 0,
+  "model_call_scope": "offline_rules_no_model_invoked"
+}

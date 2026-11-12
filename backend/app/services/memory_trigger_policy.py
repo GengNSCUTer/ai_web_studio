@@ -6,7 +6,7 @@ import re
 
 from app.services.memory_extraction_policy import explicit_remember, redact_source, REDACTED
 
-POLICY_VERSION = "rules-v2"
+POLICY_VERSION = "rules-v3"
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,19 @@ _QUESTION = re.compile(r"[?？]$|^(?:什么是|怎么|如何|为什么|解释|�
 _ACK = re.compile(r"^(?:好(?:的)?|谢谢|收到|明白(?:了)?|继续|ok|thanks|thank you)[。！!\s]*$", re.I)
 _NO_SAVE = re.compile(r"^(?:请)?(?:别|不要|无需)(?:再)?(?:记住|保存|记录)|^(?:please )?(?:do not|don't) (?:remember|save)", re.I)
 _QUOTED = re.compile(r'“[^”]*”|‘[^’]*’|「[^」]*」|"[^"\n]*"')
+_CLAUSE_BOUNDARY = re.compile(r"[，,；;。.!！\n]+")
+_INTERROGATIVE = re.compile(r"是否|能否|该不该|要不要|应(?:该|当)|什么|怎么|如何|为什么|哪(?:个|种|些)|[吗么呢?？]|\b(?:should|would|could|whether|what|which|how|why)\b", re.I)
+
+
+def _has_assertion_before_question(text: str) -> bool:
+    """只承认问题之前独立、明确的事实分句，不能把疑问中的预设当作事实。"""
+    clauses = [part.strip() for part in _CLAUSE_BOUNDARY.split(text) if part.strip()]
+    for clause in clauses[:-1]:
+        match = _STABLE.search(clause)
+        if (match and clause[match.end():].strip() and not _INTERROGATIVE.search(clause)
+                and not _QUESTION.search(clause)):
+            return True
+    return False
 
 
 def forget_target(text: str) -> str | None:
@@ -61,7 +74,11 @@ def classify_memory_signal(text: str) -> MemorySignal:
     text = unquoted
     if _CORRECTION.search(text):
         return MemorySignal("revise", "explicit_correction", 80)
-    if _QUESTION.search(text) or _ACK.fullmatch(text):
+    if _QUESTION.search(text):
+        if _has_assertion_before_question(text):
+            return MemorySignal("extract_now", "stable_statement_with_question", 70)
+        return MemorySignal("skip", "ordinary_question")
+    if _ACK.fullmatch(text):
         return MemorySignal("skip", "ordinary_question")
     if _STABLE.search(text):
         return MemorySignal("extract_now", "stable_statement", 70)

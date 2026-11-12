@@ -83,6 +83,21 @@ class MemoryTriggerRuntimeTest(unittest.TestCase):
         job = self.turn("我的项目最终决定使用 PostgreSQL。")
         self.assertEqual((job.trigger_reason, job.priority), ("stable_statement", 70))
 
+    def test_mixed_input_uses_original_evidence_chain_and_does_not_auto_activate(self):
+        job = self.turn("我的项目使用 PostgreSQL，问题是如何优化索引？")
+        self.assertIsNotNone(job)
+        worker, provider = self.worker(json.dumps([dict(title="数据库", content="项目使用 PostgreSQL。",
+            memory_type="project", confidence="high", source_message_id=self.source,
+            evidence_quote="我的项目使用 PostgreSQL")]))
+        self.assertTrue(asyncio.run(worker.run_once()))
+        self.assertEqual(provider.complete_chat.await_count, 1)
+        with self.sessions() as db:
+            row = db.scalar(select(UserMemory).where(UserMemory.extraction_job_id == job.id))
+            self.assertIsNotNone(row)
+            self.assertEqual(row.status, "pending")
+            self.assertEqual(row.source_message_ids, self.source)
+            self.assertNotIn("如何", row.content)
+
     def test_unknown_statements_keep_bounded_batch_fallback(self):
         for text in ("团队每周周三同步", "工作时间比较固定", "笔记按月份存放"):
             self.assertIsNone(self.turn(text))

@@ -3,7 +3,7 @@
 import asyncio
 import json
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -362,16 +362,106 @@ class MemoryTriggerEvaluationTest(unittest.TestCase):
             self.assertEqual(parse_semantic_result(json.dumps({"action": action, "confidence": "high", "reason": "x"}))[:2],
                 ("buffer", "low"))
 
-    def test_disabled_memory_still_records_reason_without_job(self):
+    def test_mixed_statement_and_question_creates_job_without_semantic_gate(self):
+        source, assistant = self.turn("我的项目使用 PostgreSQL，问题是如何优化索引？")
+        job = self.enqueue(assistant)
+        self.assertIsNotNone(job)
+        self.assertEqual(job.trigger_reason, "stable_statement_with_question")
+        with self.sessions() as db:
+            decision = db.scalar(select(MemoryTriggerDecision).where(MemoryTriggerDecision.message_id == source))
+            self.assertEqual(decision.action, "extract_now")
+            self.assertEqual(decision.job_id, job.id)
+            self.assertFalse(db.get(MemoryExtractionJob, job.id).semantic_model_called)
+
+    def test_mixed_input_does_not_promote_questions_quotes_or_temporary_claims(self):
+        positive = [
+            "我的项目使用 PostgreSQL，问题是如何优化索引？",
+            "我的项目使用 PostgreSQL。如何优化索引？",
+            "我喜欢简洁回答；为什么索引会失效？",
+            "My project uses PostgreSQL. How do I optimize indexes?",
+        ]
+        negative = [
+            "我的项目是否使用 PostgreSQL，怎么确认？",
+            "我的项目应该使用 PostgreSQL，还是 MySQL？",
+            "我的项目使用 PostgreSQL 吗？如何检查？",
+            "我的项目使用什么数据库，如何选择？",
+            "如何确认我的项目使用 PostgreSQL？",
+            "我在论文中看到‘我的项目使用 PostgreSQL’，如何理解？",
+            "我的项目今天使用 PostgreSQL，如何优化索引？",
+            "请不要记住，我的项目使用 PostgreSQL，如何优化索引？",
+        ]
+        for text in positive:
+            with self.subTest(text=text):
+                self.assertEqual(classify_memory_signal(text).action, "extract_now")
+        for text in negative:
+            with self.subTest(text=text):
+                self.assertEqual(classify_memory_signal(text).action, "skip")
+        self.assertEqual(classify_memory_signal("我的项目可能使用 PostgreSQL，如何优化索引？").action, "buffer")
+
+    def test_disabled_memory_skips_content_analysis_and_new_decision_records(self):
         with self.sessions() as db:
             db.scalar(select(UserSetting)).memory_enabled = False
             db.commit()
         _, assistant = self.turn("请记住：项目使用 PostgreSQL。")
+        statements = []
+        def capture(connection, cursor, statement, parameters, context, executemany):
+            statements.append(statement.lower())
+        event.listen(self.engine, "before_cursor_execute", capture)
+        try:
+            with patch("app.services.memory_candidate_runtime.classify_memory_signal") as classify:
+                self.assertIsNone(self.enqueue(assistant))
+                classify.assert_not_called()
+        finally:
+            event.remove(self.engine, "before_cursor_execute", capture)
+        # 连正文SELECT都不需要：关闭分支只更新会话处理位置，不分析文本。
+        self.assertFalse(any("messages.content" in statement for statement in statements))
+        with self.sessions() as db:
+            self.assertIsNone(db.scalar(select(MemoryTriggerDecision)))
+            self.assertIsNone(db.scalar(select(MemoryExtractionJob)))
+            conversation = db.get(Conversation, self.conv)
+            self.assertEqual(conversation.memory_scan_cursor, db.get(Message, assistant).sequence)
+            self.assertEqual(json.loads(conversation.memory_trigger_state)["pending"], [])
+
+    def test_disabled_memory_does_not_create_observations_even_for_forced_requests(self):
+        with self.sessions() as db:
+            db.scalar(select(UserSetting)).memory_enabled = False
+            db.commit()
+        _, assistant = self.turn("请记住：项目使用 PostgreSQL。")
+        with self.sessions() as db, patch("app.services.memory_candidate_runtime.classify_memory_signal") as classify:
+            self.assertIsNone(MemoryExtractionJobService(db).enqueue_after_turn(user_id=self.user,
+                conversation_id=self.conv, assistant_message_id=assistant, force=True))
+            classify.assert_not_called()
+            self.assertIsNone(db.scalar(select(MemoryTriggerDecision)))
+
+    def test_disabled_consent_is_reloaded_when_session_cached_old_setting(self):
+        _, assistant = self.turn("请记住：项目使用 PostgreSQL。")
+        with self.sessions() as db:
+            cached = db.scalar(select(UserSetting))
+            self.assertTrue(cached.memory_enabled)
+            db.commit()
+            with self.sessions() as other:
+                other.scalar(select(UserSetting)).memory_enabled = False
+                other.commit()
+            self.assertTrue(cached.memory_enabled)
+            with patch("app.services.memory_candidate_runtime.classify_memory_signal") as classify:
+                self.assertIsNone(MemoryExtractionJobService(db).enqueue_after_turn(user_id=self.user,
+                    conversation_id=self.conv, assistant_message_id=assistant))
+                classify.assert_not_called()
+            self.assertFalse(cached.memory_enabled)
+
+    def test_disable_preserves_existing_observations_but_adds_none_and_clears_buffer(self):
+        _, assistant = self.turn("团队每周三同步")
+        self.enqueue(assistant)
+        with self.sessions() as db:
+            before = list(db.scalars(select(MemoryTriggerDecision.id)))
+            self.assertEqual(len(before), 1)
+            db.scalar(select(UserSetting)).memory_enabled = False
+            db.commit()
+        _, assistant = self.turn("我的项目使用 PostgreSQL，如何优化索引？")
         self.assertIsNone(self.enqueue(assistant))
         with self.sessions() as db:
-            row = db.scalar(select(MemoryTriggerDecision))
-            self.assertEqual(row.outcome, "memory_disabled")
-            self.assertFalse(row.job_created)
+            self.assertEqual(list(db.scalars(select(MemoryTriggerDecision.id))), before)
+            self.assertEqual(json.loads(db.get(Conversation, self.conv).memory_trigger_state)["pending"], [])
 
     def test_full_buffer_falls_back_to_extraction_so_new_sources_are_not_starved(self):
         for index in range(50):

@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "model": "deepseek-flash",
+  "chat_turns": 3,
+  "cases": [
+    {
+      "case": "混合输入首轮入队、在线提取及原文核验，不自动启用",
+      "status": "passed",
+      "pending_candidates": 1,
+      "additional_semantic_calls": 0
+    },
+    {
+      "case": "关闭记忆后真实Chat正常，零新增触发观测/提取任务",
+      "status": "passed"
+    },
+    {
+      "case": "重新开启处理新输入，不补记关闭期间内容",
+      "status": "passed"
+    }
+  ],
+  "scope": "固定账号在线模型、真实SSE/ChatWorker/MemoryWorker/PostgreSQL；非自然用户标注集"
+}
