@@ -72,6 +72,41 @@ test("已终态的同序号快照结束订阅，迟到事件不再更新UI", asy
   assert.equal(source.closeCount, 1);
 });
 
+test("工具步骤的终态不结束Chat订阅，后续正文与done仍可收到", async (t) => {
+  const current = nativeSource(t);
+  const seen = [];
+  const result = subscribeChatRun("r", new AbortController().signal, (event) => seen.push(event.type));
+  const source = current();
+  const outcomes = [
+    { type: "tool_workflow_end", status: "succeeded" },
+    { type: "tool_planner_end", status: "failed" },
+    ...["cancelled", "expired", "interrupted"].map((status) => ({ type: "tool_workflow_step_outcome", status })),
+  ];
+  for (const [index, event] of outcomes.entries()) {
+    source.emit(index + 1, event);
+    assert.equal(source.closeCount, 0, `工具${event.status}不能终止整个Chat`);
+  }
+  source.emit(6, { type: "answer_delta", text: "基于成功分支继续回答" });
+  source.emit(7, { type: "done" });
+  await result;
+  assert.equal(seen.length, 7);
+  assert.equal(seen.at(-2), "answer_delta");
+  assert.equal(source.closeCount, 1);
+});
+
+test("Chat自身的run_status终态仍关闭订阅", async (t) => {
+  const current = nativeSource(t);
+  for (const status of ["succeeded", "failed", "cancelled", "expired", "interrupted"]) {
+    const result = subscribeChatRun("r", new AbortController().signal, () => {});
+    const source = current();
+    source.emit(1, { type: "run_status", status: "running" });
+    assert.equal(source.closeCount, 0);
+    source.emit(2, { type: "run_status", status });
+    await result;
+    assert.equal(source.closeCount, 1);
+  }
+});
+
 test("生成重启快照替换旧片段，后续仅追加新正文", async (t) => {
   const current = nativeSource(t);
   let answer = "";

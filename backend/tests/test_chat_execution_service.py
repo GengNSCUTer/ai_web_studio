@@ -29,7 +29,7 @@ from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.message_repo import MessageGenerationConflict, MessageRepository
 from app.repositories.setting_repo import UserSettingRepository
 from app.services.chat_stream_service import (
-    _build_streaming_response,
+    generate_chat_events,
     _persist_stream_result,
 )
 from app.api.routes.chat_runs import edit_chat_run, regenerate_chat_run
@@ -310,7 +310,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             external_sources=[{"title": "RRF 资料", "url": "https://example.com/rrf"}],
         )
 
-    def test_streaming_response_done_persists_complete_answer(self) -> None:
+    def test_chat_events_done_persists_complete_answer(self) -> None:
         class DoneProvider:
             async def stream_chat_events(self, **_: object):
                 yield SimpleNamespace(type="reasoning_delta", text="先比较排名。")
@@ -319,15 +319,41 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         async def run_test() -> None:
             context = self._create_stream_context()
-            response = _build_streaming_response(context, DoneProvider())
-            chunks = [chunk async for chunk in response.body_iterator]
+            events = generate_chat_events(context, DoneProvider())
+            chunks = [chunk async for chunk in events]
 
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, "done")
             self.assertEqual(context.assistant_message.content, "RRF 是一种排名融合算法。")
             self.assertEqual(context.assistant_message.reasoning_content, "先比较排名。")
             self.assertIn('"title": "RRF 资料"', context.assistant_message.external_sources or "")
-            self.assertIn('"type": "done"', "".join(chunks))
+            self.assertIn('"type": "done"', json.dumps(chunks, ensure_ascii=False))
+
+        asyncio.run(run_test())
+
+    def test_chat_events_keep_unicode_diagnostics_and_full_sources_separate(self) -> None:
+        """诊断直接传业务对象，来源摘要有界但不截断正式来源事件。"""
+        class Provider:
+            async def stream_chat_events(self, **kwargs):
+                yield SimpleNamespace(type="answer_delta", text="已查看中文资料。")
+
+        async def run_test() -> None:
+            context = self._create_stream_context()
+            context.context_notices = ["已载入中文知识库"]
+            context.context_stats = {"knowledge_base_name": "中文知识库"}
+            context.external_sources = [{"title": "中文资料", "display_text": "完整正文" * 100}]
+            context.context_details = {"external_sources": context.external_sources}
+            events = [event async for event in generate_chat_events(context, Provider())]
+
+            info = events[0]
+            self.assertEqual(info["type"], "context_info")
+            self.assertEqual(info["info"]["notices"], ["已载入中文知识库"])
+            self.assertEqual(info["info"]["stats"]["knowledge_base_name"], "中文知识库")
+            summary = info["info"]["details"]["external_sources"][0]
+            self.assertLess(len(summary["display_text"]), len(context.external_sources[0]["display_text"]))
+            sources = next(event for event in events if event["type"] == "tool_sources")
+            self.assertEqual(sources["sources"], context.external_sources)
+            self.assertEqual(events[-1]["type"], "done")
 
         asyncio.run(run_test())
 
@@ -339,8 +365,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
         async def run_test():
             context = self._create_stream_context()
             context.verified_file_edit_answer = '本轮没有创建真实审批，也未执行文件写入。'
-            response = _build_streaming_response(context, ForbiddenProvider())
-            chunks = ''.join([part async for part in response.body_iterator])
+            events = generate_chat_events(context, ForbiddenProvider())
+            chunks = json.dumps([part async for part in events], ensure_ascii=False)
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, 'done')
             self.assertEqual(context.assistant_message.content, context.verified_file_edit_answer)
@@ -373,8 +399,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 context = await service.prepare_chat_execution(payload)
 
             provider = EvidenceAwareProvider()
-            response = _build_streaming_response(context, provider)
-            body = "".join([chunk async for chunk in response.body_iterator])
+            events = generate_chat_events(context, provider)
+            body = json.dumps([chunk async for chunk in events], ensure_ascii=False)
 
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, "done")
@@ -409,8 +435,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             context = self._create_stream_context()
             context.external_sources = [{"citation_label": "[KB1]", "used_in_prompt": True,
                 "metadata": {"citation_scope": "final_prompt", "citation_body_chars": 4}}]
-            body = "".join([part async for part in _build_streaming_response(context, CitedProvider()).body_iterator])
-            events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+            events = [event async for event in generate_chat_events(context, CitedProvider())]
             audit_event = next(item for item in events if item["type"] == "citation_audit")
             self.assertEqual(audit_event["audit"]["status"], "needs_review")
             self.assertEqual(audit_event["audit"]["unknown_labels"], ["[KB99]"])
@@ -425,7 +450,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.assertIsNone(context.assistant_message.citation_audit)
         asyncio.run(run_test())
 
-    def test_streaming_response_cancelled_persists_partial_answer(self) -> None:
+    def test_chat_events_cancelled_persists_partial_answer(self) -> None:
         class CancelledProvider:
             async def stream_chat_events(self, **_: object):
                 yield SimpleNamespace(type="answer_delta", text="RRF 是一种排名融合算法")
@@ -433,10 +458,10 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         async def run_test() -> None:
             context = self._create_stream_context()
-            response = _build_streaming_response(context, CancelledProvider())
+            events = generate_chat_events(context, CancelledProvider())
 
             with self.assertRaises(asyncio.CancelledError):
-                async for _ in response.body_iterator:
+                async for _ in events:
                     pass
 
             self.db.refresh(context.assistant_message)
@@ -446,7 +471,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_streaming_response_cancelled_before_first_token_closes_as_cancelled(self) -> None:
+    def test_chat_events_cancelled_before_first_token_closes_as_cancelled(self) -> None:
         class CancelledBeforeTokenProvider:
             async def stream_chat_events(self, **_: object):
                 raise asyncio.CancelledError
@@ -454,13 +479,13 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         async def run_test() -> None:
             context = self._create_stream_context()
-            response = _build_streaming_response(
+            events = generate_chat_events(
                 context,
                 CancelledBeforeTokenProvider(),
             )
 
             with self.assertRaises(asyncio.CancelledError):
-                async for _ in response.body_iterator:
+                async for _ in events:
                     pass
 
             self.db.refresh(context.assistant_message)
@@ -469,7 +494,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_streaming_response_closes_provider_iterator_on_failure(self) -> None:
+    def test_chat_events_closes_provider_iterator_on_failure(self) -> None:
         class ClosableStream:
             def __init__(self) -> None:
                 self.closed = False
@@ -493,8 +518,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
         async def run_test() -> None:
             context = self._create_stream_context()
             provider = ClosableProvider()
-            response = _build_streaming_response(context, provider)
-            body = "".join([chunk async for chunk in response.body_iterator])
+            events = generate_chat_events(context, provider)
+            body = json.dumps([chunk async for chunk in events], ensure_ascii=False)
 
             self.assertIn('"error_code": "provider_error"', body)
             self.assertTrue(provider.stream.closed)
@@ -503,7 +528,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_streaming_response_failed_persists_partial_answer_and_emits_error(self) -> None:
+    def test_chat_events_failed_persists_partial_answer_and_emits_error(self) -> None:
         class FailedProvider:
             async def stream_chat_events(self, **_: object):
                 yield SimpleNamespace(type="answer_delta", text="RRF 是一种")
@@ -511,13 +536,13 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         async def run_test() -> None:
             context = self._create_stream_context()
-            response = _build_streaming_response(context, FailedProvider())
-            chunks = [chunk async for chunk in response.body_iterator]
+            events = generate_chat_events(context, FailedProvider())
+            chunks = [chunk async for chunk in events]
 
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, "failed")
             self.assertEqual(context.assistant_message.content, "RRF 是一种")
-            body = "".join(chunks)
+            body = json.dumps(chunks, ensure_ascii=False)
             self.assertIn('"type": "answer_delta"', body)
             self.assertIn('"type": "model_error"', body)
             self.assertIn('"error_code": "provider_error"', body)
@@ -882,7 +907,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.assertEqual(json.loads(persisted.sources_json), expected_sources)
             self.assertEqual(json.loads(persisted.diagnostics_json)["knowledge_sources_in_final_prompt"], 1)
 
-    def test_streaming_response_enforces_first_token_timeout(self) -> None:
+    def test_chat_events_enforces_first_token_timeout(self) -> None:
         class SlowFirstTokenProvider:
             async def stream_chat_events(self, **_: object):
                 await asyncio.sleep(0.05)
@@ -896,8 +921,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 chat_stream_total_timeout_seconds=1.0,
             )
             with patch("app.services.chat_stream_service.settings", timeout_settings):
-                response = _build_streaming_response(context, SlowFirstTokenProvider())
-                body = "".join([chunk async for chunk in response.body_iterator])
+                events = generate_chat_events(context, SlowFirstTokenProvider())
+                body = json.dumps([chunk async for chunk in events], ensure_ascii=False)
 
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, "failed")
@@ -905,7 +930,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_streaming_response_enforces_idle_timeout_after_partial_answer(self) -> None:
+    def test_chat_events_enforces_idle_timeout_after_partial_answer(self) -> None:
         class IdleProvider:
             async def stream_chat_events(self, **_: object):
                 yield SimpleNamespace(type="answer_delta", text="partial")
@@ -920,8 +945,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 chat_stream_total_timeout_seconds=1.0,
             )
             with patch("app.services.chat_stream_service.settings", timeout_settings):
-                response = _build_streaming_response(context, IdleProvider())
-                body = "".join([chunk async for chunk in response.body_iterator])
+                events = generate_chat_events(context, IdleProvider())
+                body = json.dumps([chunk async for chunk in events], ensure_ascii=False)
 
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, "failed")
@@ -930,7 +955,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_streaming_response_enforces_total_timeout_despite_regular_tokens(self) -> None:
+    def test_chat_events_enforces_total_timeout_despite_regular_tokens(self) -> None:
         class EndlessSlowProvider:
             async def stream_chat_events(self, **_: object):
                 while True:
@@ -945,8 +970,8 @@ class ChatExecutionServiceTest(unittest.TestCase):
                 chat_stream_total_timeout_seconds=0.025,
             )
             with patch("app.services.chat_stream_service.settings", timeout_settings):
-                response = _build_streaming_response(context, EndlessSlowProvider())
-                body = "".join([chunk async for chunk in response.body_iterator])
+                events = generate_chat_events(context, EndlessSlowProvider())
+                body = json.dumps([chunk async for chunk in events], ensure_ascii=False)
 
             self.db.refresh(context.assistant_message)
             self.assertEqual(context.assistant_message.status, "failed")

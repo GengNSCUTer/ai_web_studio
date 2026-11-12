@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, Mock, patch
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.services.chat_stream_service import _stringify_stats
 from app.core.config import settings
 from app.core.database import Base
 from app.models import *  # noqa: F403 - ensure all metadata is registered.
@@ -3243,18 +3242,6 @@ class KnowledgeServiceTest(unittest.TestCase):
         self.assertNotIn("secret-value", result.notices[0])
         self.assertNotIn("provider.internal", "\n".join(captured.output))
         self.assertNotIn("secret-value", "\n".join(captured.output))
-
-    def test_context_stats_header_supports_unicode_values(self) -> None:
-        encoded = _stringify_stats(
-            {
-                "knowledge_retrieval_enabled": 1,
-                "knowledge_base_name": "中文知识库",
-                "knowledge_chunks_injected": 2,
-            }
-        )
-
-        self.assertTrue(encoded.startswith("json64:"))
-        encoded.encode("latin-1")
 
     def test_delete_conversation_detaches_knowledge_retrieval_logs(self) -> None:
         conversation_repo = ConversationRepository(self.db)

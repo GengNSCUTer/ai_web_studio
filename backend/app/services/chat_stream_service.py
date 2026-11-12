@@ -1,7 +1,6 @@
 """共享Chat生成事件服务；Worker直接消费，HTTP订阅不拥有生成任务。"""
 
 import asyncio
-import base64
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -9,8 +8,6 @@ from contextlib import aclosing
 from typing import Any
 
 import anyio
-from fastapi.responses import StreamingResponse
-from app.services.chat_sse import encode_chat_sse
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -101,33 +98,7 @@ async def _iter_with_stream_timeouts(
             await close()
 
 
-def _stringify_stats(stats: dict[str, Any]) -> str:
-    # HTTP header 只能放短文本；复杂诊断信息用 JSON 后再 base64，避免中文/特殊字符破坏 header。
-    if not stats:
-        return ""
-    # 逐条记忆诊断通过 details 传输，并留在持久化 stats；不在两个响应头重复占空间。
-    payload = json.dumps({key: value for key, value in stats.items() if key != "memory_retrieval"},
-                         ensure_ascii=False, default=str).encode("utf-8")
-    value = f"json64:{base64.b64encode(payload).decode('ascii')}"
-    return value if len(value) <= 4096 else ""
-
-
-def _encode_context_notices(notices: list[str]) -> str:
-    if not notices:
-        return ""
-    payload = json.dumps(notices[:8], ensure_ascii=False).encode("utf-8")
-    return base64.b64encode(payload).decode("ascii")
-
-
-def _encode_json_payload(payload: dict[str, Any] | list[Any] | None, *, max_encoded_chars: int = 4096) -> str:
-    if not payload:
-        return ""
-    encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    value = base64.b64encode(encoded).decode("ascii")
-    return value if len(value) <= max_encoded_chars else ""
-
-
-def _truncate_header_text(value: Any, max_chars: int) -> Any:
+def _truncate_diagnostic_text(value: Any, max_chars: int) -> Any:
     if not isinstance(value, str):
         return value
     if len(value) <= max_chars:
@@ -135,12 +106,8 @@ def _truncate_header_text(value: Any, max_chars: int) -> Any:
     return value[:max_chars].rstrip() + "...[truncated]"
 
 
-def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, Any]:
-    """压缩上下文诊断头。
-
-    完整来源、工具 trace 会通过 SSE 事件或消息接口读取；header 只保留少量摘要，
-    防止代理/浏览器因为 header 过大直接中断流式响应。
-    """
+def _summarize_context_details(details: dict[str, Any]) -> dict[str, Any]:
+    """为context_info保留有限诊断摘要，完整来源与工具轨迹通过独立事件发送。"""
     compact: dict[str, Any] = {}
     memory = details.get("memory_retrieval")
     if isinstance(memory, dict):
@@ -151,8 +118,8 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
         compact["attachment_chunks"] = [
             {
                 **chunk,
-                "preview": _truncate_header_text(chunk.get("preview"), 360),
-                "expanded_preview": _truncate_header_text(chunk.get("expanded_preview"), 720),
+                "preview": _truncate_diagnostic_text(chunk.get("preview"), 360),
+                "expanded_preview": _truncate_diagnostic_text(chunk.get("expanded_preview"), 720),
             }
             for chunk in attachment_chunks[:8]
             if isinstance(chunk, dict)
@@ -164,14 +131,14 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
             {
                 "source_type": source.get("source_type"),
                 "provider": source.get("provider"),
-                "title": _truncate_header_text(source.get("title"), 80),
-                "display_text": _truncate_header_text(source.get("display_text"), 120),
-                "url": _truncate_header_text(source.get("url"), 120),
+                "title": _truncate_diagnostic_text(source.get("title"), 80),
+                "display_text": _truncate_diagnostic_text(source.get("display_text"), 120),
+                "url": _truncate_diagnostic_text(source.get("url"), 120),
                 "rank": source.get("rank"),
                 "score": source.get("score"),
                 "citation_label": source.get("citation_label"),
                 "metadata": {
-                    key: _truncate_header_text(value, 80)
+                    key: _truncate_diagnostic_text(value, 80)
                     for key, value in (source.get("metadata") or {}).items()
                     if key in {"tool", "query", "domain", "city", "province", "name", "address", "type"}
                 },
@@ -202,7 +169,7 @@ def _compact_context_details_for_header(details: dict[str, Any]) -> dict[str, An
         compact["active_skill"] = {
             "skill_key": active_skill.get("skill_key"),
             "version": active_skill.get("version"),
-            "display_name": _truncate_header_text(active_skill.get("display_name"), 80),
+            "display_name": _truncate_diagnostic_text(active_skill.get("display_name"), 80),
             "allowed_tool_keys": [
                 str(tool_key)[:128]
                 for tool_key in (active_skill.get("allowed_tool_keys") or [])[:16]
@@ -357,16 +324,15 @@ async def _persist_stream_result_nonblocking(
     return await persist_stream_result(snapshot)
 
 
-def _build_streaming_response(
+def generate_chat_events(
     context: ChatExecutionContext,
     provider_service: ChatProviderService,
     *,
     persist_callback=None,
-    stream_only: bool = False,
-) -> StreamingResponse | AsyncIterator[dict]:
-    """统一生成/超时/审计/收口；Worker只拿迭代器，内部兼容调用可包装响应。
+) -> AsyncIterator[dict]:
+    """统一生成、超时、审计和收口，只返回业务事件，不创建HTTP响应。
 
-    正式Web路径不调用本函数启动模型，只订阅Worker已经持久化的事件。
+    正式Web路径只订阅Worker已经持久化的事件；本函数由Worker或诊断脚本调用。
     persist_callback让ChatRun在自己的租约保护事务中同时保存消息与任务终态。
     """
 
@@ -397,7 +363,7 @@ def _build_streaming_response(
             yield _stream_event("context_info", conversation_id=conversation_id, info={
                 "notices": context.context_notices,
                 "stats": {key: str(value) for key, value in context.context_stats.items() if key != "memory_retrieval"},
-                "details": _compact_context_details_for_header(context.context_details),
+                "details": _summarize_context_details(context.context_details),
             })
             # 工具事件先发给前端，让用户看到“为什么调用工具、调用了什么、是否成功”。
             for tool_event in context.tool_events:
@@ -545,31 +511,4 @@ def _build_streaming_response(
 
     if postgresql:
         db.close()
-    if stream_only:
-        return text_generator()
-    async def sse_generator():
-        async with aclosing(text_generator()) as events:
-            async for event in events:
-                yield encode_chat_sse(event)
-    response = StreamingResponse(
-        sse_generator(),
-        media_type="text/event-stream",
-        headers={
-            "cache-control": "no-cache, no-transform",
-            "x-conversation-id": conversation_id,
-            "x-assistant-message-id": assistant_message_id,
-            "x-context-notices": _encode_context_notices(context.context_notices),
-            "x-context-stats": _stringify_stats(context.context_stats),
-            "x-context-details": _encode_json_payload(
-                _compact_context_details_for_header(context.context_details)
-            ),
-        },
-    )
-    return response
-
-
-
-def generate_chat_events(context, provider_service, *, persist_callback):
-    """只返回异步事件迭代器，不创建HTTP响应或订阅连接。"""
-    return _build_streaming_response(context, provider_service,
-        persist_callback=persist_callback, stream_only=True)
+    return text_generator()

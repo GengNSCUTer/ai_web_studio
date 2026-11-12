@@ -57,8 +57,10 @@ export async function subscribeChatRun(
         onEvent(event);
         lastHandled = Number(sequence);
         consecutiveErrors = 0;
+        // 工具步骤也有succeeded/failed，不能据此提前关闭整条Chat订阅。
+        const isRunState = event.type === "run_snapshot" || event.type === "run_status";
         const state = event.type === "run_snapshot" ? (event.run as ChatRunSnapshot).status : String(event.status ?? "");
-        if (event.type === "done" || event.type === "model_error" || runMessageStatus(state) !== "streaming") finish();
+        if (event.type === "done" || event.type === "model_error" || (isRunState && runMessageStatus(state) !== "streaming")) finish();
       } catch (error) {
         // 原生游标可能已前进，坏事件不能忽略后继续，须显式失败后由页面恢复。
         finish(error);

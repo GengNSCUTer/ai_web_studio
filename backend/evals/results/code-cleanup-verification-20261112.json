@@ -1,0 +1,119 @@
+{
+  "date": "2026-11-12",
+  "scope": "旧Chat包装及文档清理回归；未重跑RAG/200题Agent评测",
+  "backend": {
+    "tests": 1378,
+    "elapsed_seconds": 688.893,
+    "status": "passed",
+    "postgres_integration_enabled": true,
+    "skipped": 0
+  },
+  "frontend": {
+    "subscription_tests": 11,
+    "all_node_tests": 12,
+    "lint": "passed",
+    "build": "passed"
+  },
+  "online_chat": {
+    "status": "passed",
+    "model": "deepseek-flash",
+    "chat_turns": 3,
+    "cases": [
+      {
+        "case": "混合输入首轮入队、在线提取及原文核验，不自动启用",
+        "status": "passed",
+        "pending_candidates": 1,
+        "additional_semantic_calls": 0
+      },
+      {
+        "case": "关闭记忆后真实Chat正常，零新增触发观测/提取任务",
+        "status": "passed"
+      },
+      {
+        "case": "重新开启处理新输入，不补记关闭期间内容",
+        "status": "passed"
+      }
+    ],
+    "scope": "固定账号在线模型、真实SSE/ChatWorker/MemoryWorker/PostgreSQL；非自然用户标注集"
+  },
+  "tool_fault_scenarios": [
+    {
+      "answer_chars": 142,
+      "assistant_status": "done",
+      "available_fact_used": true,
+      "call_statuses": [
+        "success",
+        "timed_out"
+      ],
+      "execution_latency_ms": 33156,
+      "planner": "online_llm",
+      "planner_latency_ms": 1863,
+      "route_status": "partial",
+      "scenario": "real_model_partial_tool_timeout_with_controlled_delay",
+      "tool": "real_workspace_file_read",
+      "tool_phase_latency_ms": 35045,
+      "unavailable_fact_not_invented": true
+    },
+    {
+      "answer_chars": 109,
+      "assistant_status": "done",
+      "final_model": "deepseek-flash",
+      "limitation_disclosed": true,
+      "planner": "controlled_timeout",
+      "route_status": "error",
+      "scenario": "unavailable_planner_without_safe_fallback",
+      "tool_calls": 0
+    }
+  ],
+  "browser": {
+    "before": [
+      {
+        "attempt": "r1",
+        "status": "failed",
+        "reason": "旧脚本按发送按钮文字提前收尾，数据库检查过早"
+      },
+      {
+        "attempt": "r2",
+        "status": "failed",
+        "reason": "服务端任务已成功；工具局部succeeded被前端误当Chat终态，页面收不到最终回答"
+      }
+    ],
+    "after": {
+      "attempt": "r3",
+      "status": "passed",
+      "assistant_chars": 171,
+      "assistant_status": "done",
+      "browser_console_errors": 0,
+      "executed_tool_keys": [
+        "workspace.files.read",
+        "workspace.files.search"
+      ],
+      "last_plan_tool_keys": [
+        "workspace.files.read"
+      ],
+      "planner_strategy": "llm_primary",
+      "route_status": "success",
+      "tool_call_count": 2,
+      "tool_events_with_terminal_like_status": [
+        {
+          "status": "succeeded",
+          "type": "tool_workflow_end"
+        },
+        {
+          "status": "succeeded",
+          "type": "tool_workflow_end"
+        }
+      ]
+    }
+  },
+  "archive_checks": {
+    "documents": 4,
+    "historical_lines": 19985,
+    "original_text_preserved": true,
+    "relocated_relative_links": 175,
+    "collaboration_history_preserved": true,
+    "current_navigation_links_checked": 78
+  },
+  "credentials_in_report": false,
+  "temporary_projects_removed": true
+}

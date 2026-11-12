@@ -153,6 +153,11 @@ def collect_result(*, user_id: str, project_id: str, file_id: str) -> dict:
             "assistant_status": assistant.status,
             "assistant_chars": len(assistant.content or ""),
             "route_status": route_run.status,
+            "tool_events_with_terminal_like_status": [
+                {"type": event.get("type"), "status": event.get("status")}
+                for event in events
+                if event.get("status") in {"succeeded", "failed", "cancelled", "expired", "interrupted"}
+            ],
         }
 
 
@@ -250,18 +255,14 @@ def run() -> None:
                 "只使用工作区文件工具，先搜索再读取，不要联网，也不要修改文件。"
             )
             page.get_by_role("button", name="发送消息").click()
-            page.wait_for_function(
-                "() => document.querySelector('button[type=submit]')?.disabled === true",
-                timeout=10_000,
+            # ChatRun创建后按钮可能仍显示“发送消息”，不能把按钮文案当成任务完成。
+            # 等待真实SSE/快照驱动的助手终态；失败或取消要立即报错，不能继续等成成功。
+            assistant = page.locator("article.message-assistant").last
+            status = assistant.locator("div").first.get_by_text(
+                re.compile(r"^(done|failed|cancelled)$", re.IGNORECASE)
             )
-            page.wait_for_function(
-                """() => {
-                    const button = document.querySelector('button[type=submit]');
-                    const text = button?.textContent?.trim() || '';
-                    return text === '发送消息' || text === 'Send';
-                }""",
-                timeout=MODEL_TIMEOUT_MS,
-            )
+            expect(status).to_be_visible(timeout=MODEL_TIMEOUT_MS)
+            expect(status).to_have_text("done")
             tool_summary = page.get_by_text(re.compile(r"工具过程 · \d+"))
             expect(tool_summary).to_be_visible(timeout=10_000)
             tool_summary.click()
@@ -275,6 +276,7 @@ def run() -> None:
             raise AssertionError("浏览器出现错误：\n" + "\n".join(console_errors[:5]))
         result = collect_result(user_id=user_id, project_id=project_id, file_id=file_id)
         result["project_name"] = project_name
+        result["browser_console_errors"] = len(console_errors)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     finally:
         if os.getenv("AIWS_E2E_KEEP_FIXTURE") != "1":
