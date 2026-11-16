@@ -200,7 +200,7 @@ class AgentTaskEvaluationTest(unittest.TestCase):
         client = httpx.Client(base_url='http://test', transport=httpx.MockTransport(lambda request: httpx.Response(200, json={'status': 'ready'})))
         with tempfile.TemporaryDirectory() as tmp, patch('agent_task_batch_runner.credentials', return_value=('u', 'private-token')), \
                 patch('agent_task_batch_runner.configured_model', return_value='configured-online-model'), \
-                patch('agent_task_batch_runner.settings.user_chat_concurrency', 1), \
+                patch('agent_task_batch_runner.settings', SimpleNamespace(user_chat_concurrency=1)), \
                 patch('agent_task_batch_runner.PilotRunner', return_value=fake), \
                 patch('agent_task_batch_runner.httpx.Client', return_value=client):
             path = Path(tmp) / 'report.json'

@@ -99,6 +99,21 @@ class WorkspaceFileToolProviderTest(unittest.TestCase):
         self.assertNotIn("file-other-user", sources[0].display_text)
         self.assertNotIn("private-agent-design", str(sources[0].metadata))
 
+    def test_completion_reuse_rechecks_database_content_and_owner(self):
+        from types import SimpleNamespace
+        from app.services.tools.loop_runtime import SyncToolRun
+        sources, _ = asyncio.run(self.provider.run(call=build_call('workspace.files.read', {'file_id': 'file-current'})))
+        self.db.commit()
+        owner = SimpleNamespace(service=SimpleNamespace(db=self.db,
+            executor=SimpleNamespace(user_id='user-1', project_id='project-current')))
+        self.assertTrue(SyncToolRun._read_is_current(owner, sources[0]))
+        item = self.db.get(ProjectFile, 'file-current')
+        item.parsed_text = '更新后的正文，不能复用旧读取。'
+        self.db.commit()
+        self.assertFalse(SyncToolRun._read_is_current(owner, sources[0]))
+        owner.service.executor.user_id = 'user-2'
+        self.assertFalse(SyncToolRun._read_is_current(owner, sources[0]))
+
     def test_search_and_read_use_opaque_file_id_and_bounded_lines(self) -> None:
         sources, metadata = asyncio.run(
             self.provider.run(call=build_call("workspace.files.search", {"query": "durable checkpoint"}))

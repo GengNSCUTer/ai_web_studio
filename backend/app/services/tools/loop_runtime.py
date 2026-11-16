@@ -22,6 +22,24 @@ from app.services.tools.completion_verifier import verify_completion
 class SyncToolRun:
     """每次执行独占的业务对象；Chat Worker可由业务快照重建，不跨用户复用对象。"""
 
+    def _read_is_current(self, source) -> bool:
+        """省去重复读取前复查当前范围、正文摘要和版本；拿不准时保留原调用。"""
+        if self.service.db is None:
+            return True
+        from sqlalchemy import select
+        from app.models.project_file import ProjectFile
+        from app.models.agent_runtime import FileRevision
+        from app.services.workspace_file_provenance import content_hash
+        meta = source.metadata
+        item = self.service.db.scalar(select(ProjectFile).where(ProjectFile.id == meta.get('file_id'),
+            ProjectFile.user_id == self.service.executor.user_id,
+            ProjectFile.project_id == self.service.executor.project_id).execution_options(populate_existing=True))
+        if not item or not meta.get('content_hash') or content_hash(item.parsed_text or '') != meta['content_hash']:
+            return False
+        revision = self.service.db.scalar(select(FileRevision.id).where(FileRevision.project_file_id == item.id)
+            .order_by(FileRevision.revision_number.desc()).limit(1))
+        return revision == meta.get('revision_id')
+
     def __init__(self, service, *, query, enabled, max_chars, recent_messages=None,
                  planner_runtime=None, skill_context=None, budget=None):
         self.service = service
@@ -178,6 +196,7 @@ class SyncToolRun:
                         and s.metadata.get('quality_status', 'valid') == 'valid'
                         and not s.metadata.get('evidence_pretruncated') and not s.metadata.get('citation_body_truncated')
                         and (not call.arguments.get('expected_revision_id') or call.arguments['expected_revision_id'] == s.metadata.get('revision_id'))
+                        and self._read_is_current(s)
                         for s in self.sources))
                 if repeated:
                     skipped += 1
@@ -187,6 +206,7 @@ class SyncToolRun:
                 self.plan.calls = kept
                 self.plan.should_use_tools = bool(kept)
                 self.plan.trace_events.append({'type': 'tool_completed_target_reuse', 'skipped_calls': skipped})
+            release_read_transaction(self.service.db)
         self.plan = self.service._scope_plan_call_ids(self.plan, self.round_index, self.used_call_ids)
         self.last_plan = self.plan
         self.plan.original_query = self.rewrite.original_query
