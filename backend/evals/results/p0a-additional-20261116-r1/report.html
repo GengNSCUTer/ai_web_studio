@@ -1,0 +1,395 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>Agent业务评测</title><style>body{font:15px system-ui;max-width:1400px;margin:30px auto;padding:16px;color:#183042;background:#f7f9fc}table{border-collapse:collapse;width:100%;background:white;margin:20px 0}td,th{border:1px solid #dce2e8;padding:10px;text-align:left;vertical-align:top}th{background:#eef3f8}pre{white-space:pre-wrap;max-width:100%;overflow-wrap:anywhere}summary{cursor:pointer}</style><h1>Agent业务评测</h1><p>P0-A实现后新写的内部对照题，独立于原200题；不是外部盲测，不与原200题合并成绩。</p><p>目标3；现有题目3；本次执行3；结果 {&quot;passed&quot;: 3}</p><table><thead><tr><th>执行链</th><th>运行数</th><th>通过</th><th>部分</th><th>失败</th><th>P50 ms</th><th>经验P95 ms</th></tr></thead><tbody><tr><td>chat</td><td>3</td><td>3</td><td>0</td><td>0</td><td>17921.5</td><td>20710.1</td></tr></tbody></table><details><summary>展开分层指标、分母和适用边界</summary><pre>{
+  &quot;summary&quot;: {
+    &quot;scheduled&quot;: 3,
+    &quot;executed&quot;: 3,
+    &quot;statuses&quot;: {
+      &quot;passed&quot;: 3
+    },
+    &quot;task_success&quot;: {
+      &quot;numerator&quot;: 3,
+      &quot;denominator&quot;: 3,
+      &quot;value&quot;: 1.0
+    },
+    &quot;scheduled_task_success&quot;: {
+      &quot;numerator&quot;: 3,
+      &quot;denominator&quot;: 3,
+      &quot;value&quot;: 1.0
+    },
+    &quot;partial_success&quot;: {
+      &quot;numerator&quot;: 0,
+      &quot;denominator&quot;: 3,
+      &quot;value&quot;: 0.0
+    },
+    &quot;candidate_tool_group_recall&quot;: {
+      &quot;numerator&quot;: 3,
+      &quot;denominator&quot;: 3,
+      &quot;value&quot;: 1.0
+    },
+    &quot;candidate_task_full_coverage&quot;: {
+      &quot;numerator&quot;: 3,
+      &quot;denominator&quot;: 3,
+      &quot;value&quot;: 1.0
+    },
+    &quot;planner_tool_group_coverage_given_candidates&quot;: {
+      &quot;numerator&quot;: 3,
+      &quot;denominator&quot;: 3,
+      &quot;value&quot;: 1.0
+    },
+    &quot;parameter_schema_validity&quot;: {
+      &quot;numerator&quot;: 20,
+      &quot;denominator&quot;: 20,
+      &quot;value&quot;: 1.0
+    },
+    &quot;quality_pass&quot;: {
+      &quot;numerator&quot;: 10,
+      &quot;denominator&quot;: 10,
+      &quot;value&quot;: 1.0
+    },
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 10
+    },
+    &quot;call_execution_success&quot;: {
+      &quot;numerator&quot;: 10,
+      &quot;denominator&quot;: 10,
+      &quot;value&quot;: 1.0
+    },
+    &quot;no_tool_task_success&quot;: {
+      &quot;numerator&quot;: 0,
+      &quot;denominator&quot;: 0,
+      &quot;value&quot;: null
+    },
+    &quot;artifact_download_success&quot;: {
+      &quot;numerator&quot;: 0,
+      &quot;denominator&quot;: 0,
+      &quot;value&quot;: null
+    },
+    &quot;missing_candidate_trace_cases&quot;: 0,
+    &quot;forbidden_candidates&quot;: 0,
+    &quot;p50_ms&quot;: 17921.5,
+    &quot;p95_ms&quot;: 20710.1,
+    &quot;sample_size&quot;: 3,
+    &quot;final_answer_token_usage_cases&quot;: 3,
+    &quot;complete_task_token_cost&quot;: null,
+    &quot;planner_dependency_correctness&quot;: null,
+    &quot;answer_semantic_faithfulness&quot;: null,
+    &quot;recovery_success&quot;: null
+  },
+  &quot;by_category&quot;: {
+    &quot;multi_tool&quot;: {
+      &quot;scheduled&quot;: 3,
+      &quot;executed&quot;: 3,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 3
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 20,
+        &quot;denominator&quot;: 20,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 10,
+        &quot;denominator&quot;: 10,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 10
+      },
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 10,
+        &quot;denominator&quot;: 10,
+        &quot;value&quot;: 1.0
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 17921.5,
+      &quot;p95_ms&quot;: 20710.1,
+      &quot;sample_size&quot;: 3,
+      &quot;final_answer_token_usage_cases&quot;: 3,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    }
+  },
+  &quot;by_runner&quot;: {
+    &quot;chat&quot;: {
+      &quot;scheduled&quot;: 3,
+      &quot;executed&quot;: 3,
+      &quot;statuses&quot;: {
+        &quot;passed&quot;: 3
+      },
+      &quot;task_success&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;scheduled_task_success&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;partial_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 0.0
+      },
+      &quot;candidate_tool_group_recall&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;candidate_task_full_coverage&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;planner_tool_group_coverage_given_candidates&quot;: {
+        &quot;numerator&quot;: 3,
+        &quot;denominator&quot;: 3,
+        &quot;value&quot;: 1.0
+      },
+      &quot;parameter_schema_validity&quot;: {
+        &quot;numerator&quot;: 20,
+        &quot;denominator&quot;: 20,
+        &quot;value&quot;: 1.0
+      },
+      &quot;quality_pass&quot;: {
+        &quot;numerator&quot;: 10,
+        &quot;denominator&quot;: 10,
+        &quot;value&quot;: 1.0
+      },
+      &quot;call_statuses&quot;: {
+        &quot;success&quot;: 10
+      },
+      &quot;call_execution_success&quot;: {
+        &quot;numerator&quot;: 10,
+        &quot;denominator&quot;: 10,
+        &quot;value&quot;: 1.0
+      },
+      &quot;no_tool_task_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;artifact_download_success&quot;: {
+        &quot;numerator&quot;: 0,
+        &quot;denominator&quot;: 0,
+        &quot;value&quot;: null
+      },
+      &quot;missing_candidate_trace_cases&quot;: 0,
+      &quot;forbidden_candidates&quot;: 0,
+      &quot;p50_ms&quot;: 17921.5,
+      &quot;p95_ms&quot;: 20710.1,
+      &quot;sample_size&quot;: 3,
+      &quot;final_answer_token_usage_cases&quot;: 3,
+      &quot;complete_task_token_cost&quot;: null,
+      &quot;planner_dependency_correctness&quot;: null,
+      &quot;answer_semantic_faithfulness&quot;: null,
+      &quot;recovery_success&quot;: null
+    }
+  },
+  &quot;measurement_limits&quot;: [
+    &quot;每个Tool组为OR，组间为AND；候选和规划为本次任务各轮集合，不是逐轮金标准。&quot;,
+    &quot;条件Planner指标仅指必需工具组覆盖，不代表参数/依赖/额外调用全部正确。&quot;,
+    &quot;Schema合法不等于业务参数正确；事实词组与引用标签合法不等于语义忠实。&quot;,
+    &quot;未测的恢复率/依赖正确率/完整任务Token成本为null，未运行和不支持不能记通过。&quot;,
+    &quot;小样本经验P95不是生产SLA；Chat、后台文档与受控故障必须分别比较。&quot;,
+    &quot;Schema/质量为Trace事件计数；调用成功分母含skipped审计行，不冒充实际网络请求成功率。&quot;,
+    &quot;本批为已启用用户记忆和既有工具配置的在线行为，非隔离关闭记忆的对照实验。&quot;,
+    &quot;只读/歧义/原文不存在的编辑负例不进入正向能力召回分母，但仍进入任务成功率。未标注禁止候选的0计数不代表已证明越权泄漏率为0。&quot;
+  ]
+}</pre></details><table id="cases"><thead><tr><th>任务</th><th>类别</th><th>业务</th><th>执行链</th><th>结果</th><th>毫秒</th><th>检查明细</th></tr></thead><tbody><tr><td>H01</td><td>multi_tool</td><td>明确双文件核验</td><td>chat</td><td>passed</td><td>11916.8</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;fact_4&quot;: true,
+    &quot;fact_5&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;citations_present_and_legal&quot;: true,
+    &quot;cited_file:north.md&quot;: true,
+    &quot;cited_file:south.md&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;required_group_executed_1&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 1,
+    &quot;candidate_group_hits&quot;: 1,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;amap.maps.direction.transit&quot;,
+      &quot;amap.maps.distance&quot;,
+      &quot;amap.maps.weather&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 8,
+    &quot;schema_total&quot;: 8,
+    &quot;quality_valid&quot;: 4,
+    &quot;quality_total&quot;: 4,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 4
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;- **north.md**：北区本周有 **17 个已核验需求**，标识为 **银杏**。[T3]\n- **south.md**：南区本周有 **9 个已核验需求**，标识为 **白桦**。[T4]\n\n**数量差异**：北区比南区多 **8 个需求**（17 − 9 = 8）。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>H02</td><td>multi_tool</td><td>中文引号文件与输出名分离</td><td>chat</td><td>passed</td><td>20710.1</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;citations_present_and_legal&quot;: true,
+    &quot;cited_file:设计说明.md&quot;: true,
+    &quot;cited_file:验收清单.md&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;required_group_executed_1&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 1,
+    &quot;candidate_group_hits&quot;: 1,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;agent.artifacts.list&quot;,
+      &quot;agent.artifacts.read&quot;,
+      &quot;amap.maps.direction.walking&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 8,
+    &quot;schema_total&quot;: 8,
+    &quot;quality_valid&quot;: 4,
+    &quot;quality_total&quot;: 4,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 4
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;以下为可直接使用的《对比笔记.md》正文；仅在回答中提供，未创建文件。\n\n---\n\n# 对比笔记\n\n## 一、原文引用\n\n- **设计说明.md**：  \n  &gt; “归档期限为45天，项目代号为山雀。”  \n  来源：工作区文件读取正文 [T3]\n\n- **验收清单.md**：  \n  &gt; “归档期限为60天，验收负责人为待分配。”  \n  来源：工作区文件读取正文 [T4]\n\n&gt; 说明：以上来源均为 `workspace_file_read` 读取到的文件正文；本轮证据未提供时间戳。\n\n## 二、关键对比\n\n| 对比项 | 设计说明.md | 验收清单.md | 状态 |\n|---|---|---|---|\n| 归档期限 | 45天 [T3] | 60天 [T4] | **存在冲突：相差15天** |\n| 项目代号 | 山雀 [T3] | 未载明 | 仅设计说明明确 |\n| 验收负责人 | 未载明 | 待分配 [T4] | **尚未指定具体负责人** |\n\n## 三、期限冲突说明\n\n《设计说明.md》写明“归档期限为45天” [T3]，《验收清单.md》写明“归档期限为60天” [T4]。两份文件的归档期限不一致，相差15天，属于需要确认的口径冲突。在未明确以哪份文件为准之前，不宜直接认定其中一个期限已经生效。\n\n## 四、负责人状态说明\n\n《验收清单.md》明确载明“验收负责人为待分配” [T4]，说明验收负责人尚未落实到具体人员。《设计说明.md》原文未载明验收负责人信息 [T3]。因此，当前负责人状态为：**待分配，需补充指定**。\n\n## 五、待确认事项\n\n1. 统一归档期限：确认应采用45天还是60天，或明确两份文件的适用关系。\n2. 指定验收负责人，并将“待分配”更新为具体负责人。\n3. 根据确认结果同步修订《设计说明.md》或《验收清单.md》中的期限表述。\n\n## 六、证据边界\n\n本笔记仅依据本轮读取到的《设计说明.md》[T3] 和《验收清单.md》[T4] 正文整理，不联网；未创建或修改任何文件。&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr><tr><td>H03</td><td>multi_tool</td><td>显式ID双资料核验</td><td>chat</td><td>passed</td><td>17921.5</td><td><details><summary>结果与Trace</summary><pre>{
+  &quot;checks&quot;: {
+    &quot;fact_1&quot;: true,
+    &quot;fact_2&quot;: true,
+    &quot;fact_3&quot;: true,
+    &quot;forbidden_claims_absent&quot;: true,
+    &quot;citations_present_and_legal&quot;: true,
+    &quot;cited_file:north.md&quot;: true,
+    &quot;cited_file:south.md&quot;: true,
+    &quot;stream_and_database_done&quot;: true,
+    &quot;required_group_executed_1&quot;: true,
+    &quot;only_allowed_tool_calls&quot;: true,
+    &quot;source_files_unchanged&quot;: true,
+    &quot;no_unrequested_approval&quot;: true,
+    &quot;no_unrequested_revision&quot;: true
+  },
+  &quot;trace&quot;: {
+    &quot;trace_available&quot;: true,
+    &quot;candidate_events_available&quot;: true,
+    &quot;required_groups&quot;: 1,
+    &quot;candidate_group_hits&quot;: 1,
+    &quot;candidate_complete&quot;: true,
+    &quot;planner_group_hits&quot;: 1,
+    &quot;candidate_keys&quot;: [
+      &quot;agent.artifacts.list&quot;,
+      &quot;agent.artifacts.read&quot;,
+      &quot;amap.maps.direction.walking&quot;,
+      &quot;workspace.files.list&quot;,
+      &quot;workspace.files.read&quot;,
+      &quot;workspace.files.search&quot;
+    ],
+    &quot;planned_keys&quot;: [
+      &quot;workspace.files.read&quot;
+    ],
+    &quot;forbidden_candidate_keys&quot;: [],
+    &quot;schema_passed&quot;: 4,
+    &quot;schema_total&quot;: 4,
+    &quot;quality_valid&quot;: 2,
+    &quot;quality_total&quot;: 2,
+    &quot;call_statuses&quot;: {
+      &quot;success&quot;: 2
+    },
+    &quot;fallback_count&quot;: 0
+  },
+  &quot;answer&quot;: &quot;按本轮读取到的两份正文：\n\n- 北区本周已核验需求：**17 个** [T1]\n- 南区本周已核验需求：**9 个** [T2]\n\n合计：**17 + 9 = 26 个** [T1][T2]&quot;,
+  &quot;error_type&quot;: null,
+  &quot;skip_reason&quot;: null,
+  &quot;task_snapshot&quot;: null,
+  &quot;downloads&quot;: null,
+  &quot;result_messages&quot;: null
+}</pre></details></td></tr></tbody></table></html>

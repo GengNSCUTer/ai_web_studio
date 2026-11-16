@@ -1,0 +1,15 @@
+{
+  "measurement": "supplemental_controlled_api_probe_not_part_of_200_score",
+  "date": "2026-11-16",
+  "git_commit": "2dacc36a348726903b831d55e5c928e90ea13d54",
+  "case": "F20",
+  "purpose": "核对异步Chat在Worker准备阶段拒绝未知Skill，不修改原200题HTTP断言或结果",
+  "http_status": 202,
+  "run_status": "failed",
+  "error_code": "prepare_or_worker_error",
+  "assistant_status": "failed",
+  "model_attempts": 0,
+  "tool_calls": 0,
+  "source_files_unchanged": true,
+  "cleanup": {"status": "cleaned", "projects": 1}
+}
