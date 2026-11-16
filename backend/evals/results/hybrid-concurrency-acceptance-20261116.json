@@ -1,0 +1,138 @@
+{
+  "date": "2026-11-16",
+  "change": "Hybrid两路并发；只有BM25文件I/O和快照重建在线程中执行，Session与ORM留原线程",
+  "production_configuration_changed": false,
+  "controlled_comparison": {
+    "scope": "使用80ms模拟Embedding网络等待；真实本地BM25与额外60ms人为延迟分别对照；不是线上API或生产SLA测量",
+    "embedding": "受控80ms网络等待",
+    "top_k": 20,
+    "groups": {
+      "real_local_bm25": {
+        "serial": {
+          "samples": 8,
+          "mean_ms": 94.29,
+          "p50_ms": 95.64,
+          "p95_ms": 97
+        },
+        "concurrent": {
+          "samples": 8,
+          "mean_ms": 81.56,
+          "p50_ms": 81.43,
+          "p95_ms": 82.08
+        },
+        "ranking_equal_pairs": 8
+      },
+      "controlled_60ms_lexical_delay": {
+        "serial": {
+          "samples": 8,
+          "mean_ms": 162.69,
+          "p50_ms": 154.79,
+          "p95_ms": 220.29
+        },
+        "concurrent": {
+          "samples": 8,
+          "mean_ms": 81.8,
+          "p50_ms": 81.68,
+          "p95_ms": 83.04
+        },
+        "ranking_equal_pairs": 8
+      }
+    },
+    "chunks": 1000
+  },
+  "stored_vector_replay": {
+    "scope": "真实两库PG/BM25，复用库中已存向量作查询向量；不调用Embedding API，不作为语义质量或在线网络耗时评测",
+    "groups": [
+      {
+        "knowledge_base_name": "论文库",
+        "result": {
+          "serial": {
+            "samples": 4,
+            "mean_ms": 404.42,
+            "p50_ms": 377.87,
+            "p95_ms": 515.42
+          },
+          "concurrent": {
+            "samples": 4,
+            "mean_ms": 367.6,
+            "p50_ms": 365.59,
+            "p95_ms": 413.68
+          },
+          "ranking_equal_pairs": 4
+        },
+        "all_sql_on_owner_thread": true,
+        "sql_statements": 16
+      },
+      {
+        "knowledge_base_name": "中文后端基础资料库（顺序修复版）",
+        "result": {
+          "serial": {
+            "samples": 4,
+            "mean_ms": 152.94,
+            "p50_ms": 150.91,
+            "p95_ms": 169.08
+          },
+          "concurrent": {
+            "samples": 4,
+            "mean_ms": 106.98,
+            "p50_ms": 113.01,
+            "p95_ms": 139.62
+          },
+          "ranking_equal_pairs": 4
+        },
+        "all_sql_on_owner_thread": true,
+        "sql_statements": 16
+      }
+    ]
+  },
+  "online_healthy_hybrid_comparison": {
+    "status": "not_completed",
+    "http_status": 402,
+    "reason": "现有Embedding Provider余额不足",
+    "new_credentials_or_provider_used": false,
+    "local_model_loaded": false
+  },
+  "browser_chat": {
+    "initial_acid_case": {
+      "status": "business_assertion_failed",
+      "assistant_status": "done",
+      "reason": "检索材料仅提到ACID术语，模型如实说明证据不足，未满足四特性断言",
+      "original_assertion_relaxed": false
+    },
+    "known_source_redis_list_case": {
+      "scope": "真实浏览器、ChatWorker、在线最终模型、现有中文库PG与BM25；不变更账号设置或库配置",
+      "status": "passed",
+      "assistant_status": "done",
+      "answer_chars": 413,
+      "browser_errors": 0,
+      "retrieval_candidates": 20,
+      "sources": 6,
+      "hybrid_fallback": true,
+      "vector_error_codes": [
+        "knowledge_retrieval_failed"
+      ],
+      "citations_and_two_blocking_commands": true
+    }
+  },
+  "automated_tests": {
+    "focused": {
+      "passed": 80,
+      "seconds": 10.207,
+      "real_postgresql": true
+    },
+    "full_backend": {
+      "passed": 1384,
+      "skipped": 0,
+      "seconds": 738.065,
+      "real_postgresql": true
+    },
+    "compileall": "passed",
+    "diff_check": "passed"
+  },
+  "limits": [
+    "同步SQL仍在Session所属线程，未宣称全异步数据库或全部查询同时执行",
+    "已启动的线程文件操作不能强制停止；取消后不再进行DB正文读取或回填结果",
+    "没有重跑中英文百题RAG或200题Agent任务评测，不更新原简历质量指标",
+    "已有向量回放不能替代健康在线Embedding API对照或语义质量评估"
+  ]
+}

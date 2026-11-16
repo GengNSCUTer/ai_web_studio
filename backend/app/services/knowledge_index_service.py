@@ -69,6 +69,18 @@ class LexicalSearchHit:
     score: float
 
 
+@dataclass(frozen=True)
+class LexicalChunkSnapshot:
+    """词法重建所需的纯数据，不能携带Session或可惰性加载的ORM对象。"""
+
+    id: str
+    document_id: str
+    chunk_index: int
+    vector_id: int
+    content: str
+    metadata_json: str | None
+
+
 class KnowledgeChunker:
     def split(self, *, markdown: str, chunk_size: int, chunk_overlap: int) -> list[PreparedChunk]:
         normalized = self._normalize_markdown(markdown)
@@ -395,7 +407,7 @@ class KnowledgeLexicalStore:
         self,
         *,
         knowledge_base_id: str,
-        chunks: list[KnowledgeChunk],
+        chunks: list[KnowledgeChunk | LexicalChunkSnapshot],
         generation_id: str | None = None,
     ) -> str:
         index_path = self.index_path(knowledge_base_id, generation_id=generation_id)

@@ -11,6 +11,7 @@ from app.repositories.knowledge_repo import KnowledgeChunkRepository
 from app.services.knowledge_index_service import (
     KnowledgeEmbeddingService,
     LexicalSearchHit,
+    LexicalChunkSnapshot,
     KnowledgeLexicalStore,
     KnowledgeRerankService,
     RetrievalResult,
@@ -151,13 +152,15 @@ class KnowledgeRetrievalPipeline:
         channel_top_k = top_k
         if rerank_active:
             channel_top_k = min(top_k * 2, self.MAX_RERANK_CANDIDATES // 2)
+        index_generation = self._active_generation(knowledge_base)
         if retrieval_mode == "lexical":
-            results = self._retrieve_lexical_results(
+            results = await self._retrieve_lexical_results(
                 user_id=user_id,
                 knowledge_base=knowledge_base,
                 query=query,
                 top_k=channel_top_k,
                 filters=filters,
+                index_generation=index_generation,
             )
             return await self._rerank_if_needed(
                 user_id=user_id,
@@ -167,32 +170,28 @@ class KnowledgeRetrievalPipeline:
                 result_limit=top_k,
             )
         if retrieval_mode == "hybrid":
+            candidate_top_k = self._candidate_top_k(top_k=channel_top_k, filters=filters)
+            async def channel(operation):
+                try:
+                    return await operation, None
+                except Exception as exc:
+                    # 两路独立降级；取消属于控制信号，不转换为“检索失败”。
+                    return [], classify_knowledge_error(exc)
+
+            tasks = [asyncio.create_task(channel(operation)) for operation in (
+                self._retrieve_vector_results(user_id=user_id, knowledge_base=knowledge_base,
+                    query=query, top_k=candidate_top_k, filters=filters, index_generation=index_generation),
+                self._retrieve_lexical_results(user_id=user_id, knowledge_base=knowledge_base,
+                    query=query, top_k=candidate_top_k, filters=filters, index_generation=index_generation),
+            )]
             try:
-                vector_results = await self._retrieve_vector_results(
-                    user_id=user_id,
-                    knowledge_base=knowledge_base,
-                    query=query,
-                    top_k=self._candidate_top_k(top_k=channel_top_k, filters=filters),
-                    filters=filters,
-                )
-                vector_error_code = None
-            except Exception as exc:
-                vector_results = []
-                vector_error_code = classify_knowledge_error(exc)
-            try:
-                lexical_results = self._retrieve_lexical_results(
-                    user_id=user_id,
-                    knowledge_base=knowledge_base,
-                    query=query,
-                    top_k=self._candidate_top_k(top_k=channel_top_k, filters=filters),
-                    filters=filters,
-                )
-                lexical_error_code = None
-            except Exception as exc:
-                # Hybrid retrieval is intentionally best-effort.  A stale or
-                # unavailable BM25 file must not discard a usable vector hit.
-                lexical_results = []
-                lexical_error_code = classify_knowledge_error(exc)
+                (vector_results, vector_error_code), (lexical_results, lexical_error_code) = await asyncio.gather(*tasks)
+            finally:
+                # 一路被取消或调用方退出时，回收另一路协程，避免继续查询或回填结果。
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
             results = self._fuse_rrf(
                 vector_results=vector_results,
                 lexical_results=lexical_results,
@@ -218,6 +217,7 @@ class KnowledgeRetrievalPipeline:
             query=query,
             top_k=channel_top_k,
             filters=filters,
+            index_generation=index_generation,
         )
         return await self._rerank_if_needed(
             user_id=user_id,
@@ -235,6 +235,7 @@ class KnowledgeRetrievalPipeline:
         query: str,
         top_k: int,
         filters: KnowledgeRetrievalFilter,
+        index_generation: str | None = None,
     ) -> list[RetrievalResult]:
         query_vector = (
             await self.embedding_service.embed_texts(
@@ -245,7 +246,7 @@ class KnowledgeRetrievalPipeline:
         )[0]
         self._validate_vectors(vectors=[query_vector], expected_count=1, dimensions=knowledge_base.embedding_dimensions)
         candidate_top_k = self._candidate_top_k(top_k=top_k, filters=filters)
-        index_generation = self._active_generation(knowledge_base)
+        index_generation = index_generation or self._active_generation(knowledge_base)
         hits = self.vector_search.search(
             user_id=user_id,
             knowledge_base=knowledge_base,
@@ -339,7 +340,7 @@ class KnowledgeRetrievalPipeline:
         # 未经专门校准不能复用召回阈值；成功精排仅按模型排名和 top_n 收口。
         return reranked_results[:rerank_top_n]
 
-    def _retrieve_lexical_results(
+    async def _retrieve_lexical_results(
         self,
         *,
         user_id: str,
@@ -347,10 +348,11 @@ class KnowledgeRetrievalPipeline:
         query: str,
         top_k: int,
         filters: KnowledgeRetrievalFilter,
+        index_generation: str | None = None,
     ) -> list[RetrievalResult]:
         candidate_top_k = self._candidate_top_k(top_k=top_k, filters=filters)
-        index_generation = self._active_generation(knowledge_base)
-        hits = self._search_lexical_index(
+        index_generation = index_generation or self._active_generation(knowledge_base)
+        hits = await self._search_lexical_index(
             knowledge_base=knowledge_base,
             user_id=user_id,
             query=query,
@@ -394,7 +396,7 @@ class KnowledgeRetrievalPipeline:
                 break
         return self._apply_score_threshold(scored, knowledge_base.score_threshold)
 
-    def _search_lexical_index(
+    async def _search_lexical_index(
         self,
         *,
         knowledge_base: KnowledgeBase,
@@ -403,37 +405,32 @@ class KnowledgeRetrievalPipeline:
         top_k: int,
         index_generation: str,
     ) -> list[LexicalSearchHit]:
-        try:
-            if self.lexical_store.contextual:
-                primary = KnowledgeLexicalStore().index_path(knowledge_base.id, generation_id=index_generation)
-                contextual = self.lexical_store.index_path(knowledge_base.id, generation_id=index_generation)
+        # 在线程启动前冻结主键；线程闭包只读取普通索引对象与字符串，不访问ORM。
+        knowledge_base_id = knowledge_base.id
+        store = self.lexical_store
+        def search():
+            if store.contextual:
+                primary = KnowledgeLexicalStore(index_root=str(store.index_root)).index_path(
+                    knowledge_base_id, generation_id=index_generation)
+                contextual = store.index_path(knowledge_base_id, generation_id=index_generation)
                 if primary.exists() and contextual.exists() and primary.stat().st_mtime_ns > contextual.stat().st_mtime_ns:
                     raise RuntimeError("结构索引落后于当前发布索引，需重建")
-            return self.lexical_store.search(
-                knowledge_base_id=knowledge_base.id,
-                query=query,
-                top_k=top_k,
-                generation_id=index_generation,
-            )
+            return store.search(knowledge_base_id=knowledge_base_id, query=query,
+                top_k=top_k, generation_id=index_generation)
+        try:
+            return await asyncio.to_thread(search)
         except RuntimeError:
+            # 缺索引时仍在拥有Session的线程读DB，随后仅把标量快照交给重建线程。
             chunks = self.chunk_repo.list_by_knowledge_base(
-                knowledge_base.id,
-                user_id,
-                index_generation=index_generation,
-            )
+                knowledge_base_id, user_id, index_generation=index_generation)
             if not chunks:
                 return []
-            self.lexical_store.rebuild(
-                knowledge_base_id=knowledge_base.id,
-                chunks=chunks,
-                generation_id=index_generation,
-            )
-            return self.lexical_store.search(
-                knowledge_base_id=knowledge_base.id,
-                query=query,
-                top_k=top_k,
-                generation_id=index_generation,
-            )
+            snapshots = [LexicalChunkSnapshot(id=chunk.id, document_id=chunk.document_id,
+                chunk_index=chunk.chunk_index, vector_id=chunk.vector_id,
+                content=chunk.content, metadata_json=chunk.metadata_json) for chunk in chunks]
+            await asyncio.to_thread(store.rebuild, knowledge_base_id=knowledge_base_id,
+                chunks=snapshots, generation_id=index_generation)
+            return await asyncio.to_thread(search)
 
     @staticmethod
     def _active_generation(knowledge_base: KnowledgeBase) -> str:

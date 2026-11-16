@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -8,7 +10,7 @@ from unittest.mock import AsyncMock, Mock
 from app.services.knowledge_error import KnowledgeRetrievalUnavailableError
 from app.schemas.knowledge import KnowledgeEvalRunRequest
 from app.services.knowledge_evaluation_service import KnowledgeEvalOutcome, KnowledgeEvaluationService
-from app.services.knowledge_index_service import RetrievalResult
+from app.services.knowledge_index_service import RetrievalResult, KnowledgeLexicalStore, LexicalChunkSnapshot
 from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalFilter, KnowledgeRetrievalPipeline
 
 
@@ -43,6 +45,133 @@ def _result(chunk_id: str, *, source: str = "vector") -> RetrievalResult:
 
 
 class KnowledgeRetrievalPipelineFallbackTest(unittest.TestCase):
+    def test_missing_index_rebuilds_from_plain_snapshots_off_the_session_thread(self):
+        owner = threading.get_ident()
+        chunk = SimpleNamespace(id="one", document_id="doc", chunk_index=0, vector_id=1,
+            content="routing evidence", metadata_json='{"file_name":"notes.md"}')
+        repo = Mock()
+        def load(*args, **kwargs):
+            self.assertEqual(threading.get_ident(), owner)
+            return [chunk]
+        repo.list_by_knowledge_base.side_effect = load
+        repo.list_by_vector_ids_and_knowledge_base.side_effect = load
+        test = self
+        class Store(KnowledgeLexicalStore):
+            def rebuild(self, **kwargs):
+                test.assertNotEqual(threading.get_ident(), owner)
+                test.assertTrue(all(isinstance(c, LexicalChunkSnapshot) for c in kwargs["chunks"]))
+                return super().rebuild(**kwargs)
+        with tempfile.TemporaryDirectory() as root:
+            pipeline = KnowledgeRetrievalPipeline(chunk_repo=repo, setting_service=Mock(),
+                lexical_store=Store(root, contextual=True), enhancement="context")
+            results = asyncio.run(pipeline.retrieve_async(user_id="user-1",
+                knowledge_base=_knowledge_base(retrieval_mode="lexical"), query="routing", top_k=2))
+            self.assertEqual([r.chunk.id for r in results], ["one"])
+            repo.list_by_knowledge_base.assert_called_once()
+
+    def test_hybrid_freezes_generation_before_embedding_await(self):
+        kb = _knowledge_base()
+        chunk = SimpleNamespace(id="one", document_id="doc", vector_id=1, content="evidence", metadata_json="{}")
+        async def embed(**kwargs):
+            await asyncio.sleep(0)
+            kb.active_index_generation = "generation-2"
+            return [[1.0, 0.0, 0.0]]
+        vector = Mock()
+        vector.search.return_value = [SimpleNamespace(chunk=chunk, score=.9)]
+        store = SimpleNamespace(contextual=False, search=Mock(return_value=[SimpleNamespace(vector_id=1, score=1)]))
+        repo = Mock()
+        repo.list_by_vector_ids_and_knowledge_base.return_value = [chunk]
+        pipeline = KnowledgeRetrievalPipeline(chunk_repo=repo, setting_service=Mock(),
+            embedding_service=SimpleNamespace(embed_texts=embed), vector_search=vector, lexical_store=store)
+        results = asyncio.run(pipeline.retrieve_async(user_id="user-1", knowledge_base=kb, query="evidence", top_k=2))
+        self.assertTrue(results)
+        self.assertEqual(vector.search.call_args.kwargs["index_generation"], "generation-1")
+        self.assertEqual(store.search.call_args.kwargs["generation_id"], "generation-1")
+
+    def test_parent_cancellation_stops_both_channels_without_late_db_hydration(self):
+        async def run_test():
+            started = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            release = threading.Event()
+            exited = asyncio.Event()
+            def search(**kwargs):
+                loop.call_soon_threadsafe(started.set)
+                release.wait(timeout=2)
+                return [SimpleNamespace(vector_id=1, score=1)]
+            async def vector(**kwargs):
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    exited.set()
+            repo = Mock()
+            pipeline = KnowledgeRetrievalPipeline(chunk_repo=repo, setting_service=Mock(),
+                lexical_store=SimpleNamespace(contextual=False, search=search))
+            pipeline._retrieve_vector_results = vector
+            task = asyncio.create_task(pipeline.retrieve_async(user_id="u", knowledge_base=_knowledge_base(), query="x", top_k=2))
+            try:
+                await asyncio.wait_for(started.wait(), timeout=1)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                self.assertTrue(exited.is_set())
+                release.set()
+                await asyncio.to_thread(lambda: None)
+                repo.list_by_vector_ids_and_knowledge_base.assert_not_called()
+                repo.list_by_knowledge_base.assert_not_called()
+            finally:
+                release.set()
+        asyncio.run(run_test())
+
+    def test_cancelled_channel_does_not_leave_its_sibling_running(self):
+        async def run_test():
+            lexical_started = asyncio.Event()
+            lexical_closed = asyncio.Event()
+            async def vector(**kwargs):
+                await lexical_started.wait()
+                raise asyncio.CancelledError()
+            async def lexical(**kwargs):
+                lexical_started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    lexical_closed.set()
+            pipeline = KnowledgeRetrievalPipeline(chunk_repo=Mock(), setting_service=Mock())
+            pipeline._retrieve_vector_results = vector
+            pipeline._retrieve_lexical_results = lexical
+            with self.assertRaises(asyncio.CancelledError):
+                await pipeline.retrieve_async(user_id="u", knowledge_base=_knowledge_base(), query="x", top_k=2)
+            self.assertTrue(lexical_closed.is_set())
+        asyncio.run(run_test())
+
+    def test_hybrid_overlaps_channels_without_moving_repository_to_thread(self) -> None:
+        """向量等待网络时BM25已开始；查询正文仍在拥有Session的线程。"""
+        async def run_test():
+            owner = threading.get_ident()
+            started = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            chunk = SimpleNamespace(id="same", document_id="doc", vector_id=1,
+                content="相关证据", metadata_json="{}")
+            def search(**kwargs):
+                self.assertNotEqual(threading.get_ident(), owner)
+                loop.call_soon_threadsafe(started.set)
+                return [SimpleNamespace(vector_id=1, score=1.0)]
+            def load(**kwargs):
+                self.assertEqual(threading.get_ident(), owner)
+                self.assertEqual(kwargs["index_generation"], "generation-1")
+                return [chunk]
+            repo = Mock()
+            repo.list_by_vector_ids_and_knowledge_base.side_effect = load
+            store = SimpleNamespace(contextual=False, search=search)
+            pipeline = KnowledgeRetrievalPipeline(chunk_repo=repo, setting_service=Mock(), lexical_store=store)
+            async def vector(**kwargs):
+                await asyncio.wait_for(started.wait(), timeout=0.5)
+                return [RetrievalResult(chunk=chunk, score=0.9, metadata={})]
+            pipeline._retrieve_vector_results = vector
+            result = await pipeline.retrieve_async(user_id="user-1", knowledge_base=_knowledge_base(), query="证据", top_k=3)
+            self.assertEqual([item.chunk.id for item in result], ["same"])
+            self.assertEqual(result[0].metadata["retrieval_mode"], "hybrid")
+        asyncio.run(run_test())
+
     def test_hybrid_keeps_vector_results_when_lexical_channel_fails(self) -> None:
         pipeline = KnowledgeRetrievalPipeline(chunk_repo=Mock(), setting_service=Mock())
         vector_result = _result("vector-hit")
@@ -51,7 +180,7 @@ class KnowledgeRetrievalPipelineFallbackTest(unittest.TestCase):
             return [vector_result]
 
         pipeline._retrieve_vector_results = vector_results  # type: ignore[method-assign]
-        pipeline._retrieve_lexical_results = Mock(side_effect=RuntimeError("secret lexical endpoint"))  # type: ignore[method-assign]
+        pipeline._retrieve_lexical_results = AsyncMock(side_effect=RuntimeError("secret lexical endpoint"))  # type: ignore[method-assign]
 
         results = asyncio.run(
             pipeline.retrieve_async(
@@ -77,7 +206,7 @@ class KnowledgeRetrievalPipelineFallbackTest(unittest.TestCase):
             raise RuntimeError("secret embedding endpoint")
 
         pipeline._retrieve_vector_results = vector_results  # type: ignore[method-assign]
-        pipeline._retrieve_lexical_results = Mock(return_value=[lexical_result])  # type: ignore[method-assign]
+        pipeline._retrieve_lexical_results = AsyncMock(return_value=[lexical_result])  # type: ignore[method-assign]
 
         results = asyncio.run(
             pipeline.retrieve_async(
@@ -101,7 +230,7 @@ class KnowledgeRetrievalPipelineFallbackTest(unittest.TestCase):
             raise RuntimeError("vector provider secret")
 
         pipeline._retrieve_vector_results = vector_results  # type: ignore[method-assign]
-        pipeline._retrieve_lexical_results = Mock(side_effect=RuntimeError("lexical provider secret"))  # type: ignore[method-assign]
+        pipeline._retrieve_lexical_results = AsyncMock(side_effect=RuntimeError("lexical provider secret"))  # type: ignore[method-assign]
 
         with self.assertRaises(KnowledgeRetrievalUnavailableError):
             asyncio.run(
@@ -193,7 +322,7 @@ class KnowledgeRerankCandidatePoolTest(unittest.TestCase):
         reranker.rerank=AsyncMock(side_effect=rerank)
         pipeline=KnowledgeRetrievalPipeline(chunk_repo=Mock(),setting_service=Mock(),rerank_service=reranker)
         pipeline._retrieve_vector_results=AsyncMock(return_value=[_result(f"v{i}") for i in range(4)])
-        pipeline._retrieve_lexical_results=Mock(return_value=[_result(f"l{i}",source="lexical") for i in range(4)])
+        pipeline._retrieve_lexical_results=AsyncMock(return_value=[_result(f"l{i}",source="lexical") for i in range(4)])
         return pipeline,reranker
 
     def test_reranker_sees_both_channel_candidates_before_final_cutoff(self):

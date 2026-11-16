@@ -1,17 +1,20 @@
 import os
+import asyncio
+import tempfile
+import threading
 import unittest
 from unittest.mock import Mock
 from uuid import uuid4
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.core.database import Base
 from app.models import KnowledgeBase, KnowledgeChunk, KnowledgeDocument, User
 from app.repositories.knowledge_repo import KnowledgeChunkRepository
-from app.services.knowledge_index_service import KnowledgeIndexService
-from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline
+from app.services.knowledge_index_service import KnowledgeIndexService, KnowledgeLexicalStore, LexicalChunkSnapshot
+from app.services.knowledge_retrieval_pipeline import KnowledgeRetrievalPipeline, KnowledgeRetrievalFilter
 
 
 TEST_POSTGRES_URL = os.getenv("TEST_POSTGRES_URL")
@@ -24,6 +27,55 @@ class StaticEmbeddingService:
 
 @unittest.skipUnless(TEST_POSTGRES_URL, "set TEST_POSTGRES_URL to run PostgreSQL integration tests")
 class PgvectorKnowledgeChunkIntegrationTest(unittest.TestCase):
+    def test_hybrid_threads_only_touch_index_files_and_keep_serial_ranking(self):
+        """真实PG与真实BM25：冷建、热读、损坏重建、结构索引均不跨线程访问Session。"""
+        owner = threading.get_ident()
+        test = self
+        def assert_sql_thread(*args):
+            test.assertEqual(threading.get_ident(), owner)
+        class Store(KnowledgeLexicalStore):
+            def search(self, **kwargs):
+                test.assertNotEqual(threading.get_ident(), owner)
+                return super().search(**kwargs)
+            def rebuild(self, **kwargs):
+                test.assertNotEqual(threading.get_ident(), owner)
+                test.assertTrue(all(isinstance(c, LexicalChunkSnapshot) for c in kwargs["chunks"]))
+                return super().rebuild(**kwargs)
+        class Embedding(StaticEmbeddingService):
+            async def embed_texts(self, **kwargs):
+                await asyncio.sleep(.01)
+                return await super().embed_texts(**kwargs)
+        event.listen(self.engine, "before_cursor_execute", assert_sql_thread)
+        try:
+            with tempfile.TemporaryDirectory() as root:
+                for contextual in (False, True):
+                    kb, document = self._add_knowledge_base_and_document(name=f"thread-{contextual}", dimensions=3)
+                    kb.retrieval_mode, kb.rerank_enabled, kb.score_threshold = "hybrid", False, 0
+                    for i, embedding in enumerate(([1., 0., 0.], [.9, .1, 0.]), start=1):
+                        self._add_chunk(knowledge_base=kb, document=document, vector_id=i,
+                            content=f"retrieval evidence {i}", embedding=embedding)
+                    self.db.commit()
+                    store = Store(root, contextual=contextual)
+                    pipeline = KnowledgeRetrievalPipeline(chunk_repo=KnowledgeChunkRepository(self.db),
+                        setting_service=Mock(), embedding_service=Embedding(), lexical_store=store,
+                        enhancement="context" if contextual else "none")
+                    args = dict(user_id=self.user.id, knowledge_base=kb, query="retrieval evidence", top_k=2)
+                    cold = pipeline.retrieve(**args)
+                    self.assertEqual(len(cold), 2)
+                    async def serial():
+                        vectors = await pipeline._retrieve_vector_results(**args, filters=KnowledgeRetrievalFilter())
+                        lexical = await pipeline._retrieve_lexical_results(**args, filters=KnowledgeRetrievalFilter())
+                        return pipeline._fuse_rrf(vector_results=vectors, lexical_results=lexical, top_k=2)
+                    expected = asyncio.run(serial())
+                    for phase in ("warm", "corrupt"):
+                        if phase == "corrupt":
+                            store.index_path(kb.id).write_text("{broken", encoding="utf-8")
+                        actual = pipeline.retrieve(**args)
+                        self.assertEqual([(r.chunk.id, r.score, r.metadata) for r in actual],
+                            [(r.chunk.id, r.score, r.metadata) for r in expected])
+        finally:
+            event.remove(self.engine, "before_cursor_execute", assert_sql_thread)
+
     @classmethod
     def setUpClass(cls) -> None:
         assert TEST_POSTGRES_URL is not None
