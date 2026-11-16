@@ -15,6 +15,8 @@ from app.services.tools.completion_contract import infer_read_completion, needs_
 from app.services.tools.edit_preview_completion import (PREVIEW_GUIDANCE, APPROVAL_GUIDANCE,
     preview_requirement, approval_requirement, missing_preview_tools, missing_approval_tools)
 from app.services.tools.db_boundary import release_read_transaction
+from app.services.tools.task_spec import build_task_spec
+from app.services.tools.completion_verifier import verify_completion
 
 
 class SyncToolRun:
@@ -26,6 +28,7 @@ class SyncToolRun:
         self.query, self.enabled, self.max_chars = query, enabled, max_chars
         self.recent_messages = recent_messages
         self.planner_runtime, self.skill_context = planner_runtime, skill_context
+        self.task_spec = build_task_spec(query=query, skill_context=skill_context)
         self.round_index = 0
         self.result = None
         self.service.executor.action_guard = ToolActionGuard(ActionScope(self.query))
@@ -497,6 +500,13 @@ class SyncToolRun:
                                                        execution_status=execution_status_text)
         context_text = evidence_section.render() or None
         included_sources = [source for source in self.sources if source.used_in_prompt]
+        # 在实际工具预算裁剪后检查证据；未声明的自由任务不猜测为已完成。
+        verdict = verify_completion(spec=self.task_spec, sources=self.sources,
+            terminal_reason=self.terminal_reason, next_action=self.next_action) if self.task_spec else None
+        completion = verdict.to_public_dict() if verdict else {
+            "status": "not_assessed", "assessment_scope": "declared_tool_evidence",
+            "reason": "no_declared_requirements", "answer_semantics_verified": False}
+        self.events.append(ToolTraceEvent(type="tool_task_completion", payload=completion))
         public_sources = [source.to_public_dict() for source in self.sources]
         public_events = [event.to_public_dict() for event in self.events]
 
@@ -528,6 +538,7 @@ class SyncToolRun:
                 "external_tool_run_budget": self.budget.to_trace_payload(),
                 "external_tool_workflow_aggregate_status": self.workflow_aggregate_status,
                 "external_tool_workflow_aggregate": self.workflow_aggregate.to_trace_payload(),
+                "external_tool_task_completion": completion,
                 "skill_active": int(bool(self.skill_context)),
                 "skill_key": self.skill_context.skill_key if self.skill_context else "none",
                 "skill_version": self.skill_context.version if self.skill_context else "none",
@@ -541,6 +552,7 @@ class SyncToolRun:
                 "tool_workflow_aggregate_status": self.workflow_aggregate_status,
                 "tool_workflow_aggregate": self.workflow_aggregate.to_trace_payload(),
                 "tool_workflow_next_action": self.next_action,
+                "tool_task_completion": completion,
                 "tool_run_policy": self.service.run_policy.to_public_dict(),
                 "tool_run_budget": self.budget.to_trace_payload(),
             },

@@ -53,6 +53,25 @@ class SyncToolGraphTest(unittest.IsolatedAsyncioTestCase):
         nodes = [e.payload["node"] for e in result.tool_events if e.type == "tool_graph_node"]
         self.assertEqual(nodes, ["plan", "finalize"])
         self.assertEqual(result.diagnostics["external_orchestrator"], "langgraph")
+        self.assertEqual(result.details["tool_task_completion"]["status"], "not_assessed")
+
+    async def test_declared_read_with_empty_plan_is_blocked_and_traced(self):
+        service, executor, _ = self.service(planner=DeadlinePlanner(make_plan([])))
+        result = await self.run_service(service, query="读取文件内容")
+        verdict = result.details["tool_task_completion"]
+        self.assertEqual(verdict["status"], "blocked")
+        self.assertIn("workspace.files.read", verdict["missing"])
+        self.assertFalse(executor.started)
+        events = [e.payload for e in result.tool_events if e.type == "tool_task_completion"]
+        self.assertEqual(events, [verdict])
+        self.assertEqual(result.diagnostics["external_tool_task_completion"], verdict)
+
+    async def test_successful_search_does_not_satisfy_declared_file_read(self):
+        service, executor, _ = self.service()
+        result = await self.run_service(service, query="读取文件内容")
+        self.assertTrue(executor.started)
+        self.assertEqual(result.details["tool_workflow_aggregate_status"], "succeeded")
+        self.assertEqual(result.details["tool_task_completion"]["status"], "partial")
 
     async def test_two_rounds_pass_observations_and_scope_duplicate_ids(self):
         first = make_plan([make_call("same")], continue_planning=True)

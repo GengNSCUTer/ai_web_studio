@@ -1,0 +1,347 @@
+{
+  "source": "backend/evals/results/agent-business-200-20261105-r1/report.json",
+  "source_commit": "8cdde9311f7425284ac5a29a1ab9b54c9ab416cf",
+  "scope": "历史断言离线分类，不是当前版本重新执行；标签不等于根因证明，不修改成绩",
+  "statuses": {
+    "passed": 170,
+    "partial": 29,
+    "failed": 1
+  },
+  "gap_case_counts": {
+    "answer_fact_or_annotation_review": 5,
+    "citation_or_gold_coverage": 12,
+    "planning_or_arguments": 2,
+    "edit_approval_or_honest_status": 10,
+    "chat_lifecycle": 1,
+    "safety_or_literal_judge_review": 1
+  },
+  "label_counts_overlap": true,
+  "cases": [
+    {
+      "id": "N16",
+      "status": "partial",
+      "failed_checks": [
+        "fact_1"
+      ],
+      "gap_labels": [
+        "answer_fact_or_annotation_review"
+      ]
+    },
+    {
+      "id": "S09",
+      "status": "partial",
+      "failed_checks": [
+        "citations_present_and_legal",
+        "cited_file:S09.md"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "S10",
+      "status": "partial",
+      "failed_checks": [
+        "citations_present_and_legal",
+        "cited_file:S10.md"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "S11",
+      "status": "partial",
+      "failed_checks": [
+        "citations_present_and_legal",
+        "cited_file:S11.md"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "S12",
+      "status": "partial",
+      "failed_checks": [
+        "citations_present_and_legal",
+        "cited_file:S12.md"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "S13",
+      "status": "partial",
+      "failed_checks": [
+        "citations_present_and_legal",
+        "cited_file:S13.md"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "S18",
+      "status": "partial",
+      "failed_checks": [
+        "citations_present_and_legal",
+        "cited_file:S18.md"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "S22",
+      "status": "partial",
+      "failed_checks": [
+        "call_count_within_limit",
+        "only_direct_file_read",
+        "correct_file_argument"
+      ],
+      "gap_labels": [
+        "planning_or_arguments"
+      ]
+    },
+    {
+      "id": "S23",
+      "status": "partial",
+      "failed_checks": [
+        "call_count_within_limit",
+        "only_direct_file_read",
+        "correct_file_argument"
+      ],
+      "gap_labels": [
+        "planning_or_arguments"
+      ]
+    },
+    {
+      "id": "S25",
+      "status": "partial",
+      "failed_checks": [
+        "fact_1"
+      ],
+      "gap_labels": [
+        "answer_fact_or_annotation_review"
+      ]
+    },
+    {
+      "id": "S37",
+      "status": "partial",
+      "failed_checks": [
+        "fact_1",
+        "citations_present_and_legal",
+        "cited_file:S37.md"
+      ],
+      "gap_labels": [
+        "answer_fact_or_annotation_review",
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "M09",
+      "status": "partial",
+      "failed_checks": [
+        "fact_1"
+      ],
+      "gap_labels": [
+        "answer_fact_or_annotation_review"
+      ]
+    },
+    {
+      "id": "M13",
+      "status": "partial",
+      "failed_checks": [
+        "cited_file:M13_input.md"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "K02",
+      "status": "partial",
+      "failed_checks": [
+        "gold_chunk_cited"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "K13",
+      "status": "partial",
+      "failed_checks": [
+        "gold_chunk_cited"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "K14",
+      "status": "partial",
+      "failed_checks": [
+        "gold_chunk_cited"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "K18",
+      "status": "partial",
+      "failed_checks": [
+        "fact_1",
+        "fact_2",
+        "fact_3"
+      ],
+      "gap_labels": [
+        "answer_fact_or_annotation_review"
+      ]
+    },
+    {
+      "id": "K28",
+      "status": "partial",
+      "failed_checks": [
+        "citations_present_and_legal",
+        "knowledge_cited",
+        "gold_chunk_cited"
+      ],
+      "gap_labels": [
+        "citation_or_gold_coverage"
+      ]
+    },
+    {
+      "id": "E05",
+      "status": "partial",
+      "failed_checks": [
+        "correct_diff",
+        "one_pending_approval"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "E06",
+      "status": "partial",
+      "failed_checks": [
+        "correct_diff",
+        "one_pending_approval"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "E07",
+      "status": "partial",
+      "failed_checks": [
+        "correct_diff",
+        "one_pending_approval"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "E08",
+      "status": "partial",
+      "failed_checks": [
+        "correct_diff",
+        "one_pending_approval"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "E09",
+      "status": "partial",
+      "failed_checks": [
+        "chat_done"
+      ],
+      "gap_labels": [
+        "chat_lifecycle"
+      ]
+    },
+    {
+      "id": "E11",
+      "status": "partial",
+      "failed_checks": [
+        "correct_diff",
+        "one_pending_approval"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "E12",
+      "status": "partial",
+      "failed_checks": [
+        "correct_diff",
+        "one_pending_approval"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "E14",
+      "status": "partial",
+      "failed_checks": [
+        "correct_diff",
+        "one_pending_approval"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "E16",
+      "status": "partial",
+      "failed_checks": [
+        "correct_diff",
+        "one_pending_approval"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "E17",
+      "status": "partial",
+      "failed_checks": [
+        "correct_diff",
+        "one_pending_approval"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "E19",
+      "status": "partial",
+      "failed_checks": [
+        "honest_refusal_or_incomplete"
+      ],
+      "gap_labels": [
+        "edit_approval_or_honest_status"
+      ]
+    },
+    {
+      "id": "F04",
+      "status": "failed",
+      "failed_checks": [
+        "forbidden_claims_absent"
+      ],
+      "gap_labels": [
+        "safety_or_literal_judge_review"
+      ]
+    }
+  ]
+}

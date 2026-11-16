@@ -9,6 +9,20 @@ from app.services.tools.schemas import ExternalContextResult, ToolPlan, ToolTrac
 
 
 class ToolTraceRepositoryTest(unittest.TestCase):
+    def test_missing_task_evidence_is_partial_despite_successful_calls(self):
+        for status in ("partial", "clarify", "blocked"):
+            with self.subTest(status=status):
+                db = MagicMock()
+                db.scalars.return_value.all.return_value = []
+                result = ExternalContextResult(context_text=None, sources=[], notices=[],
+                    diagnostics={"external_tool_workflow_aggregate_status": "succeeded"},
+                    details={"tool_task_completion": {"status": status}},
+                    tool_plan=ToolPlan(plan_id="plan", router="test", external_context_allowed=True,
+                                       should_use_tools=True, calls=[]))
+                route = ToolTraceRepository(db).replace_for_assistant_message(user_id="u",
+                    conversation_id="c", user_message_id="q", assistant_message_id="a", query="读取文件", external_context=result)
+                self.assertEqual(route.status, "partial")
+
     def test_waiting_edit_preserves_attempted_arguments_without_claiming_execution_success(self):
         events = [
             {'type':'tool_call_start','call_id':'edit','tool_key':'workspace.files.apply_edit',

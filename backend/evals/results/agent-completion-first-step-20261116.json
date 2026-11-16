@@ -1,0 +1,53 @@
+{
+  "date": "2026-11-16",
+  "scope": "P0-A第一小步；声明工具证据检查，非通用任务/答案语义评测",
+  "tests": {
+    "tool_graph_trace": {
+      "passed": 146,
+      "seconds": 2.499
+    },
+    "chat_and_pg": {
+      "passed": 109,
+      "seconds": 29.228
+    },
+    "sets_overlap": true,
+    "full_suite_rerun": false,
+    "compileall": "passed",
+    "diff_check": "passed"
+  },
+  "browser": {
+    "planner_strategy": "llm_primary",
+    "tool_call_count": 2,
+    "executed_tool_keys": [
+      "workspace.files.read",
+      "workspace.files.search"
+    ],
+    "assistant_status": "done",
+    "assistant_chars": 125,
+    "route_status": "success",
+    "completion_verdict": {
+      "type": "tool_task_completion",
+      "status": "complete",
+      "satisfied": [
+        "workspace.files.read"
+      ],
+      "missing": [],
+      "evidence_refs": [
+        "round_2_1"
+      ],
+      "reasons": [],
+      "assessment_scope": "declared_tool_evidence",
+      "assessment_stage": "after_tool_budget_before_final_prompt",
+      "answer_semantics_verified": false
+    },
+    "fixture_cleaned": true
+  },
+  "historical_gaps_report": "agent-completion-gaps-20261116.json",
+  "new_200_tasks_run": false,
+  "boundaries": [
+    "未新增模型调用、权限、数据库状态或自动补证循环",
+    "检查在工具预算之后、最终Prompt治理之前",
+    "自由任务未声明要求时not_assessed",
+    "普通文件读取目前核对工具证据，未做所有目标文件或自然语言事实逐项匹配"
+  ]
+}

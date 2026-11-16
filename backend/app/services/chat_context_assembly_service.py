@@ -320,6 +320,11 @@ class ChatContextAssemblyService:
     async def govern_prompt(self, assembly: ChatAssemblyRuntime) -> None:
         """构建分层Prompt，并按完整证据单元执行预算治理。"""
         # PromptBuilder携带结构化证据；Governance按保留单元渲染最终输入。
+        completion = assembly.external_context_result.details.get("tool_task_completion", {})
+        evidence_guidance = assembly.evidence_sufficiency.guidance
+        if completion.get("status") in {"partial", "clarify", "blocked"}:
+            # 完成判定只约束回答，不触发额外调用、批准或写操作。
+            evidence_guidance += "\n工具证据检查未全部满足：仅回答已核实部分，说明缺口，不得声称任务全部完成。等待审批不等于文件已写入。"
         assembly.prompt_result = ContextPromptBuilder().build_chat_messages(
             messages=assembly.history_rows,
             system_prompt=clean_optional_str(assembly.conversation.system_prompt)
@@ -336,7 +341,7 @@ class ChatContextAssemblyService:
             skill_instructions=(
                 assembly.skill_context.final_answer_instructions if assembly.skill_context else None
             ),
-            evidence_guidance=assembly.evidence_sufficiency.guidance,
+            evidence_guidance=evidence_guidance,
             evidence_sections={section.layer: section for section in (
                 assembly.external_context_result.evidence_section, assembly.knowledge_context_result.evidence_section) if section is not None},
         )

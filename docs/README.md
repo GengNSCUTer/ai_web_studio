@@ -14,6 +14,7 @@
 | 最新聊天传输协议 | [224 原生EventSource与SSE](224_Chat统一SSE与旧流清理_2026-11-11.md) |
 | 旧实现清理与历史原文位置 | [226 清理说明](226_旧Chat包装清理与文档归档_2026-11-12.md)、[历史目录](archive/README.md) |
 | Hybrid召回并发与Session边界 | [227 并发验证](227_Hybrid并发召回与Session线程边界_2026-11-16.md)；两路并发，数据库Session留原线程 |
+| 任务完成判定第一步 | [228](228_任务完成判定第一步_2026-11-16.md)；有限工具证据检查已接入，自由任务与最终语义尚未覆盖 |
 
 聊天当前为JSON创建ChatRun→独立Worker→原生EventSource订阅SSE。浏览器自动重连并携带Last-Event-ID；旧fetch读流/手写退避、POST流、NDJSON/纯文本Chat已删除。关页不取消Worker，主动停止使用独立接口。JSONL审计/会话导出是文件下载，仍保留。
 

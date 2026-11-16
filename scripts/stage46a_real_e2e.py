@@ -143,7 +143,14 @@ def collect_result(*, user_id: str, project_id: str, file_id: str) -> dict:
         file_row = db.get(ProjectFile, file_id)
         if not file_row or "验证工作区文件工具" not in (file_row.parsed_text or ""):
             raise AssertionError("测试文件正文发生了非预期修改。")
+        completion = next((event for event in reversed(events) if event.get("type") == "tool_task_completion"), None)
+        if (not completion or completion.get("status") != "complete"
+                or completion.get("assessment_scope") != "declared_tool_evidence"
+                or completion.get("answer_semantics_verified") is not False
+                or not completion.get("evidence_refs")):
+            raise AssertionError("真实读取没有保存范围明确且带来源引用的完成判定。")
         return {
+            "completion_verdict": completion,
             "conversation_id": conversation.id,
             "route_run_id": route_run.id,
             "planner_strategy": planner_end.get("strategy"),

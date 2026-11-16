@@ -60,6 +60,7 @@ class ToolTraceRepository:
         elif (
             external_context.diagnostics.get("external_tool_workflow_aggregate_status") == "partial"
             or external_context.diagnostics.get("external_tool_next_action") == "finalize_partial"
+            or external_context.details.get("tool_task_completion", {}).get("status") in {"partial", "clarify", "blocked"}
         ):
             status = "partial"
         elif plan and not plan.should_use_tools:
