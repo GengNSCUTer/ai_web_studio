@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-16",
+  "scope": "document_structure_and_export",
+  "answer_semantics_verified": false,
+  "regression": {"tests": 107, "passed": true, "postgres_enabled": true, "full_backend_suite": false},
+  "frontend": {"lint_passed": true, "build_passed": true},
+  "chat_regression": {"assistant_status": "done", "assistant_chars": 453, "browser_console_errors": 0, "assessment_stage": "after_final_prompt_governance", "evidence_refs": ["[T2]"], "tool_call_count": 2},
+  "real_acceptance": {
+    "provider_type": "openai-compatible",
+    "model": "deepseek-flash",
+    "passed": true,
+    "real_file_tool": "executor_read_succeeded",
+    "duplicate_create": "one_run",
+    "document_completion": "required_sections_sources_and_docx_verified",
+    "separate_process_resume": "evidence_draft_export_persisted",
+    "word_download": "valid_docx_with_sources",
+    "download_only": "succeeded_without_approval_or_project_file",
+    "approval_save": "succeeded_once",
+    "browser": "desktop_mobile_no_errors",
+    "parallel_task_and_cancel": "independent_artifacts_preserved",
+    "conversation_projection": "one_message_per_bound_run_no_unbound_projection",
+    "temporary_data_cleaned": true
+  },
+  "discovered_and_fixed": [
+    "rollback_business_locks_before_graph_error_checkpoint",
+    "acceptance_assertions_distinguish_bound_and_unbound_document_tasks"
+  ],
+  "limits": ["declared_markdown_sections_only", "source_manifest_not_semantic_support", "no_new_automatic_repair_loop", "not_a_new_200_task_evaluation"]
+}

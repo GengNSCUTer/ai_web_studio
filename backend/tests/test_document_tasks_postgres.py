@@ -15,9 +15,10 @@ from app.core.migrations import upgrade_database
 from app.models.user import User
 from app.models.project import Project
 from app.models.project_file import ProjectFile
-from app.models.agent_runtime import AgentRun, AgentOutboxEvent, AgentApproval
+from app.models.tool_config import WorkspaceAgentPolicy
+from app.models.agent_runtime import AgentRun, AgentOutboxEvent, AgentApproval, AgentArtifact
 from app.schemas.document_task import DocumentTaskCreate
-from app.services.document_task_service import DocumentTaskService, KIND
+from app.services.document_task_service import DocumentTaskService, DocumentTaskError, KIND
 from app.services.durable_tool_runtime import DurableToolRunService, DurableToolWorker
 from app.services.agent_runtime_service import AgentRuntimeService
 
@@ -95,3 +96,70 @@ class DocumentTasksPostgresTest(unittest.TestCase):
             self.assertEqual(set(pool.map(confirm, range(8))), {run_id})
         with self.sessions() as db:
             self.assertEqual(db.scalar(select(func.count()).select_from(AgentOutboxEvent).where(AgentOutboxEvent.status == "pending")), 1)
+
+    def test_completion_failure_is_persisted_without_export_and_retry_reuses_evidence(self):
+        with self.sessions() as db:
+            run_id = DocumentTaskService(db).create("doc-user", DocumentTaskCreate(project_id="doc-project",
+                file_ids=["doc-file"], idempotency_key="missing-sections", required_sections=["背景", "结论"]))["id"]
+        async def advance(count):
+            for _ in range(count):
+                self.assertTrue(await asyncio.wait_for(DurableToolWorker(session_factory=self.sessions).run_once(), timeout=20))
+        with patch("app.services.document_task_worker.ChatProviderService.complete_chat", new_callable=AsyncMock,
+                   return_value="# 背景\n测试资料。"):
+            asyncio.run(advance(2))
+        with self.sessions() as db:
+            service = DocumentTaskService(db)
+            state = service.snapshot("doc-user", run_id)
+            self.assertEqual(state["status"], "failed")
+            self.assertIn("section:结论", state["completion"]["missing"])
+            self.assertEqual(db.query(AgentArtifact).count(), 1)
+            service.resume("doc-user", run_id)
+        with patch("app.services.document_task_worker.ChatProviderService.complete_chat", new_callable=AsyncMock,
+                   return_value="# 背景\n测试资料。\n# 结论\n资料已整理。") as model:
+            asyncio.run(advance(2))
+            model.assert_awaited_once()
+        with self.sessions() as db:
+            state = DocumentTaskService(db).snapshot("doc-user", run_id)
+            self.assertEqual(state["status"], "succeeded")
+            self.assertEqual(state["completion"]["assessment_stage"], "after_document_export")
+            self.assertEqual(state["approvals"], [])
+            self.assertEqual(db.query(ProjectFile).count(), 1)
+
+    def test_invalid_export_releases_business_lock_before_graph_error_checkpoint(self):
+        run_id = self.create("invalid-export")
+        async def generate():
+            for _ in range(3):
+                self.assertTrue(await asyncio.wait_for(DurableToolWorker(session_factory=self.sessions).run_once(), timeout=20))
+        original = DocumentTaskService.export
+        def corrupted(service, run):
+            return {**original(service, run), "data_base64": ""}
+        with patch("app.services.document_task_worker.ChatProviderService.complete_chat", new_callable=AsyncMock,
+                   return_value="确定性草稿"), patch.object(DocumentTaskService, "export", corrupted):
+            asyncio.run(generate())
+        with self.sessions() as db:
+            state = DocumentTaskService(db).snapshot("doc-user", run_id)
+            self.assertEqual(state["status"], "failed")
+            self.assertIn("readable_export_matching_draft", state["completion"]["missing"])
+            self.assertEqual(db.query(AgentArtifact).count(), 2)
+            self.assertEqual(db.scalar(select(func.count()).select_from(AgentOutboxEvent).where(AgentOutboxEvent.status == "running")), 0)
+
+    def test_revoked_write_permission_closes_delivery_without_checkpoint_deadlock(self):
+        run_id = self.create("delivery-denied")
+        async def advance(count):
+            for _ in range(count):
+                self.assertTrue(await asyncio.wait_for(DurableToolWorker(session_factory=self.sessions).run_once(), timeout=20))
+        with patch("app.services.document_task_worker.ChatProviderService.complete_chat", new_callable=AsyncMock,
+                   return_value="确定性草稿"):
+            asyncio.run(advance(3))
+        with self.sessions() as db:
+            approval_id = DocumentTaskService(db).request_workspace_save("doc-user", run_id)["approvals"][0]["id"]
+            token = AgentRuntimeService(db).issue_approval_challenge(approval_id=approval_id, user_id="doc-user")
+            DocumentTaskService(db).approve("doc-user", approval_id, token)
+            db.add(WorkspaceAgentPolicy(project_id="doc-project", permission_mode="read_only"))
+            db.commit()
+        asyncio.run(advance(1))
+        with self.sessions() as db:
+            state = DocumentTaskService(db).snapshot("doc-user", run_id)
+            self.assertEqual(state["workspace_save_status"], "failed")
+            self.assertEqual(state["generation_status"], "succeeded")
+            self.assertEqual(db.query(ProjectFile).count(), 1)

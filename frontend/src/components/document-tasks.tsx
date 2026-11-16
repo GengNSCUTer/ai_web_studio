@@ -7,6 +7,7 @@ import type { Project } from "@/lib/types";
 
 export type DocumentTask = { id: string; project_id: string; conversation_id: string | null; file_name: string;
   status: string; current_step: number; generation_status: string; workspace_save_status: string;
+  completion?: { status: string; missing: string[]; assessment_stage: string } | null;
   steps: { id: string; stage: string; status: string; attempts: number; error_message: string | null }[];
   artifacts: { id: string; stage: string; preview: string; download_url: string | null }[];
   approvals: { id: string; status: string; action: string }[] };
@@ -29,6 +30,7 @@ export function DocumentTasks({ initialTasks, projects, initialRunId }: { initia
   const [files, setFiles] = useState<{ id: string; file_name: string }[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [instruction, setInstruction] = useState("请根据资料整理一份结构清晰的中文说明，列出来源与尚不确定的内容。");
+  const [sections, setSections] = useState("");
   const [name, setName] = useState("资料整理");
   const [format, setFormat] = useState("docx");
   const [error, setError] = useState("");
@@ -65,6 +67,7 @@ export function DocumentTasks({ initialTasks, projects, initialRunId }: { initia
       <details className="rounded-2xl border border-[var(--hairline)] p-4"><summary className="cursor-pointer font-medium">从工作区资料创建文档任务</summary>
         <form className="mt-4 space-y-3" onSubmit={(e) => { e.preventDefault(); void act(async () => {
           const task = await request<DocumentTask>("/document-tasks", "POST", { project_id: projectId, file_ids: selectedFiles,
+            required_sections: sections.split("\n").map((item) => item.trim()).filter(Boolean),
             instruction, file_name: `${name}.${format === "docx" ? "docx" : "md"}`, format, idempotency_key: crypto.randomUUID() });
           setSelectedId(task.id); setTasks((old) => [task, ...old]);
         }); }}>
@@ -74,6 +77,9 @@ export function DocumentTasks({ initialTasks, projects, initialRunId }: { initia
           }}><option value="">选择工作区</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
           <div className="max-h-48 overflow-auto">{files.map((f) => <label key={f.id} className="flex gap-2 py-1 text-sm"><input type="checkbox" checked={selectedFiles.includes(f.id)} onChange={(e) => setSelectedFiles((old) => e.target.checked ? [...old, f.id] : old.filter((x) => x !== f.id))} />{f.file_name}</label>)}</div>
           <textarea aria-label="文档任务要求" required maxLength={2000} value={instruction} onChange={(e) => setInstruction(e.target.value)} className="min-h-24 w-full rounded-xl border p-3 text-sm" />
+          <label className="block text-sm">必需章节（可选，每行一个，最多12个）
+            <textarea aria-label="必需章节" maxLength={971} value={sections} onChange={(e) => setSections(e.target.value)} placeholder={"背景\n方案\n结论"} className="mt-2 min-h-20 w-full rounded-xl border p-3 text-sm" />
+          </label>
           <div className="flex flex-wrap gap-3"><input aria-label="文档名称" required maxLength={150} value={name} onChange={(e) => setName(e.target.value)} className="min-w-0 rounded-xl border p-2" />
             <select aria-label="文档格式" value={format} onChange={(e) => setFormat(e.target.value)} className="rounded-xl border p-2"><option value="docx">Word</option><option value="markdown">Markdown</option></select>
             <button className={BTN} disabled={busy || !selectedFiles.length}>创建后台文档任务</button></div>
@@ -86,6 +92,9 @@ export function DocumentTasks({ initialTasks, projects, initialRunId }: { initia
           {selected ? <><h2 className="font-semibold">{selected.file_name}</h2>
             <p className="mt-2 text-sm">文档：{selected.generation_status === "succeeded" ? "已生成，可预览下载" : selected.generation_status}</p>
             <p className="mt-1 text-sm">工作区：{SAVE_STATES[selected.workspace_save_status] || selected.workspace_save_status}</p>
+            {selected.completion ? <p className="mt-2 break-words text-sm text-[var(--ink-muted)]">
+              {selected.completion.status === "complete" ? selected.completion.assessment_stage === "after_document_export" ? "交付检查通过：章节、来源清单与导出文件已核对。" : "草稿结构检查通过，等待导出检查。" : `交付检查未通过：${selected.completion.missing.join("、")}`}
+            </p> : null}
             <div className="mt-4 grid gap-2 sm:grid-cols-2">{selected.steps.map((s) => <div key={s.id} className="rounded-xl bg-[var(--soft-bg)] p-3 text-sm"><p>{STAGES[s.stage] || s.stage} · {s.status}</p>
               <p className="mt-1 text-xs">尝试 {s.attempts} 次</p>{s.error_message ? <p className="mt-1 break-words text-xs text-red-800">{s.error_message}</p> : null}</div>)}</div>
             <div className="mt-4 flex flex-wrap gap-2">{!["succeeded", "failed", "dead_letter", "cancelled"].includes(selected.status) ? <button className={BTN} disabled={busy} onClick={() => void act(async () => { await request(`/document-tasks/${selected.id}/cancel`, "POST"); await refresh(); })}>取消文档任务</button> : null}

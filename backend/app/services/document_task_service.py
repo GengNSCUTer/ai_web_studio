@@ -32,6 +32,7 @@ from app.services.document_delivery_service import DocumentDeliveryService
 from app.services.durable_tool_runtime import DurableToolRunService, utcnow
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.agent_artifact_store import AgentArtifactStore, ArtifactStoreError
+from app.services.document_completion import verify_document_draft, verify_document_export
 
 
 KIND = "document_workflow"
@@ -43,7 +44,9 @@ DOCUMENT_GRAPH_VERSION = "langgraph_document_v1"
 
 
 class DocumentTaskError(ValueError):
-    pass
+    def __init__(self, message, *, completion=None):
+        super().__init__(message)
+        self.completion = completion
 
 
 def encode(value):
@@ -79,6 +82,9 @@ class DocumentTaskService:
         if Path(payload.file_name).name != payload.file_name or "\\" in payload.file_name or any(ord(x) < 32 for x in payload.file_name):
             raise DocumentTaskError("文件名不能包含目录、反斜杠或控制字符。")
         request = payload.model_dump(exclude={"idempotency_key"})
+        # 未声明章节时不增加持久化字段，旧任务的幂等请求仍能匹配。
+        if not request["required_sections"]:
+            request.pop("required_sections")
         request["file_name"] = DocumentDeliveryService._safe_file_name(payload.file_name, payload.format)
         request["file_ids"] = list(dict.fromkeys(payload.file_ids))
         source_message = self.answer(user_id, request) if payload.assistant_message_id else None
@@ -182,6 +188,8 @@ class DocumentTaskService:
         return artifact, json.loads(artifact.content_json)
 
     def save_stage(self, run, step, event, result, *, transition, existing_artifact=None):
+        if step.call_id in {"draft", "export"}:
+            self.validate_completion(run, step.call_id, result)
         payload = encode(result)
         if len(payload) > 2_000_000:
             raise DocumentTaskError("阶段产物超过持久化限额。")
@@ -218,6 +226,28 @@ class DocumentTaskService:
             raise DocumentTaskError("未知文档图转换，拒绝提交。")
         self.checkpoint(run, step, f"{step.call_id}_succeeded")
 
+    def validate_completion(self, run, stage, result):
+        """进入成功转换前检查实际产物，不使用模型的完成声明。"""
+        request = json.loads(run.input_json)
+        _, evidence = self.artifact(run.id, "evidence")
+        if stage == "draft":
+            verdict = verify_document_draft(text=result.get("text"), references=result.get("references"),
+                evidence=evidence, required_sections=request.get("required_sections", []))
+        else:
+            _, draft = self.artifact(run.id, "draft")
+            # 旧草稿或恢复时也核验要求，不能仅凭格式转换成功绕过缺失章节。
+            verdict = verify_document_draft(text=draft.get("text"), references=draft.get("references"),
+                evidence=evidence, required_sections=request.get("required_sections", []))
+            if verdict.status == "complete":
+                verdict = verify_document_export(result=result, request=request, draft=draft)
+        completion = verdict.to_public_dict()
+        if verdict.status != "complete":
+            raise DocumentTaskError("文档完成检查未通过：" + "、".join(verdict.missing), completion=completion)
+        state = json.loads(run.planner_state_json or "{}")
+        state["document_completion"] = completion
+        run.planner_state_json = encode(state)
+        return completion
+
     def snapshot(self, user_id, run_id):
         run = self.get(user_id, run_id)
         artifacts = list(self.db.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run.id, AgentArtifact.user_id == user_id)
@@ -229,6 +259,7 @@ class DocumentTaskService:
                 "status": run.status, "current_step": run.current_step, "file_name": json.loads(run.input_json)["file_name"],
                 "generation_status": "succeeded" if generated else run.status,
                 "workspace_save_status": delivery.status if delivery else "planned",
+                "completion": state.get("document_completion"),
                 "result_message_id": state.get("document_result_message_id"),
                 "steps": [{"id": s.id, "stage": s.call_id, "status": s.status, "attempts": s.attempts,
                            "error_code": s.error_code, "error_message": s.error_message}

@@ -114,6 +114,53 @@ class DocumentTasksTest(unittest.IsolatedAsyncioTestCase):
         state = self.snapshot(task["id"])
         self.assertEqual([s["attempts"] for s in state["steps"]], [1, 1, 1, 0])
 
+    async def test_missing_required_section_fails_without_export_or_workspace_write(self):
+        task = self.create(required_sections=["背景", "结论"])
+        await self.advance(2)
+        state = self.snapshot(task["id"])
+        self.assertEqual(state["status"], "failed")
+        self.assertIn("section:结论", state["completion"]["missing"])
+        self.assertEqual(len(state["artifacts"]), 1)
+        self.assertEqual(state["steps"][2]["status"], "planned")
+        self.assertEqual(state["approvals"], [])
+        with self.sessions() as db:
+            self.assertEqual(db.query(ProjectFile).count(), 1)
+        # 显式重试仅重做失败的草稿阶段，复用已保存取证。
+        self.complete.return_value = "# 背景\nPostgreSQL资料。\n# 结论\n继续采用该数据库。"
+        with self.sessions() as db:
+            DocumentTaskService(db).resume("u", task["id"])
+        await self.advance(2)
+        state = self.snapshot(task["id"])
+        self.assertEqual(state["status"], "succeeded")
+        self.assertEqual(state["completion"]["assessment_stage"], "after_document_export")
+        instruction = json.loads(self.complete.call_args.kwargs["messages"][1]["content"])["instruction"]
+        self.assertIn('"背景"', instruction)
+
+    async def test_export_corruption_is_not_reported_as_generated_and_retry_reuses_draft(self):
+        task = self.create()
+        await self.advance(2)
+        original_export = DocumentTaskService.export
+        def corrupt(service, run):
+            return {**original_export(service, run), "data_base64": ""}
+        with patch.object(DocumentTaskService, "export", corrupt):
+            await self.advance()
+        state = self.snapshot(task["id"])
+        self.assertEqual(state["status"], "failed")
+        self.assertNotEqual(state["generation_status"], "succeeded")
+        self.assertEqual(len(state["artifacts"]), 2)
+        self.assertIn("readable_export_matching_draft", state["completion"]["missing"])
+        with self.sessions() as db:
+            DocumentTaskService(db).resume("u", task["id"])
+        await self.advance()
+        self.assertEqual(self.snapshot(task["id"])["status"], "succeeded")
+        self.complete.assert_awaited_once()
+
+    async def test_section_requirement_is_part_of_request_idempotency(self):
+        task = self.create(required_sections=["背景"])
+        self.assertEqual(task["id"], self.create(required_sections=["背景"])["id"])
+        with self.assertRaises(DocumentTaskError):
+            self.create(required_sections=["结论"])
+
     async def test_creation_same_key_is_idempotent_but_other_parameters_conflict(self):
         first = self.create()
         self.assertEqual(first["id"], self.create()["id"])

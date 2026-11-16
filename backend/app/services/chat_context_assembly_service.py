@@ -36,6 +36,9 @@ from app.services.tools.run_policy import resolve_tool_run_policy
 from app.services.citation_audit_service import is_smalltalk_query
 from app.services.mcp_resource_service import McpResourceService
 from app.services.tools.formatter import ExternalContextAssembler
+from app.services.tools.task_spec import build_task_spec
+from app.services.tools.completion_verifier import verify_final_completion, sources_from_final_map, FINAL_COMPLETION_GUIDANCE
+from app.services.tools.schemas import ToolTraceEvent
 
 
 def clean_optional_str(value: str | None) -> str | None:
@@ -322,8 +325,13 @@ class ChatContextAssemblyService:
         # PromptBuilder携带结构化证据；Governance按保留单元渲染最终输入。
         completion = assembly.external_context_result.details.get("tool_task_completion", {})
         evidence_guidance = assembly.evidence_sufficiency.guidance
-        if completion.get("status") in {"partial", "clarify", "blocked"}:
-            # 完成判定只约束回答，不触发额外调用、批准或写操作。
+        # 活动Skill的完整合同优先；没有适用合同时仍保留原问题的读取要求。
+        spec = build_task_spec(query=getattr(assembly, "query", ""), skill_context=assembly.skill_context) or build_task_spec(
+            query=getattr(assembly, "query", ""))
+        if spec:
+            # 预先计入保守约束，治理后只作等预算内替换，不追加超预算消息或反复裁剪。
+            evidence_guidance = FINAL_COMPLETION_GUIDANCE
+        elif completion.get("status") in {"partial", "clarify", "blocked"}:
             evidence_guidance += "\n工具证据检查未全部满足：仅回答已核实部分，说明缺口，不得声称任务全部完成。等待审批不等于文件已写入。"
         assembly.prompt_result = ContextPromptBuilder().build_chat_messages(
             messages=assembly.history_rows,
@@ -346,6 +354,8 @@ class ChatContextAssemblyService:
                 assembly.external_context_result.evidence_section, assembly.knowledge_context_result.evidence_section) if section is not None},
         )
         assembly.governed_context = assembly.runtime.governance_service.govern_messages(assembly.prompt_result.messages)
+        if spec:
+            self._recheck_final_completion(assembly, spec)
         assembly.memory_diagnostics = assembly.memory_bundle.after_governance(
             assembly.governed_context.retained_reference_texts.get("long_term_memory", ""))
         assembly.prompt_diagnostics = self._build_prompt_diagnostics(
@@ -361,6 +371,43 @@ class ChatContextAssemblyService:
         self.conversation_repo.save(assembly.conversation)
         # ConversationRepository 只 flush；摘要边界与 prefix 诊断在 Context Assembly 用例末尾统一提交。
         self.db.commit()
+
+    def _recheck_final_completion(self, assembly, spec) -> None:
+        """最终Prompt与判定共用同一来源清单；不重新调用模型或触发工具。"""
+        external = assembly.external_context_result
+        prior = external.details.get("tool_task_completion", {})
+        verdict = verify_final_completion(spec=spec, final_source_map=assembly.governed_context.final_source_map,
+            terminal_reason=external.diagnostics.get("external_agent_terminal_reason", "no_tool_needed"),
+            next_action=external.diagnostics.get("external_tool_next_action", "stop"))
+        payload = verdict.to_public_dict()
+        assembly.evidence_sufficiency = assess_evidence_sufficiency(query=spec.goal,
+            sources=sources_from_final_map(assembly.governed_context.final_source_map),
+            skill_key=assembly.skill_context.skill_key if assembly.skill_context else None,
+            completion_contract=assembly.skill_context.completion_contract if assembly.skill_context else None)
+        external.details.setdefault("tool_task_completion_before_governance", prior)
+        external.details["tool_task_completion"] = payload
+        external.diagnostics["external_tool_task_completion"] = payload
+        external.tool_events = [e for e in external.tool_events if e.type != "tool_task_completion"]
+        external.tool_events.append(ToolTraceEvent(type="tool_task_completion", payload=payload))
+        external.details["tool_events"] = [e.to_public_dict() for e in external.tool_events]
+        status_text = ("最终必要工具证据完整保留；仅根据所给正文回答，不宣称已验证答案语义或整份原文。"
+                       if verdict.status == "complete" else
+                       "最终必要工具证据未齐全或尚待确认；仅回答已核实部分，明确缺口，不得声称任务全部完成。节选不等于全文，等待审批不等于文件已写入。")
+        governed = assembly.governed_context
+        candidate = [{**m, "content": m["content"].replace(FINAL_COMPLETION_GUIDANCE, status_text, 1)}
+                     if m.get("role") == "system" and isinstance(m.get("content"), str) else m
+                     for m in governed.messages]
+        governance = assembly.runtime.governance_service
+        # 替换不能挤占已分配证据预算；自定义Tokenizer下不满足则保留原保守约束。
+        if (governance._estimate_messages_chars(candidate) <= governance._estimate_messages_chars(governed.messages)
+                and governance._estimate_messages_tokens(candidate) <= governance._estimate_messages_tokens(governed.messages)):
+            governed.messages = candidate
+            governed.stats.total_chars_estimate = governance._estimate_messages_chars(candidate)
+            governed.stats.total_tokens_estimate = governance._estimate_messages_tokens(candidate)
+            governed.stats.system_chars = sum(governance._estimate_message_chars(m) for m in candidate if m.get("role") == "system")
+        self.tool_trace_repo.update_final_completion(user_id=self.user_id,
+            conversation_id=assembly.conversation.id, assistant_message_id=assembly.assistant_id,
+            generation_id=assembly.assistant_generation_id, verdict=payload)
 
     def finalize_context(self, assembly: ChatAssemblyRuntime) -> ChatExecutionContext:
         """从同一份治理结果生成可调用上下文和最终来源映射。"""
@@ -413,6 +460,8 @@ class ChatContextAssemblyService:
             "knowledge_query_rewrite": assembly.knowledge_context_result.details.get("knowledge_query_rewrite"),
             "tool_plan": assembly.external_context_result.details.get("tool_plan"),
             "tool_events": assembly.external_context_result.details.get("tool_events", []),
+            "tool_task_completion": assembly.external_context_result.details.get("tool_task_completion"),
+            "tool_task_completion_before_governance": assembly.external_context_result.details.get("tool_task_completion_before_governance"),
             "active_skill": assembly.external_context_result.details.get("active_skill"),
             "tool_run_policy": assembly.external_context_result.details.get("tool_run_policy"),
             "tool_run_budget": assembly.external_context_result.details.get("tool_run_budget"),

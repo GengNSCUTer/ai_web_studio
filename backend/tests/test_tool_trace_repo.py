@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from app.repositories.tool_trace_repo import ToolTraceRepository
@@ -22,6 +23,31 @@ class ToolTraceRepositoryTest(unittest.TestCase):
                 route = ToolTraceRepository(db).replace_for_assistant_message(user_id="u",
                     conversation_id="c", user_message_id="q", assistant_message_id="a", query="读取文件", external_context=result)
                 self.assertEqual(route.status, "partial")
+
+    def test_final_completion_rejects_missing_generation(self):
+        db = MagicMock()
+        repo = ToolTraceRepository(db)
+        self.assertFalse(repo.update_final_completion(user_id="u", conversation_id="c",
+            assistant_message_id="a", generation_id=None, verdict={"status": "partial"}))
+        db.scalar.assert_not_called()
+
+    def test_final_completion_rejects_old_generation_and_is_idempotent_for_current(self):
+        db = MagicMock()
+        db.scalar.return_value = None
+        repo = ToolTraceRepository(db)
+        self.assertFalse(repo.update_final_completion(user_id="u", conversation_id="c", assistant_message_id="a",
+            generation_id="old", verdict={"status": "partial"}))
+        db.flush.assert_not_called()
+        route = SimpleNamespace(events_json=json.dumps([{"type": "tool_task_completion", "status": "complete",
+            "assessment_stage": "after_tool_budget_before_final_prompt"}]), status="success")
+        db.scalar.side_effect = [SimpleNamespace(generation_id="current"), route] * 2
+        for _ in range(2):
+            self.assertTrue(repo.update_final_completion(user_id="u", conversation_id="c", assistant_message_id="a",
+                generation_id="current", verdict={"status": "partial", "assessment_stage": "after_final_prompt_governance"}))
+        events = json.loads(route.events_json)
+        self.assertEqual(route.status, "partial")
+        self.assertEqual(sum(e["type"] == "tool_task_completion" for e in events), 1)
+        self.assertEqual(sum(e["type"] == "tool_task_completion_before_governance" for e in events), 1)
 
     def test_waiting_edit_preserves_attempted_arguments_without_claiming_execution_success(self):
         events = [

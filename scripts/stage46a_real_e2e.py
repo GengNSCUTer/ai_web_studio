@@ -146,6 +146,7 @@ def collect_result(*, user_id: str, project_id: str, file_id: str) -> dict:
         completion = next((event for event in reversed(events) if event.get("type") == "tool_task_completion"), None)
         if (not completion or completion.get("status") != "complete"
                 or completion.get("assessment_scope") != "declared_tool_evidence"
+                or completion.get("assessment_stage") != "after_final_prompt_governance"
                 or completion.get("answer_semantics_verified") is not False
                 or not completion.get("evidence_refs")):
             raise AssertionError("真实读取没有保存范围明确且带来源引用的完成判定。")

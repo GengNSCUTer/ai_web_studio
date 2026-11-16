@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.tool_trace import ToolCallRun, ToolRouteRun
+from app.models.message import Message
 from app.services.tools.schemas import ExternalContextResult
 
 
@@ -27,6 +28,36 @@ def _json_loads(value: str | None, fallback: Any) -> Any:
 class ToolTraceRepository:
     def __init__(self, db: Session):
         self.db = db
+
+    def update_final_completion(self, *, user_id: str, conversation_id: str,
+                                assistant_message_id: str, generation_id: str | None, verdict: dict) -> bool:
+        """同代短事务更新完成投影，保留原调用、尝试、来源与执行前证据事件。"""
+        if generation_id is None:
+            return False
+        message = self.db.scalar(select(Message).where(Message.id == assistant_message_id,
+            Message.conversation_id == conversation_id, Message.generation_id == generation_id).with_for_update())
+        if message is None:
+            return False
+        route = self.db.scalar(select(ToolRouteRun).where(ToolRouteRun.user_id == user_id,
+            ToolRouteRun.conversation_id == conversation_id,
+            ToolRouteRun.assistant_message_id == assistant_message_id).with_for_update())
+        if route is None:
+            return False
+        events = _json_loads(route.events_json, [])
+        updated = []
+        for event in events:
+            if event.get("type") == "tool_task_completion":
+                if event.get("assessment_stage") != "after_final_prompt_governance":
+                    updated.append({**event, "type": "tool_task_completion_before_governance"})
+            else:
+                updated.append(event)
+        updated.append({"type": "tool_task_completion", **verdict})
+        route.events_json = _json_dumps(updated)
+        if route.status != "error" and verdict["status"] in {"partial", "clarify", "blocked"}:
+            route.status = "partial"
+        self.db.flush()
+        # 由上下文组装已有用例事务统一提交，不在这里提前提交其它修改。
+        return True
 
     def replace_for_assistant_message(
         self,

@@ -85,7 +85,10 @@ async def execute_document_stage(worker, db, claim, prepared):
         runtime = {"provider_type": cfg.provider_type, "base_url": resolve_provider_base_url(provider_type=cfg.provider_type,
             configured_api_base_url=cfg.api_base_url, configured_ollama_base_url=cfg.ollama_base_url),
             "api_key": cfg_service.resolve_provider_api_key(user_id), "model_name": cfg.default_model}
-        instruction = json.loads(run.input_json)["instruction"]
+        request = json.loads(run.input_json)
+        instruction = request["instruction"]
+        if request.get("required_sections"):
+            instruction += "\n必须使用以下Markdown章节标题，每节提供正文，不得仅列目录：" + json.dumps(request["required_sections"], ensure_ascii=False)
         # 无Session/事务跨模型网络等待，返回后必须重新加锁核验租约。
         db.commit()
         return await wait_for_draft(worker, claim, runtime, instruction, evidence)
@@ -123,6 +126,10 @@ def fail_document_claim(worker, db, claim, exc):
         isinstance(http_status, int) and 400 <= http_status < 500 and http_status not in {408, 409, 429})
     code = f"document_{stage}_timeout" if isinstance(exc, TimeoutError) else f"document_{stage}_failed"
     error = str(exc)[:300] if isinstance(exc, DocumentTaskError) else f"{stage} 阶段失败（{type(exc).__name__}），已完成产物保留。"
+    if isinstance(exc, DocumentTaskError) and exc.completion:
+        state = json.loads(run.planner_state_json or "{}")
+        state["document_completion"] = exc.completion
+        run.planner_state_json = json.dumps(state, ensure_ascii=False)
     step.error_code, step.error_message = code, error
     step.lease_owner, step.lease_expires_at = None, None
     event.lease_owner, event.lease_expires_at = None, None

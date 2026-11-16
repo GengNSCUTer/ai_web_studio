@@ -104,6 +104,38 @@ class ChatPersistencePostgresIntegrationTest(unittest.TestCase):
         ):
             return asyncio.run(persist_stream_result(snapshot))
 
+    def test_final_tool_completion_updates_same_generation_once_and_preserves_calls(self):
+        from app.models.tool_trace import ToolRouteRun, ToolCallRun
+        from app.repositories.tool_trace_repo import ToolTraceRepository
+        with Session(self.engine) as db:
+            route = ToolRouteRun(user_id=self.user_id, conversation_id=self.conversation_id,
+                assistant_message_id=self.message_id, query="读取文件内容", status="success",
+                events_json=json.dumps([{"type": "tool_task_completion", "status": "complete",
+                    "assessment_stage": "after_tool_budget_before_final_prompt"}]), sources_json="[]")
+            db.add(route)
+            db.flush()
+            call = ToolCallRun(route_run_id=route.id, call_id="read", tool_key="workspace.files.read",
+                provider="workspace", category="workspace_file", status="success")
+            db.add(call)
+            db.commit()
+            route_id, call_id = route.id, call.id
+            repo = ToolTraceRepository(db)
+            for _ in range(2):
+                self.assertTrue(repo.update_final_completion(user_id=self.user_id, conversation_id=self.conversation_id,
+                    assistant_message_id=self.message_id, generation_id=self.generation_id,
+                    verdict={"status": "partial", "assessment_stage": "after_final_prompt_governance"}))
+            db.commit()
+            row = db.get(ToolRouteRun, route_id)
+            events = json.loads(row.events_json)
+            self.assertEqual(row.status, "partial")
+            self.assertEqual(sum(e["type"] == "tool_task_completion" for e in events), 1)
+            self.assertEqual(sum(e["type"] == "tool_task_completion_before_governance" for e in events), 1)
+            self.assertEqual(db.get(ToolCallRun, call_id).status, "success")
+            for user, generation in [(self.user_id, "stale"), ("another-user", self.generation_id)]:
+                self.assertFalse(repo.update_final_completion(user_id=user, conversation_id=self.conversation_id,
+                    assistant_message_id=self.message_id, generation_id=generation, verdict={"status": "complete"}))
+            self.assertEqual(db.get(ToolRouteRun, route_id).status, "partial")
+
     def test_async_result_persists_message_metric_and_fences_old_generation(self) -> None:
         snapshot = replace(self._snapshot(), citation_audit=json.dumps({"status": "needs_review", "support_checked": False}))
         self.assertTrue(self._persist(snapshot))

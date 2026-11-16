@@ -46,17 +46,22 @@ async def _preflight(state: DocumentState, runtime: Runtime[DocumentContext]):
     from app.services.document_task_worker import prepare_document_claim
     from app.services.document_task_service import DocumentTaskError
     context = runtime.context
-    context.prepared = prepare_document_claim(context.worker, context.db, context.claim)
-    if context.prepared is None:
-        raise CheckpointLeaseLost("文档步骤执行权已失效")
-    saved = context.db.scalar(select(AgentArtifact).where(AgentArtifact.run_id == context.run.id,
-        AgentArtifact.step_id == context.claim.step_id, AgentArtifact.user_id == context.run.user_id))
-    if saved:
-        step = context.db.get(AgentStep, context.claim.step_id)
-        if json.loads(step.result_json or "{}").get("artifact_id") != saved.id:
-            raise DocumentTaskError("文档产物与步骤记录不一致，需先对账。")
-        context.saved_artifact, context.result = saved, json.loads(saved.content_json)
-    context.db.commit()
+    try:
+        context.prepared = prepare_document_claim(context.worker, context.db, context.claim)
+        if context.prepared is None:
+            raise CheckpointLeaseLost("文档步骤执行权已失效")
+        saved = context.db.scalar(select(AgentArtifact).where(AgentArtifact.run_id == context.run.id,
+            AgentArtifact.step_id == context.claim.step_id, AgentArtifact.user_id == context.run.user_id))
+        if saved:
+            step = context.db.get(AgentStep, context.claim.step_id)
+            if json.loads(step.result_json or "{}").get("artifact_id") != saved.id:
+                raise DocumentTaskError("文档产物与步骤记录不一致，需先对账。")
+            context.saved_artifact, context.result = saved, json.loads(saved.content_json)
+        context.db.commit()
+    except BaseException:
+        # 图的错误检查点也要校验事件行，先释放业务锁，避免连接之间互等。
+        context.db.rollback()
+        raise
     return {"stage": context.prepared[4], "ready": True, "phase": "preflight"}
 
 
@@ -82,9 +87,13 @@ async def _commit(state: DocumentState, runtime: Runtime[DocumentContext], *, st
     # 原始模型返回不在图中。提交前退出后，未保存阶段重新生成，已提交Artifact则复用。
     if context.result is None:
         await _execute(state, runtime, stage=stage)
-    if not commit_document_result(context.worker, context.db, context.claim, context.prepared, context.result,
-            transition=transition, existing_artifact=context.saved_artifact):
-        raise CheckpointLeaseLost("文档提交时租约已失效")
+    try:
+        if not commit_document_result(context.worker, context.db, context.claim, context.prepared, context.result,
+                transition=transition, existing_artifact=context.saved_artifact):
+            raise CheckpointLeaseLost("文档提交时租约已失效")
+    except BaseException:
+        context.db.rollback()
+        raise
     return {"phase": f"{stage}_committed", "lease_version": context.claim.outbox_lease_version}
 
 
@@ -102,8 +111,12 @@ async def _reconcile(state: DocumentState, runtime: Runtime[DocumentContext]):
 async def _deliver_and_commit(state: DocumentState, runtime: Runtime[DocumentContext]):
     # deliver在持有事件/业务行锁的事务中准备文件和ProjectFile；该事务必须先提交，
     # 才能让独立连接的原生Saver获取同一事件锁，不能在两者之间插入图检查点。
-    await _execute(state, runtime, stage="delivery")
-    return await _commit(state, runtime, stage="delivery", transition="finish")
+    try:
+        await _execute(state, runtime, stage="delivery")
+        return await _commit(state, runtime, stage="delivery", transition="finish")
+    except BaseException:
+        runtime.context.db.rollback()
+        raise
 
 
 def build_document_graph(checkpointer=None):
