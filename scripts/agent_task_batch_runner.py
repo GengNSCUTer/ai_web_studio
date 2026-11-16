@@ -45,9 +45,18 @@ def credentials(email):
         if not user:
             raise PrerequisiteMissing('固定测试账号不存在')
         cfg = db.scalar(select(UserSetting).where(UserSetting.user_id == user.id))
-        if not cfg or cfg.provider_type != 'openai-compatible' or cfg.default_model != MODEL:
-            raise PrerequisiteMissing('要求账号现有配置为在线DeepSeek-V3.2；执行器不会自动修改设置')
+        if not cfg or cfg.provider_type != 'openai-compatible' or not cfg.default_model:
+            raise PrerequisiteMissing('要求账号已配置在线模型；执行器不会自动修改设置')
         return user.id, AuthService(UserRepository(db)).create_access_token(user)
+
+
+def configured_model(user_id):
+    """每批次固定账号当前在线模型，既不替用户切换Provider，也不输出凭据。"""
+    with SessionLocal() as db:
+        cfg = db.scalar(select(UserSetting).where(UserSetting.user_id == user_id))
+        if not cfg or cfg.provider_type != 'openai-compatible' or not cfg.default_model:
+            raise PrerequisiteMissing('账号当前没有可用在线模型配置')
+        return cfg.default_model
 
 
 def json_response(response):
@@ -113,15 +122,16 @@ def unchanged_baselines(revisions, fixture_by_file):
 
 
 class PilotRunner:
-    def __init__(self, client, user_id, dataset, artifact_dir, timeout):
+    def __init__(self, client, user_id, dataset, artifact_dir, timeout, *, model_name=MODEL):
         self.client, self.user_id, self.dataset = client, user_id, dataset
         self.artifact_dir, self.timeout = artifact_dir, timeout
+        self.model_name = model_name
         self.projects = set()
         self.task_ids = {}
 
     def create_project(self, case):
         project = json_response(self.client.post('/api/projects', json={
-            'name': f"agent-pilot-{case['id']}-{uuid4().hex[:8]}", 'default_model': MODEL,
+            'name': f"agent-pilot-{case['id']}-{uuid4().hex[:8]}", 'default_model': self.model_name,
             'description': '合成资料批量验收，运行结束清理；不是实际客户项目'}))
         self.projects.add(project['id'])
         return project['id']
@@ -163,7 +173,7 @@ class PilotRunner:
 
     def conversation(self, case, project_id):
         return json_response(self.client.post('/api/conversations', json={
-            'title': '先行评测 ' + case['id'], 'project_id': project_id, 'model_name': MODEL}))['id']
+            'title': '先行评测 ' + case['id'], 'project_id': project_id, 'model_name': self.model_name}))['id']
 
     def chat_snapshot(self, conversation_id):
         """即使流失败也读取已持久化的事实，不能在清理后再猜失败原因。"""
@@ -200,7 +210,7 @@ class PilotRunner:
         deadline = time.monotonic() + self.timeout
         try:
             with chat_stream(self.client, '/api/chat/runs', json={
-                'conversation_id': conversation_id, 'content': query, 'model_name': MODEL,
+                'conversation_id': conversation_id, 'content': query, 'model_name': self.model_name,
                 'web_search_enabled': True, 'tool_run_mode': case['mode'],
                 'knowledge_base_ids': [knowledge['id']] if knowledge else [],
             }) as response:
@@ -324,7 +334,7 @@ class PilotRunner:
     def run_case(self, case):
         started = time.monotonic()
         row = {key: case[key] for key in ('id', 'category', 'business', 'runner')}
-        row.update(query=case['query'], model=MODEL)
+        row.update(query=case['query'], model=self.model_name)
         project_id, files = None, {}
         try:
             knowledge = knowledge_target(case, self.user_id)
@@ -422,10 +432,11 @@ def execute_batch(dataset, *, base_url, email, output, html_path, timeout, brows
     artifacts.mkdir(exist_ok=True)
     rows = [{**{key: case[key] for key in ('id', 'category', 'business', 'runner')},
              'status': 'skipped', 'skip_reason': 'not_run'} for case in dataset['cases']]
-    metadata = {'model': MODEL, 'status': 'running', 'cleanup': {'status': 'not_started'},
+    metadata = {'model': None, 'status': 'running', 'cleanup': {'status': 'not_started'},
                 'dataset_snapshot': dataset,
                 'started_at': datetime.now(timezone.utc).isoformat(),
                 'git_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+                'tracked_worktree_modified': bool(subprocess.check_output(['git', 'diff', 'HEAD', '--name-only'], cwd=ROOT, text=True).strip()),
                 'worktree_modified': bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True).strip())}
 
     def save():
@@ -441,9 +452,10 @@ def execute_batch(dataset, *, base_url, email, output, html_path, timeout, brows
     runner = None
     try:
         uid, token = credentials(email)
+        metadata['model'] = configured_model(uid)
         with httpx.Client(base_url=base_url, headers={'Authorization': 'Bearer ' + token},
                           timeout=httpx.Timeout(timeout), trust_env=False) as client:
-            runner = PilotRunner(client, uid, dataset, artifacts, timeout)
+            runner = PilotRunner(client, uid, dataset, artifacts, timeout, model_name=metadata['model'])
             health = client.get('/health/workers')
             metadata['worker_health'] = health.json()
             try:

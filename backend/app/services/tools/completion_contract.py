@@ -15,10 +15,13 @@ from app.services.skill_catalog import SkillExecutionContext
 from app.services.tools.catalog import ToolCatalog
 from app.services.tools.schemas import PlannedToolCall, ToolPlan
 from app.services.tools.edit_preview_completion import preview_requirement, approval_requirement, missing_preview_tools, missing_approval_tools
+from app.services.tools.action_guard import NO_TOOLS
 
 
 def infer_read_completion(query: str) -> dict[str, Any] | None:
     """普通 Chat 的明确只读查证意图也需要正文；不因此安装 Skill 或扩大工具权限。"""
+    if NO_TOOLS.search(query):
+        return None
     if preview_requirement(query):
         return preview_requirement(query)
     if approval_requirement(query):
@@ -26,8 +29,8 @@ def infer_read_completion(query: str) -> dict[str, Any] | None:
     if re.search(r"\bcontext7\b", query, re.I):
         return {"completion_strategy": "required_tools", "required_tool_keys": ["docs.context7.query"],
                 "prerequisite_tool_keys": ["docs.context7.resolve"]}
-    file_hint = re.search(r"文件|工作区|笔记|上传|\.(?:md|txt|pdf|docx)\b|\b(?:uploaded|files?|notes?)\b", query, re.I)
-    content_intent = re.search(r"读|内容|规定|多久|周期|项目名|代号|保留|查找|找一下|什么|\b(?:read|inspect|report|retention|code|days|content)\b", query, re.I)
+    file_hint = re.search(r"文件|工作区|笔记|上传|\.(?:md|txt|pdf|docx)(?![A-Za-z0-9_])|\b(?:uploaded|files?|notes?)\b", query, re.I)
+    content_intent = re.search(r"读|比较|对比|审阅|核对|内容|规定|多久|周期|项目名|代号|保留|查找|找一下|什么|\b(?:read|inspect|compare|report|retention|code|days|content)\b", query, re.I)
     if file_hint and content_intent:
         return {"completion_strategy": "required_tools", "required_tool_keys": ["workspace.files.read"],
                 "prerequisite_tool_keys": ["workspace.files.list", "workspace.files.search"]}

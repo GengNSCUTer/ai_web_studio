@@ -361,6 +361,7 @@ class WorkspaceFileToolProvider:
                         "file_name": item.file_name,
                         "line_start": start_index + 1,
                         "line_end": min(end_index, start_index + len(rendered_lines)),
+                        "evidence_pretruncated": start_index > 0 or len(canonical_lines) < len(lines),
                         "raw": {
                             **provenance,
                             "file_name": item.file_name,

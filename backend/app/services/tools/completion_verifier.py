@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Literal
 
 from app.services.tools.edit_preview_completion import missing_preview_tools, missing_approval_tools
-from app.services.tools.task_spec import TaskSpec
+from app.services.tools.task_spec import TaskSpec, missing_file_targets
 from app.services.tools.schemas import ExternalSource
 
 
@@ -28,7 +28,7 @@ class CompletionVerdict:
     answer_semantics_verified: bool = False
 
     def to_public_dict(self) -> dict:
-        # 不输出goal、参数或正文；来源引用仅使用服务端调用ID。
+        # 不输出goal、参数或正文，只保留缺项和实际来源标识。
         return asdict(self)
 
 
@@ -47,6 +47,9 @@ def verify_completion(*, spec: TaskSpec, sources: list, terminal_reason: str,
     elif spec.evidence_mode == "approval":
         missing = missing_approval_tools(observations)
     satisfied = tuple(key for key in spec.required_tools if key not in missing)
+    file_missing = missing_file_targets(spec, usable)
+    missing = (*missing, *file_missing)
+    satisfied = (*satisfied, *(target for target in spec.required_files if target not in file_missing))
     pending = any(s.source_type == "workspace_file_edit_approval" for s in usable)
     if pending:
         missing = (*missing, "user_approval_and_applied_revision")

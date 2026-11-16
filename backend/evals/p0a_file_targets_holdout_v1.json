@@ -1,0 +1,33 @@
+{
+  "name": "p0a_file_targets_additional_v1",
+  "version": 1,
+  "status": "additional_internal_cases",
+  "target_quotas": {"multi_tool": 3},
+  "annotation": "P0-A实现后新写的内部对照题，独立于原200题；不是外部盲测，不与原200题合并成绩。",
+  "fixtures": {
+    "north.md": "北区本周有17个已核验需求，标识为银杏。\n",
+    "south.md": "南区本周有9个已核验需求，标识为白桦。\n",
+    "设计说明.md": "归档期限为45天，项目代号为山雀。\n",
+    "验收清单.md": "归档期限为60天，验收负责人为待分配。\n"
+  },
+  "cases": [
+    {
+      "id": "H01", "category": "multi_tool", "business": "明确双文件核验", "runner": "chat", "mode": "workspace_review",
+      "files": ["north.md", "south.md"],
+      "query": "读取north.md和south.md，分别说明两个区域的需求数量、标识及数量差异。每份资料都要引用，不联网、不修改文件。",
+      "expected": {"required_tool_groups": [["workspace.files.read"]], "read_files": ["north.md", "south.md"], "citation_required": true, "facts": [["17"], ["9"], ["8"], ["银杏"], ["白桦"]]}
+    },
+    {
+      "id": "H02", "category": "multi_tool", "business": "中文引号文件与输出名分离", "runner": "chat", "mode": "workspace_review",
+      "files": ["设计说明.md", "验收清单.md"],
+      "query": "读取“设计说明.md”和“验收清单.md”后生成对比笔记.md的正文，只在回答里提供，不创建文件。说明期限冲突及负责人状态，两份原文分别引用，不联网。",
+      "expected": {"required_tool_groups": [["workspace.files.read"]], "read_files": ["设计说明.md", "验收清单.md"], "citation_required": true, "facts": [["45"], ["60"], ["待分配"]]}
+    },
+    {
+      "id": "H03", "category": "multi_tool", "business": "显式ID双资料核验", "runner": "chat", "mode": "workspace_review",
+      "files": ["north.md", "south.md"],
+      "query": "直接读取file_id=${file:north.md}和file_id=${file:south.md}对应的两份正文，分别列数量并算合计。不要搜索，不联网，不修改文件，每个数量都标注对应引用。",
+      "expected": {"required_tool_groups": [["workspace.files.read"]], "read_files": ["north.md", "south.md"], "citation_required": true, "facts": [["17"], ["9"], ["26"]]}
+    }
+  ]
+}

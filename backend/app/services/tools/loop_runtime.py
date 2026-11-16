@@ -15,7 +15,7 @@ from app.services.tools.completion_contract import infer_read_completion, needs_
 from app.services.tools.edit_preview_completion import (PREVIEW_GUIDANCE, APPROVAL_GUIDANCE,
     preview_requirement, approval_requirement, missing_preview_tools, missing_approval_tools)
 from app.services.tools.db_boundary import release_read_transaction
-from app.services.tools.task_spec import build_task_spec
+from app.services.tools.task_spec import build_task_spec, missing_file_targets
 from app.services.tools.completion_verifier import verify_completion
 
 
@@ -162,6 +162,31 @@ class SyncToolRun:
         if time.perf_counter() >= self.budget.deadline:
             self.record_budget_timeout(round_index=self.round_index, stage="planner")
             return False
+        if missing_file_targets(self.task_spec, self.sources):
+            # 补证只省去已经完整读取的独立调用；有新依赖或范围/版本变化时仍交给原Workflow。
+            depended = {key for call in self.plan.calls for key in call.depends_on}
+            depended.update(binding.source_call_id for call in self.plan.calls for binding in call.result_bindings)
+            kept = []
+            skipped = 0
+            for call in self.plan.calls:
+                repeated = (call.tool_key == 'workspace.files.read' and call.call_id not in depended
+                    and not call.result_bindings and not call.arguments.get('start_line')
+                    and not call.arguments.get('max_lines')
+                    and any(s.source_type == 'workspace_file_read' and s.metadata.get('file_id') == call.arguments.get('file_id')
+                        and s.metadata.get('tool_key') == 'workspace.files.read'
+                        and s.used_in_prompt and s.display_text.strip() and not s.metadata.get('empty_reason')
+                        and s.metadata.get('quality_status', 'valid') == 'valid'
+                        and not s.metadata.get('evidence_pretruncated') and not s.metadata.get('citation_body_truncated')
+                        and (not call.arguments.get('expected_revision_id') or call.arguments['expected_revision_id'] == s.metadata.get('revision_id'))
+                        for s in self.sources))
+                if repeated:
+                    skipped += 1
+                else:
+                    kept.append(call)
+            if skipped:
+                self.plan.calls = kept
+                self.plan.should_use_tools = bool(kept)
+                self.plan.trace_events.append({'type': 'tool_completed_target_reuse', 'skipped_calls': skipped})
         self.plan = self.service._scope_plan_call_ids(self.plan, self.round_index, self.used_call_ids)
         self.last_plan = self.plan
         self.plan.original_query = self.rewrite.original_query
@@ -205,13 +230,15 @@ class SyncToolRun:
             else:
                 missing_edit = (missing_preview_tools(self.routed_query, self.observations) if preview_requirement(self.routed_query)
                                 else missing_approval_tools(self.observations) if approval_requirement(self.routed_query) else ())
-                if self.enabled and missing_edit:
+                missing_files = missing_file_targets(self.task_spec, self.sources)
+                if self.enabled and (missing_edit or missing_files):
                     self.terminal_reason = "task_evidence_incomplete"
                     self.next_action = "finalize_partial" if self.sources else "clarify"
-                    self.notices.append("尚未完成本轮文件预览或修改审批，请核实目标与替换内容；不能视为已写入。")
+                    self.notices.append("尚缺原任务要求的资料正文，不能视为全部完成。" if missing_files else "尚未完成本轮文件预览或修改审批，请核实目标与替换内容；不能视为已写入。")
                     self.events.append(ToolTraceEvent(type="tool_agent_terminal", payload={
                         "reason": self.terminal_reason, "round": self.round_index, "next_action": self.next_action,
                         "missing_tool_keys": list(missing_edit),
+                        "missing_file_targets": list(missing_files),
                     }))
                 else:
                     self.terminal_reason = "no_tool_needed"
@@ -351,13 +378,15 @@ class SyncToolRun:
             observations=self.observations,
             contract=completion,
         )
+        missing_files = missing_file_targets(self.task_spec, self.sources)
+        completion_replan_required = completion_replan_required or bool(missing_files)
         if completion_replan_required:
             # 这是代码根据用户意图生成的缺口说明，不读取外部资料中的任务指令。
             observed = {item.get("metadata", {}).get("tool_key") for item in self.observations}
             missing = list(missing_preview_tools(self.routed_query, self.observations)) if preview_requirement(self.routed_query) else [key for key in required_tool_keys(completion) if key not in observed]
             self.observations.append({"source_type": "task_completion_feedback", "round": self.round_index,
-                "metadata": {"missing_tool_keys": missing},
-                "display_text": PREVIEW_GUIDANCE if preview_requirement(self.routed_query) else APPROVAL_GUIDANCE if approval_requirement(self.routed_query) else "当前只有定位/搜索结果，尚缺正文核验。依据实际返回的ID继续读取；搜索未命中时可列出授权文件后定位，不能推断文件不存在。"})
+                "metadata": {"missing_tool_keys": missing, "missing_file_targets": list(missing_files)},
+                "display_text": ("原任务尚缺以下资料正文：" + "、".join(missing_files) + "。只补这些资料，使用原问题或授权定位返回的ID；不要重读已满足的资料，不得扩大权限。若只有节选，不能冒称全文已核对，不要重复相同读取范围。") if missing_files else PREVIEW_GUIDANCE if preview_requirement(self.routed_query) else APPROVAL_GUIDANCE if approval_requirement(self.routed_query) else "当前只有定位/搜索结果，尚缺正文核验。依据实际返回的ID继续读取；搜索未命中时可列出授权文件后定位，不能推断文件不存在。"})
             self.events.append(
                 ToolTraceEvent(
                     type="tool_agent_replan_required",

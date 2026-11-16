@@ -199,12 +199,14 @@ class AgentTaskEvaluationTest(unittest.TestCase):
         fake.cleanup.return_value = {'status': 'cleaned', 'projects': 2}
         client = httpx.Client(base_url='http://test', transport=httpx.MockTransport(lambda request: httpx.Response(200, json={'status': 'ready'})))
         with tempfile.TemporaryDirectory() as tmp, patch('agent_task_batch_runner.credentials', return_value=('u', 'private-token')), \
+                patch('agent_task_batch_runner.configured_model', return_value='configured-online-model'), \
                 patch('agent_task_batch_runner.PilotRunner', return_value=fake), \
                 patch('agent_task_batch_runner.httpx.Client', return_value=client):
             path = Path(tmp) / 'report.json'
             result = execute_batch(dataset, base_url='http://test', email='test', output=path,
                                    html_path=path.with_suffix('.html'), timeout=1)
             self.assertEqual(result['summary']['executed'], 2)
+            self.assertEqual(result['model'], 'configured-online-model')
             self.assertEqual(result['summary']['statuses'], {'failed': 1, 'passed': 1})
             self.assertEqual(json.loads(path.read_text())['cleanup']['status'], 'cleaned')
             self.assertNotIn('not-for-report', path.read_text())
