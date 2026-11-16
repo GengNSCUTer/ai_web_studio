@@ -208,28 +208,44 @@ class PilotRunner:
             raise ValueError('输入资料未绑定')
         stream_events, error_type, usage_count, final_usage, http_status = [], None, 0, None, None
         deadline = time.monotonic() + self.timeout
-        try:
-            with chat_stream(self.client, '/api/chat/runs', json={
-                'conversation_id': conversation_id, 'content': query, 'model_name': self.model_name,
-                'web_search_enabled': True, 'tool_run_mode': case['mode'],
-                'knowledge_base_ids': [knowledge['id']] if knowledge else [],
-            }) as response:
-                http_status=response.status_code
-                if response.is_error:
-                    raise RuntimeError(f'Chat接口HTTP {response.status_code}')
-                for event in iter_sse_events(response.iter_lines()):
-                    if time.monotonic() > deadline:
-                        raise RuntimeError('Chat超过总时长上限')
-                    # 增量正文以数据库最终消息为准，避免报告重复几千段Token。
-                    if event.get('type') == 'provider_usage':
-                        usage_count, final_usage = usage_count + 1, event
-                    elif event.get('type') not in {'answer_delta', 'reasoning_delta'}:
-                        stream_events.append(event)
-        except (httpx.HTTPError, ValueError, RuntimeError) as exc:
-            error_type = type(exc).__name__
+        payload = {'conversation_id': conversation_id, 'content': query, 'model_name': self.model_name,
+            'web_search_enabled': True, 'tool_run_mode': case['mode'],
+            'knowledge_base_ids': [knowledge['id']] if knowledge else [], 'client_request_id': str(uuid4())}
+        admission_retries = 0
+        for attempt in range(4):
+            try:
+                with chat_stream(self.client, '/api/chat/runs', json=payload) as response:
+                    http_status = response.status_code
+                    for event in iter_sse_events(response.iter_lines()):
+                        if time.monotonic() > deadline:
+                            raise RuntimeError('Chat超过总时长上限')
+                        # 增量正文以数据库最终消息为准，避免报告重复几千段Token。
+                        if event.get('type') == 'provider_usage':
+                            usage_count, final_usage = usage_count + 1, event
+                        elif event.get('type') not in {'answer_delta', 'reasoning_delta'}:
+                            stream_events.append(event)
+                break
+            except httpx.HTTPStatusError as exc:
+                http_status = exc.response.status_code
+                try:
+                    delay = min(30, max(.1, float(exc.response.headers.get('Retry-After', '5'))))
+                except ValueError:
+                    delay = 5
+                # 只重试尚未获准创建的429；相同请求ID保证幂等，绝不重试已生成的模型正文。
+                if (http_status == 429 and exc.request.method == 'POST' and exc.request.url.path == '/api/chat/runs'
+                        and attempt < 3 and time.monotonic() + delay < deadline):
+                    admission_retries += 1
+                    time.sleep(delay)
+                    continue
+                error_type = type(exc).__name__
+                break
+            except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+                error_type = type(exc).__name__
+                break
         row = self.chat_snapshot(conversation_id)
         row.update(stream_events=stream_events, provider_usage_events=usage_count, final_provider_usage=final_usage,
-                   error_type=error_type, knowledge_target=knowledge, http_status=http_status)
+                   error_type=error_type, knowledge_target=knowledge, http_status=http_status,
+                   admission_retries=admission_retries)
         row['final_answer_input_tokens'] = row['runtime_stats'].get('provider_input_tokens')
         row['final_answer_output_tokens'] = row['runtime_stats'].get('provider_output_tokens')
         return row
@@ -432,7 +448,9 @@ def execute_batch(dataset, *, base_url, email, output, html_path, timeout, brows
     artifacts.mkdir(exist_ok=True)
     rows = [{**{key: case[key] for key in ('id', 'category', 'business', 'runner')},
              'status': 'skipped', 'skip_reason': 'not_run'} for case in dataset['cases']]
+    effective_jobs = min(jobs, max(1, settings.user_chat_concurrency))
     metadata = {'model': None, 'status': 'running', 'cleanup': {'status': 'not_started'},
+                'requested_jobs': jobs, 'effective_jobs': effective_jobs,
                 'dataset_snapshot': dataset,
                 'started_at': datetime.now(timezone.utc).isoformat(),
                 'git_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
@@ -459,7 +477,7 @@ def execute_batch(dataset, *, base_url, email, output, html_path, timeout, brows
             health = client.get('/health/workers')
             metadata['worker_health'] = health.json()
             try:
-                with ThreadPoolExecutor(max_workers=jobs) as pool:
+                with ThreadPoolExecutor(max_workers=effective_jobs) as pool:
                     futures = {pool.submit(runner.run_case, case): index for index,case in enumerate(dataset['cases'])}
                     for future in as_completed(futures):
                         index = futures[future]

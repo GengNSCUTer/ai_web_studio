@@ -200,19 +200,58 @@ class AgentTaskEvaluationTest(unittest.TestCase):
         client = httpx.Client(base_url='http://test', transport=httpx.MockTransport(lambda request: httpx.Response(200, json={'status': 'ready'})))
         with tempfile.TemporaryDirectory() as tmp, patch('agent_task_batch_runner.credentials', return_value=('u', 'private-token')), \
                 patch('agent_task_batch_runner.configured_model', return_value='configured-online-model'), \
+                patch('agent_task_batch_runner.settings.user_chat_concurrency', 1), \
                 patch('agent_task_batch_runner.PilotRunner', return_value=fake), \
                 patch('agent_task_batch_runner.httpx.Client', return_value=client):
             path = Path(tmp) / 'report.json'
             result = execute_batch(dataset, base_url='http://test', email='test', output=path,
-                                   html_path=path.with_suffix('.html'), timeout=1)
+                                   html_path=path.with_suffix('.html'), timeout=1, jobs=3)
             self.assertEqual(result['summary']['executed'], 2)
             self.assertEqual(result['model'], 'configured-online-model')
+            self.assertEqual(result['requested_jobs'], 3)
+            self.assertEqual(result['effective_jobs'], 1)
             self.assertEqual(result['summary']['statuses'], {'failed': 1, 'passed': 1})
             self.assertEqual(json.loads(path.read_text())['cleanup']['status'], 'cleaned')
             self.assertNotIn('not-for-report', path.read_text())
             self.assertNotIn('not-for-report', path.with_suffix('.html').read_text())
             self.assertNotIn('private-token', path.read_text())
         fake.cleanup.assert_called_once()
+
+    def test_admission_429_retries_same_request_but_not_model_generation(self):
+        import httpx
+        payloads = []
+        methods = []
+        def respond(request):
+            methods.append(request.method)
+            if request.method == 'POST':
+                payloads.append(json.loads(request.content))
+                if len(payloads) == 1:
+                    return httpx.Response(429, headers={'Retry-After': '5'})
+                return httpx.Response(202, json={'id': 'run'})
+            return httpx.Response(200, text='data: {"type":"done"}\n\n', headers={'content-type': 'text/event-stream'})
+        with httpx.Client(base_url='http://test', transport=httpx.MockTransport(respond)) as client:
+            runner = PilotRunner(client, 'u', {}, Path('/tmp'), 30)
+            with patch.object(runner, 'chat_snapshot', return_value={'runtime_stats': {}}), patch('agent_task_batch_runner.time.sleep'):
+                row = runner.request_chat({'query': '测试', 'mode': 'quick_chat'}, {}, 'c')
+        self.assertEqual(payloads[0], payloads[1])
+        self.assertEqual(methods, ['POST', 'POST', 'GET'])
+        self.assertEqual(row['admission_retries'], 1)
+        self.assertEqual(row['http_status'], 200)
+        self.assertIsNone(row['error_type'])
+
+    def test_forbidden_creation_records_status_and_never_retries(self):
+        import httpx
+        methods = []
+        def respond(request):
+            methods.append(request.method)
+            return httpx.Response(403)
+        with httpx.Client(base_url='http://test', transport=httpx.MockTransport(respond)) as client:
+            runner = PilotRunner(client, 'u', {}, Path('/tmp'), 30)
+            with patch.object(runner, 'chat_snapshot', return_value={'runtime_stats': {}}):
+                row = runner.request_chat({'query': '测试', 'mode': 'quick_chat'}, {}, 'c')
+        self.assertEqual(methods, ['POST'])
+        self.assertEqual(row['http_status'], 403)
+        self.assertEqual(row['admission_retries'], 0)
 
 
 if __name__ == "__main__":
