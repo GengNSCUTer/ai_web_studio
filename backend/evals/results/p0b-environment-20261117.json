@@ -1,0 +1,29 @@
+{
+  "kernel": "5.4.0-216-generic",
+  "uid": 1007,
+  "tools": {
+    "bwrap": "/usr/bin/bwrap",
+    "unshare": "/usr/bin/unshare",
+    "nsjail": null,
+    "wasmtime": null
+  },
+  "phase": "environment_probe_only",
+  "execution_enabled": false,
+  "cgroup_v2_controllers": [],
+  "namespace_probe": {
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "bwrap_version": {
+    "exit_code": 0,
+    "stdout": "bubblewrap 0.4.0\n",
+    "stderr": ""
+  },
+  "bwrap_probe": {
+    "exit_code": 0,
+    "stdout": "{\"docker_socket_hidden\": true, \"environment_is_minimal\": true, \"host_credentials_hidden\": true, \"host_home_hidden\": true, \"host_marker_hidden\": true, \"host_port_32007_unreachable\": true, \"host_port_35433_unreachable\": true, \"input_readable\": true, \"input_readonly\": true, \"no_effective_capabilities\": true, \"no_new_privileges\": true, \"root_readonly\": true}\n",
+    "stderr": ""
+  },
+  "host_input_unchanged": true
+}
