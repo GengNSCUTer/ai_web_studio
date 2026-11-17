@@ -21,6 +21,7 @@ from app.services.tools.schemas import (
 )
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.tools.providers.agent_artifacts import AgentArtifactToolProvider
+from app.services.tools.providers.sandbox_python import SandboxPythonProvider
 from app.services.tools.action_guard import ActionScope, ToolActionGuard
 from app.services.tools.file_edit_intent import approval_requested
 from app.services.tools.db_boundary import release_read_transaction
@@ -42,6 +43,7 @@ class ToolExecutor:
     ) -> None:
         self.catalog = catalog or ToolCatalog()
         self.adapter_runner = adapter_runner or ToolAdapterRunner(
+            sandbox_provider=SandboxPythonProvider(db=db, user_id=user_id, project_id=project_id),
             workspace_file_provider=WorkspaceFileToolProvider(
                 db=db,
                 user_id=user_id,
@@ -219,6 +221,27 @@ class ToolExecutor:
                 )
                 result, skipped_events = self._skipped(call, "当前工作区为只读模式，已阻止该工具。")
                 return result, [*events, *skipped_events]
+            if call.tool_key == 'sandbox.python.execute' and definition.adapter_type == 'sandbox':
+                # 只创建等待用户批准的任务；模型不能调用confirm接口替用户确认。
+                from app.services.plugin_service import PluginError
+                from app.services.sandbox_policy import SandboxPolicyError
+                try:
+                    preview = SandboxPythonProvider(db=self.db, user_id=self.user_id,
+                        project_id=self.project_id).preview(call.arguments)
+                except (PluginError, SandboxPolicyError) as exc:
+                    if self.db:
+                        self.db.rollback()
+                    result, skipped = self._skipped(call, str(exc))
+                    return result, [*events, *skipped]
+                events.append(ToolTraceEvent(type='sandbox_confirmation_required', payload={
+                    'job_id': preview['id'], 'status': 'awaiting_approval',
+                    'tool_key': call.tool_key, 'call_id': call.call_id,
+                    'reason': '已准备代码，请用户打开预览批准；尚未执行。'}))
+                source = ExternalSource(source_type='sandbox_approval', provider='sandbox',
+                    title='Python执行等待批准', display_text=f"任务 {preview['id']} 等待用户批准，代码尚未执行。",
+                    metadata={'job_id': preview['id'], 'tool_key': call.tool_key})
+                return ToolCallResult(call=call, status='confirmation_required', sources=[source],
+                    elapsed_ms=0, result_semantics='approval_draft', quality_status='valid', retryable=False), events
             if call.tool_key == "workspace.files.apply_edit" and self.db and self.user_id:
                 await check_chat_execution()
                 from app.services.agent_runtime_service import AgentRuntimeError, AgentRuntimeService

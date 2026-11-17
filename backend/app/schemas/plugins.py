@@ -45,3 +45,11 @@ class SandboxPreviewCreate(BaseModel):
 class SandboxConfirm(BaseModel):
     model_config = ConfigDict(extra="forbid")
     approved: Literal[True]
+
+
+class SandboxCodePreviewCreate(BaseModel):
+    """通用Python按本次代码授权，不接受shell、路径或客户端资源配置。"""
+    model_config = ConfigDict(extra='forbid')
+    project_id: str = Field(min_length=1, max_length=36)
+    code: str = Field(min_length=1, max_length=65536)
+    file_ids: list[str] = Field(default_factory=list, max_length=12)

@@ -95,12 +95,18 @@ class ToolActionGuard:
                 self._protected.append(re.sub(r"\s+", "", content)[:8000])
 
     def check(self, definition, arguments):
-        network = definition.adapter_type not in {"workspace_file", "agent_artifact"}
+        network = definition.adapter_type not in {"workspace_file", "agent_artifact", "sandbox"}
         if self.scope and NO_TOOLS.search(self.scope.original_task):
             return GuardDecision(False, "original_task_forbids_tools")
         if network and self.scope and NO_EXTERNAL_TOOLS.search(self.scope.original_task):
             return GuardDecision(False, "original_task_forbids_external_tools")
         if not network:
+            if definition.tool_key == 'sandbox.python.execute' and self.scope and re.search(
+                    r'不要(?:创建|执行|生成).{0,8}(?:代码|任务|脚本)|只查询|仅查询', self.scope.original_task):
+                return GuardDecision(False, 'original_task_forbids_new_code')
+            if definition.tool_key == 'sandbox.python.execute' and (not self.scope or not re.search(
+                    r'python|脚本|沙箱|统计|计算|清洗|聚合|去重|csv|数据分析|代码执行', self.scope.original_task, re.I)):
+                return GuardDecision(False, 'code_execution_outside_original_task')
             return GuardDecision(True, "local_action")
         scope = self.scope
         if scope is None:

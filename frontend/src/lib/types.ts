@@ -469,6 +469,7 @@ export type ToolTraceEvent = {
     | "tool_schema_validation"
     | "tool_policy_check"
     | "tool_confirmation_required"
+    | "sandbox_confirmation_required"
     | "tool_plan"
     | "tool_workflow_start"
     | "tool_workflow_batch"

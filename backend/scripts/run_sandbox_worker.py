@@ -5,13 +5,14 @@ import json
 import os
 import signal
 import threading
+import time
 from uuid import uuid4
 
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
 from app.models.plugin import SandboxJob, SandboxWorkerState
-from app.services.plugin_service import PluginService
+from app.services.sandbox_service import SandboxService
 from app.services.sandbox_policy import SandboxPolicyError
 from sandbox.runner import DockerSandbox, SandboxUnavailable
 
@@ -65,8 +66,8 @@ def main():
                     continue
                 resolving = job.status == "resolving_queued"
                 try:
-                    installation, manifest = PluginService(db).require_enabled(job.user_id, job.plugin_key, job.project_id)
-                    authorized = installation.release_id == job.release_id and job.script_key in manifest["scripts"]
+                    SandboxService(db).authorize(job)
+                    authorized = True
                 except ValueError:
                     authorized = False
                 if not authorized:
@@ -87,13 +88,20 @@ def main():
                 db.commit()
             result, error = None, None
             try:
+                last_check = 0.0
+                lost = False
                 def cancelled():
+                    nonlocal last_check, lost
                     if stop.is_set():
                         return True
+                    if time.monotonic() - last_check < .25:
+                        return lost
+                    last_check = time.monotonic()
                     with SessionLocal() as db:
                         current=db.get(SandboxJob,job_id)
-                        return (not current or current.status!='running' or current.lease_owner!=owner
+                        lost = (not current or current.status!='running' or current.lease_owner!=owner
                                 or current.lease_version!=version)
+                        return lost
                 result = (runtime.resolve_dependencies(plan) if resolving else
                           runtime.execute(plan,cancelled=cancelled) if backend=='bubblewrap' else runtime.execute(plan))
             except (SandboxUnavailable, SandboxPolicyError) as exc:
@@ -112,9 +120,7 @@ def main():
                     job.status, job.error = "failed", error
                 else:
                     try:
-                        installation, _ = PluginService(db).require_enabled(job.user_id, job.plugin_key, job.project_id)
-                        if installation.release_id != job.release_id:
-                            raise ValueError("插件版本变化")
+                        SandboxService(db).authorize(job)
                     except ValueError:
                         job.status, job.error = "failed", "执行期间插件已停用或版本变化；结果拒绝入库。"
                     else:

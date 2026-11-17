@@ -1,5 +1,23 @@
 [
   {
+    "tool_key": "sandbox.python.execute", "provider": "sandbox", "category": "sandbox",
+    "display_name": "通用Python隔离计算",
+    "description": "对明确的数据统计、清洗、计算或脚本需求提交Python3.12标准库代码。只创建待用户批准的任务，不立即运行；用户在插件中心批准后由独立Worker执行。无需注册具体业务脚本。运行离线/单进程，只读授权副本，不能Shell、联网、安装依赖、覆盖原文件。代码可使用input_dir读取file_id.txt、print输出、emit_artifact(name,content)发布md/txt/json/csv。必须先用文件工具取得真实file_id。不能声称提交或等待批准等于计算完成。",
+    "when_to_use": ["用户明确要求Python、脚本、数据统计清洗或确定性计算"],
+    "when_not_to_use": ["简单闲聊或无需工具的回答", "联网、Shell、安装包、修改原文件"],
+    "input_schema": {"type":"object","additionalProperties":false,"properties":{"code":{"type":"string","minLength":1,"maxLength":65536},"file_ids":{"type":"array","items":{"type":"string","maxLength":36},"maxItems":12}},"required":["code"]},
+    "output_schema": {}, "adapter_type": "sandbox", "adapter": {"type":"sandbox","auth_type":"none"},
+    "source_type":"sandbox", "risk_level":"medium", "read_only":false, "enabled_by_default":true
+  },
+  {
+    "tool_key":"sandbox.jobs.get", "provider":"sandbox", "category":"sandbox", "display_name":"沙箱任务结果查询",
+    "description":"查询当前用户和工作区内已有沙箱任务的状态、标准输出及产物摘录。job_id必须来自真实任务或用户提供；不是执行或批准接口。只有succeeded才有完成结果，其他状态不得声称业务完成。",
+    "when_to_use":["用户询问已有沙箱任务进度或计算结果"],"when_not_to_use":["猜测任务ID","替用户批准代码"],
+    "input_schema":{"type":"object","additionalProperties":false,"properties":{"job_id":{"type":"string","minLength":1,"maxLength":36}},"required":["job_id"]},
+    "output_schema":{},"adapter_type":"sandbox","adapter":{"type":"sandbox","auth_type":"none"},"source_type":"sandbox","risk_level":"low","read_only":true,"enabled_by_default":true,
+    "quality_contract":{"min_sources":1,"enum_paths":{"/sources/0/metadata/status":["succeeded"]}}
+  },
+  {
     "tool_key": "web.exa.search", "provider": "exa", "category": "web_search",
     "display_name": "Exa 语义网页搜索",
     "description": "搜索公开网页，返回带来源 URL 的正文摘录。query 描述问题，objective 明确本轮要查证的事实和来源要求；免费服务可能限流。",

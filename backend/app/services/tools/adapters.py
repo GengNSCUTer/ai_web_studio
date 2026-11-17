@@ -21,9 +21,11 @@ class ToolAdapterRunner:
         *,
         workspace_file_provider: WorkspaceFileToolProvider | None = None,
         agent_artifact_provider: AgentArtifactToolProvider | None = None,
+        sandbox_provider=None,
     ) -> None:
         self.workspace_file_provider = workspace_file_provider
         self.agent_artifact_provider = agent_artifact_provider
+        self.sandbox_provider = sandbox_provider
 
     async def run(
         self,
@@ -32,6 +34,10 @@ class ToolAdapterRunner:
         call: PlannedToolCall,
         api_key: str | None,
     ) -> tuple[list[ExternalSource], dict[str, Any]]:
+        if definition.adapter_type == 'sandbox' and call.tool_key == 'sandbox.jobs.get':
+            if not self.sandbox_provider:
+                raise ValueError('沙箱上下文缺失。')
+            return await self.sandbox_provider.run(call)
         if definition.adapter_type == "mcp_http":
             if definition.adapter.get("live_weather_rest") is True and call.arguments.get("mode", "live") == "live":
                 return await self._run_live_weather(definition=definition, call=call, api_key=api_key)

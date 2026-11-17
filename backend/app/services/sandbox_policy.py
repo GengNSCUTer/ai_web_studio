@@ -71,6 +71,21 @@ LIMITS = {"cpus": "1", "memory": "256m", "pids": 64, "seconds": 45,
 SCRIPTS = {"document_inventory": {"file_name": "document_inventory.py", "domains": [], "dependencies": ["tabulate==0.9.0"]}}
 
 
+def validate_code(value: str) -> str:
+    """只限制代码输入；语法编译在隔离内用目标Python版本完成。"""
+    if not isinstance(value, str) or not value.strip():
+        raise SandboxPolicyError('Python代码不能为空或超过64KiB。')
+    try:
+        size = len(value.encode('utf-8'))
+    except UnicodeError as exc:
+        raise SandboxPolicyError('代码必须为有效UTF-8文本。') from exc
+    if size > 65536:
+        raise SandboxPolicyError('Python代码超过64KiB。')
+    if '\x00' in value:
+        raise SandboxPolicyError('代码不能包含空字符。')
+    return value
+
+
 def script_digest(script_key: str) -> str:
     """绑定用户确认的审核脚本正文，阻止预览后同版本脚本被替换再执行。"""
     script = SCRIPTS.get(script_key)

@@ -693,6 +693,11 @@ export function ToolTracePanel({
               onConversationMessagesChanged={onConversationMessagesChanged}
             />
             <ApprovalActions event={event} uiLanguage={uiLanguage} />
+            {event.type === 'sandbox_confirmation_required' && typeof event.job_id === 'string' ? (
+              <a className="mt-2 inline-block rounded-lg border px-3 py-2 text-xs" href={`/plugins?job=${encodeURIComponent(event.job_id)}`}>
+                查看代码并批准沙箱任务
+              </a>
+            ) : null}
           </div>
         ))}
       </div>

@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-17",
+  "backend": "bubblewrap",
+  "runtime": "CPython 3.12.13 / independent stdlib copy",
+  "targeted_tests": {"run": 96, "result": "passed", "real_runtime_skipped": 0},
+  "development_full_tests": {"run": 1459, "result": "passed", "seconds": 727.409},
+  "frontend": {"lint": "passed", "build": "passed", "node_tests": 12},
+  "browser": {
+    "command": "AIWS_PLUGIN_BWRAP_SMOKE=1 AIWS_PLUGIN_PYTHON_SMOKE=1 AIWS_PLUGIN_PYTHON_CHAT_SMOKE=1 PYTHONPATH=backend:scripts /disk2/gengnan/conda_envs/ai_web_studio/bin/python -u scripts/plugin_center_browser_smoke.py",
+    "different_programs": ["statistics.mean", "collections.Counter"],
+    "preview_before_execution": "awaiting_approval",
+    "worker_execution": "passed",
+    "legacy_inventory_save_download": "passed",
+    "online_planner_created_preview": "passed",
+    "browser_approved_model_code": "passed",
+    "followup_model_queried_actual_result": "passed",
+    "final_answer": "mean=4",
+    "console_errors": 0,
+    "mobile_overflow": false,
+    "cleanup": "restored_fixture_project_and_installation_state"
+  },
+  "scope": {
+    "general_python": true,
+    "per_business_registration": false,
+    "approval_per_execution": true,
+    "network": false,
+    "shell": false,
+    "dynamic_dependencies": false,
+    "writable_filesystem": false,
+    "automatic_parent_chat_resume": false,
+    "unified_artifact_bridge": false
+  },
+  "failures_found_and_resolved": [
+    "独立复制运行时的动态库定位修复；未挂载源环境兜底",
+    "前端事件类型与代码说明转义修复，重新lint/build通过",
+    "首次在线测试未打开工具编排，只生成文本代码；修正测试请求后真实调用通过",
+    "语法编译放回隔离内，避免后端Python3.10语法限制目标Python3.12"
+  ],
+  "limits": {"code_bytes": 65536, "input_bytes": 8388608, "address_space_bytes": 268435456, "wall_seconds": 45, "cpu_seconds": 45, "combined_output_bytes": 1048576, "artifact_text_bytes": 524288, "processes": 1},
+  "note": "这是限定环境的功能与边界验收，不是通用Agent成功率；原200题未重测。开发期间全量和最终定向/CI分别记录。"
+}

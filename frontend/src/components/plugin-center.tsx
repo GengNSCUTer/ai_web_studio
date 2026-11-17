@@ -9,11 +9,11 @@ type Plugin = { plugin_key: string; version: string; name: string; description: 
   permissions: string[]; examples: string[]; artifact_types: string[]; scripts: string[]; tool_keys: string[];
   source: string; review_status: string; compatibility: string; is_installed: boolean;
   installed_version: string | null; installed_release_id: string | null; is_project_enabled: boolean; update_available: boolean; preflight: Preflight };
-export type PluginCenterData = { plugins: Plugin[]; sandbox: { available: boolean; reason: string | null; backend?: string } };
-type ScriptJob = { id: string; status: string; error: string | null; domains: string[]; install_domains: string[]; dependencies: string[];
+export type PluginCenterData = { plugins: Plugin[]; sandbox: { available: boolean; reason: string | null; backend?: string; python_available?: boolean } };
+export type ScriptJob = { id: string; project_id: string; code?: string | null; status: string; error: string | null; domains: string[]; install_domains: string[]; dependencies: string[];
   files: { id: string; name: string; bytes: number }[]; limits: Record<string, string | number>;
   wheel_lock: { requirement: string; sha256: string }[]; runtime: { available: boolean; reason: string | null };
-  notice: string; result: { artifacts: { name: string; content: string }[] } | null };
+  notice: string; result: { stdout?: string; artifacts: { name: string; content: string }[] } | null };
 
 async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(`/api/backend${path}`, { method, headers: { "Content-Type": "application/json" },
@@ -27,16 +27,17 @@ async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> 
 
 const BUTTON = "rounded-xl border border-[var(--hairline)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40 hover:bg-[var(--soft-bg)]";
 
-export function PluginCenter({ initialData, projects }: { initialData: PluginCenterData | null; projects: Project[] }) {
+export function PluginCenter({ initialData, projects, initialJob = null }: { initialData: PluginCenterData | null; projects: Project[]; initialJob?: ScriptJob | null }) {
   const [data, setData] = useState(initialData);
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useState(initialJob?.project_id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(initialData ? null : "插件目录加载失败，请刷新。");
   const [notice, setNotice] = useState("");
   const [preview, setPreview] = useState<{ plugin: Plugin; check: Preflight } | null>(null);
   const [files, setFiles] = useState<{ id: string; file_name: string; parsed_text: string | null }[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
-  const [job, setJob] = useState<ScriptJob | null>(null);
+  const [job, setJob] = useState<ScriptJob | null>(initialJob);
+  const [code, setCode] = useState('import statistics\nvalues = [12, 8, 20, 16]\nprint("平均值：", statistics.mean(values))\nemit_artifact("result.json", __import__("json").dumps({"mean": statistics.mean(values)}))');
   const [useTabulate, setUseTabulate] = useState(false);
   const [submission, setSubmission] = useState({ name: "", kind: "skill", source_url: "" });
 
@@ -110,9 +111,19 @@ export function PluginCenter({ initialData, projects }: { initialData: PluginCen
         })}>确认安装审核版本</button><button className={BUTTON} onClick={() => setPreview(null)}>取消</button></div>
       </section> : null}
       <section className="rounded-2xl border border-[var(--hairline)] p-5">
+        <h2 className="font-semibold">通用 Python 沙箱</h2>
+        <p className="mt-2 text-sm">在同一个隔离环境运行不同代码，支持标准库计算、CSV / JSON 处理和文本产物；无需逐项注册业务脚本。离线、单进程，不修改原文件。</p>
+        <p className="mt-2 text-xs">{data?.sandbox.python_available ? "Python 3.12 独立标准库运行时就绪" : "通用运行时未就绪，不能执行"}</p>
+        <label className="mt-3 block text-sm">本次 Python 代码<textarea aria-label="本次 Python 代码" value={code} disabled={busy} maxLength={65536} onChange={(e) => { setCode(e.target.value); setJob(null); }} className="mt-2 min-h-48 w-full rounded-lg border p-3 font-mono text-xs" /></label>
+        <p className="mt-2 text-xs">使用 input_dir 读取下方勾选资料副本（文件名为文件ID.txt）；/input/manifest.json包含名称映射。用 print 输出、<code>{'emit_artifact("result.csv", 文本)'}</code> 发布产物。不得自行联网或安装依赖。</p>
+        <button className={`${BUTTON} mt-3`} disabled={busy || !projectId || !code.trim() || !data?.sandbox.python_available} onClick={() => void act(async () => {
+          setJob(await api("/plugins/sandbox/python/preview", "POST", { project_id: projectId, code, file_ids: selectedFiles }));
+        })}>预览通用 Python 授权</button>
+      </section>
+      <section className="rounded-2xl border border-[var(--hairline)] p-5">
         <h2 className="font-semibold">隔离 Python 脚本：资料清单</h2>
         <p className="mt-2 text-sm">{data?.sandbox.available ? "独立 Worker 就绪" : data?.sandbox.reason || "运行环境状态未知"}</p>
-        {data?.sandbox.backend === "bubblewrap" ? <p className="mt-2 text-xs">Bubblewrap：离线、单进程、仅审核脚本；不安装额外依赖。</p> : null}
+        {data?.sandbox.backend === "bubblewrap" ? <p className="mt-2 text-xs">Bubblewrap：离线、单进程；通用代码需本次授权，不安装额外依赖。</p> : null}
         <p className="mt-2 text-xs text-[var(--ink-muted)]">只传入勾选文件的正文副本，生成 JSON / Markdown 清单；不覆盖原文件。容器不等于任意恶意代码安全保证。</p>
         <div className="mt-3 max-h-48 space-y-2 overflow-auto">{files.filter((f) => Boolean(f.parsed_text)).map((f) => <label key={f.id} className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={selectedFiles.includes(f.id)} disabled={busy} onChange={(e) => { setJob(null); setSelectedFiles((old) => e.target.checked ? [...old, f.id] : old.filter((id) => id !== f.id)); }} />{f.file_name}
@@ -123,6 +134,8 @@ export function PluginCenter({ initialData, projects }: { initialData: PluginCen
         })}>预览本次脚本授权</button>
         {job ? <div className="mt-4 space-y-2 rounded-xl bg-[var(--soft-bg)] p-4 text-sm">
           <p>任务状态：{job.status}</p><p>授权副本：{job.files.map((f) => f.name).join("、")}</p>
+          {job.code ? <details open><summary>待执行代码（确认后不能替换）</summary><pre className="max-h-72 overflow-auto whitespace-pre-wrap text-xs">{job.code}</pre></details> : null}
+          {job.result?.stdout ? <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs">{job.result.stdout}</pre> : null}
           <p>本次域名：{job.domains.join("、") || "不联网"}；依赖：{job.dependencies.join("、") || "无"}</p>
           <p>安装阶段域名：{job.install_domains.join("、") || "不联网"}（不传入资料）</p>
           {job.wheel_lock.map((x) => <p className="break-all text-xs" key={x.requirement}>完整依赖：{x.requirement} · {x.sha256}</p>)}

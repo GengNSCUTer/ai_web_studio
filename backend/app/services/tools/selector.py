@@ -56,6 +56,7 @@ class ToolCandidateSelector:
         "map_geo": re.compile(r"(经纬度|坐标|地理编码|行政区|区划|地址解析)"),
         "workspace_file": re.compile(r"(工作区|项目文件|文件|文档|资料|附件|报告|代码|读取|查找|修改|编辑|替换|重构|diff)"),
         "agent_artifact": re.compile(r"产物|历史.{0,8}(?:报告|草稿|结果)|之前.{0,8}(?:报告|草稿)|artifact", re.I),
+        'sandbox': re.compile(r'python|沙箱|脚本|统计|计算|清洗|聚合|去重|csv|数据分析|执行结果', re.I),
     }
 
     def __init__(self, catalog: ToolCatalog | None = None, *, max_candidates: int | None = None,
@@ -85,11 +86,12 @@ class ToolCandidateSelector:
             and not (tool.category in {'web_search', 'web_fetch', 'documentation'}
                      and (self.WEB_EXCLUSION_PATTERN.search(query) or self.EXTERNAL_TOOL_EXCLUSION_PATTERN.search(query)))
             and not (self.EXTERNAL_TOOL_EXCLUSION_PATTERN.search(query)
-                     and tool.adapter_type not in {'workspace_file', 'agent_artifact'})
+                     and tool.adapter_type not in {'workspace_file', 'agent_artifact', 'sandbox'})
             and not (tool.category == 'workspace_file' and self.FILE_EXCLUSION_PATTERN.search(query))
             and not (preview_requested(query) and not tool.read_only)
             and not ((not tool.read_only or tool.quality_contract.get('semantic_profile') in {'approval_draft', 'file_revision'})
-                     and not self._edit_intent(query))]
+                     and not (self._edit_intent(query) or (tool.adapter_type == 'sandbox'
+                         and self.CATEGORY_PATTERNS['sandbox'].search(query))))]
 
     async def select_async(self, *, query: str, enabled: bool,
                            allowed_tool_keys: set[str] | None = None,

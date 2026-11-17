@@ -1,4 +1,4 @@
-"""原生Bubblewrap离线执行器；只运行审核脚本，不继承宿主环境或开放任意代码。"""
+"""Bubblewrap离线执行器：审核脚本与通用Python均受相同操作系统边界限制。"""
 import json
 import hashlib
 import os
@@ -17,6 +17,14 @@ from sandbox.runner import SandboxUnavailable
 
 
 class BubblewrapSandbox:
+    def code_preflight(self):
+        from sandbox.python_runtime import runtime_root
+        root = runtime_root()
+        result = self._run_source(b'import sys;print(sys.version_info[:2])', [], python_root=root)
+        if result.strip() != b'(3, 12)':
+            raise SandboxUnavailable('隔离运行时版本不符合要求。')
+        return 'python-stdlib'
+
     def preflight(self):
         binary = shutil.which('bwrap', path='/usr/bin:/bin')
         if not binary or os.getuid()==0 or Path(binary).stat().st_mode & (stat.S_ISUID|stat.S_ISGID):
@@ -31,7 +39,12 @@ print(json.dumps(checks))
 ''', [])
         if json.loads(output)!=[True]*4:
             raise SandboxUnavailable('Bubblewrap边界探测失败。')
-        return 'bubblewrap/offline/single-process/seccomp/rlimit 就绪；无动态依赖'
+        detail = 'bubblewrap/offline/single-process/seccomp/rlimit 就绪；无动态依赖'
+        try:
+            self.code_preflight()
+        except (SandboxUnavailable, OSError):
+            return detail
+        return detail + '; python-stdlib'
 
     def resolve_dependencies(self, plan):
         raise SandboxPolicyError('Bubblewrap首版不支持联网或动态依赖，请重新预览离线任务。')
@@ -39,15 +52,23 @@ print(json.dumps(checks))
     def execute(self, plan, *, cancelled=None):
         if plan.get('domains') or plan.get('dependencies') or plan.get('wheel_lock'):
             raise SandboxPolicyError('Bubblewrap只支持无联网、无动态依赖的任务。')
-        if plan.get('script') not in SCRIPTS:
-            raise SandboxPolicyError('审核脚本已变化，请重新预览授权。')
-        source=Path(__file__).parent/'scripts'/SCRIPTS[plan['script']]['file_name']
-        code=source.read_bytes()
-        if plan.get('script_digest')!=hashlib.sha256(code).hexdigest():
-            raise SandboxPolicyError('审核脚本已变化，请重新预览授权。')
-        raw=self._run_source(code,plan['files'],cancelled=cancelled)
+        if plan.get('script') == 'python_stdlib':
+            from sandbox.python_runtime import runtime_root
+            from app.services.sandbox_policy import validate_code
+            code = validate_code(plan.get('code', ''))
+            wrapper = Path(__file__).with_name('code_entry.py').read_bytes()
+            raw = self._run_source(wrapper, plan['files'], cancelled=cancelled,
+                python_root=runtime_root(), program=code)
+        else:
+            if plan.get('script') not in SCRIPTS:
+                raise SandboxPolicyError('审核脚本已变化，请重新预览授权。')
+            source=Path(__file__).parent/'scripts'/SCRIPTS[plan['script']]['file_name']
+            code=source.read_bytes()
+            if plan.get('script_digest')!=hashlib.sha256(code).hexdigest():
+                raise SandboxPolicyError('审核脚本已变化，请重新预览授权。')
+            raw=self._run_source(code,plan['files'],cancelled=cancelled)
         try:
-            result=json.loads(raw)
+            result=json.loads(raw, parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
             artifacts=result['artifacts']
             if not isinstance(artifacts,list) or len(artifacts)>16:
                 raise ValueError()
@@ -61,33 +82,47 @@ print(json.dumps(checks))
                 total+=len(text.encode())
             if total>LIMITS['artifact_bytes'] or len({x['name'] for x in artifacts})!=len(artifacts):
                 raise ValueError()
-            return {'artifacts':artifacts,'stdout':str(result.get('stdout',''))[:4096]}
+            stdout = result.get('stdout', '')
+            if not isinstance(stdout, str) or len(stdout) > 65536:
+                raise ValueError()
+            stdout.encode('utf-8')
+            return {'artifacts':artifacts,'stdout':stdout}
         except (ValueError,KeyError,TypeError) as exc:
             raise SandboxPolicyError('隔离产物格式或大小不符合要求。') from exc
 
-    def _run_source(self, source, files, *, cancelled=None, seconds=45, max_bytes=1024*1024):
+    def _run_source(self, source, files, *, cancelled=None, seconds=45, max_bytes=1024*1024,
+                    python_root=None, program=None):
         """仅供执行器和边界测试调用；不是Web/Tool的任意脚本入口。"""
         if sum(len(f['text'].encode()) for f in files)>LIMITS['input_bytes']:
             raise SandboxPolicyError('输入超过限额。')
         with tempfile.TemporaryDirectory(prefix='aiws-bwrap-') as folder:
             root=Path(folder); inputs=root/'input';inputs.mkdir()
             names={}
+            file_root = inputs / 'files' if program is not None else inputs
+            file_root.mkdir(exist_ok=True)
             for item in files:
                 if not re.fullmatch(r'[A-Za-z0-9-]{1,36}',item['id']):
                     raise SandboxPolicyError('输入ID不合法。')
-                (inputs/(item['id']+'.txt')).write_text(item['text'])
+                (file_root/(item['id']+'.txt')).write_text(item['text'], encoding='utf-8')
                 names[item['id']]=item.get('name',item['id'])
             (inputs/'manifest.json').write_text(json.dumps(names,ensure_ascii=False))
+            if program is not None:
+                (inputs/'program.py').write_text(program, encoding='utf-8')
             (root/'main.py').write_bytes(source)
             args=['/usr/bin/bwrap','--unshare-all','--die-with-parent','--new-session','--cap-drop','ALL']
-            for path in ('/usr','/lib','/lib64'):
+            for path in (('/lib','/lib64') if python_root else ('/usr','/lib','/lib64')):
                 if Path(path).exists(): args+=['--ro-bind',path,path]
+            if python_root:
+                args += ['--ro-bind', str(python_root), '/runtime']
             args+=['--ro-bind',str(inputs),'/input','--ro-bind',str(root/'main.py'),'/main.py',
                 '--ro-bind',str(Path(__file__).with_name('bwrap_bootstrap.py')),'/bootstrap.py',
                 '--dir','/tmp','--chdir','/','--remount-ro','/',
-                '--','/usr/bin/python3','-I','-B','-S','/bootstrap.py']
+                '--','/runtime/bin/python3' if python_root else '/usr/bin/python3','-I','-B','-S','/bootstrap.py']
+            env={'PATH':'/usr/bin:/bin','LC_ALL':'C.UTF-8','AIWS_SANDBOX_TRANSPORT':'stdout'}
+            if python_root:
+                env['LD_LIBRARY_PATH']='/runtime/lib'
             process=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,stdin=subprocess.DEVNULL,
-                env={'PATH':'/usr/bin:/bin','LC_ALL':'C.UTF-8','AIWS_SANDBOX_TRANSPORT':'stdout'},
+                env=env,
                 close_fds=True,start_new_session=True)
             selector=selectors.DefaultSelector()
             selector.register(process.stdout,selectors.EVENT_READ,'stdout')

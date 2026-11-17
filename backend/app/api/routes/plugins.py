@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.models.plugin import PluginSubmission, SandboxJob
 from app.models.user import User
-from app.schemas.plugins import PluginInstallConfirm, ProjectPluginUpdate, SandboxConfirm, SandboxPreviewCreate, SubmissionCreate
+from app.schemas.plugins import PluginInstallConfirm, ProjectPluginUpdate, SandboxConfirm, SandboxPreviewCreate, SandboxCodePreviewCreate, SubmissionCreate
 from app.services.plugin_service import PluginError, PluginService
 from app.services.skill_catalog import SkillCatalogError
 from app.services.sandbox_policy import SandboxPolicyError
@@ -63,6 +63,11 @@ def cancel_sandbox(job_id: str, db: Session = Depends(get_db), user: User = Depe
 @router.post("/sandbox/preview", status_code=201)
 def sandbox_preview(payload: SandboxPreviewCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return guarded(db, lambda: SandboxService(db).preview(user.id, payload))
+
+
+@router.post('/sandbox/python/preview', status_code=201)
+def sandbox_python_preview(payload: SandboxCodePreviewCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return guarded(db, lambda: SandboxService(db).preview_code(user.id, payload))
 
 
 @router.post("/sandbox/{job_id}/confirm")
