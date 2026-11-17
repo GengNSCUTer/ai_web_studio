@@ -49,14 +49,14 @@ def clean_optional_str(value: str | None) -> str | None:
 
 
 def build_summary_source_text(source_messages: list[object]) -> str:
-    # 摘要模型不需要完整原文；这里先把候选历史压成 role + 前 1800 字，控制摘要成本。
+    # 调用前已按Token预算选批，不能再截断正文却推进整条消息的边界。
     lines: list[str] = []
     for index, message in enumerate(source_messages, start=1):
         role = getattr(message, "role", "unknown")
         content = " ".join((getattr(message, "content", None) or "").split()).strip()
         if not content:
             continue
-        lines.append(f"{index}. {role}: {content[:1800]}")
+        lines.append(f"{index}. {role}: {content}")
     return "\n".join(lines).strip()
 
 
@@ -529,6 +529,9 @@ class ChatContextAssemblyService:
                 "summary_refresh_model_used": assembly.summary_bundle.stats["summary_refresh_model_used"],
                 "summary_refresh_fallback_used": assembly.summary_bundle.stats["summary_refresh_fallback_used"],
                 "summary_boundary_reset": assembly.summary_bundle.stats["summary_boundary_reset"],
+                "summary_remaining_backlog": assembly.summary_bundle.stats.get("summary_remaining_backlog", 0),
+                "summary_mode": assembly.summary_bundle.stats.get("summary_mode", "unknown"),
+                "summary_repair_status": assembly.summary_bundle.stats.get("summary_repair_status", "ready"),
                 "summary_refresh_source_tokens": summary_source_tokens,
                 "summary_compression_ratio": summary_compression_ratio,
                 "attachment_context_tokens": attachment_context_tokens,
@@ -678,6 +681,7 @@ class ChatContextAssemblyService:
 
         conversation = lock_and_check_history()
         previous_state = (conversation.context_summary, conversation.context_summary_boundary_message_id)
+        history_revision = conversation.context_history_revision or 0
         # 网络等待期间释放短事务和行锁；纯值副本不会隐式触发 ORM 懒加载。
         summary_rows = [
             SimpleNamespace(id=mid, role=role, content=content, generation_id=gid)
@@ -685,6 +689,29 @@ class ChatContextAssemblyService:
         ]
         existing_summary = clean_optional_str(previous_state[0])
         existing_boundary = clean_optional_str(previous_state[1])
+        from app.services.conversation_summary_service import (
+            ConversationSummaryService, SummaryRebuildRequired, select_summary_batch, summary_source_budget)
+        from app.models.conversation_summary import ConversationSummaryJob
+        from sqlalchemy import select
+        if bounded_history:
+            history = repo.list_for_context(conversation, exclude_message_id=assistant_id, attachments=False,
+                                            through_message_id=history_through_message_id)
+            start = next((i + 1 for i, row in enumerate(summary_rows) if row.id == existing_boundary), 0)
+            pending = summary_rows[start:-repo.RECENT_CONTEXT_LIMIT]
+            chosen = select_summary_batch(pending, tokenizer=runtime.tokenizer if hasattr(runtime, 'tokenizer')
+                else runtime.governance_service.tokenizer, max_tokens=summary_source_budget(runtime.governance_service.budget))
+            active = self.db.scalar(select(ConversationSummaryJob).where(
+                ConversationSummaryJob.conversation_id == conversation_id,
+                ConversationSummaryJob.source_revision == history_revision,
+                ConversationSummaryJob.status.in_(['queued', 'running', 'failed'])).limit(1))
+            needs_rebuild = active is not None or getattr(history, 'has_backlog', False) or chosen.partial_id or len(chosen.rows) < len(pending)
+            if needs_rebuild:
+                # 新问题或“重新生成”是一次显式重试；恢复失败的任务沿用已提交进度。
+                job = ConversationSummaryService(self.db).ensure_job(conversation, through_id=history_through_message_id,
+                    retry_failed=bool(active and active.status == 'failed'))
+                self.db.commit()
+                if job is not None:
+                    raise SummaryRebuildRequired('context_summary_rebuild_failed' if job.status == 'failed' else 'context_summary_rebuilding')
         self.db.commit()
         # 滚动摘要只在上下文治理判断需要时刷新；刷新失败时治理层会走 fallback，不应阻断普通聊天。
         async def summarize_with_model(
@@ -720,7 +747,8 @@ class ChatContextAssemblyService:
             recent_history_limit=repo.RECENT_CONTEXT_LIMIT if bounded_history else None,
         )
         conversation = lock_and_check_history()
-        if (conversation.context_summary, conversation.context_summary_boundary_message_id) != previous_state:
+        if ((conversation.context_summary, conversation.context_summary_boundary_message_id) != previous_state
+                or (conversation.context_history_revision or 0) != history_revision):
             self.db.rollback()
             raise HTTPException(status_code=409, detail="会话摘要已更新，请重试本轮回答。")
         if stats["summary_boundary_reset"]:
@@ -735,6 +763,11 @@ class ChatContextAssemblyService:
             conversation.context_summary_boundary_message_id = boundary_message_id
             conversation.context_summary_updated_at = datetime.now(timezone.utc)
             self.conversation_repo.save(conversation)
+        if next_summary and stats['summary_refresh_triggered']:
+            ConversationSummaryService(self.db).save_checkpoint(conversation,
+                mode='fallback' if stats['summary_refresh_fallback_used'] else 'model')
+        stats.update(summary_remaining_backlog=0, summary_mode='fallback' if stats['summary_refresh_fallback_used'] else 'model',
+                     summary_repair_status='ready')
         return SummaryRefreshBundle(summary=next_summary, boundary_message_id=boundary_message_id, stats=stats)
 
     @staticmethod

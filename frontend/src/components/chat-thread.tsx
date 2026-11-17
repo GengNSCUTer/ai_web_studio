@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, KeyboardEvent, useEffect, useEffectEvent, useRef, useState } from "react";
-import { subscribeChatRun, runMessageStatus, type ChatRunSnapshot } from "@/lib/chat-run-events";
+import { subscribeChatRun, runMessageStatus, summaryRecoveryMessage, type ChatRunSnapshot } from "@/lib/chat-run-events";
 
 import { AttachmentPreviewModal } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
@@ -938,6 +938,8 @@ export function ChatThread({
         } : message));
       };
       restore(run.content, run.reasoning_content, run.external_sources, run.citation_audit, runMessageStatus(run.status));
+      const recoveryMessage = summaryRecoveryMessage(run.error_code);
+      if (recoveryMessage) setLocalError(recoveryMessage);
       if (runMessageStatus(run.status) !== "streaming") return;
       chatRunIdRef.current = run.id;
       abortControllerRef.current = controller;
@@ -1416,6 +1418,8 @@ export function ChatThread({
         status = "failed";
         setLocalError(event.error ?? text.replyModelFailed);
       } else if (event.type === "run_snapshot") {
+        const recoveryMessage = summaryRecoveryMessage(event.run.error_code);
+        if (recoveryMessage) setLocalError(recoveryMessage);
         answer = event.run.content;
         reasoning = event.run.reasoning_content;
         sources = event.run.external_sources;

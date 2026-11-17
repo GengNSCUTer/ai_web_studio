@@ -18,6 +18,26 @@ from fastapi import HTTPException
 
 @unittest.skipUnless(os.getenv("TEST_POSTGRES_URL"), "需要隔离 PostgreSQL 测试环境")
 class MigrationPostgresTest(unittest.TestCase):
+    def test_summary_upgrade_keeps_old_summary_and_can_downgrade(self):
+        upgrade_database(self.engine,target='20261111_02')
+        with self.engine.begin() as c:
+            c.execute(text("insert into users(id,email) values ('summary-u','summary-migrate@example.test')"))
+            c.execute(text("insert into conversations(id,user_id,title,model_name,is_archived,is_pinned,context_summary) "
+                "values ('summary-c','summary-u','test','test',false,false,'原摘要')"))
+        upgrade_database(self.engine)
+        with self.engine.connect() as c:
+            self.assertEqual(tuple(c.execute(text("select context_summary,context_history_revision from conversations "
+                "where id='summary-c'")).one()),('原摘要',0))
+            self.assertTrue(inspect(c).has_table('conversation_summary_jobs'))
+            self.assertTrue(inspect(c).has_table('conversation_summary_checkpoints'))
+        with self.engine.begin() as c:
+            config=migration_config()
+            config.attributes['connection']=c
+            command.downgrade(config,'20261111_02')
+        with self.engine.connect() as c:
+            self.assertEqual(c.execute(text("select context_summary from conversations where id='summary-c'")).scalar(),'原摘要')
+            self.assertFalse(inspect(c).has_table('conversation_summary_jobs'))
+
     def setUp(self):
         source = make_url(os.environ["TEST_POSTGRES_URL"])
         self.name = "aiws_migrations_test_" + uuid4().hex[:12]

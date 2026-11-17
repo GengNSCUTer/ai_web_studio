@@ -57,6 +57,8 @@ class MessageRepository:
             attachments=[SimpleNamespace(kind=item.kind, storage_path=item.storage_path,
                 mime_type=item.mime_type) for item in row.attachments]) for row in rows)
         frozen.through_message_id = getattr(rows, "through_message_id", None)
+        frozen.has_backlog = getattr(rows, "has_backlog", False)
+        frozen.pending_count = getattr(rows, "pending_count", 0)
         return frozen
 
     @staticmethod
@@ -97,10 +99,14 @@ class MessageRepository:
         if boundary:
             pending = pending.where(self._sql_order_key() > self._order_key(boundary))
         pending = list(self.db.scalars(pending.order_by(Message.created_at,
-            Message.sequence.asc().nulls_last(), Message.id).limit(self.SUMMARY_BATCH_LIMIT))) if len(recent) == self.RECENT_CONTEXT_LIMIT else []
+            Message.sequence.asc().nulls_last(), Message.id).limit(self.SUMMARY_BATCH_LIMIT + 1))) if len(recent) == self.RECENT_CONTEXT_LIMIT else []
+        has_backlog = len(pending) > self.SUMMARY_BATCH_LIMIT
+        pending = pending[:self.SUMMARY_BATCH_LIMIT]
         rows = {row.id: row for row in [*pending, *recent, *([boundary] if boundary else [])]}
         result = ContextHistory(sorted(rows.values(), key=self._order_key))
         result.through_message_id = through_message_id
+        result.has_backlog = has_backlog
+        result.pending_count = len(pending)
         return result
 
     def latest_user_before(self, assistant) -> Message | None:
@@ -133,23 +139,10 @@ class MessageRepository:
         self, conversation: Conversation | None, message_ids: list[str]
     ) -> None:
         """调用方先锁定会话；历史修改与摘要失效必须在同一事务提交。"""
-        if conversation is None or not message_ids or not (
-            conversation.context_summary or conversation.context_summary_boundary_message_id
-        ):
+        if conversation is None or not message_ids:
             return
-        boundary = self.db.execute(select(Message.created_at, Message.sequence, Message.id).where(
-            Message.conversation_id == conversation.id,
-            Message.id == conversation.context_summary_boundary_message_id)).first()
-        if boundary:
-            covered = self.db.scalar(select(Message.id).where(
-                Message.conversation_id == conversation.id, Message.id.in_(message_ids),
-                self._sql_order_key() <= self._order_key(boundary)).limit(1))
-            if covered is None:
-                return
-        # 边界缺失时覆盖范围不可验证，也不能继续保留旧摘要。
-        conversation.context_summary = None
-        conversation.context_summary_boundary_message_id = None
-        conversation.context_summary_updated_at = None
+        from app.services.conversation_summary_service import ConversationSummaryService
+        ConversationSummaryService(self.db).invalidate(conversation, message_ids)
 
     def save(self, message: Message) -> Message:
         # 这里只登记变更；流式完成/失败等业务边界由 MessageService 提交。

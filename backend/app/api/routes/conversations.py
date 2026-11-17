@@ -28,6 +28,28 @@ from app.services.conversation_service import ConversationService
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 
+@router.get("/{conversation_id}/summary-rebuild")
+def summary_rebuild_status(conversation_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.conversation_summary_service import ConversationSummaryService
+    conversation = ConversationRepository(db).get_by_user(conversation_id, user.id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return ConversationSummaryService(db).status(conversation)
+
+
+@router.post("/{conversation_id}/summary-rebuild")
+def retry_summary_rebuild(conversation_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.conversation_summary_service import ConversationSummaryService
+    conversation = MessageRepository(db).lock_conversation(conversation_id)
+    if conversation is None or conversation.user_id != user.id:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="会话不存在")
+    service = ConversationSummaryService(db)
+    service.ensure_job(conversation, retry_failed=True)
+    db.commit()
+    return service.status(conversation)
+
+
 def _serialize_datetime(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 

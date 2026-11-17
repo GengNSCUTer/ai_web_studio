@@ -309,13 +309,19 @@ class ChatRunService:
         close_tool_run(self.db, run, status)
         if write_message:
             self._message(run, self._message_status(status))
+        if status not in {"succeeded", "cancelled"}:
+            summary_errors = {
+                "context_summary_rebuilding": "较早对话正在后台恢复摘要，本轮尚未生成回答。请稍后重新生成。",
+                "context_summary_rebuild_failed": "历史摘要恢复失败，本轮未使用不完整历史回答。请重试摘要恢复，或检查模型设置。",
+            }
+            self._event(run, {"type": "model_error", "error_code": error_code,
+                "error": summary_errors.get(error_code, "回答生成已中断，已保留收到的内容。可查看详情或重新生成。"),
+                "retryable": error_code in summary_errors,
+                "assistant_message_id": run.assistant_message_id})
+        # 原生订阅收到终态即关闭；先发送具体错误，不能让终态吞掉错误说明。
         self._event(run, {"type": "run_status", "status": status, "run_id": run.id, "error_code": error_code})
         if status == "succeeded":
             self._event(run, {"type": "done", "assistant_message_id": run.assistant_message_id})
-        elif status != "cancelled":
-            self._event(run, {"type": "model_error", "error_code": error_code,
-                "error": "回答生成已中断，已保留收到的内容。可查看详情或重新生成。",
-                "assistant_message_id": run.assistant_message_id})
 
     def reconcile(self, *, commit=True):
         now = utcnow()

@@ -32,6 +32,7 @@ class Conversation(Base):
     context_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     context_summary_boundary_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     context_summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    context_history_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # 仅在候选与任务结果同事务提交成功后推进；与滚动摘要边界分别管理。
     memory_extraction_cursor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # 扫描与成功提取分别推进；缓冲保存来源 ID/摘要，不复制对话正文。
@@ -54,3 +55,5 @@ class Conversation(Base):
     # 这能保持主数据干净，但删除前必须先处理不能级联的外部引用，例如 RAG retrieval log。
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
     shares = relationship("ConversationShare", back_populates="conversation", cascade="all, delete-orphan")
+    summary_checkpoints = relationship("ConversationSummaryCheckpoint", cascade="all, delete-orphan", passive_deletes=True)
+    summary_jobs = relationship("ConversationSummaryJob", cascade="all, delete-orphan", passive_deletes=True)

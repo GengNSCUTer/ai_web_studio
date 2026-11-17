@@ -77,7 +77,9 @@ class ChatRunWorker:
             await asyncio.to_thread(self._call, "interrupt", claim, error_code="worker_interrupted",
                 content=partial["content"], reasoning=partial["reasoning"])
         except Exception as exc:
-            code = "output_budget_exhausted" if isinstance(exc, ValueError) else "prepare_or_worker_error"
+            from app.services.conversation_summary_service import SummaryRebuildRequired
+            code = exc.code if isinstance(exc, SummaryRebuildRequired) else (
+                "output_budget_exhausted" if isinstance(exc, ValueError) else "prepare_or_worker_error")
             logger.warning("ChatRun执行失败，异常类型：%s", type(exc).__name__)
             await asyncio.to_thread(self._call, "finish", claim, status="failed", error_code=code,
                 content=partial["content"], reasoning=partial["reasoning"])

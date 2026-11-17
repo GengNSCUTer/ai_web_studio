@@ -11,6 +11,7 @@ from app.models.agent_runtime import (
     PatchDraft,
 )
 from app.models.conversation import Conversation
+from app.models.conversation_summary import ConversationSummaryCheckpoint, ConversationSummaryJob
 from app.models.conversation_share import ConversationShare
 from app.models.knowledge import (
     KnowledgeBase,
@@ -66,6 +67,8 @@ __all__ = [
     "PatchDraft",
     "FileRevision",
     "Conversation",
+    "ConversationSummaryCheckpoint",
+    "ConversationSummaryJob",
     "ConversationShare",
     "KnowledgeBase",
     "KnowledgeChunk",

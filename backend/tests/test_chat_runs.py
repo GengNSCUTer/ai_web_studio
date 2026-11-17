@@ -91,6 +91,20 @@ class ChatRunTest(unittest.IsolatedAsyncioTestCase):
         from app.main import app
         self.assertNotIn("/api/chat/events-stream", {getattr(route, "path", None) for route in app.routes})
 
+    def test_summary_rebuilding_keeps_specific_sse_error_and_retry_hint(self):
+        run=self.create()
+        claim=self.call('claim_next','A')
+        self.call('finish',claim,status='failed',error_code='context_summary_rebuilding')
+        with self.client() as client:
+            response=client.get(f'/api/chat/runs/{run}/events')
+            self.assertEqual(response.status_code,200)
+            self.assertIn('context_summary_rebuilding',response.text)
+            self.assertIn('较早对话正在后台恢复摘要',response.text)
+            self.assertIn('"retryable": true',response.text)
+            self.assertLess(response.text.index('"type": "model_error"'),
+                            response.text.rindex('"type": "run_status"'))
+        self.assertEqual(self.snapshot(run)['model_attempts'],0)
+
     def test_sse_cursor_ownership_and_header_recovery(self):
         run = self.create()
         claim = self.call("claim_next", "A")

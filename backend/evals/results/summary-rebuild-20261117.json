@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-17",
+  "scope": "滚动摘要安全版本回退与分批持续重建",
+  "backend_full": {"tests": 1488, "seconds": 877.657, "result": "passed"},
+  "final_targeted": {"tests": 134, "seconds": 302.640, "result": "passed"},
+  "last_targeted": {"tests": 34, "seconds": 39.782, "result": "passed", "includes": ["10000条从头覆盖9976条，不重不漏", "重复提交拒绝", "真实PostgreSQL", "SSE错误顺序", "迁移回退", "删除会话级联及迟到提交拒绝"]},
+  "graceful_stop_targeted": {"tests": 2, "result": "passed", "scope": "SQLite和PostgreSQL停机不消耗Provider错误重试额度"},
+  "frontend": {"lint": "passed", "build": "passed", "node_tests": 12},
+  "compileall": "passed",
+  "diff_check": "passed",
+  "online": {
+    "provider": "DeepSeek官方openai-compatible",
+    "model": "deepseek-flash",
+    "cases": [
+      {"messages": 64, "batches": 1, "estimated_input_tokens": 1361, "estimated_output_tokens": 359, "observed_wait_and_answer_seconds": 3.86, "retained_fact": true, "deleted_fact_absent": true, "answer_status": "succeeded"},
+      {"messages": 128, "batches": 3, "estimated_input_tokens": 4315, "estimated_output_tokens": 893, "observed_wait_and_answer_seconds": 8.59, "retained_fact": true, "deleted_fact_absent": true, "answer_status": "succeeded"},
+      {"messages": 256, "batches": 5, "estimated_input_tokens": 9444, "estimated_output_tokens": 2276, "observed_wait_and_answer_seconds": 17.48, "retained_fact": true, "deleted_fact_absent": true, "answer_status": "succeeded"}
+    ],
+    "rebuilding_hint": true,
+    "hint_survives_page_reload": true,
+    "browser_errors": 0,
+    "temporary_fixture_cleanup": true,
+    "real_worker_restart": {"same_job": true, "committed_batches_before": 1, "batches_after": 3, "lease_version_advanced": true, "status": "succeeded"},
+    "token_counts": "本地tokenizer估算，非Provider计费usage",
+    "latency_scope": "逐场等待加最终回答的观察时间，不是各Job完整重建时延或P95",
+    "first_browser_failure": "终态run_status先于model_error，原生订阅关闭而未显示恢复提示；已调整顺序并复跑通过"
+  },
+  "deployment": {"migration": "20261117_01", "pre_migration_backup": true, "summary_worker": "running", "existing_ports_and_database_unchanged": true},
+  "limitations": ["未实现独立分段", "没有旧版本/删除最早历史仍可能从头恢复", "有损摘要不保证所有事实保留", "不自动唤醒原Chat，需稍后重新生成", "不等于撤销长期记忆和报告", "未重测200条Agent任务"]
+}

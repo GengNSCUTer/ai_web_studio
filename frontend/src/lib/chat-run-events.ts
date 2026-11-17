@@ -5,6 +5,7 @@ export type ChatRunSnapshot = {
   conversation_id: string;
   assistant_message_id: string;
   status: string;
+  error_code?: string | null;
   content: string;
   reasoning_content: string;
   external_sources: ExternalSource[];
@@ -12,6 +13,12 @@ export type ChatRunSnapshot = {
   citation_audit: CitationAudit | null;
   last_event_id: number;
 };
+
+export function summaryRecoveryMessage(code?: string | null): string | null {
+  if (code === "context_summary_rebuilding") return "较早对话正在后台恢复摘要，本轮尚未生成回答。请稍后重新生成。";
+  if (code === "context_summary_rebuild_failed") return "历史摘要恢复失败，本轮未使用不完整历史回答。请重试摘要恢复，或检查模型设置。";
+  return null;
+}
 
 export function runMessageStatus(status: string) {
   if (status === "succeeded") return "done";

@@ -280,14 +280,18 @@ class CapacityCases:
                 runtime = SimpleNamespace(governance_service=ContextGovernanceService(ContextBudgetPlanner.build(
                     model_context_window=16000, context_mode=mode)), resolved_model="synthetic",
                     settings=SimpleNamespace(), provider_type="openai-compatible", base_url="https://example.test", provider_api_key=None)
+                from app.services.conversation_summary_service import SummaryRebuildRequired
+                from app.models.conversation_summary import ConversationSummaryJob
                 with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat",
-                           new=AsyncMock(return_value="新摘要")):
-                    result = asyncio.run(assembly._refresh_context_summary(conversation=conv, runtime=runtime,
-                        expected_history=[(r.id, r.role, r.content, r.generation_id) for r in rows],
-                        assistant_id=aid, generation_id=db.get(Message, aid).generation_id, bounded_history=True))
-                self.assertEqual(result.boundary_message_id, ids[147])
-                self.assertEqual(result.stats["summary_refresh_source_messages"], 48)
-                db.commit()
+                           new=AsyncMock(return_value="新摘要")) as provider:
+                    with self.assertRaises(SummaryRebuildRequired):
+                        asyncio.run(assembly._refresh_context_summary(conversation=conv, runtime=runtime,
+                            expected_history=[(r.id, r.role, r.content, r.generation_id) for r in rows],
+                            assistant_id=aid, generation_id=db.get(Message, aid).generation_id, bounded_history=True))
+                    provider.assert_not_awaited()
+                self.assertEqual(conv.context_summary_boundary_message_id, ids[99])
+                self.assertIsNotNone(db.scalar(select(ConversationSummaryJob).where(
+                    ConversationSummaryJob.conversation_id == self.cid)))
 
     def test_attachments_are_eager_loaded_for_bounded_window(self):
         _, aid = self.history()
