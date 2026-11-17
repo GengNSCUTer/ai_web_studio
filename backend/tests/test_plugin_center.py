@@ -56,6 +56,21 @@ class PluginCenterTest(unittest.TestCase):
         self.assertEqual(self.plugins.preflight("u", "knowledge.organize")["plugin_key"], "knowledge.organize")
         self.assertEqual(self.db.scalars(select(PluginInstallation)).all(), [])
 
+    def test_bwrap_refuses_dependencies_before_queue_and_cancel_is_idempotent(self):
+        self.enable()
+        with patch('app.services.sandbox_service.sandbox_availability',return_value={'available':True,'backend':'bubblewrap'}):
+            row=self.preview(dependencies=['tabulate==0.9.0'])
+            with self.assertRaisesRegex(PluginError,'离线'):
+                SandboxService(self.db).confirm('u',row['id'])
+        service=SandboxService(self.db)
+        # Worker离线也必须按批准的后端显示限额，不能变回Docker的64进程。
+        self.assertEqual(service.public(self.db.get(SandboxJob,row['id']))['limits']['pids'],1)
+        with self.assertRaises(PluginError):service.cancel('other',row['id'])
+        self.assertEqual(service.cancel('u',row['id'])['status'],'cancelled')
+        version=self.db.get(SandboxJob,row['id']).lease_version
+        self.assertEqual(service.cancel('u',row['id'])['status'],'cancelled')
+        self.assertEqual(self.db.get(SandboxJob,row['id']).lease_version,version)
+
     def test_stale_install_preflight_cannot_install_changed_permissions(self):
         from app.api.routes.plugins import _confirmed_install
         revision = self.plugins.preflight("u", "knowledge.organize")["catalog_revision"]

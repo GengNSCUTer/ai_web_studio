@@ -1,4 +1,4 @@
-"""独立账号运行的沙箱 Worker；Web 进程不会导入 sandbox.runner。"""
+"""独立进程的沙箱Worker；Docker要求独立账号，原生后端仍须namespace/seccomp。"""
 
 from datetime import datetime, timedelta, timezone
 import json
@@ -21,7 +21,14 @@ def main():
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
     owner = f"sandbox-{os.getpid()}-{uuid4().hex[:12]}"
-    runtime = DockerSandbox()
+    backend = os.environ.get('AIWS_SANDBOX_BACKEND','docker')
+    if backend == 'bubblewrap':
+        from sandbox.bwrap_runner import BubblewrapSandbox
+        runtime = BubblewrapSandbox()
+    elif backend == 'docker':
+        runtime = DockerSandbox()
+    else:
+        raise ValueError('未知沙箱后端，禁止降级执行。')
     try:
         detail = runtime.preflight()
     except Exception as exc:
@@ -73,10 +80,22 @@ def main():
                 job.lease_expires_at = now + timedelta(seconds=180)
                 version, job_id = job.lease_version, job.id
                 plan = json.loads(job.plan_json)
+                if plan.get('backend','docker')!=backend:
+                    job.status,job.error='failed','隔离后端已变化，请重新预览授权。'
+                    db.commit()
+                    continue
                 db.commit()
             result, error = None, None
             try:
-                result = runtime.resolve_dependencies(plan) if resolving else runtime.execute(plan)
+                def cancelled():
+                    if stop.is_set():
+                        return True
+                    with SessionLocal() as db:
+                        current=db.get(SandboxJob,job_id)
+                        return (not current or current.status!='running' or current.lease_owner!=owner
+                                or current.lease_version!=version)
+                result = (runtime.resolve_dependencies(plan) if resolving else
+                          runtime.execute(plan,cancelled=cancelled) if backend=='bubblewrap' else runtime.execute(plan))
             except (SandboxUnavailable, SandboxPolicyError) as exc:
                 error = str(exc)[:256]
             except Exception:

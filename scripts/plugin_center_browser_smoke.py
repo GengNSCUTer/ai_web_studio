@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,7 +70,11 @@ def run():
             page.get_by_label("插件测试资料.md", exact=True).check()
             page.get_by_role("button", name="预览本次脚本授权", exact=True).click()
             expect(page.get_by_text("任务状态：awaiting_approval", exact=True)).to_be_visible()
-            expect(page.get_by_role("button", name="批准本次隔离执行")).to_be_disabled()
+            bwrap_smoke=os.getenv('AIWS_PLUGIN_BWRAP_SMOKE')=='1'
+            if bwrap_smoke:
+                expect(page.get_by_role('button',name='批准本次隔离执行')).to_be_enabled()
+            else:
+                expect(page.get_by_role("button", name="批准本次隔离执行")).to_be_disabled()
             expect(page.get_by_text("授权副本：插件测试资料.md", exact=True)).to_be_visible()
             page.screenshot(path="/tmp/aiws-plugin-center-desktop.png", full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
@@ -79,10 +84,34 @@ def run():
             with SessionLocal() as db:
                 job = db.scalar(select(SandboxJob).where(SandboxJob.project_id == pid))
                 job_id = job.id
-            response = context.request.post(f"http://127.0.0.1:32008/api/backend/plugins/sandbox/{job_id}/confirm", data={"approved": True})
-            assert response.status == 400, response.status
-            with SessionLocal() as db:
-                assert db.get(SandboxJob, job_id).status == "awaiting_approval"
+            if bwrap_smoke:
+                page.get_by_role('button',name='批准本次隔离执行').click()
+                deadline=time.monotonic()+30
+                while time.monotonic()<deadline:
+                    result=context.request.get(f'http://127.0.0.1:32008/api/backend/plugins/sandbox/jobs/{job_id}').json()
+                    if result['status'] in {'succeeded','failed','cancelled'}:break
+                    time.sleep(.2)
+                assert result['status']=='succeeded',result.get('error')
+                assert len(result['result']['artifacts'])==2
+                page.get_by_role('button',name='刷新任务',exact=True).click()
+                expect(page.get_by_text('任务状态：succeeded',exact=True)).to_be_visible()
+                saved=context.request.post(f'http://127.0.0.1:32008/api/backend/plugins/sandbox/jobs/{job_id}/artifacts/1/save')
+                assert saved.status==201
+                download=context.request.get('http://127.0.0.1:32008'+saved.json()['download_url'].replace('/api/','/api/backend/',1))
+                assert download.status==200 and '插件测试资料.md' in download.text()
+                with SessionLocal() as db:
+                    original=db.scalar(select(ProjectFile).where(ProjectFile.project_id==pid,ProjectFile.file_name=='插件测试资料.md'))
+                    assert original.parsed_text=='# 测试资料\n仅本次授权副本；原文件不应被修改。'
+                page.screenshot(path='/tmp/aiws-bwrap-browser.png',full_page=True)
+                page.get_by_role('button',name='预览本次脚本授权',exact=True).click()
+                expect(page.get_by_text('任务状态：awaiting_approval',exact=True)).to_be_visible()
+                page.get_by_role('button',name='取消任务',exact=True).click()
+                expect(page.get_by_text('任务状态：cancelled',exact=True)).to_be_visible()
+            else:
+                response = context.request.post(f"http://127.0.0.1:32008/api/backend/plugins/sandbox/{job_id}/confirm", data={"approved": True})
+                assert response.status == 400, response.status
+                with SessionLocal() as db:
+                    assert db.get(SandboxJob, job_id).status == "awaiting_approval"
             online_chat = "not_requested"
             if os.getenv("AIWS_PLUGIN_CHAT_SMOKE") == "1":
                 with SessionLocal() as db:
@@ -109,9 +138,9 @@ def run():
             assert not errors, errors
             context.close(); browser.close()
         print(json.dumps({"cards": 4, "install": "passed", "project_enable": "passed", "preview": "passed",
-                          "missing_runtime_refusal": "passed", "mobile_overflow": False, "browser_errors": 0,
+                          "missing_runtime_refusal": "not_applicable" if bwrap_smoke else "passed", "mobile_overflow": False, "browser_errors": 0,
                           "online_chat": online_chat,
-                          "real_container_execution": "not_run_missing_rootless_prerequisites"}, ensure_ascii=False))
+                          "real_container_execution": "bubblewrap_worker_artifacts_saved_downloaded" if bwrap_smoke else "not_run_missing_rootless_prerequisites"}, ensure_ascii=False))
     finally:
         from stage46a_real_e2e import cleanup as cleanup_chat
         cleanup_chat(user_id=uid, project_id=pid)

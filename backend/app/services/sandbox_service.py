@@ -18,8 +18,9 @@ def sandbox_availability(db: Session):
     recent = datetime.now(timezone.utc) - timedelta(seconds=30)
     state = db.scalar(select(SandboxWorkerState).where(
         SandboxWorkerState.heartbeat_at >= recent, SandboxWorkerState.status == "ready").limit(1))
-    return {"available": bool(state), "reason": None if state else
-            "无可用独立沙箱 Worker。需独立账号的 Rootless Docker、cgroup v2 限额和隔离出口；不回退宿主执行。"}
+    backend='bubblewrap' if state and state.detail.startswith('bubblewrap/') else 'docker'
+    return {"available": bool(state), "backend": backend, "reason": None if state else
+            "无就绪隔离Worker。可配置Bubblewrap离线后端或符合要求的Rootless Docker；不回退宿主执行。"}
 
 
 class SandboxService:
@@ -57,6 +58,7 @@ class SandboxService:
         # 数据副本在授权预览时固定，Worker 不能读取后来新增的其他工作区内容。
         plan = {"files": files, "domains": domains, "dependencies": dependencies,
                 "limits": LIMITS, "script": payload.script_key, "script_digest": script_digest(payload.script_key), "wheel_lock": []}
+        plan['backend']=sandbox_availability(self.db).get('backend','docker')
         row = SandboxJob(user_id=user_id, project_id=payload.project_id, plugin_key=payload.plugin_key,
                          release_id=installation.release_id, script_key=payload.script_key,
                          status="awaiting_approval", plan_json=json.dumps(plan, ensure_ascii=False))
@@ -84,23 +86,43 @@ class SandboxService:
         created = row.created_at.replace(tzinfo=row.created_at.tzinfo or timezone.utc)
         if datetime.now(timezone.utc) - created > timedelta(minutes=10):
             raise PluginError("授权预览已过期。")
-        if not sandbox_availability(self.db)["available"]:
-            raise PluginError(sandbox_availability(self.db)["reason"])
+        runtime = sandbox_availability(self.db)
+        if not runtime["available"]:
+            raise PluginError(runtime["reason"])
         plan = json.loads(row.plan_json)
+        if plan.get('backend','docker')!=runtime.get('backend','docker'):
+            raise PluginError('隔离执行后端已变化，请重新预览确认。')
+        if runtime.get('backend')=='bubblewrap' and (plan['domains'] or plan['dependencies']):
+            raise PluginError('当前Bubblewrap仅支持离线、无动态依赖任务，请重新预览。')
         if plan.get("script_digest") != script_digest(row.script_key):
             raise PluginError("预览后审核脚本已变化，请重新预览。")
         row.status = "resolving_queued" if plan["dependencies"] and not plan.get("wheel_lock") else "queued"
         self.db.commit()
         return self.public(row)
 
+    def cancel(self, user_id, job_id):
+        row=self.db.scalar(select(SandboxJob).where(SandboxJob.id==job_id,SandboxJob.user_id==user_id).with_for_update())
+        if not row:
+            raise PluginError('任务不存在。')
+        self.plugins.check_project(user_id,row.project_id)
+        if row.status not in {'succeeded','failed','cancelled'}:
+            row.status='cancelled'
+            row.lease_version+=1
+            row.error='用户取消；不导入迟到产物。'
+            self.db.commit()
+        return self.public(row)
+
     def public(self, row: SandboxJob):
         plan = json.loads(row.plan_json)
+        runtime=sandbox_availability(self.db)
+        limits=({**LIMITS,'pids':1,'disk_bytes':0,'output_bytes':1024*1024,
+                 'memory_limit_kind':'address_space','cpu_seconds':45} if plan.get('backend')=='bubblewrap' else LIMITS)
         return {"id": row.id, "project_id": row.project_id, "plugin_key": row.plugin_key,
                 "script_key": row.script_key, "status": row.status, "error": row.error,
                 "files": [{k: f[k] for k in ("id", "name", "bytes")} for f in plan["files"]],
                 "domains": plan["domains"], "dependencies": plan["dependencies"],
                 "install_domains": ["pypi.org", "files.pythonhosted.org"] if plan["dependencies"] else [],
-                "wheel_lock": plan.get("wheel_lock", []), "limits": LIMITS,
-                "runtime": sandbox_availability(self.db),
+                "wheel_lock": plan.get("wheel_lock", []), "limits": limits,
+                "runtime": runtime,
                 "result": json.loads(row.result_json) if row.result_json else None,
-                "notice": "仅执行上述授权副本；结果先隔离检查，不覆盖工作区。容器不是任意恶意代码安全保证。"}
+                "notice": "仅执行上述授权副本；结果先隔离检查，不覆盖工作区。隔离不代表任意恶意代码安全保证。"}

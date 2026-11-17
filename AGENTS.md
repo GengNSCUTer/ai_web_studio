@@ -51,7 +51,7 @@ npm run build
 - 当前由用户级Supervisor托管，每种职责仅一套；操作入口为`bash deploy/run_services.sh ctl`，详见`deploy/README.md`。更新先查status、端口和进程，再重启受影响角色，不新建同职责Screen。前端32008、后端32007、PostgreSQL35433，数据库服务和端口不随意更换。
 - 旧Screen只在确认属于本项目且职责已被新版替代后清理；其他项目和共享服务不动。重启后检查健康接口；进程存活不等于业务成功。
 - 文档任务已支持导出下载与可选保存；仅保存到工作区时走审批，不把下载完成说成等待批准。当前说明见`docs/193_文档生成与可选保存及工具任务场景_2026-11-02.md`。
-- `/plugins`审核包与脚本控制面已接入，但真实Python容器执行仍未验收。不得为测试降级为宿主直接执行或将Docker socket交给Web；前提和权限边界见`deploy/SANDBOX.md`与docs/187。
+- `/plugins`已实测Bubblewrap离线单进程审核脚本（docs/235），复用审批、SandboxJob和产物；不开放任意代码/联网/动态依赖。Docker容器路线仍未验收，原独立账号/cgroup/socket检查不能删除。禁止宿主直接执行兜底或把Docker socket交给Web；资源语义、部署与限制见`deploy/SANDBOX.md`。
 
 ## 2. 本地文档更新范围
 

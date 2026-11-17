@@ -1,6 +1,7 @@
 """审核脚本：只读取本次授权的文本副本，在临时产物区生成清单。"""
 
 import json
+import os
 from pathlib import Path
 
 items = []
@@ -12,7 +13,6 @@ for file in sorted(Path("/input").glob("*.txt")):
     for char in ("\\", "[", "]", "(", ")", "|", "<", ">"):
         name = name.replace(char, "\\" + char)
     items.append({"file": name, "characters": len(text), "lines": len(text.splitlines())})
-Path("/out/inventory.json").write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 try:
     from tabulate import tabulate
 except ImportError:
@@ -20,5 +20,12 @@ except ImportError:
 else:
     body = tabulate([[x["file"], x["characters"], x["lines"]] for x in items],
                     headers=["授权副本", "字符数", "行数"], tablefmt="github")
-Path("/out/inventory.md").write_text("# 授权资料清单\n\n" + body + "\n", encoding="utf-8")
-print(f"已整理 {len(items)} 份授权副本；未修改工作区原文件。")
+artifacts=[{"name":"inventory.json","content":json.dumps(items,ensure_ascii=False,indent=2)},
+           {"name":"inventory.md","content":"# 授权资料清单\n\n"+body+"\n"}]
+notice=f"已整理 {len(items)} 份授权副本；未修改工作区原文件。"
+if os.environ.get('AIWS_SANDBOX_TRANSPORT')=='stdout':
+    print(json.dumps({'artifacts':artifacts,'stdout':notice},ensure_ascii=False))
+else:
+    for item in artifacts:
+        Path('/out',item['name']).write_text(item['content'],encoding='utf-8')
+    print(notice)

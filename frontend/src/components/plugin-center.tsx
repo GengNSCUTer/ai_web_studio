@@ -9,7 +9,7 @@ type Plugin = { plugin_key: string; version: string; name: string; description: 
   permissions: string[]; examples: string[]; artifact_types: string[]; scripts: string[]; tool_keys: string[];
   source: string; review_status: string; compatibility: string; is_installed: boolean;
   installed_version: string | null; installed_release_id: string | null; is_project_enabled: boolean; update_available: boolean; preflight: Preflight };
-export type PluginCenterData = { plugins: Plugin[]; sandbox: { available: boolean; reason: string | null } };
+export type PluginCenterData = { plugins: Plugin[]; sandbox: { available: boolean; reason: string | null; backend?: string } };
 type ScriptJob = { id: string; status: string; error: string | null; domains: string[]; install_domains: string[]; dependencies: string[];
   files: { id: string; name: string; bytes: number }[]; limits: Record<string, string | number>;
   wheel_lock: { requirement: string; sha256: string }[]; runtime: { available: boolean; reason: string | null };
@@ -112,13 +112,14 @@ export function PluginCenter({ initialData, projects }: { initialData: PluginCen
       <section className="rounded-2xl border border-[var(--hairline)] p-5">
         <h2 className="font-semibold">隔离 Python 脚本：资料清单</h2>
         <p className="mt-2 text-sm">{data?.sandbox.available ? "独立 Worker 就绪" : data?.sandbox.reason || "运行环境状态未知"}</p>
+        {data?.sandbox.backend === "bubblewrap" ? <p className="mt-2 text-xs">Bubblewrap：离线、单进程、仅审核脚本；不安装额外依赖。</p> : null}
         <p className="mt-2 text-xs text-[var(--ink-muted)]">只传入勾选文件的正文副本，生成 JSON / Markdown 清单；不覆盖原文件。容器不等于任意恶意代码安全保证。</p>
         <div className="mt-3 max-h-48 space-y-2 overflow-auto">{files.filter((f) => Boolean(f.parsed_text)).map((f) => <label key={f.id} className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={selectedFiles.includes(f.id)} disabled={busy} onChange={(e) => { setJob(null); setSelectedFiles((old) => e.target.checked ? [...old, f.id] : old.filter((id) => id !== f.id)); }} />{f.file_name}
         </label>)}</div>
-        <label className="mt-3 flex items-center gap-2 text-xs"><input type="checkbox" checked={useTabulate} onChange={(e) => { setUseTabulate(e.target.checked); setJob(null); }} />可选：安装审核依赖 tabulate==0.9.0，生成表格清单（先解析完整依赖，再二次确认）。</label>
+        <label className="mt-3 flex items-center gap-2 text-xs"><input type="checkbox" disabled={data?.sandbox.backend === "bubblewrap"} checked={data?.sandbox.backend === "bubblewrap" ? false : useTabulate} onChange={(e) => { setUseTabulate(e.target.checked); setJob(null); }} />可选：安装审核依赖 tabulate==0.9.0，生成表格清单（先解析完整依赖，再二次确认）。</label>
         <button className={`${BUTTON} mt-3`} disabled={busy || !projectId || !organize?.is_project_enabled || !selectedFiles.length} onClick={() => void act(async () => {
-          setJob(await api("/plugins/sandbox/preview", "POST", { project_id: projectId, plugin_key: "knowledge.organize", script_key: "document_inventory", file_ids: selectedFiles, domains: [], dependencies: useTabulate ? ["tabulate==0.9.0"] : [] }));
+          setJob(await api("/plugins/sandbox/preview", "POST", { project_id: projectId, plugin_key: "knowledge.organize", script_key: "document_inventory", file_ids: selectedFiles, domains: [], dependencies: useTabulate && data?.sandbox.backend !== "bubblewrap" ? ["tabulate==0.9.0"] : [] }));
         })}>预览本次脚本授权</button>
         {job ? <div className="mt-4 space-y-2 rounded-xl bg-[var(--soft-bg)] p-4 text-sm">
           <p>任务状态：{job.status}</p><p>授权副本：{job.files.map((f) => f.name).join("、")}</p>
@@ -128,7 +129,8 @@ export function PluginCenter({ initialData, projects }: { initialData: PluginCen
           <p className="text-xs">{job.notice}</p>{job.error ? <p role="alert">{job.error}</p> : null}
           <div className="flex flex-wrap gap-2"><button className={BUTTON} disabled={busy || !job.runtime.available || !["awaiting_approval", "awaiting_dependency_approval"].includes(job.status)} onClick={() => void act(async () => setJob(await api(`/plugins/sandbox/${job.id}/confirm`, "POST", { approved: true })))}>
             {job.status === "awaiting_dependency_approval" ? "确认完整依赖并执行" : "批准本次隔离执行"}</button>
-            <button className={BUTTON} disabled={busy} onClick={() => void act(async () => setJob(await api(`/plugins/sandbox/jobs/${job.id}`)))}>刷新任务</button></div>
+            <button className={BUTTON} disabled={busy} onClick={() => void act(async () => setJob(await api(`/plugins/sandbox/jobs/${job.id}`)))}>刷新任务</button>
+            <button className={BUTTON} disabled={busy || ["succeeded", "failed", "cancelled"].includes(job.status)} onClick={() => void act(async () => setJob(await api(`/plugins/sandbox/${job.id}/cancel`, "POST")))}>取消任务</button></div>
           {!job.runtime.available ? <p className="text-amber-800">{job.runtime.reason}</p> : null}
           {job.result?.artifacts.map((a, index) => <details key={a.name}><summary>{a.name}</summary><pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs">{a.content}</pre>
             <button className={BUTTON} disabled={busy} onClick={() => void act(async () => {

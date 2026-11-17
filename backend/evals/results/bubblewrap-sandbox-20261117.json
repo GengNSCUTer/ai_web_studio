@@ -1,0 +1,56 @@
+{
+  "date": "2026-11-17",
+  "backend": "bubblewrap",
+  "scope": "offline_reviewed_document_inventory",
+  "targeted_tests": {"run": 40, "result": "passed", "real_namespace_tests_skipped": 0},
+  "development_regression": {
+    "run": 1453,
+    "result": "passed",
+    "note": "开发期间全量回归；后续后端绑定与界面细节由最终40项定向测试及浏览器再次验证，最终提交另由CI验证。"
+  },
+  "frontend": {"lint": "passed", "build": "passed", "node_tests": 12},
+  "browser": {
+    "command": "AIWS_PLUGIN_BWRAP_SMOKE=1 PYTHONPATH=backend:scripts /disk2/gengnan/conda_envs/ai_web_studio/bin/python scripts/plugin_center_browser_smoke.py",
+    "installation": "passed",
+    "project_enable": "passed",
+    "preview_and_confirm": "passed",
+    "worker_execution": "succeeded",
+    "artifact_count": 2,
+    "save_and_download": "passed",
+    "cancel": "passed",
+    "original_file_unchanged": true,
+    "console_errors": 0,
+    "mobile_overflow": false,
+    "fixture_cleanup": "passed",
+    "online_llm": "not_required"
+  },
+  "boundary_checks": [
+    "fork_socket_exec_denied",
+    "resource_limit_updates_denied",
+    "host_home_and_secrets_not_mounted",
+    "input_and_root_read_only",
+    "environment_not_inherited",
+    "output_flood_stopped",
+    "wall_timeout_stopped",
+    "memory_allocation_limited",
+    "running_cancellation_and_process_reaped",
+    "network_and_dynamic_dependencies_rejected",
+    "changed_script_digest_rejected",
+    "cross_user_cancel_rejected"
+  ],
+  "limits": {
+    "processes": 1,
+    "address_space_bytes": 268435456,
+    "wall_seconds": 45,
+    "cpu_seconds": 45,
+    "combined_output_bytes": 1048576,
+    "writable_filesystem": false
+  },
+  "limitations": [
+    "不是任意用户代码执行服务",
+    "不支持联网或动态安装",
+    "RLIMIT_AS不等于cgroup RSS或任务树聚合配额",
+    "共享宿主内核，不宣称完整恶意代码隔离",
+    "未重新运行原200条Agent任务，不改变P0-A成绩"
+  ]
+}

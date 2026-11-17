@@ -55,6 +55,11 @@ def sandbox_status(db: Session = Depends(get_db), user: User = Depends(get_curre
     return sandbox_availability(db)
 
 
+@router.post('/sandbox/{job_id}/cancel')
+def cancel_sandbox(job_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return guarded(db, lambda: SandboxService(db).cancel(user.id, job_id))
+
+
 @router.post("/sandbox/preview", status_code=201)
 def sandbox_preview(payload: SandboxPreviewCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return guarded(db, lambda: SandboxService(db).preview(user.id, payload))
