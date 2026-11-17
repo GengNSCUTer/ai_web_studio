@@ -181,14 +181,16 @@ class ToolSemanticSelectorTest(unittest.IsolatedAsyncioTestCase):
     async def test_large_cold_catalog_is_bounded_and_can_be_prebuilt(self):
         self.adapter.embed_texts.side_effect = lambda **kwargs: [[1., 0.] for _ in kwargs['texts']]
         tools = [replace(self.catalog.get('workspace.files.read'), tool_key=f'mcp.read.{i}') for i in range(129)]
-        scores, trace = await self.retriever().scores(query='read', definitions=tools)
+        # 这里验证批量数量，不把共享CI的CPU耗时当性能SLA；超时降级有独立用例。
+        retriever = self.retriever(timeout=6)
+        scores, trace = await retriever.scores(query='read', definitions=tools)
         self.assertEqual(trace['embedded_tools'], 31)
         self.assertEqual(trace['pending_tools'], 98)
         self.assertFalse(trace['index_complete'])
         self.assertLessEqual(len(scores), 30)
-        result = await self.retriever().warmup(tools)
+        result = await retriever.warmup(tools)
         self.assertTrue(result['index_complete'])
-        _, diag = await self.retriever().scores(query='read', definitions=tools)
+        _, diag = await retriever.scores(query='read', definitions=tools)
         self.assertEqual(diag['persistent_hits'], 129)
         self.assertEqual(diag['embedded_tools'], 0)
         self.assertEqual(len(self.adapter.embed_texts.call_args.kwargs['texts']), 1)
