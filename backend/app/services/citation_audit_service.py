@@ -12,7 +12,7 @@ def is_smalltalk_query(query):
 
 
 def without_markdown_code(text):
-    """忽略代码示例中的标签，不把字面示例当作正文引用。"""
+    """忽略代码示例；行内代码只在同一段落内用等长反引号闭合。"""
     lines, fence = [], None
     for line in text.splitlines():
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
@@ -25,7 +25,36 @@ def without_markdown_code(text):
             lines.append("")
         elif fence is None:
             lines.append(line)
-    return re.sub(r"(`+).*?\1", "", "\n".join(lines), flags=re.DOTALL)
+        else:
+            lines.append("")
+    return "".join(part if re.fullmatch(r"\n[ \t]*\n", part) else _without_inline_code(part)
+                   for part in re.split(r"(\n[ \t]*\n)", "\n".join(lines)))
+
+
+def _without_inline_code(paragraph):
+    """按完整反引号串匹配，不能把双反引号的一部分当作单反引号。"""
+    runs = list(re.finditer(r"`+", paragraph))
+    following, latest = {}, {}
+    for index in range(len(runs) - 1, -1, -1):
+        size = len(runs[index].group())
+        following[index] = latest.get(size)
+        latest[size] = index
+    kept, cursor, index = [], 0, 0
+    while index < len(runs):
+        start = runs[index].start()
+        backslashes, position = 0, start - 1
+        while position >= 0 and paragraph[position] == "\\":
+            backslashes += 1
+            position -= 1
+        closing = following[index]
+        if backslashes % 2 or closing is None:
+            index += 1
+            continue
+        kept.append(paragraph[cursor:start])
+        cursor = runs[closing].end()
+        index = closing + 1
+    kept.append(paragraph[cursor:])
+    return "".join(kept)
 
 
 def citation_labels(text):

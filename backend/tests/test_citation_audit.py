@@ -60,6 +60,22 @@ class CitationAuditTest(unittest.TestCase):
             audit = audit_answer_citations("半截回答[KB1]", sources=[source()], generation_status=status)
             self.assertEqual(audit["status"], "incomplete")
 
+    def test_unbalanced_backticks_do_not_hide_later_paragraph_citations(self):
+        answer = "- **`go.sum``** 保存校验和。\n\n依据：[KB2]。\n\n示例`[KB99]`，正文[T1]。"
+        self.assertEqual(citation_labels(answer), ["[KB2]", "[T1]"])
+        self.assertEqual(audit_answer_citations(answer, sources=[source("[KB2]"), source("[T1]")])["status"], "passed")
+
+    def test_inline_code_requires_exact_backtick_run_length(self):
+        for answer in ("``示例`[KB99]` `` 正文[KB1]", "`示例``[KB99]`` ` 正文[KB1]",
+                       "`多行示例\n[KB99]` 正文[KB1]", r"\`普通正文[KB1]"):
+            with self.subTest(answer=answer):
+                self.assertEqual(citation_labels(answer), ["[KB1]"])
+
+    def test_unclosed_code_span_cannot_cross_blank_or_fenced_blocks(self):
+        for separator in ("\n\n", "\n \t\n", "\n```text\n[KB99]\n```\n"):
+            answer = "未闭合`开头" + separator + "真实[KB1]与`示例[T99]`。"
+            self.assertEqual(citation_labels(answer), ["[KB1]"])
+
     def test_knowledge_units_ignore_spoofed_labels(self):
         def hit(number, content):
             return RetrievalResult(chunk=SimpleNamespace(id=f"c{number}", chunk_index=number, document_id="d",
