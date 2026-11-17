@@ -99,19 +99,7 @@ class SandboxService:
         dependencies = sorted({validate_requirement(value) for value in payload.dependencies})
         if not set(domains).issubset(script["domains"]) or not set(dependencies).issubset(script["dependencies"]):
             raise PluginError("新增联网域名或依赖必须先审核插件版本，不能静默扩权。")
-        files = []
-        total = 0
-        for file_id in dict.fromkeys(payload.file_ids):
-            item = self.db.get(ProjectFile, file_id)
-            if not item or item.user_id != user_id or item.project_id != payload.project_id:
-                raise PluginError("授权文件不属于当前工作区。")
-            size = len((item.parsed_text or "").encode("utf-8"))
-            if not size:
-                raise PluginError("当前脚本仅支持已提取正文的文档副本。")
-            total += size
-            files.append({"id": item.id, "name": item.file_name, "bytes": size, "text": item.parsed_text})
-        if total > LIMITS["input_bytes"]:
-            raise PluginError("授权文件副本总量超过沙箱输入限额。")
+        files = self._authorized_files(user_id, payload.project_id, payload.file_ids)
         # 数据副本在授权预览时固定，Worker 不能读取后来新增的其他工作区内容。
         plan = {"files": files, "domains": domains, "dependencies": dependencies,
                 "limits": LIMITS, "script": payload.script_key, "script_digest": script_digest(payload.script_key), "wheel_lock": []}

@@ -4,15 +4,15 @@ version: '1.0'
 date_created: '2026-11-17'
 last_updated: '2026-11-17'
 owner: AI Web Studio
-status: 'Planned'
+status: 'On Hold'
 tags: [architecture, sandbox, bubblewrap, agent]
 ---
 
 # Introduction
 
-![Status: Planned](https://img.shields.io/badge/status-Planned-blue)
+状态：通用离线Python阶段已收尾；剩余设计暂停。
 
-本文是**待实施架构**，不是新增功能验收报告。已实现的限定审核脚本见[235](../docs/235_Bubblewrap离线审核脚本沙箱_2026-11-17.md)。本轮只设计与核对代码，不开放新权限、不运行任意代码。
+本文保留最初设计及其演进，不是全部功能的验收报告。当前已实现离线通用Python与审核脚本，验收以[236](../docs/236_通用Python沙箱与模型工具接入_2026-11-17.md)为准；剩余父任务自动恢复、统一产物桥接、临时写入与联网等设计暂不推进。
 
 后续实施进度（2026-11-17）：[236](../docs/236_通用Python沙箱与模型工具接入_2026-11-17.md)已完成通用代码预览/逐次批准、Python3.12标准库运行时、模型准备与结果查询、浏览器真实执行。采用现有Job、不新增迁移；下方统一AgentStep/Artifact及父图自动恢复尚未实现，不能将阶段1/2整体标为完成。初始设计中的“本轮只设计”为设计时记录，当前实际以236为准。
 
@@ -20,9 +20,9 @@ tags: [architecture, sandbox, bubblewrap, agent]
 
 **分工**：模型和LangGraph决定下一步；Executor检查允许做什么；Sandbox Worker管理执行；Bubblewrap隔离代码；后端检查结果并负责正式提交。
 
-## 当前与目标
+## 设计起点与目标（历史对照，当前实现见236）
 
-| 层面 | 当前代码 | 目标，尚未实现 |
+| 层面 | 设计时起点（235） | 原设计目标（部分已由236实现） |
 | --- | --- | --- |
 | 入口 | 插件中心预览/确认，SCRIPTS仅document_inventory | 一个sandbox.python.execute通用Tool，插件/Skill/Chat共用 |
 | 代码 | 仓库审核脚本 | 审核脚本及本次用户/模型生成代码；生成代码仍需授权和隔离 |

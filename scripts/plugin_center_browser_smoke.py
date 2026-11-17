@@ -1,4 +1,4 @@
-"""固定账号真实浏览器验收；验证安装授权与不可用阻断，不冒充容器执行。"""
+"""固定账号浏览器验收：插件授权、沙箱可用性，以及可选的真实Python执行。"""
 
 import json
 import os
@@ -160,11 +160,6 @@ def run():
                 with SessionLocal() as db:
                     pending=db.scalar(select(SandboxJob).where(SandboxJob.project_id==pid,
                         SandboxJob.script_key=='python_stdlib',SandboxJob.status=='awaiting_approval').order_by(SandboxJob.created_at.desc()))
-                    if not pending:
-                        for route in db.scalars(select(ToolRouteRun).where(ToolRouteRun.conversation_id==cid)):
-                            print(json.dumps({c.name:getattr(route,c.name) for c in ToolRouteRun.__table__.columns if c.name in {
-                                'status','planner','plan_json','events_json','selected_tools_json','query','error_message'}},ensure_ascii=False),flush=True)
-                        print(json.dumps({'synthetic_answer':snapshot['content']},ensure_ascii=False),flush=True)
                     assert pending,'模型没有真实创建待审批任务'
                     model_job=pending.id
                 page.goto(f'http://127.0.0.1:32008/plugins?job={model_job}',wait_until='networkidle')
@@ -219,7 +214,7 @@ def run():
                           "missing_runtime_refusal": "not_applicable" if bwrap_smoke else "passed", "mobile_overflow": False, "browser_errors": 0,
                           "online_chat": online_chat,
                           'python_sandbox':python_smoke,
-                          "real_container_execution": "bubblewrap_worker_artifacts_saved_downloaded" if bwrap_smoke else "not_run_missing_rootless_prerequisites"}, ensure_ascii=False))
+                          "isolated_execution": "bubblewrap_worker_artifacts_saved_downloaded" if bwrap_smoke else "not_run"}, ensure_ascii=False))
     finally:
         from stage46a_real_e2e import cleanup as cleanup_chat
         cleanup_chat(user_id=uid, project_id=pid)
