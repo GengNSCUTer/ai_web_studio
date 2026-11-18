@@ -319,15 +319,15 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
         entered = asyncio.Event()
         counts = Counter()
         original = ToolExecutor._execute
-        snapshot = first.snapshot
+        checkpoint_state = first.checkpoint_state
 
         def save_expired_deadline(run):
             # 模拟Worker离线期间到期，执行中的单调时钟仍可推进到指定故障点。
             if getattr(run, "plan", None):
                 first.wall_deadline = utcnow() - timedelta(seconds=1)
-            return snapshot(run)
+            return checkpoint_state(run)
 
-        first.snapshot = save_expired_deadline
+        first.checkpoint_state = save_expired_deadline
         async def execute(executor, call):
             counts[call.call_id] += 1
             if call.call_id == "B":

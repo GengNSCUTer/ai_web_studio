@@ -3,7 +3,6 @@
 import asyncio
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TypedDict
 from weakref import WeakKeyDictionary
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -11,13 +10,15 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from langsmith import tracing_context
 
+from app.services.chat_tool_snapshot import CHANNEL_FIELDS, ChatToolCheckpointState
 from app.services.tools.loop_runtime import SyncToolRun
 from app.services.tools.schemas import ToolTraceEvent
 
 
-class SyncToolGraphState(TypedDict, total=False):
+class SyncToolGraphState(ChatToolCheckpointState, total=False):
     route: str
-    tool_state: str
+    # 只读取升级前的检查点；有新节点输出时标记为已迁移。
+    tool_state: str | None
 
 
 @dataclass(frozen=True)
@@ -26,10 +27,14 @@ class SyncToolGraphContext:
     persistence: object = None
 
 
-async def _update(context, route):
-    if context.persistence is None:
-        return {"route": route}
-    return {"route": route, "tool_state": await asyncio.to_thread(context.persistence.snapshot, context.run)}
+async def _update(state, context, route):
+    updates = {"route": route}
+    if context.persistence is not None:
+        channels = await asyncio.to_thread(context.persistence.checkpoint_state, context.run)
+        updates.update({name: value for name, value in channels.items() if state.get(name) != value})
+        if state.get("tool_state") is not None:
+            updates["tool_state"] = None
+    return updates
 
 
 def _record(run: SyncToolRun, node: str):
@@ -41,14 +46,14 @@ def _record(run: SyncToolRun, node: str):
 
 async def _reserve(state, runtime: Runtime[SyncToolGraphContext]):
     context = runtime.context
-    return await _update(context, "plan" if context.run.reserve_round() else "finalize")
+    return await _update(state, context, "plan" if context.run.reserve_round() else "finalize")
 
 
 async def _plan(state, runtime: Runtime[SyncToolGraphContext]):
     context = runtime.context
     ready = await context.run.plan_round()
     _record(context.run, "plan")
-    return await _update(context, "execute" if ready else "finalize")
+    return await _update(state, context, "execute" if ready else "finalize")
 
 
 async def _execute(state, runtime: Runtime[SyncToolGraphContext]):
@@ -60,7 +65,7 @@ async def _execute(state, runtime: Runtime[SyncToolGraphContext]):
     if ready and context.persistence is not None:
         await asyncio.to_thread(context.persistence.record_outcomes, context.run)
     _record(context.run, "execute")
-    return await _update(context, "observe" if ready else "finalize")
+    return await _update(state, context, "observe" if ready else "finalize")
 
 
 async def _observe(state, runtime: Runtime[SyncToolGraphContext]):
@@ -71,7 +76,7 @@ async def _observe(state, runtime: Runtime[SyncToolGraphContext]):
         run.budget.tool_calls_used = await asyncio.to_thread(context.persistence.attempts_used)
     again = run.observe_round()
     _record(run, "observe")
-    return await _update(context, "reserve" if again else "finalize")
+    return await _update(state, context, "reserve" if again else "finalize")
 
 
 async def _finalize(state, runtime: Runtime[SyncToolGraphContext]):
@@ -79,7 +84,7 @@ async def _finalize(state, runtime: Runtime[SyncToolGraphContext]):
     if context.persistence is not None:
         await asyncio.to_thread(context.persistence.finish)
     _record(context.run, "finalize")
-    return await _update(context, "done")
+    return await _update(state, context, "done")
 
 
 def _build_sync_tool_graph(checkpointer=None):
@@ -112,18 +117,23 @@ async def _invoke(graph, config, context):
 
     run, persistence = context.run, context.persistence
     previous = await graph.aget_state(config)
-    packed = previous.values.get("tool_state")
+    values = previous.values
+    # 新格式有任何字段就只走新格式校验，不能回退到过时的字符串继续执行。
+    structured = "checkpoint_schema" in values or any(channel in values for channel in CHANNEL_FIELDS)
+    packed = values if structured else values.get("tool_state")
     try:
         if packed is not None:
             # Pending Writes已完成的节点可更新route，但在下一次super-step前next仍为空。
             node = previous.next[0] if previous.next else previous.values.get("route")
-            if (not isinstance(packed, str) or len(previous.next) > 1
+            if ((not structured and not isinstance(packed, str)) or len(previous.next) > 1
                     or node not in {"reserve", "plan", "execute", "observe", "finalize", "done"}):
                 raise ValueError("原生工具图状态不完整，不能重新执行旧任务")
             await asyncio.to_thread(persistence.restore, run, snapshot=packed, next_node=node)
         else:
+            if values.get("route") is not None:
+                raise ValueError("工具图有进度但缺少恢复字段")
             node = await asyncio.to_thread(persistence.restore, run)
-    except ValueError as exc:
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ChatToolStateUnavailable(str(exc)) from exc
     run.events.append(ToolTraceEvent(type="tool_persistence", payload={
         "agent_run_id": persistence.agent_id, "chat_run_id": persistence.claim.run_id,
@@ -136,7 +146,7 @@ async def _invoke(graph, config, context):
     if packed is not None:
         await graph.ainvoke(None, context=context, config=config, durability="sync")
         return
-    initial = {"route": "reserve", "tool_state": await asyncio.to_thread(persistence.snapshot, run)}
+    initial = {"route": "reserve", **await asyncio.to_thread(persistence.checkpoint_state, run)}
     await graph.ainvoke(initial, context=context, config=config, durability="sync")
 
 

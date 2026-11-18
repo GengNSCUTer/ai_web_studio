@@ -6,7 +6,8 @@
 
 import hashlib
 import json
-import time
+from copy import deepcopy
+from typing import TypedDict
 
 from sqlalchemy import select
 
@@ -17,6 +18,31 @@ from app.services.tools import runtime_codec as codec
 
 FORMAT = "chat_tool_artifact_refs_v1"
 MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024
+
+
+class ChatToolCheckpointState(TypedDict, total=False):
+    checkpoint_schema: int
+    checkpoint_policy: dict
+    budget_state: dict
+    plan_state: dict
+    progress_state: dict
+    evidence_state: dict
+
+
+CHANNEL_FIELDS = {
+    "checkpoint_policy": ("version", "policy", "skill"),
+    "budget_state": ("budget", "wall_deadline"),
+    "plan_state": ("plan", "tool_snapshots", "parameters_redacted", "used_call_ids", "blockers"),
+    "progress_state": ("round_index", "routed_query", "last_plan", "planning_elapsed_ms", "execution_elapsed_ms",
+                       "selected_tool", "error_message", "terminal_reason", "next_action",
+                       "workflow_aggregate_status", "workflow_aggregate"),
+    "evidence_state": ("observations", "events", "sources", "notices", "raw_sources_total",
+                       "duplicate_sources_total", "projection_reports", "workflow_result"),
+}
+CONTROL_FIELDS = frozenset((*CHANNEL_FIELDS["checkpoint_policy"], *CHANNEL_FIELDS["budget_state"],
+                            *CHANNEL_FIELDS["plan_state"], "workflow_result"))
+LOOP_FIELDS = tuple(name for channel in ("progress_state", "evidence_state")
+                    for name in CHANNEL_FIELDS[channel] if name not in CONTROL_FIELDS)
 
 
 def dump_json(value):
@@ -71,11 +97,11 @@ class ChatToolSnapshotCodec:
         self.artifacts[artifact_id] = json.loads(artifact.content_json)
         return self.artifacts[artifact_id]
 
-    def dumps(self, saved):
-        started = time.perf_counter()
-        encoded = codec.encode(codec.sanitize(saved))
-        original_bytes = len(dump_json(encoded).encode())
-        if original_bytes > MAX_SNAPSHOT_BYTES:
+    def pack(self, saved) -> ChatToolCheckpointState:
+        fields = saved | saved["loop"]
+        channels = {channel: {name: codec.encode(codec.sanitize(fields[name])) for name in names}
+                    for channel, names in CHANNEL_FIELDS.items()}
+        if len(dump_json(channels).encode()) > MAX_SNAPSHOT_BYTES:
             raise InvocationRuntimeError("checkpoint_too_large", "重建后的工具恢复记录超过大小上限。")
         index = {}
         ids = list(self.db.scalars(select(AgentArtifact.id).where(AgentArtifact.run_id == self.run.id,
@@ -96,35 +122,42 @@ class ChatToolSnapshotCodec:
 
         for artifact_id in ids:
             register(self._artifact(artifact_id), artifact_id, [])
-        references = 0
-        referenced_ids = set()
-
         def compact(value):
-            nonlocal references
             packed = dump_json(value)
             reference = index.get(hashlib.sha256(packed.encode()).hexdigest()) if len(packed) >= 256 else None
             if reference:
-                references += 1
-                referenced_ids.add(reference["id"])
                 return {"$artifact_ref": reference}
             for key, child in children(value):
                 replace_child(value, key, compact(child))
             return value
 
-        payload = compact(encoded)
-        metrics = {"unreferenced_bytes": original_bytes, "reference_count": references,
-            "referenced_artifacts": len(referenced_ids), "loaded_artifacts": len(self.artifacts),
-            "encode_ms": round((time.perf_counter() - started) * 1000, 3)}
-        encoded = dump_json({"format": FORMAT, "payload": payload, "metrics": metrics})
-        metrics["stored_bytes"] = len(encoded.encode())
-        return encoded, metrics
+        return {"checkpoint_schema": 1, **{channel: {name: compact(value) for name, value in group.items()}
+                                          for channel, group in channels.items()}}
 
-    def loads(self, text):
-        if len(text.encode()) > MAX_SNAPSHOT_BYTES:
+    def unpack(self, state):
+        if isinstance(state, str):
+            if len(state.encode()) > MAX_SNAPSHOT_BYTES:
+                raise InvocationRuntimeError("checkpoint_too_large", "工具恢复记录超过大小上限。")
+            envelope = json.loads(state)
+            if not isinstance(envelope, dict) or envelope.get("format") != FORMAT or "payload" not in envelope:
+                raise InvocationRuntimeError("checkpoint_format_invalid", "旧图状态格式无法识别。")
+            return self._decode_payloads({"legacy": envelope["payload"]})["legacy"]
+
+        payloads = {}
+        if type(state.get("checkpoint_schema")) is not int or state["checkpoint_schema"] != 1:
+            raise InvocationRuntimeError("checkpoint_format_invalid", "图状态版本无法识别。")
+        for channel, names in CHANNEL_FIELDS.items():
+            group = state.get(channel)
+            if not isinstance(group, dict) or set(group) != set(names):
+                raise InvocationRuntimeError("checkpoint_format_invalid", "图状态缺少恢复字段。")
+            payloads.update(group)
+        fields = self._decode_payloads(payloads)
+        return {"loop": {name: fields[name] for name in LOOP_FIELDS},
+                **{name: fields[name] for name in CONTROL_FIELDS}}
+
+    def _decode_payloads(self, payloads):
+        if len(dump_json(payloads).encode()) > MAX_SNAPSHOT_BYTES:
             raise InvocationRuntimeError("checkpoint_too_large", "工具恢复记录超过大小上限。")
-        envelope = json.loads(text)
-        if not isinstance(envelope, dict) or envelope.get("format") != FORMAT:
-            raise InvocationRuntimeError("checkpoint_format_invalid", "图状态格式无法识别。")
         count = 0
         expanded_bytes = 0
 
@@ -151,8 +184,7 @@ class ChatToolSnapshotCodec:
                 expanded_bytes += len(dump_json(target).encode())
                 if expanded_bytes > MAX_SNAPSHOT_BYTES:
                     raise InvocationRuntimeError("checkpoint_too_large", "恢复引用展开超过大小上限。")
-                # 解码得到独立对象，恢复时预算/引用标签的变化不会修改缓存的产物。
-                return target
+                return deepcopy(target)
             if value is None or type(value) in (str, int, float, bool):
                 expanded_bytes += len(dump_json(value).encode())
                 if expanded_bytes > MAX_SNAPSHOT_BYTES:
@@ -161,4 +193,7 @@ class ChatToolSnapshotCodec:
                 replace_child(value, key, expand(child))
             return value
 
-        return codec.decode(expand(envelope["payload"]))
+        expanded = {name: expand(deepcopy(value)) for name, value in payloads.items()}
+        if len(dump_json(expanded).encode()) > MAX_SNAPSHOT_BYTES:
+            raise InvocationRuntimeError("checkpoint_too_large", "恢复内容超过大小上限。")
+        return {name: codec.decode(value) for name, value in expanded.items()}

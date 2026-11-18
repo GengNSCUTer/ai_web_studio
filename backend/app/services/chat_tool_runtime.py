@@ -20,19 +20,13 @@ from app.services.tools.schemas import tool_execution_snapshot, redact_sensitive
 from app.services.tool_invocation_runtime import (
     InvocationOutcome, InvocationRuntimeError, ToolInvocationRuntime, current_invocation_runtime,
 )
-from app.services.chat_tool_snapshot import ChatToolSnapshotCodec, MAX_SNAPSHOT_BYTES
+from app.services.chat_tool_snapshot import ChatToolSnapshotCodec, LOOP_FIELDS
 from app.services.workspace_file_provenance import content_hash
 
 
 current_tool_persistence = current_invocation_runtime
 RUNTIME = "chat_tool_workflow"
 VERSION = "langgraph_chat_tools_v2"
-LOOP_FIELDS = (
-    "round_index", "routed_query", "observations", "events", "sources", "notices", "last_plan",
-    "planning_elapsed_ms", "execution_elapsed_ms", "selected_tool", "error_message", "terminal_reason",
-    "next_action", "workflow_aggregate_status", "workflow_aggregate", "raw_sources_total",
-    "duplicate_sources_total", "projection_reports",
-)
 
 
 class ChatToolStateUnavailable(ValueError):
@@ -104,7 +98,7 @@ class ChatToolPersistence:
                 if self._attempts(db, agent.id) or agent.status == "succeeded":
                     raise ValueError("工具运行缺少恢复数据，不能重新规划旧任务")
                 return "reserve"
-            saved = ChatToolSnapshotCodec(db, agent).loads(snapshot)
+            saved = ChatToolSnapshotCodec(db, agent).unpack(snapshot)
             if saved["version"] != VERSION or saved["policy"] != self.policy or saved["skill"] != self.skill:
                 raise ValueError("工具运行版本、Skill或预算已变化，不能继续旧计划")
             if saved.get("parameters_redacted") and next_node == "execute":
@@ -171,8 +165,8 @@ class ChatToolPersistence:
             _, agent = self._lock(db)
             return self._attempts(db, agent.id)
 
-    def snapshot(self, run):
-        """为原生检查点编码可恢复状态。正式产物通过已校验的引用还原。"""
+    def checkpoint_state(self, run):
+        """构造图节点的结构化输出。正式产物通过已校验的引用还原。"""
         if self.storage_failed:
             # 持久化失败不能被Workflow误当成普通工具故障后继续规划副作用操作。
             raise ChatLeaseLost()
@@ -190,11 +184,9 @@ class ChatToolPersistence:
         saved["parameters_redacted"] = any(redact_sensitive_arguments(call.arguments) != call.arguments for call in plan.calls) if plan else False
         with self.sessions() as db:
             _, agent = self._lock(db)
-            encoded, _ = ChatToolSnapshotCodec(db, agent).dumps(saved)
-            if len(encoded.encode()) > MAX_SNAPSHOT_BYTES:
-                raise ValueError("工具恢复记录超过大小限制")
+            state = ChatToolSnapshotCodec(db, agent).pack(saved)
         self.round_index = run.round_index
-        return encoded
+        return state
 
     def record_plan(self, run):
         with self.sessions() as db:

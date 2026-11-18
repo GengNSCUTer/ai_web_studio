@@ -22,6 +22,8 @@ from app.models.user import User
 from app.services.chat_run_service import ChatClaim, ChatLeaseLost
 from app.services.chat_tool_runtime import ChatToolPersistence
 from app.services.chat_tool_checkpoint import ChatToolCheckpointIdentity, ChatToolPostgresSaver
+from app.services.agent_graph import sync_tool_graph
+from app.services.chat_tool_snapshot import CHANNEL_FIELDS, CONTROL_FIELDS, FORMAT, dump_json
 from app.services.durable_checkpoint_service import durable_checkpointer, CheckpointLeaseLost
 from app.services.runtime_lease import utcnow
 from app.services.tools.executor import ToolExecutor
@@ -38,6 +40,7 @@ def crash_child(url, rid, claim, window):
     original_execute = ToolExecutor._execute
     original_record = persistence.record_outcomes
     original_writes = ChatToolPostgresSaver.aput_writes
+    original_state = persistence.checkpoint_state
 
     async def execute(executor, call):
         with engine.begin() as db:
@@ -53,14 +56,29 @@ def crash_child(url, rid, claim, window):
 
     async def put_writes(saver, config, writes, task_id, task_path=""):
         await original_writes(saver, config, writes, task_id, task_path)
-        if window == "pending_plan" and ("route", "execute") in writes:
+        if window in ("pending_plan", "legacy_pending_plan") and ("route", "execute") in writes:
             os._exit(81)
+
+    def legacy_state(run):
+        groups = original_state(run)
+        fields = {name: value for channel in CHANNEL_FIELDS for name, value in groups[channel].items()}
+        payload = {"$dict": {"loop": {"$dict": {name: value for name, value in fields.items()
+                                                  if name not in CONTROL_FIELDS}},
+                             **{name: fields[name] for name in CONTROL_FIELDS}}}
+        return {"tool_state": dump_json({"format": FORMAT, "payload": payload})}
+
+    async def legacy_update(state, context, route):
+        return {"route": route, **await asyncio.to_thread(legacy_state, context.run)}
 
     persistence.record_outcomes = record_outcomes
     calls = [harness.tool("A"), harness.tool("B", "workspace.files.list", depends=["A"])]
     planner = unit.FixedPlanner(calls)
     with patch.object(ToolExecutor, "_execute", execute), patch.object(ChatToolPostgresSaver, "aput_writes", put_writes):
-        asyncio.run(harness.context(persistence, planner))
+        if window == "legacy_pending_plan":
+            with patch.object(persistence, "checkpoint_state", legacy_state), patch.object(sync_tool_graph, "_update", legacy_update):
+                asyncio.run(harness.context(persistence, planner))
+        else:
+            asyncio.run(harness.context(persistence, planner))
 
 
 @unittest.skipUnless(os.getenv("TEST_POSTGRES_URL"), "需要真实PG隔离数据库")
@@ -148,11 +166,37 @@ class ChatToolRecoveryPostgresTest(unit.ChatToolRecoveryTest):
         self.assertEqual(process.exitcode, 81)
         with self.sessions() as db:
             self.assertEqual(db.scalar(text("SELECT count(*) FROM chat_test_calls")), 0)
-            self.assertEqual(db.scalar(text("SELECT count(*) FROM aiws_graph.checkpoint_writes WHERE channel='tool_state'")) > 0, True)
+            channels = set(db.scalars(text("SELECT DISTINCT channel FROM aiws_graph.checkpoint_writes")))
+            self.assertIn("plan_state", channels)
+            self.assertIn("budget_state", channels)
+            self.assertNotIn("tool_state", channels)
         planner = unit.FixedPlanner([])
         result = await self.context(self.expire_and_claim(rid), planner)
         self.assertEqual(planner.count, 0)
         self.assertIn("短事务", result.context_text)
+
+    async def test_legacy_pending_plan_resumes_and_migrates_on_next_node(self):
+        rid, claim, first = self.fixture()
+        process = multiprocessing.get_context("spawn").Process(target=crash_child,
+            args=(self.engine.url.render_as_string(hide_password=False), rid, claim, "legacy_pending_plan"))
+        process.start()
+        await asyncio.to_thread(process.join, 30)
+        self.assertFalse(process.is_alive())
+        self.assertEqual(process.exitcode, 81)
+        planner = unit.FixedPlanner([])
+        second = self.expire_and_claim(rid)
+        with self.sessions() as db:
+            self.assertEqual(db.scalar(text("SELECT count(*) FROM chat_test_calls")), 0)
+        result = await self.context(second, planner)
+        self.assertEqual(planner.count, 0)
+        self.assertIn("短事务", result.context_text)
+        identity = ChatToolCheckpointIdentity("u", "p", first.agent_id, first.coordinator_id,
+            "", second.claim.owner, second.claim.version, rid)
+        async with durable_checkpointer(self.engine.url, identity, saver_type=ChatToolPostgresSaver) as saver:
+            snapshot = await sync_tool_graph._build_sync_tool_graph(saver).aget_state(identity.config)
+        self.assertEqual(snapshot.values["checkpoint_schema"], 1)
+        self.assertEqual(snapshot.values["route"], "done")
+        self.assertIsNone(snapshot.values.get("tool_state"))
 
     async def test_stale_owner_native_checkpoint_write_denied(self):
         rid, claim, first = self.fixture()
