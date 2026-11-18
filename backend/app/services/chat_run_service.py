@@ -37,6 +37,10 @@ class ChatLeaseLost(asyncio.CancelledError):
     """保留为独立控制异常，防止被模型/工具普通失败兜底吞掉。"""
 
 
+class ChatRunOutputBudgetExceeded(ValueError):
+    """写入本地正文或事件日志时超出任务预算。"""
+
+
 class ChatRunService:
     def __init__(self, db):
         self.db = db
@@ -251,7 +255,7 @@ class ChatRunService:
             self._event(run, event)
         if len(run.content) + len(run.reasoning_content) > settings.chat_run_max_chars or run.event_bytes > settings.chat_run_event_max_bytes:
             self.db.rollback()
-            raise ValueError("chat_output_budget_exhausted")
+            raise ChatRunOutputBudgetExceeded("chat_output_budget_exhausted")
         self._message(run, "streaming")
         self.db.commit()
         return True
@@ -314,8 +318,12 @@ class ChatRunService:
                 "context_summary_rebuilding": "较早对话正在后台恢复摘要，本轮尚未生成回答。请稍后重新生成。",
                 "context_summary_rebuild_failed": "历史摘要恢复失败，本轮未使用不完整历史回答。请重试摘要恢复，或检查模型设置。",
             }
+            public_errors = {**summary_errors,
+                "tool_state_unavailable": "工具执行状态无法安全恢复，请重新发起任务。",
+                "output_budget_exhausted": "回答超过本次任务的保存上限，请缩小回答范围后重试。",
+            }
             self._event(run, {"type": "model_error", "error_code": error_code,
-                "error": summary_errors.get(error_code, "回答生成已中断，已保留收到的内容。可查看详情或重新生成。"),
+                "error": public_errors.get(error_code, "回答生成已中断，已保留收到的内容。可查看详情或重新生成。"),
                 "retryable": error_code in summary_errors,
                 "assistant_message_id": run.assistant_message_id})
         # 原生订阅收到终态即关闭；先发送具体错误，不能让终态吞掉错误说明。

@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from uuid import uuid4
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
@@ -82,6 +83,22 @@ class AgentRunAuditEvent(Base):
     state_version: Mapped[int] = mapped_column(Integer)
     details_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def event_types(self) -> list[str]:
+        """从历史和当前记录中读取事件名，不公开其他详情字段。"""
+        try:
+            records = json.loads(self.details_json or "[]")
+        except ValueError:
+            return []
+        if not isinstance(records, list):
+            return []
+        names = []
+        for record in records:
+            if isinstance(record, dict):
+                name = record.get("type") or record.get("event")
+                if isinstance(name, str) and name:
+                    names.append(name)
+        return names
 
 
 class AgentApproval(Base):

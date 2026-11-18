@@ -1,5 +1,3 @@
-import json
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -95,15 +93,9 @@ def get_agent_run(
     audit_payload = None
     if event:
         # 详情只公开业务动作类型，实际输入、输出和错误原文不从执行状态回显。
-        try:
-            details = json.loads(event.details_json or "[]")
-        except (TypeError, ValueError):
-            details = []
         audit_payload = {"id": event.id, "step_sequence": event.step_sequence,
                          "state_version": event.state_version, "created_at": event.created_at,
-                         "event_types": [str(row.get("type") or row.get("event")) for row in details
-                            if isinstance(row, dict) and (row.get("type") or row.get("event"))]
-                            if isinstance(details, list) else []}
+                         "event_types": event.event_types()}
     return AgentRunSnapshotResponse(
         run=AgentRunResponse.model_validate(snapshot["run"]),
         steps=[AgentStepResponse.model_validate(item) for item in snapshot["steps"]],

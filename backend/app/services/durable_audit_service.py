@@ -160,15 +160,7 @@ class DurableAuditService:
                 )
             )
         for event in audit_events:
-            try:
-                observations = json.loads(event.details_json or "[]")
-            except json.JSONDecodeError:
-                observations = []
-            observation_types = [
-                str(item.get("type"))
-                for item in observations
-                if isinstance(item, dict) and item.get("type")
-            ] if isinstance(observations, list) else []
+            observation_types = event.event_types()
             events.append(
                 self._event(
                     "run.transition",

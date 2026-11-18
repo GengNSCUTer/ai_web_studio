@@ -108,18 +108,23 @@ _test_savers = WeakKeyDictionary()
 
 
 async def _invoke(graph, config, context):
+    from app.services.chat_tool_runtime import ChatToolStateUnavailable
+
     run, persistence = context.run, context.persistence
     previous = await graph.aget_state(config)
     packed = previous.values.get("tool_state")
-    if packed is not None:
-        # Pending Writes已完成的节点可更新route，但在下一次super-step前next仍为空。
-        node = previous.next[0] if previous.next else previous.values.get("route")
-        if (not isinstance(packed, str) or len(previous.next) > 1
-                or node not in {"reserve", "plan", "execute", "observe", "finalize", "done"}):
-            raise ValueError("原生工具图状态不完整，不能重新执行旧任务")
-        await asyncio.to_thread(persistence.restore, run, snapshot=packed, next_node=node)
-    else:
-        node = await asyncio.to_thread(persistence.restore, run)
+    try:
+        if packed is not None:
+            # Pending Writes已完成的节点可更新route，但在下一次super-step前next仍为空。
+            node = previous.next[0] if previous.next else previous.values.get("route")
+            if (not isinstance(packed, str) or len(previous.next) > 1
+                    or node not in {"reserve", "plan", "execute", "observe", "finalize", "done"}):
+                raise ValueError("原生工具图状态不完整，不能重新执行旧任务")
+            await asyncio.to_thread(persistence.restore, run, snapshot=packed, next_node=node)
+        else:
+            node = await asyncio.to_thread(persistence.restore, run)
+    except ValueError as exc:
+        raise ChatToolStateUnavailable(str(exc)) from exc
     run.events.append(ToolTraceEvent(type="tool_persistence", payload={
         "agent_run_id": persistence.agent_id, "chat_run_id": persistence.claim.run_id,
         "recovered": persistence.claim.version > 1, "resume_node": node,

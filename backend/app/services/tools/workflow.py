@@ -1124,12 +1124,6 @@ class ToolWorkflowService:
             retryable=step_result.retryable,
         )
 
-    @staticmethod
-    def _aggregate_status(outcomes: list[ToolStepOutcome]) -> str:
-        """兼容旧调用方的状态读取，避免复制汇总规则。"""
-
-        return ToolWorkflowAggregate.from_outcomes(outcomes).status
-
     def _effective_max_tool_calls(self, requested_limit: int | None) -> int:
         """把外层 Budget 限额与 Workflow 自身硬上限取较小值。"""
 

@@ -454,8 +454,24 @@ class DurableToolRuntimeTest(unittest.TestCase):
         worker = DurableToolWorker(session_factory=self.SessionLocal, owner="worker-audit", executor_factory=SuccessfulExecutor)
         self.assertTrue(asyncio.run(worker.run_once()))
         with self.SessionLocal() as db:
+            from app.api.routes.agent_runtime import get_agent_run
+
+            audit_event = db.scalar(select(AgentRunAuditEvent).where(AgentRunAuditEvent.run_id == run_id)
+                .order_by(AgentRunAuditEvent.state_version.desc()).limit(1))
+            audit_event.details_json = json.dumps([
+                {"event": "legacy_transition", "details": "private audit details"},
+                {"type": "current_transition"},
+                {"type": {"invalid": "private audit details"}},
+            ])
+            db.commit()
+            user = db.get(User, self.user_id)
+            snapshot = get_agent_run(run_id, db, user)
             content = DurableAuditService(db).export_jsonl(run_id=run_id, user_id=self.user_id)
             lines = [json.loads(line) for line in content.splitlines()]
+            types = next(line["observation_types"] for line in lines if line.get("audit_event_id") == audit_event.id)
+            self.assertEqual(types, ["legacy_transition", "current_transition"])
+            self.assertEqual(snapshot.latest_audit_event["event_types"], types)
+            self.assertNotIn("private audit details", content + snapshot.model_dump_json())
             self.assertTrue(any(item["event_type"] == "run.execution_snapshot" for item in lines))
             self.assertTrue(any(item["event_type"] == "artifact.summary" for item in lines))
             self.assertTrue(any(item["event_type"] == "run.transition" for item in lines))

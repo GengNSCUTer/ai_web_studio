@@ -57,26 +57,6 @@ class ConversationRepository:
         self.db.refresh(conversation)
         return conversation
 
-    def update_context_summary(
-        self,
-        conversation_id: str,
-        *,
-        context_summary: str | None,
-        context_summary_boundary_message_id: str | None,
-    ) -> Conversation | None:
-        # 该方法是上下文治理内部入口，不做 user_id 校验。
-        # 公开 API 不应直接暴露它；如果未来暴露，需要改成 conversation_id + user_id 双条件。
-        conversation = self.db.get(Conversation, conversation_id)
-        if not conversation:
-            return None
-
-        conversation.context_summary = context_summary
-        conversation.context_summary_boundary_message_id = context_summary_boundary_message_id
-        self.db.add(conversation)
-        self.db.flush()
-        self.db.refresh(conversation)
-        return conversation
-
     def touch(self, conversation_id: str) -> None:
         # touch 用于消息增删、生成完成后刷新会话排序；它只更新 updated_at，不读取对象。
         stmt = (

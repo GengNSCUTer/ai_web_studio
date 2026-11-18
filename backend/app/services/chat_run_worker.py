@@ -18,8 +18,8 @@ from app.services.chat_execution_models import ExistingTurnExecutionInput
 from app.services.chat_execution_service import ChatExecutionService
 from app.services.chat_provider_service import ChatProviderService
 from app.services.chat_run_guard import current_chat_guard
-from app.services.chat_run_service import ChatLeaseLost, ChatRunService
-from app.services.chat_tool_runtime import ChatToolPersistence, current_tool_persistence
+from app.services.chat_run_service import ChatLeaseLost, ChatRunOutputBudgetExceeded, ChatRunService
+from app.services.chat_tool_runtime import ChatToolPersistence, ChatToolStateUnavailable, current_tool_persistence
 from app.services.durable_worker_registry import DurableWorkerRegistry
 from app.services.runtime_lease import aware, utcnow, watch_lease
 
@@ -78,8 +78,14 @@ class ChatRunWorker:
                 content=partial["content"], reasoning=partial["reasoning"])
         except Exception as exc:
             from app.services.conversation_summary_service import SummaryRebuildRequired
-            code = exc.code if isinstance(exc, SummaryRebuildRequired) else (
-                "output_budget_exhausted" if isinstance(exc, ValueError) else "prepare_or_worker_error")
+            if isinstance(exc, SummaryRebuildRequired):
+                code = exc.code
+            elif isinstance(exc, ChatRunOutputBudgetExceeded):
+                code = "output_budget_exhausted"
+            elif isinstance(exc, ChatToolStateUnavailable):
+                code = "tool_state_unavailable"
+            else:
+                code = "prepare_or_worker_error"
             logger.warning("ChatRun执行失败，异常类型：%s", type(exc).__name__)
             await asyncio.to_thread(self._call, "finish", claim, status="failed", error_code=code,
                 content=partial["content"], reasoning=partial["reasoning"])

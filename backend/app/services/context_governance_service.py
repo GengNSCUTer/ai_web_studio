@@ -219,11 +219,6 @@ class ContextGovernanceService:
         )
 
     @staticmethod
-    def _split_system_prefix(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        system_prefix, reference_prefix, history_messages = ContextGovernanceService._split_prefix_messages(messages)
-        return [*system_prefix, *reference_prefix], history_messages
-
-    @staticmethod
     def _split_prefix_messages(
         messages: list[dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -596,27 +591,6 @@ class ContextGovernanceService:
                 totals[section["layer"]] = totals.get(section["layer"], 0) + self._estimate_message_tokens(normalized)
         return totals
 
-    def _build_file_context(self, file_attachments: list[dict[str, Any]]) -> tuple[str | None, int, int]:
-        chunks: list[str] = []
-        total_chars = 0
-        truncated_chars = 0
-        for attachment in file_attachments:
-            parsed_text = (attachment.get("parsed_text") or "").strip()
-            if not parsed_text:
-                continue
-
-            file_name = attachment.get("file_name") or "attachment"
-            label = f"[附件文件: {file_name}]"
-            limit = self.budget.max_attachment_chars
-            sliced = parsed_text[:limit]
-            total_chars += len(sliced)
-            truncated_chars += max(0, len(parsed_text) - len(sliced))
-            chunks.append(f"{label}\n{sliced}")
-
-        if not chunks:
-            return None, total_chars, truncated_chars
-        return "\n\n".join(chunks).strip(), total_chars, truncated_chars
-
     @staticmethod
     def _message_text(message: dict[str, Any]) -> str:
         content = message.get("content", "")
@@ -725,30 +699,6 @@ class ContextGovernanceService:
                 rebuilt_content.append({"type": "text", "text": replacement_text})
             return {**message, "content": rebuilt_content}
         return {**message, "content": replacement_text}
-
-    def _build_summary(self, *, source_messages: list[dict[str, Any]], clipped_chars: int) -> str | None:
-        lines: list[str] = []
-        for message in source_messages:
-            role = message.get("role")
-            if role not in {"user", "assistant"}:
-                continue
-            text = self._message_text(message).strip()
-            if not text:
-                continue
-            normalized = " ".join(text.split())
-            if not normalized:
-                continue
-            lines.append(f"{role}: {normalized[:320]}")
-
-        if not lines:
-            return None
-
-        prefix = ""
-        if clipped_chars > 0:
-            prefix = f"本轮上下文已裁剪约 {clipped_chars} 字符。"
-
-        summary = prefix + " ".join(lines)
-        return summary[: self.budget.max_summary_chars]
 
     def _build_structured_summary(
         self,

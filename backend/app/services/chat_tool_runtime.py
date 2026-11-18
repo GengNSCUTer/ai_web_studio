@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from app.models.agent_runtime import AgentApproval, AgentArtifact, AgentRun, AgentStep
 from app.models.conversation import Conversation
 from app.models.project import Project
+from app.models.project_file import ProjectFile
 from app.models.message import Message
 from app.services.chat_run_service import ChatLeaseLost, ChatRunService
 from app.services.runtime_lease import aware, utcnow
@@ -20,6 +21,7 @@ from app.services.tool_invocation_runtime import (
     InvocationOutcome, InvocationRuntimeError, ToolInvocationRuntime, current_invocation_runtime,
 )
 from app.services.chat_tool_snapshot import ChatToolSnapshotCodec, MAX_SNAPSHOT_BYTES
+from app.services.workspace_file_provenance import content_hash
 
 
 current_tool_persistence = current_invocation_runtime
@@ -31,6 +33,10 @@ LOOP_FIELDS = (
     "next_action", "workflow_aggregate_status", "workflow_aggregate", "raw_sources_total",
     "duplicate_sources_total", "projection_reports",
 )
+
+
+class ChatToolStateUnavailable(ValueError):
+    """没有可安全继续执行的工具状态。"""
 
 
 class ChatToolPersistence:
@@ -70,7 +76,7 @@ class ChatToolPersistence:
         request = json.loads(chat.request_json)["payload"]
         if (not source or source.conversation_id != chat.conversation_id or source.role != "user"
                 or ("content" in request and source.content != request["content"])):
-            raise ValueError("原始用户问题已变化，不能把旧计划用于新任务")
+            raise ChatToolStateUnavailable("原始用户问题已变化，不能把旧计划用于新任务")
         self.agent_id = agent.id
         return chat, agent
 
@@ -120,7 +126,7 @@ class ChatToolPersistence:
             run.budget.started_at = time.perf_counter() - run.budget.policy.max_wall_clock_seconds + remaining
             self.round_index = run.round_index
             run.service.executor.action_guard.remember_sources(run.sources)
-            self._validate_sources(db, run.sources)
+            self._validate_sources(db, agent, run.sources)
             self._validate_plan(db, run.service.executor, getattr(run, "plan", None), saved.get("tool_snapshots", {}))
             # 先前轮次已完成也必须按当前权限复核，不能只检查最后一轮。
             from app.services.tools.catalog import ToolCatalog
@@ -145,11 +151,11 @@ class ChatToolPersistence:
                 if artifact:
                     ToolInvocationRuntime.validate_artifact(agent, step, artifact)
                     ToolInvocationRuntime.verify_artifact_content(artifact)
-                if artifact and next_node == "execute" and remaining <= 0:
+                if artifact and next_node == "execute":
                     from app.services.tools.quality import is_usable_tool_result
                     response, _ = codec.loads(artifact.content_json)
-                    if is_usable_tool_result(response):
-                        self._validate_sources(db, response.sources)
+                    self._validate_sources(db, agent, response.sources)
+                    if remaining <= 0 and is_usable_tool_result(response):
                         # 工具截止时间可能在Worker离线时耗尽；已提交有效证据仍可用于部分回答。
                         run.service._merge_sources(run.sources, response.sources)
                         run.service.executor.action_guard.remember_sources(response.sources)
@@ -332,7 +338,7 @@ class ChatToolPersistence:
                     artifact_expected=bool(state.get("artifact_id")), active_owner=self.claim.owner, active_version=self.claim.version)
                 if decision.action == "reuse":
                     restored = codec.loads(artifact.content_json)
-                    self._validate_sources(db, restored[0].sources)
+                    self._validate_sources(db, agent, restored[0].sources)
                     return "reused", restored
                 if decision.action == "block":
                     return "blocked", decision.reason
@@ -370,17 +376,32 @@ class ChatToolPersistence:
     _reuse_allowed = staticmethod(ToolInvocationRuntime.reuse_allowed)
 
     @staticmethod
-    def _validate_sources(db, sources):
+    def _validate_sources(db, agent, sources):
+        checked_files = set()
         for source in sources:
             approval_id = source.metadata.get("approval_id")
             if approval_id and not source.metadata.get("applied"):
                 approval = db.get(AgentApproval, approval_id, populate_existing=True)
                 if not approval or approval.status != "pending" or aware(approval.expires_at) <= utcnow():
                     raise ValueError("审批状态已变化，请查看当前审批或文件版本，不复用旧等待说明")
+            if source.source_type != "workspace_file_read" or source.provider != "workspace":
+                continue
+            file_id, expected_hash = source.metadata.get("file_id"), source.metadata.get("content_hash")
+            if not isinstance(file_id, str) or not isinstance(expected_hash, str) or not agent.project_id:
+                raise ChatToolStateUnavailable("文件证据缺少有效的来源版本")
+            if (file_id, expected_hash) not in checked_files:
+                item = db.scalar(select(ProjectFile).where(ProjectFile.id == file_id,
+                    ProjectFile.user_id == agent.user_id, ProjectFile.project_id == agent.project_id)
+                    .execution_options(populate_existing=True))
+                if item is None:
+                    raise ChatToolStateUnavailable("文件证据范围已变化")
+                if content_hash(item.parsed_text or "") != expected_hash:
+                    raise ChatToolStateUnavailable("文件证据正文已变化，不能复用旧结果")
+                checked_files.add((file_id, expected_hash))
 
     def _complete_call(self, step_id, result):
         with self.sessions() as db:
-            chat, agent = self._lock(db)
+            _, agent = self._lock(db)
             step = db.get(AgentStep, step_id, populate_existing=True)
             if (not step or step.run_id != agent.id or step.lease_version != self.claim.version
                     or step.lease_owner != self.claim.owner or step.status != "running"):
@@ -391,7 +412,6 @@ class ChatToolPersistence:
                 preview=f"{step.tool_key}：{result[0].status}", max_bytes=2 * 1024 * 1024)
             state = json.loads(step.result_json)
             state["artifact_id"] = artifact.id
-            step.result_json = json.dumps(state)
             response = result[0]
             step.status = InvocationOutcome.from_result(response).step_status
             state.update(quality_status=response.quality_status, result_status=response.status)
@@ -419,7 +439,7 @@ def ensure_tool_run(db, chat, conversation):
     else:
         coordinator = db.scalar(select(AgentStep).where(AgentStep.run_id == agent.id, AgentStep.sequence == 0))
         if not coordinator:
-            raise ValueError("Chat工具运行缺少编排步骤")
+            raise ChatToolStateUnavailable("Chat工具运行缺少编排步骤")
     return agent, coordinator
 
 

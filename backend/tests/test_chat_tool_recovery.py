@@ -17,7 +17,7 @@ from app.models.project import Project
 from app.models.project_file import ProjectFile
 from app.models.tool_config import WorkspaceAgentPolicy, WorkspaceToolSetting
 from app.services.chat_run_service import ChatLeaseLost, ChatRunService
-from app.services.chat_tool_runtime import ChatToolPersistence, current_tool_persistence
+from app.services.chat_tool_runtime import ChatToolPersistence, ChatToolStateUnavailable, current_tool_persistence
 from app.services.external_context_service import ExternalContextService
 from app.services.runtime_lease import utcnow
 from app.services.tools.executor import ToolExecutor
@@ -167,6 +167,19 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
             db.commit()
         with self.assertRaisesRegex(ValueError, "范围已变化"):
             await self.context(second, FixedPlanner([]))
+
+    async def test_edited_file_cannot_be_reintroduced_by_cached_sources(self):
+        rid, _, first = self.fixture()
+        await self.context(first, FixedPlanner([self.tool("A")]))
+        with self.sessions() as db:
+            db.get(ProjectFile, "f").parsed_text = "工作区资料已修订。"
+            db.commit()
+        second = self.expire_and_claim(rid)
+        planner = FixedPlanner([])
+        with patch.object(ToolExecutor, "_execute", side_effect=AssertionError("不得重做旧工具")):
+            with self.assertRaisesRegex(ChatToolStateUnavailable, "正文已变化"):
+                await self.context(second, planner)
+        self.assertEqual(planner.count, 0)
 
     async def test_resume_next_round_preserves_round_and_call_budgets(self):
         rid, _, first = self.fixture()

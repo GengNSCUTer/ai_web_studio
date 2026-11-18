@@ -23,8 +23,9 @@ from app.models.message import Message
 from app.schemas.message import ChatStreamRequest, ChatRegenerateRequest
 from app.services.chat_execution_models import ChatExecutionContext
 from app.services.chat_provider_service import ChatStreamEvent
-from app.services.chat_run_service import ChatRunService, ChatClaim
+from app.services.chat_run_service import ChatRunService, ChatClaim, ChatRunOutputBudgetExceeded
 from app.services.chat_run_worker import ChatRunWorker
+from app.services.chat_tool_runtime import ChatToolStateUnavailable
 from app.services.runtime_lease import utcnow
 from app.api.routes.chat_runs import subscribe_events
 
@@ -341,6 +342,23 @@ class ChatRunTest(unittest.IsolatedAsyncioTestCase):
         snap = self.snapshot(run)
         self.assertEqual((snap["status"], snap["error_code"], snap["content"]),
                          ("failed", "output_token_limit", "被截断的回答"))
+
+    async def test_worker_distinguishes_tool_state_from_output_limit_and_other_errors(self):
+        for error_type, code in (
+            (ChatToolStateUnavailable, "tool_state_unavailable"),
+            (ChatRunOutputBudgetExceeded, "output_budget_exhausted"),
+            (ValueError, "prepare_or_worker_error"),
+        ):
+            with self.subTest(code=code):
+                run = self.create(code)
+                worker = ChatRunWorker(session_factory=self.sessions)
+                with patch.object(worker, "_execute", side_effect=error_type("内部异常详情")):
+                    self.assertTrue(await worker.run_once())
+                snapshot = self.snapshot(run)
+                self.assertEqual((snapshot["status"], snapshot["error_code"]), ("failed", code))
+                events = "".join([event async for event in subscribe_events(run, "u", sessions=self.sessions)])
+                self.assertIn(f'"error_code": "{code}"', events)
+                self.assertNotIn("内部异常详情", events)
 
     async def test_cancellation_before_preparation_finishes_never_calls_model(self):
         run = self.create()
