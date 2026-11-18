@@ -56,7 +56,8 @@ def child(url, rid, claim, window, audit_path):
     event.listen(engine, "before_cursor_execute", lambda *_: counts.update(sqlalchemy_statements=1))
     persistence = ChatToolPersistence(harness.sessions, claim)
     persistence.initialize()
-    original_execute, original_complete, original_save = ToolExecutor._execute, persistence._complete_call, persistence.save
+    original_execute, original_complete = ToolExecutor._execute, persistence._complete_call
+    original_record = persistence.record_outcomes
 
     def crash():
         Path(audit_path).write_text(json.dumps({"fault_epoch": time.time(), "counts": dict(counts)}))
@@ -87,12 +88,12 @@ def child(url, rid, claim, window, audit_path):
         if window == "after_commit":
             crash()
 
-    def save(run, node):
-        if node == "observe" and window == "before_checkpoint":
+    def record_outcomes(run):
+        if window == "before_checkpoint":
             crash()
-        original_save(run, node)
+        original_record(run)
 
-    persistence._complete_call, persistence.save = complete, save
+    persistence._complete_call, persistence.record_outcomes = complete, record_outcomes
     with patch.object(ToolExecutor, "_execute", execute):
         context(harness, persistence, [harness.tool("A"), harness.tool("B", "workspace.files.list", depends=["A"])])
     raise AssertionError("没有命中指定故障窗口")
@@ -100,7 +101,7 @@ def child(url, rid, claim, window, audit_path):
 
 def run(output, *, normal_repeats=0):
     from sqlalchemy import event, select, text
-    from app.models.agent_runtime import AgentArtifact, AgentCheckpoint, AgentStep
+    from app.models.agent_runtime import AgentArtifact, AgentStep
     from app.models.chat_run import ChatRun
     from app.services.chat_tool_runtime import ChatToolPersistence
     from app.services.runtime_lease import aware, utcnow
@@ -197,11 +198,9 @@ def run(output, *, normal_repeats=0):
                 event.remove(harness.engine, "before_cursor_execute", listener)
                 with harness.sessions() as db:
                     steps = list(db.scalars(select(AgentStep).where(AgentStep.run_id==first.agent_id,AgentStep.sequence>0)))
-                    sizes = [len(row.planner_state_json.encode()) for row in db.scalars(select(AgentCheckpoint).where(AgentCheckpoint.run_id==first.agent_id))]
                     case.update(artifact_reuse_count=reused, reusable_artifacts_at_fault=before_artifacts,
                         tool_requests=counts["tool_requests"], sql_statements=counts["sqlalchemy_statements"],
-                        step_attempts=sum(s.attempts for s in steps), checkpoint_bytes=sum(sizes),
-                        checkpoint_count=len(sizes), native_checkpoint_rows=db.scalar(text(
+                        step_attempts=sum(s.attempts for s in steps), native_checkpoint_rows=db.scalar(text(
                             "SELECT count(*) FROM aiws_graph.checkpoints c JOIN aiws_graph.runtime_threads t USING(thread_id) WHERE t.run_id=:rid"),
                             {"rid":first.agent_id}), lease_wait_seconds=round(wait_seconds,2),
                         elapsed_ms=round((time.perf_counter()-started)*1000,2), model_requests=0, model_tokens=0)

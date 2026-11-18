@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from app.core.database import SessionLocal  # noqa: E402
 from app.models.agent_runtime import (  # noqa: E402
-    AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentRun, AgentStep, AgentWorkerHeartbeat,
+    AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent, AgentRun, AgentStep, AgentWorkerHeartbeat,
 )
 from app.models.conversation import Conversation  # noqa: E402
 from app.models.message import Message  # noqa: E402
@@ -66,7 +66,7 @@ def cleanup(project_id: str, conversation_id: str, run_id: str, worker_owner: st
     with SessionLocal() as db:
         db.execute(delete(AgentArtifact).where(AgentArtifact.run_id == run_id))
         db.execute(delete(AgentOutboxEvent).where(AgentOutboxEvent.run_id == run_id))
-        db.execute(delete(AgentCheckpoint).where(AgentCheckpoint.run_id == run_id))
+        db.execute(delete(AgentRunAuditEvent).where(AgentRunAuditEvent.run_id == run_id))
         db.execute(delete(AgentStep).where(AgentStep.run_id == run_id))
         db.execute(delete(AgentRun).where(AgentRun.id == run_id))
         db.execute(delete(Message).where(Message.conversation_id == conversation_id))

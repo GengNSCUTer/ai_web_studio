@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.agent_runtime import AgentApproval, AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentRun, AgentStep
+from app.models.agent_runtime import AgentApproval, AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent, AgentRun, AgentStep
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.project import Project
@@ -118,7 +118,7 @@ class DocumentTaskService:
             self.db.flush()
             if sequence == 1:
                 self.enqueue(run, step)
-        self.checkpoint(run, None, "created")
+        self.record_audit(run, None, "created")
         self.db.commit()
         return self.snapshot(user_id, run.id)
 
@@ -171,10 +171,9 @@ class DocumentTaskService:
         self.db.add(AgentOutboxEvent(run_id=run.id, step_id=step.id, event_key=key,
                     event_type="document_stage.requested", payload_json="{}", status="pending", available_at=utcnow()))
 
-    def checkpoint(self, run, step, event):
-        self.db.add(AgentCheckpoint(run_id=run.id, step_sequence=step.sequence if step else 0,
-            state_version=run.state_version, planner_state_json=run.planner_state_json,
-            observations_json=encode([{"event": event}]), remaining_budget_json="{}"))
+    def record_audit(self, run, step, event):
+        self.db.add(AgentRunAuditEvent(run_id=run.id, step_sequence=step.sequence if step else 0,
+            state_version=run.state_version, details_json=encode([{"type": event}])))
 
     def artifact(self, run_id, stage):
         artifact = self.db.scalar(select(AgentArtifact).join(AgentStep, AgentStep.id == AgentArtifact.step_id)
@@ -224,7 +223,7 @@ class DocumentTaskService:
             self.project_message(run, "文档任务已完成", f"已交付：{result['file_name']}")
         else:
             raise DocumentTaskError("未知文档图转换，拒绝提交。")
-        self.checkpoint(run, step, f"{step.call_id}_succeeded")
+        self.record_audit(run, step, f"{step.call_id}_succeeded")
 
     def validate_completion(self, run, stage, result):
         """进入成功转换前检查实际产物，不使用模型的完成声明。"""
@@ -315,7 +314,7 @@ class DocumentTaskService:
                 approval.expires_at = utcnow() + timedelta(hours=24)
         step.status, run.status, run.finished_at = "waiting_approval", "waiting_approval", None
         run.state_version += 1
-        self.checkpoint(run, step, "workspace_save_requested")
+        self.record_audit(run, step, "workspace_save_requested")
         self.db.commit()
         return self.snapshot(user_id, run.id)
 
@@ -346,7 +345,7 @@ class DocumentTaskService:
         approval.status, approval.nonce_hash = "rejected", None
         step.status, run.status, run.finished_at = "planned", "succeeded", utcnow()
         run.state_version += 1
-        self.checkpoint(run, step, "workspace_save_rejected")
+        self.record_audit(run, step, "workspace_save_rejected")
         self.project_message(run, "文档已生成", "已放弃保存到工作区，仍可预览下载。")
         self.db.commit()
         return self.snapshot(user_id, run.id)
@@ -407,7 +406,7 @@ class DocumentTaskService:
         step.status, run.status = "pending", "queued"
         run.state_version += 1
         self.enqueue(run, step)
-        self.checkpoint(run, step, "delivery_approved")
+        self.record_audit(run, step, "delivery_approved")
         self.db.commit()
         return self.snapshot(user_id, run.id)
 
@@ -431,7 +430,7 @@ class DocumentTaskService:
         for approval in self.db.scalars(select(AgentApproval).where(AgentApproval.run_id == run.id, AgentApproval.status == "pending")):
             approval.status, approval.nonce_hash = "rejected", None
         self.project_message(run, "文档任务已取消", "已完成产物仍可打开下载；未完成阶段不会继续写入。")
-        self.checkpoint(run, None, "cancelled")
+        self.record_audit(run, None, "cancelled")
         self.db.commit()
         return self.snapshot(user_id, run_id)
 
@@ -447,7 +446,7 @@ class DocumentTaskService:
         run.status, run.finished_at = "queued", None
         run.state_version += 1
         self.enqueue(run, failed)
-        self.checkpoint(run, failed, "user_retry")
+        self.record_audit(run, failed, "user_retry")
         self.db.commit()
         return self.snapshot(user_id, run_id)
 

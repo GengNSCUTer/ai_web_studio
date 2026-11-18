@@ -17,7 +17,7 @@ from sqlalchemy import delete, select
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models import Conversation, Message, Project, ProjectFile, User, UserSetting
-from app.models.agent_runtime import (AgentApproval, AgentArtifact, AgentCheckpoint, AgentOutboxEvent,
+from app.models.agent_runtime import (AgentApproval, AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent,
                                       AgentRun, AgentStep, FileRevision, PatchDraft)
 from app.models.knowledge import KnowledgeBase, KnowledgeChunk, KnowledgeDocument, KnowledgeRetrievalLog
 from app.models.observability import ChatRuntimeMetric
@@ -337,8 +337,8 @@ class PilotRunner:
                 and projected[0].id == task.get('result_message_id') and projected[0].status == 'done'
                 and '/documents?run=' + run_id in projected[0].content)
             row['result_messages'] = [{'id': m.id, 'status': m.status, 'content': m.content} for m in projected]
-            row['checkpoints'] = [{'step_sequence': c.step_sequence, 'state_version': c.state_version}
-                                 for c in db.scalars(select(AgentCheckpoint).where(AgentCheckpoint.run_id == run_id))]
+            row['run_audit_events'] = [{'step_sequence': c.step_sequence, 'state_version': c.state_version}
+                                 for c in db.scalars(select(AgentRunAuditEvent).where(AgentRunAuditEvent.run_id == run_id))]
         checks.update(self.safety_checks(project_id, file_ids))
         row['checks'] = checks
         row['critical_checks'] = ['source_files_unchanged', 'no_unrequested_approval', 'no_unrequested_revision',
@@ -427,7 +427,7 @@ class PilotRunner:
                 db.execute(delete(WorkspaceToolSetting).where(WorkspaceToolSetting.project_id == project_id))
                 db.execute(delete(PatchDraft).where(PatchDraft.run_id.in_(runs)))
                 db.execute(delete(FileRevision).where(FileRevision.project_file_id.in_(files)))
-                for model in (AgentApproval, AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentStep):
+                for model in (AgentApproval, AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent, AgentStep):
                     db.execute(delete(model).where(model.run_id.in_(runs)))
                 db.execute(delete(AgentRun).where(AgentRun.project_id == project_id))
                 db.execute(delete(ProjectFile).where(ProjectFile.project_id == project_id))

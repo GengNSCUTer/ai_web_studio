@@ -18,13 +18,68 @@ from fastapi import HTTPException
 
 @unittest.skipUnless(os.getenv("TEST_POSTGRES_URL"), "需要隔离 PostgreSQL 测试环境")
 class MigrationPostgresTest(unittest.TestCase):
+    def test_native_checkpoint_cutover_drains_chat_and_keeps_business_audit(self):
+        from datetime import timedelta
+        from app.models.agent_runtime import AgentRun, AgentStep
+        from app.models.chat_run import ChatRun
+        from app.models.conversation import Conversation
+        from app.models.message import Message
+        from app.models.user import User
+
+        upgrade_database(self.engine, target="20261117_01")
+        with sessionmaker(self.engine)() as db:
+            db.add(User(id="u", email="cutover@example.test"))
+            db.flush()
+            db.add(Conversation(id="conv", user_id="u", title="迁移", model_name="test"))
+            db.flush()
+            db.add_all([Message(id="question", conversation_id="conv", role="user", content="问题"),
+                        Message(id="answer", conversation_id="conv", role="assistant", content="保留答案", generation_id="g")])
+            db.flush()
+            db.add(ChatRun(id="chat", user_id="u", conversation_id="conv", user_message_id="question",
+                assistant_message_id="answer", generation_id="g", client_request_id="request", request_json="{}",
+                status="running", max_output_tokens=100, queued_expires_at=datetime.now(timezone.utc) + timedelta(minutes=1)))
+            db.flush()
+            for index, kind in enumerate(("chat_tool_workflow", "durable_tool_workflow", "document_workflow", "file_edit")):
+                rid = f"run{index}"
+                db.add(AgentRun(id=rid, user_id="u", runtime_kind=kind, idempotency_key=rid,
+                    chat_run_id="chat" if index == 0 else None, planner_state_json='{"runtime_engine":"kept"}'))
+                db.flush()
+                db.add(AgentStep(id=rid, run_id=rid, sequence=0, call_id="step", tool_key="test",
+                    arguments_json="{}", arguments_hash=""))
+                db.flush()
+                db.execute(text("insert into agent_checkpoints (id,run_id,step_sequence,state_version,planner_state_json,"
+                    "observations_json,remaining_budget_json) values (:id,:id,0,1,'old state',:details,'{}')"),
+                    {"id": rid, "details": '[{"event":"created"}]'})
+            for key in ("langgraph_chat_tools_v1", "langgraph_chat_tools_v2"):
+                db.execute(text("insert into aiws_graph.runtime_threads (thread_id,run_id,step_id,runtime_key) "
+                    "values (:key,'run0','run0',:key)"), {"key": key})
+                db.execute(text("insert into aiws_graph.checkpoints (thread_id,checkpoint_ns,checkpoint_id,type,checkpoint,metadata) "
+                    "values (:key,'','1','json','{}','{}')"), {"key": key})
+            db.commit()
+        with self.assertRaisesRegex(Exception, "Chat尚未排空"):
+            upgrade_database(self.engine)
+        with self.engine.begin() as c:
+            self.assertEqual(MigrationContext.configure(c).get_current_revision(), "20261117_01")
+            self.assertEqual(c.scalar(text("select count(*) from agent_checkpoints")), 4)
+            c.execute(text("update chat_runs set status='succeeded' where id='chat'"))
+        upgrade_database(self.engine)
+        with self.engine.connect() as c:
+            self.assertFalse(inspect(c).has_table("agent_checkpoints"))
+            self.assertEqual(c.execute(text("select id,details_json from agent_run_audit_events order by id")).all(),
+                             [(f"run{i}", '[{"event":"created"}]') for i in range(1, 4)])
+            self.assertEqual(c.execute(text("select thread_id from aiws_graph.checkpoints")).scalars().all(),
+                             ["langgraph_chat_tools_v2"])
+            self.assertEqual(c.scalar(text("select content from messages where id='answer'")), "保留答案")
+            self.assertEqual(c.scalar(text("select planner_state_json from agent_runs where id='run1'")),
+                             '{"runtime_engine":"kept"}')
+
     def test_summary_upgrade_keeps_old_summary_and_can_downgrade(self):
         upgrade_database(self.engine,target='20261111_02')
         with self.engine.begin() as c:
             c.execute(text("insert into users(id,email) values ('summary-u','summary-migrate@example.test')"))
             c.execute(text("insert into conversations(id,user_id,title,model_name,is_archived,is_pinned,context_summary) "
                 "values ('summary-c','summary-u','test','test',false,false,'原摘要')"))
-        upgrade_database(self.engine)
+        upgrade_database(self.engine,target='20261117_01')
         with self.engine.connect() as c:
             self.assertEqual(tuple(c.execute(text("select context_summary,context_history_revision from conversations "
                 "where id='summary-c'")).one()),('原摘要',0))
@@ -111,7 +166,7 @@ class MigrationPostgresTest(unittest.TestCase):
             c.execute(text("insert into memory_extraction_jobs(id,user_id,conversation_id,idempotency_key,source_message_ids,"
                            "cursor_end,status,attempts,max_attempts,lease_version,result_count) "
                            "values ('j','u','c','old','m',17,'succeeded',1,3,1,0)"))
-        upgrade_database(self.engine)
+        upgrade_database(self.engine, target="20261111_02")
         with self.engine.connect() as c:
             self.assertEqual(tuple(c.execute(text("select memory_scan_cursor,memory_extraction_cursor,memory_trigger_state "
                                                  "from conversations where id='c'")).one()), (17, 17, None))

@@ -45,15 +45,19 @@ def run(output):
     from playwright.sync_api import sync_playwright, expect
     from stage46a_real_e2e import prepare_fixture, cleanup
     from app.core.database import SessionLocal
-    from app.models.agent_runtime import AgentArtifact, AgentCheckpoint, AgentRun, AgentStep
+    from app.models.agent_runtime import AgentArtifact, AgentRun, AgentStep
     from app.models.chat_run import ChatRun, ChatRunEvent
     from app.models.message import Message
+    from app.models.project import Project
     from app.services.tools import runtime_codec as codec
 
     token, uid, pid, fid, _ = prepare_fixture()
+    with SessionLocal() as db:
+        model_name = db.get(Project, pid).default_model
     client = httpx.Client(base_url="http://127.0.0.1:32007", timeout=30,
         headers={"Authorization": f"Bearer {token}"})
-    report = {"scope": "真实在线DeepSeek-V3.2、PG原生检查点、文件工具、独立进程和浏览器；不启动Ollama", "cases": []}
+    report = {"scope": "真实在线模型、PG原生检查点、文件工具、独立进程和浏览器；不启动Ollama",
+              "model": model_name, "cases": []}
     errors = []
     def save():
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -70,7 +74,7 @@ def run(output):
         return response.json()
     def new_run(content, **kwargs):
         c = client.post("/api/conversations", json={"project_id": pid, "title": "Chat工具恢复真实验收",
-            "model_name": "deepseek-ai/DeepSeek-V3.2"})
+            "model_name": model_name})
         c.raise_for_status()
         cid = c.json()["id"]
         response = client.post("/api/chat/runs", json={"conversation_id": cid, "content": content,

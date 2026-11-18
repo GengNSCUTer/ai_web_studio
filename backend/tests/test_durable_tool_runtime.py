@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401
 from app.core.database import Base
-from app.models.agent_runtime import AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentRun, AgentStep
+from app.models.agent_runtime import AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent, AgentRun, AgentStep
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.project import Project
@@ -458,9 +458,11 @@ class DurableToolRuntimeTest(unittest.TestCase):
             lines = [json.loads(line) for line in content.splitlines()]
             self.assertTrue(any(item["event_type"] == "run.execution_snapshot" for item in lines))
             self.assertTrue(any(item["event_type"] == "artifact.summary" for item in lines))
+            self.assertTrue(any(item["event_type"] == "run.transition" for item in lines))
             self.assertIn("arguments_hash", content)
             self.assertNotIn("secret query", content)
             self.assertNotIn("content_json", content)
+            self.assertNotIn("remaining_budget_json", content)
             other = User(username="audit-other", email="audit-other@example.test")
             db.add(other)
             db.commit()
@@ -947,7 +949,7 @@ class DurableToolRuntimeTest(unittest.TestCase):
             self.assertEqual(run.state_version, 1)
             self.assertEqual(dependent.status, "pending")
             self.assertEqual(
-                db.query(AgentCheckpoint).filter_by(run_id=run_id).count(),
+                db.query(AgentRunAuditEvent).filter_by(run_id=run_id).count(),
                 1,
             )
 
@@ -1101,11 +1103,11 @@ class DurableToolRuntimeTest(unittest.TestCase):
             )
             self.assertEqual(replayed.status, "queued")
             checkpoint = db.scalar(
-                select(AgentCheckpoint)
-                .where(AgentCheckpoint.run_id == run_id)
-                .order_by(AgentCheckpoint.state_version.desc())
+                select(AgentRunAuditEvent)
+                .where(AgentRunAuditEvent.run_id == run_id)
+                .order_by(AgentRunAuditEvent.state_version.desc())
             )
-            self.assertNotIn('"event_id":null', checkpoint.observations_json)
+            self.assertNotIn('"event_id":null', checkpoint.details_json)
             self.assertEqual(db.query(AgentOutboxEvent).filter_by(run_id=run_id).count(), 2)
 
         successful_worker = DurableToolWorker(
@@ -1221,11 +1223,11 @@ class DurableToolRuntimeTest(unittest.TestCase):
             self.assertEqual(source.status, "pending")
             self.assertEqual(dependent.status, "pending")
             checkpoint = db.scalar(
-                select(AgentCheckpoint)
-                .where(AgentCheckpoint.run_id == run_id)
-                .order_by(AgentCheckpoint.state_version.desc())
+                select(AgentRunAuditEvent)
+                .where(AgentRunAuditEvent.run_id == run_id)
+                .order_by(AgentRunAuditEvent.state_version.desc())
             )
-            observations = json.loads(checkpoint.observations_json)
+            observations = json.loads(checkpoint.details_json)
             self.assertEqual(
                 {item["type"] for item in observations},
                 {"step_replay_requested", "dependent_step_replay_requested"},

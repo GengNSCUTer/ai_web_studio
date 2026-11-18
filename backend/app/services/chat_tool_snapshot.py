@@ -1,4 +1,4 @@
-"""业务检查点引用已提交工具产物；保留无法重构的规划/预算/反馈。
+"""原生图状态引用已提交工具产物；保留无法重构的规划、预算和反馈。
 
 引用仅出现在内部类型编码的值节点。外部JSON的同名键仍由$dict包裹，
 不能被当成恢复引用。所有路径都局限在同用户同Run的已关联工具产物内。
@@ -124,8 +124,7 @@ class ChatToolSnapshotCodec:
             raise InvocationRuntimeError("checkpoint_too_large", "工具恢复记录超过大小上限。")
         envelope = json.loads(text)
         if not isinstance(envelope, dict) or envelope.get("format") != FORMAT:
-            # 旧类型快照继续可读，重新保存时自然迁移为引用格式。
-            return codec.loads(text)
+            raise InvocationRuntimeError("checkpoint_format_invalid", "图状态格式无法识别。")
         count = 0
         expanded_bytes = 0
 

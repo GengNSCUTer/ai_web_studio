@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401
 from app.core.database import Base
-from app.models.agent_runtime import AgentApproval, AgentCheckpoint, AgentRun, AgentStep, FileRevision, PatchDraft
+from app.models.agent_runtime import AgentApproval, AgentRunAuditEvent, AgentRun, AgentStep, FileRevision, PatchDraft
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.project import Project
@@ -62,7 +62,7 @@ class AgentRuntimeServiceTest(unittest.TestCase):
             new_string="new value",
         )
 
-    def test_proposal_persists_full_checkpoint_without_mutating_file(self) -> None:
+    def test_proposal_persists_business_audit_without_mutating_file(self) -> None:
         proposal = self._propose()
 
         self.db.refresh(self.file)
@@ -73,7 +73,7 @@ class AgentRuntimeServiceTest(unittest.TestCase):
         self.assertEqual(self.db.scalar(select(AgentStep)).status, "waiting_approval")
         self.assertEqual(self.db.scalar(select(PatchDraft)).status, "proposed")
         self.assertEqual(self.db.scalar(select(AgentApproval)).status, "pending")
-        self.assertEqual(self.db.scalar(select(AgentCheckpoint)).state_version, 1)
+        self.assertEqual(self.db.scalar(select(AgentRunAuditEvent)).state_version, 1)
         self.assertEqual(self.db.scalar(select(FileRevision)).revision_number, 1)
 
         duplicate = self._propose()

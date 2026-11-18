@@ -91,24 +91,23 @@ def get_agent_run(
         snapshot = AgentRuntimeService(db).get_run_snapshot(run_id=run_id, user_id=current_user.id)
     if not snapshot:
         raise HTTPException(status_code=404, detail="Agent Run not found")
-    checkpoint = snapshot["checkpoint"]
-    checkpoint_payload = None
-    if checkpoint:
-        checkpoint_payload = {
-            "id": checkpoint.id,
-            "step_sequence": checkpoint.step_sequence,
-            "state_version": checkpoint.state_version,
-            # Chat恢复快照含受控工具原文，不作为通用运行详情回显；这里只展示编排摘要。
-            "planner_state": json.loads(snapshot["run"].planner_state_json or "{}") if snapshot["run"].runtime_kind == "chat_tool_workflow"
-                else json.loads(checkpoint.planner_state_json or "{}"),
-            "observations": json.loads(checkpoint.observations_json or "[]"),
-            "remaining_budget": json.loads(checkpoint.remaining_budget_json or "{}"),
-            "created_at": checkpoint.created_at,
-        }
+    event = snapshot["latest_audit_event"]
+    audit_payload = None
+    if event:
+        # 详情只公开业务动作类型，实际输入、输出和错误原文不从执行状态回显。
+        try:
+            details = json.loads(event.details_json or "[]")
+        except (TypeError, ValueError):
+            details = []
+        audit_payload = {"id": event.id, "step_sequence": event.step_sequence,
+                         "state_version": event.state_version, "created_at": event.created_at,
+                         "event_types": [str(row.get("type") or row.get("event")) for row in details
+                            if isinstance(row, dict) and (row.get("type") or row.get("event"))]
+                            if isinstance(details, list) else []}
     return AgentRunSnapshotResponse(
         run=AgentRunResponse.model_validate(snapshot["run"]),
         steps=[AgentStepResponse.model_validate(item) for item in snapshot["steps"]],
-        checkpoint=checkpoint_payload,
+        latest_audit_event=audit_payload,
         approvals=[AgentApprovalResponse.model_validate(item) for item in snapshot.get("approvals", [])],
         drafts=[PatchDraftResponse.model_validate(item) for item in snapshot.get("drafts", [])],
         artifacts=[AgentArtifactResponse.model_validate(item) for item in snapshot.get("artifacts", [])],

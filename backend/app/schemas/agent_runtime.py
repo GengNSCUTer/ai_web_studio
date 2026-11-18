@@ -103,7 +103,7 @@ class AgentOutboxEventResponse(BaseModel):
 class AgentRunSnapshotResponse(BaseModel):
     run: AgentRunResponse
     steps: list[AgentStepResponse]
-    checkpoint: dict[str, Any] | None = None
+    latest_audit_event: dict[str, Any] | None = None
     approvals: list[AgentApprovalResponse]
     drafts: list[PatchDraftResponse]
     artifacts: list[AgentArtifactResponse] = Field(default_factory=list)

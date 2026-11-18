@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.core.database import SessionLocal  # noqa: E402
-from app.models.agent_runtime import AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentRun, AgentStep  # noqa: E402
+from app.models.agent_runtime import AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent, AgentRun, AgentStep  # noqa: E402
 from app.models.conversation import Conversation  # noqa: E402
 from app.models.message import Message  # noqa: E402
 from app.models.project import Project  # noqa: E402
@@ -93,7 +93,7 @@ def cleanup(project_id: str, conversation_id: str, assistant_message_id: str) ->
         if run_ids:
             db.execute(delete(AgentArtifact).where(AgentArtifact.run_id.in_(run_ids)))
             db.execute(delete(AgentOutboxEvent).where(AgentOutboxEvent.run_id.in_(run_ids)))
-            db.execute(delete(AgentCheckpoint).where(AgentCheckpoint.run_id.in_(run_ids)))
+            db.execute(delete(AgentRunAuditEvent).where(AgentRunAuditEvent.run_id.in_(run_ids)))
             db.execute(delete(AgentStep).where(AgentStep.run_id.in_(run_ids)))
             db.execute(delete(AgentRun).where(AgentRun.id.in_(run_ids)))
         route_ids = list(db.scalars(select(ToolRouteRun.id).where(ToolRouteRun.conversation_id == conversation_id)))

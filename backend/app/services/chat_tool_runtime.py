@@ -8,7 +8,7 @@ import time
 
 from sqlalchemy import func, select
 
-from app.models.agent_runtime import AgentApproval, AgentArtifact, AgentCheckpoint, AgentRun, AgentStep
+from app.models.agent_runtime import AgentApproval, AgentArtifact, AgentRun, AgentStep
 from app.models.conversation import Conversation
 from app.models.project import Project
 from app.models.message import Message
@@ -19,12 +19,12 @@ from app.services.tools.schemas import tool_execution_snapshot, redact_sensitive
 from app.services.tool_invocation_runtime import (
     InvocationOutcome, InvocationRuntimeError, ToolInvocationRuntime, current_invocation_runtime,
 )
-from app.services.chat_tool_snapshot import ChatToolSnapshotCodec
+from app.services.chat_tool_snapshot import ChatToolSnapshotCodec, MAX_SNAPSHOT_BYTES
 
 
 current_tool_persistence = current_invocation_runtime
 RUNTIME = "chat_tool_workflow"
-VERSION = "langgraph_chat_tools_v1"
+VERSION = "langgraph_chat_tools_v2"
 LOOP_FIELDS = (
     "round_index", "routed_query", "observations", "events", "sources", "notices", "last_plan",
     "planning_elapsed_ms", "execution_elapsed_ms", "selected_tool", "error_message", "terminal_reason",
@@ -88,19 +88,20 @@ class ChatToolPersistence:
             # 重新走范围与版本检查，旧generation不能借initialize复用同名记录。
             self._lock(db)
 
-    def restore(self, run):
+    def restore(self, run, *, snapshot=None, next_node="reserve"):
+        """仅从原生图载荷恢复控制状态。"""
         self.policy = run.service.run_policy.to_public_dict()
         self.skill = run.skill_context.to_public_dict() if run.skill_context else None
         with self.sessions() as db:
             _, agent = self._lock(db)
-            checkpoint = db.scalar(select(AgentCheckpoint).where(AgentCheckpoint.run_id == agent.id)
-                .order_by(AgentCheckpoint.state_version.desc()).limit(1))
-            if not checkpoint:
-                return "plan"
-            saved = ChatToolSnapshotCodec(db, agent).loads(checkpoint.planner_state_json)
+            if snapshot is None:
+                if self._attempts(db, agent.id) or agent.status == "succeeded":
+                    raise ValueError("工具运行缺少恢复数据，不能重新规划旧任务")
+                return "reserve"
+            saved = ChatToolSnapshotCodec(db, agent).loads(snapshot)
             if saved["version"] != VERSION or saved["policy"] != self.policy or saved["skill"] != self.skill:
                 raise ValueError("工具运行版本、Skill或预算已变化，不能继续旧计划")
-            if saved.get("parameters_redacted") and saved["next_node"] == "execute":
+            if saved.get("parameters_redacted") and next_node == "execute":
                 raise ValueError("调用参数包含已脱敏内容，不能用脱敏值恢复执行")
             for name in LOOP_FIELDS:
                 setattr(run, name, saved["loop"][name])
@@ -137,11 +138,14 @@ class ChatToolPersistence:
                 if not definition or state.get("tool_snapshot") != tool_execution_snapshot(definition) or not self._reuse_allowed(
                         db, run.service.executor, resolver, definition, call):
                     raise ValueError("已有工具结果的当前权限、版本或文件范围已变化")
-                artifact = db.get(AgentArtifact, state.get("artifact_id")) if state.get("artifact_id") else None
+                artifact_id = state.get("artifact_id")
+                artifact = db.get(AgentArtifact, artifact_id) if artifact_id else None
+                if artifact_id and artifact is None:
+                    raise ValueError("已提交工具产物缺失，不能继续旧任务")
                 if artifact:
                     ToolInvocationRuntime.validate_artifact(agent, step, artifact)
                     ToolInvocationRuntime.verify_artifact_content(artifact)
-                if artifact and saved["next_node"] == "execute" and remaining <= 0:
+                if artifact and next_node == "execute" and remaining <= 0:
                     from app.services.tools.quality import is_usable_tool_result
                     response, _ = codec.loads(artifact.content_json)
                     if is_usable_tool_result(response):
@@ -149,7 +153,7 @@ class ChatToolPersistence:
                         # 工具截止时间可能在Worker离线时耗尽；已提交有效证据仍可用于部分回答。
                         run.service._merge_sources(run.sources, response.sources)
                         run.service.executor.action_guard.remember_sources(response.sources)
-            return saved["next_node"]
+            return next_node
 
     @staticmethod
     def _attempts(db, agent_id):
@@ -161,7 +165,8 @@ class ChatToolPersistence:
             _, agent = self._lock(db)
             return self._attempts(db, agent.id)
 
-    def save(self, run, next_node):
+    def snapshot(self, run):
+        """为原生检查点编码可恢复状态。正式产物通过已校验的引用还原。"""
         if self.storage_failed:
             # 持久化失败不能被Workflow误当成普通工具故障后继续规划副作用操作。
             raise ChatLeaseLost()
@@ -169,7 +174,7 @@ class ChatToolPersistence:
         plan = getattr(run, "plan", None)
         snapshots = {call.tool_key: tool_execution_snapshot(run.service.registry.get(call.tool_key))
                      for call in plan.calls if run.service.registry.get_or_none(call.tool_key)} if plan else {}
-        saved = {"version": VERSION, "policy": self.policy, "skill": self.skill, "next_node": next_node,
+        saved = {"version": VERSION, "policy": self.policy, "skill": self.skill,
             "loop": {name: getattr(run, name) for name in LOOP_FIELDS}, "used_call_ids": sorted(run.used_call_ids),
             "plan": plan, "workflow_result": getattr(run, "workflow_result", None),
             "blockers": run.call_ledger._blockers_by_fingerprint,
@@ -179,32 +184,41 @@ class ChatToolPersistence:
         saved["parameters_redacted"] = any(redact_sensitive_arguments(call.arguments) != call.arguments for call in plan.calls) if plan else False
         with self.sessions() as db:
             _, agent = self._lock(db)
-            if next_node == "execute" and plan:
-                self._save_plan(db, agent, run, plan)
-            if next_node == "observe" and getattr(run, "workflow_result", None):
-                self._record_outcomes(db, agent, run)
-            encoded, snapshot_metrics = ChatToolSnapshotCodec(db, agent).dumps(saved)
-            if len(encoded.encode()) > 4 * 1024 * 1024:
+            encoded, _ = ChatToolSnapshotCodec(db, agent).dumps(saved)
+            if len(encoded.encode()) > MAX_SNAPSHOT_BYTES:
                 raise ValueError("工具恢复记录超过大小限制")
-            agent.state_version += 1
-            agent.planner_state_json = json.dumps({"runtime_engine": VERSION, "next_node": next_node,
-                "round": run.round_index, "chat_run_id": self.claim.run_id,
-                "workflow_status": run.workflow_aggregate_status, "next_action": run.next_action,
-                "terminal_reason": run.terminal_reason, "snapshot_metrics": snapshot_metrics})
-            db.add(AgentCheckpoint(run_id=agent.id, state_version=agent.state_version,
-                step_sequence=agent.current_step, planner_state_json=encoded,
-                remaining_budget_json=json.dumps(run.budget.to_trace_payload())))
+        self.round_index = run.round_index
+        return encoded
+
+    def record_plan(self, run):
+        with self.sessions() as db:
+            _, agent = self._lock(db)
+            self._save_plan(db, agent, run, run.plan)
+            db.commit()
+
+    def record_outcomes(self, run):
+        if self.storage_failed:
+            raise ChatLeaseLost()
+        with self.sessions() as db:
+            _, agent = self._lock(db)
+            self._record_outcomes(db, agent, run)
+            db.commit()
+
+    def finish(self):
+        """提交业务终态。重跑图的收尾节点时保留第一次提交的时间。"""
+        with self.sessions() as db:
+            _, agent = self._lock(db)
+            if agent.status == "succeeded":
+                return
             coordinator = db.get(AgentStep, self.coordinator_id)
-            coordinator.status = "running"
-            if next_node == "done":
-                coordinator.status, coordinator.finished_at = "succeeded", utcnow()
-                coordinator.lease_owner, coordinator.lease_expires_at = None, None
-                agent.status, agent.finished_at = "succeeded", utcnow()
-                for step in db.scalars(select(AgentStep).where(AgentStep.run_id == agent.id,
-                        AgentStep.sequence > 0, AgentStep.status == "running")):
-                    step.status, step.error_code = "blocked", "recovery_outcome_unknown"
-                    step.finished_at, step.lease_owner, step.lease_expires_at = utcnow(), None, None
-            self.round_index = run.round_index
+            coordinator.status, coordinator.finished_at = "succeeded", utcnow()
+            coordinator.lease_owner, coordinator.lease_expires_at = None, None
+            agent.status, agent.finished_at = "succeeded", utcnow()
+            agent.state_version += 1
+            for step in db.scalars(select(AgentStep).where(AgentStep.run_id == agent.id,
+                    AgentStep.sequence > 0, AgentStep.status == "running")):
+                step.status, step.error_code = "blocked", "recovery_outcome_unknown"
+                step.finished_at, step.lease_owner, step.lease_expires_at = utcnow(), None, None
             db.commit()
 
     def _save_plan(self, db, agent, run, plan):

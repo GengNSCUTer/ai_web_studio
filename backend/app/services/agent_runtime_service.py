@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.models.agent_runtime import (
     AgentApproval,
     AgentArtifact,
-    AgentCheckpoint,
+    AgentRunAuditEvent,
     AgentRun,
     AgentStep,
     FileRevision,
@@ -255,15 +255,13 @@ class AgentRuntimeService:
         self.db.add_all([draft, approval])
         self.db.flush()
         self.db.add(
-            AgentCheckpoint(
+            AgentRunAuditEvent(
                 run_id=run.id,
                 step_sequence=1,
                 state_version=run.state_version,
-                planner_state_json=run.planner_state_json,
-                observations_json=json.dumps(
+                details_json=json.dumps(
                     [{"type": "approval_required", "approval_id": approval.id, "patch_draft_id": draft.id}]
                 ),
-                remaining_budget_json=json.dumps({"remaining_steps": run.max_steps - 1}),
             )
         )
         try:
@@ -472,7 +470,7 @@ class AgentRuntimeService:
             draft.status = "conflict"
             approval.status = "expired"
             run.state_version += 1
-            self._checkpoint(run, step, [{"type": "file_revision_conflict", "draft_id": draft.id}])
+            self._record_audit(run, step, [{"type": "file_revision_conflict", "draft_id": draft.id}])
             self.db.commit()
             raise AgentRuntimeError("file_revision_conflict", "文件已变化，请重新读取并生成 Diff。")
         if draft.old_string:
@@ -524,7 +522,7 @@ class AgentRuntimeService:
         run.finished_at = utcnow()
         run.state_version += 1
         self.db.flush()
-        self._checkpoint(
+        self._record_audit(
             run,
             step,
             [{"type": "file_edit_applied", "revision_id": revision.id, "revision_number": revision_number}],
@@ -574,7 +572,7 @@ class AgentRuntimeService:
             run.status = "cancelled"
             run.finished_at = utcnow()
             run.state_version += 1
-            self._checkpoint(run, step, [{"type": "approval_rejected"}])
+            self._record_audit(run, step, [{"type": "approval_rejected"}])
         self.db.commit()
         if not draft:
             raise AgentRuntimeError("draft_missing", "编辑提案不存在。")
@@ -688,16 +686,16 @@ class AgentRuntimeService:
         if not run:
             return None
         steps = list(self.db.scalars(select(AgentStep).where(AgentStep.run_id == run.id).order_by(AgentStep.sequence)).all())
-        checkpoint = self.db.scalars(
-            select(AgentCheckpoint)
-            .where(AgentCheckpoint.run_id == run.id)
-            .order_by(AgentCheckpoint.state_version.desc())
+        audit_event = self.db.scalars(
+            select(AgentRunAuditEvent)
+            .where(AgentRunAuditEvent.run_id == run.id)
+            .order_by(AgentRunAuditEvent.state_version.desc())
             .limit(1)
         ).first()
         approvals = list(self.db.scalars(select(AgentApproval).where(AgentApproval.run_id == run.id)).all())
         drafts = list(self.db.scalars(select(PatchDraft).where(PatchDraft.run_id == run.id)).all())
         artifacts = list(self.db.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run.id)).all())
-        return {"run": run, "steps": steps, "checkpoint": checkpoint, "approvals": approvals, "drafts": drafts,
+        return {"run": run, "steps": steps, "latest_audit_event": audit_event, "approvals": approvals, "drafts": drafts,
                 "artifacts": artifacts}
 
     def _ensure_current_revision(self, project_file: ProjectFile) -> FileRevision:
@@ -724,15 +722,13 @@ class AgentRuntimeService:
             expires_at=draft.expires_at,
         )
 
-    def _checkpoint(self, run: AgentRun, step: AgentStep | None, observations: list[dict[str, Any]]) -> None:
+    def _record_audit(self, run: AgentRun, step: AgentStep | None, observations: list[dict[str, Any]]) -> None:
         self.db.add(
-            AgentCheckpoint(
+            AgentRunAuditEvent(
                 run_id=run.id,
                 step_sequence=step.sequence if step else run.current_step,
                 state_version=run.state_version,
-                planner_state_json=run.planner_state_json,
-                observations_json=json.dumps(observations, ensure_ascii=False),
-                remaining_budget_json=json.dumps({"remaining_steps": max(0, run.max_steps - run.current_step)}),
+                details_json=json.dumps(observations, ensure_ascii=False),
             )
         )
 

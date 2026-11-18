@@ -70,17 +70,17 @@ class AgentStep(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class AgentCheckpoint(Base):
-    __tablename__ = "agent_checkpoints"
-    __table_args__ = (UniqueConstraint("run_id", "state_version", name="uq_agent_checkpoint_version"),)
+class AgentRunAuditEvent(Base):
+    """业务状态转换的审计记录，不参与图恢复。"""
+
+    __tablename__ = "agent_run_audit_events"
+    __table_args__ = (UniqueConstraint("run_id", "state_version", name="uq_agent_run_audit_event_version"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True)
     step_sequence: Mapped[int] = mapped_column(Integer)
     state_version: Mapped[int] = mapped_column(Integer)
-    planner_state_json: Mapped[str] = mapped_column(Text, default="{}")
-    observations_json: Mapped[str] = mapped_column(Text, default="[]")
-    remaining_budget_json: Mapped[str] = mapped_column(Text, default="{}")
+    details_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

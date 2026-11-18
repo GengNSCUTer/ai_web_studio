@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.agent_runtime import AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentRun, AgentStep
+from app.models.agent_runtime import AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent, AgentRun, AgentStep
 
 
 class DurableAuditError(ValueError):
@@ -67,11 +67,11 @@ class DurableAuditService:
         steps = list(
             self.db.scalars(select(AgentStep).where(AgentStep.run_id == run.id).order_by(AgentStep.sequence)).all()
         )
-        checkpoints = list(
+        audit_events = list(
             self.db.scalars(
-                select(AgentCheckpoint)
-                .where(AgentCheckpoint.run_id == run.id)
-                .order_by(AgentCheckpoint.state_version.asc())
+                select(AgentRunAuditEvent)
+                .where(AgentRunAuditEvent.run_id == run.id)
+                .order_by(AgentRunAuditEvent.state_version.asc())
             ).all()
         )
         artifacts = list(
@@ -159,9 +159,9 @@ class DurableAuditService:
                     finished_at=self._time(step.finished_at),
                 )
             )
-        for checkpoint in checkpoints:
+        for event in audit_events:
             try:
-                observations = json.loads(checkpoint.observations_json or "[]")
+                observations = json.loads(event.details_json or "[]")
             except json.JSONDecodeError:
                 observations = []
             observation_types = [
@@ -171,15 +171,14 @@ class DurableAuditService:
             ] if isinstance(observations, list) else []
             events.append(
                 self._event(
-                    "checkpoint.summary",
-                    checkpoint.created_at,
+                    "run.transition",
+                    event.created_at,
                     run_id=run.id,
-                    checkpoint_id=checkpoint.id,
-                    step_sequence=checkpoint.step_sequence,
-                    state_version=checkpoint.state_version,
+                    audit_event_id=event.id,
+                    step_sequence=event.step_sequence,
+                    state_version=event.state_version,
                     observation_types=observation_types,
                     observation_count=len(observation_types),
-                    remaining_budget=self._safe_budget(checkpoint.remaining_budget_json),
                 )
             )
         for artifact in artifacts:
@@ -214,20 +213,6 @@ class DurableAuditService:
                 )
             )
         return events
-
-    @staticmethod
-    def _safe_budget(raw: str | None) -> dict[str, Any]:
-        try:
-            value = json.loads(raw or "{}")
-        except json.JSONDecodeError:
-            return {}
-        if not isinstance(value, dict):
-            return {}
-        return {
-            str(key): value[key]
-            for key in ("remaining_steps", "remaining_rounds", "remaining_calls")
-            if key in value and isinstance(value[key], (int, float))
-        }
 
     def export_jsonl(self, *, run_id: str, user_id: str) -> str:
         events = self.build_events(run_id=run_id, user_id=user_id)

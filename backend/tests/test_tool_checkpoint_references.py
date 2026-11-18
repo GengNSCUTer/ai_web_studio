@@ -76,12 +76,13 @@ class ToolCheckpointReferencesTest(unittest.TestCase):
             with self.assertRaisesRegex(InvocationRuntimeError, "无权读取"):
                 ChatToolSnapshotCodec(db, other).loads(encoded)
 
-    def test_old_snapshot_is_readable_and_unknown_format_fails(self):
+    def test_old_snapshot_and_unknown_format_are_rejected(self):
         with self.SessionLocal() as db:
             run, _ = self.fixture(db)
             data = {"next_node": "execute", "wall_deadline": "preserved", "observations": []}
-            self.assertEqual(ChatToolSnapshotCodec(db, run).loads(codec.dumps(data)), data)
-            with self.assertRaises(ValueError):
+            with self.assertRaises(InvocationRuntimeError):
+                ChatToolSnapshotCodec(db, run).loads(codec.dumps(data))
+            with self.assertRaises(InvocationRuntimeError):
                 ChatToolSnapshotCodec(db, run).loads(json.dumps({"format": "unknown", "payload": {}}))
 
     def test_reference_to_unlinked_artifact_is_rejected(self):

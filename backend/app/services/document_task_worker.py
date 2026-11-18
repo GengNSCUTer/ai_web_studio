@@ -144,7 +144,7 @@ def fail_document_claim(worker, db, claim, exc):
         step.finished_at = utcnow()
         event.error_code, event.error_message = code, error
         service.project_message(run, "文档任务未完成", error + " 可打开已完成产物，或显式重试失败阶段。")
-    service.checkpoint(run, step, code)
+    service.record_audit(run, step, code)
     db.commit()
 
 

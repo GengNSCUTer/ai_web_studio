@@ -34,7 +34,7 @@ def approval_process(url, uid, pid, fid, action, approval_id=None, token=""):
                 file_id=fid, old_string="old value", new_string="new value")
             os._exit(82)
         if action == "before_commit":
-            service._checkpoint = lambda *args: os._exit(82)
+            service._record_audit = lambda *args: os._exit(82)
         elif action == "after_commit":
             original = service._apply_file_edit_business
             def apply(**kwargs):

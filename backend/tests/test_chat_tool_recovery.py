@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from sqlalchemy import select
 
-from app.models.agent_runtime import AgentArtifact, AgentCheckpoint, AgentRun, AgentStep
+from app.models.agent_runtime import AgentArtifact, AgentRun, AgentStep
 from app.models.chat_run import ChatRun, ChatRunEvent
 from app.models.conversation import Conversation
 from app.models.project import Project
@@ -18,7 +18,6 @@ from app.models.project_file import ProjectFile
 from app.models.tool_config import WorkspaceAgentPolicy, WorkspaceToolSetting
 from app.services.chat_run_service import ChatLeaseLost, ChatRunService
 from app.services.chat_tool_runtime import ChatToolPersistence, current_tool_persistence
-from app.services.chat_tool_snapshot import ChatToolSnapshotCodec
 from app.services.external_context_service import ExternalContextService
 from app.services.runtime_lease import utcnow
 from app.services.tools.executor import ToolExecutor
@@ -171,14 +170,14 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_resume_next_round_preserves_round_and_call_budgets(self):
         rid, _, first = self.fixture()
-        original = first.save
-        def stop_after_observe(run, node):
-            original(run, node)
-            if node == "plan" and run.observations:
-                raise ChatLeaseLost()
-        first.save = stop_after_observe
-        with self.assertRaises(ChatLeaseLost):
-            await self.context(first, FixedPlanner([self.tool("A")], more=True))
+        class StopOnSecondRound(FixedPlanner):
+            async def plan(self, **kwargs):
+                if kwargs["observations"]:
+                    raise ChatLeaseLost()
+                return await super().plan(**kwargs)
+        # Python 3.10 的 wait_for 可将取消子类转成 CancelledError，Worker 按同一语义接管。
+        with self.assertRaises(asyncio.CancelledError):
+            await self.context(first, StopOnSecondRound([self.tool("A")], more=True))
         second = self.expire_and_claim(rid)
         planner = FixedPlanner([self.tool("B", "workspace.files.list")])
         restored = await self.context(second, planner)
@@ -307,6 +306,15 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
         entered = asyncio.Event()
         counts = Counter()
         original = ToolExecutor._execute
+        snapshot = first.snapshot
+
+        def save_expired_deadline(run):
+            # 模拟Worker离线期间到期，执行中的单调时钟仍可推进到指定故障点。
+            if getattr(run, "plan", None):
+                first.wall_deadline = utcnow() - timedelta(seconds=1)
+            return snapshot(run)
+
+        first.snapshot = save_expired_deadline
         async def execute(executor, call):
             counts[call.call_id] += 1
             if call.call_id == "B":
@@ -320,13 +328,6 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
-            with self.sessions() as db:
-                checkpoint = db.scalar(select(AgentCheckpoint).where(AgentCheckpoint.run_id == first.agent_id)
-                    .order_by(AgentCheckpoint.state_version.desc()).limit(1))
-                data = ChatToolSnapshotCodec(db, db.get(AgentRun, first.agent_id)).loads(checkpoint.planner_state_json)
-                data["wall_deadline"] = (utcnow() - timedelta(seconds=1)).isoformat()
-                checkpoint.planner_state_json = codec.dumps(data)
-                db.commit()
             second = self.expire_and_claim(rid)
             result = await self.context(second, FixedPlanner([]))
         self.assertEqual(counts, {"A": 1, "B": 1})
@@ -386,17 +387,12 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(step.status, "preview")
             self.assertEqual(db.get(ProjectFile, "f").parsed_text, "有效资料：项目采用短事务与明确审批。")
 
-    async def test_legacy_snapshot_restores_without_repeating_completed_tools(self):
-        rid, _, first = self.fixture()
-        await self.context(first, FixedPlanner([self.tool("A")]))
+    async def test_missing_native_checkpoint_with_started_call_never_replans(self):
+        _, _, first = self.fixture()
         with self.sessions() as db:
-            agent = db.get(AgentRun, first.agent_id)
-            checkpoint = db.scalar(select(AgentCheckpoint).where(AgentCheckpoint.run_id == agent.id)
-                .order_by(AgentCheckpoint.state_version.desc()).limit(1))
-            saved = ChatToolSnapshotCodec(db, agent).loads(checkpoint.planner_state_json)
-            checkpoint.planner_state_json = codec.dumps(saved)
-            db.commit()
-        second = self.expire_and_claim(rid)
-        with patch.object(ToolExecutor, "_execute", side_effect=AssertionError("旧快照不得重做工具")):
-            result = await self.context(second, FixedPlanner([]))
-        self.assertIn("短事务", result.context_text)
+            executor = ToolExecutor(db=db, user_id="u", project_id="p")
+            self.assertEqual(first._begin_call(executor, self.tool("A"))[0], "execute")
+        planner = FixedPlanner([])
+        with self.assertRaisesRegex(ValueError, "缺少恢复数据"):
+            await self.context(first, planner)
+        self.assertEqual(planner.count, 0)

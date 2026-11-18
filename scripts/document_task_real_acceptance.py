@@ -25,7 +25,7 @@ from app.models.project import Project
 from app.models.project_file import ProjectFile
 from app.models.conversation import Conversation
 from app.models.message import Message
-from app.models.agent_runtime import AgentRun, AgentStep, AgentOutboxEvent, AgentCheckpoint, AgentArtifact, AgentApproval, FileRevision
+from app.models.agent_runtime import AgentRun, AgentStep, AgentOutboxEvent, AgentRunAuditEvent, AgentArtifact, AgentApproval, FileRevision
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import AuthService
 from app.schemas.document_delivery import DocumentDraftCreate
@@ -57,7 +57,7 @@ def cleanup(pid, cid):
         conversation_ids = list(db.scalars(select(Conversation.id).where(Conversation.project_id == pid)))
         runs = list(db.scalars(select(AgentRun.id).where(AgentRun.project_id == pid)))
         if runs:
-            for model in (AgentApproval, AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentStep):
+            for model in (AgentApproval, AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent, AgentStep):
                 db.execute(delete(model).where(model.run_id.in_(runs)))
             db.execute(delete(AgentRun).where(AgentRun.id.in_(runs)))
         files = list(db.scalars(select(ProjectFile).where(ProjectFile.project_id == pid)))

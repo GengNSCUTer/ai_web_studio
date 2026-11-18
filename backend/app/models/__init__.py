@@ -2,7 +2,7 @@ from app.models.attachment import Attachment
 from app.models.agent_runtime import (
     AgentApproval,
     AgentArtifact,
-    AgentCheckpoint,
+    AgentRunAuditEvent,
     AgentOutboxEvent,
     AgentWorkerHeartbeat,
     AgentRun,
@@ -59,7 +59,7 @@ __all__ = [
     "Attachment",
     "AgentRun",
     "AgentStep",
-    "AgentCheckpoint",
+    "AgentRunAuditEvent",
     "AgentApproval",
     "AgentArtifact",
     "AgentOutboxEvent",

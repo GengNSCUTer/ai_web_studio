@@ -20,7 +20,7 @@ from app.services.tools.completion_verifier import verify_completion
 
 
 class SyncToolRun:
-    """每次执行独占的业务对象；Chat Worker可由业务快照重建，不跨用户复用对象。"""
+    """每次执行独占的业务对象，可从LangGraph持久状态重建。"""
 
     def _read_is_current(self, source) -> bool:
         """省去重复读取前复查当前范围、正文摘要和版本；拿不准时保留原调用。"""
@@ -48,7 +48,6 @@ class SyncToolRun:
         self.planner_runtime, self.skill_context = planner_runtime, skill_context
         self.task_spec = build_task_spec(query=query, skill_context=skill_context)
         self.round_index = 0
-        self.result = None
         self.service.executor.action_guard = ToolActionGuard(ActionScope(self.query))
         self.rewrite = self.service.query_rewriter.rewrite(query=self.query, recent_messages=self.recent_messages)
         self.routed_query = self.rewrite.rewritten_query
@@ -124,8 +123,8 @@ class SyncToolRun:
             )
         )
 
-    async def plan_round(self) -> bool:
-        """检查预算并规划；返回是否有可执行计划。"""
+    def reserve_round(self) -> bool:
+        """在模型调用前记录本轮预算，便于接管时继续同一个已分配的轮次。"""
         self.round_index = self.budget.planning_rounds_used + 1
         try:
             self.budget.begin_round()
@@ -149,6 +148,10 @@ class SyncToolRun:
                 )
             )
             return False
+        return True
+
+    async def plan_round(self) -> bool:
+        """调用Planner并处理结果。本轮预算已经由上一个图节点分配。"""
         planner_kwargs = {
             "query": self.routed_query,
             "enabled": self.enabled,
@@ -160,11 +163,6 @@ class SyncToolRun:
             planner_kwargs["skill_context"] = self.skill_context
         # Catalog/权限查询及上一轮只读收尾不能持有连接等待Embedding或Planner。
         release_read_transaction(self.service.db)
-        from app.services.chat_tool_runtime import current_tool_persistence
-        persistence = current_tool_persistence.get()
-        if persistence is not None:
-            # 规划请求也会耗时和失败，崩溃不能把已消耗轮次和工具截止时间归零。
-            await asyncio.to_thread(persistence.save, self, "plan")
         planning_started = time.perf_counter()
         try:
             self.plan = await asyncio.wait_for(

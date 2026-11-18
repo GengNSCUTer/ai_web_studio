@@ -41,7 +41,8 @@ class SyncToolGraphTest(unittest.IsolatedAsyncioTestCase):
         graph = build_sync_tool_graph().get_graph()
         self.assertTrue({"plan", "execute", "observe", "finalize"}.issubset(graph.nodes))
         edges = {(edge.source, edge.target) for edge in graph.edges}
-        self.assertIn(("observe", "plan"), edges)
+        self.assertIn(("observe", "reserve"), edges)
+        self.assertIn(("reserve", "plan"), edges)
         self.assertIn(("plan", "finalize"), edges)
         self.assertIn(("execute", "observe"), edges)
         self.assertIsNone(build_sync_tool_graph().checkpointer)

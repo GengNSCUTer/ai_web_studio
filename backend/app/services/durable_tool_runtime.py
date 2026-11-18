@@ -21,7 +21,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.agent_runtime import AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentRun, AgentStep
+from app.models.agent_runtime import AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent, AgentRun, AgentStep
 from app.models.conversation import Conversation
 from app.models.knowledge import KnowledgeRetrievalLog
 from app.models.message import Message
@@ -350,7 +350,7 @@ class DurableToolRunService:
                 )
             )
         run.state_version = 1
-        self._checkpoint(run, step=None, observations=[{"type": "run_enqueued", "steps": len(normalized_calls)}])
+        self._record_audit(run, step=None, observations=[{"type": "run_enqueued", "steps": len(normalized_calls)}])
         try:
             self.db.commit()
         except IntegrityError:
@@ -572,8 +572,8 @@ class DurableToolRunService:
         return {
             "run": run,
             "steps": list(self.db.scalars(select(AgentStep).where(AgentStep.run_id == run.id).order_by(AgentStep.sequence)).all()),
-            "checkpoint": self.db.scalars(
-                select(AgentCheckpoint).where(AgentCheckpoint.run_id == run.id).order_by(AgentCheckpoint.state_version.desc()).limit(1)
+            "latest_audit_event": self.db.scalars(
+                select(AgentRunAuditEvent).where(AgentRunAuditEvent.run_id == run.id).order_by(AgentRunAuditEvent.state_version.desc()).limit(1)
             ).first(),
             "artifacts": list(self.db.scalars(select(AgentArtifact).where(AgentArtifact.run_id == run.id).order_by(AgentArtifact.created_at)).all()),
             "outbox_events": list(self.db.scalars(select(AgentOutboxEvent).where(AgentOutboxEvent.run_id == run.id).order_by(AgentOutboxEvent.created_at)).all()),
@@ -716,7 +716,7 @@ class DurableToolRunService:
                 "display_text": f"可恢复任务 {run.id} 已重新排队",
                 "metadata": {"run_id": run.id, "status": "queued"},
             }])
-        self._checkpoint(run, step=step, observations=observations)
+        self._record_audit(run, step=step, observations=observations)
         self.db.commit()
         self.db.refresh(run)
         return run
@@ -781,7 +781,7 @@ class DurableToolRunService:
             run.state_version = next_version
             self.db.add(event)
             self.db.flush()
-            self._checkpoint(run, step=step, observations=[{"type": "step_reconciled", "event_id": event.id}])
+            self._record_audit(run, step=step, observations=[{"type": "step_reconciled", "event_id": event.id}])
             restored += 1
         if restored:
             self.db.commit()
@@ -1007,15 +1007,13 @@ class DurableToolRunService:
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
-    def _checkpoint(self, run: AgentRun, *, step: AgentStep | None, observations: list[dict[str, Any]]) -> None:
+    def _record_audit(self, run: AgentRun, *, step: AgentStep | None, observations: list[dict[str, Any]]) -> None:
         self.db.add(
-            AgentCheckpoint(
+            AgentRunAuditEvent(
                 run_id=run.id,
                 step_sequence=step.sequence if step else run.current_step,
                 state_version=run.state_version,
-                planner_state_json=run.planner_state_json,
-                observations_json=self._json(observations),
-                remaining_budget_json=self._json({"remaining_steps": max(0, run.max_steps - run.current_step)}),
+                details_json=self._json(observations),
             )
         )
 
@@ -1161,7 +1159,7 @@ class DurableToolWorker:
                 delay_seconds=2,
                 error_code="dependencies_pending",
                 error_message="等待依赖 Step 完成。",
-                record_checkpoint=False,
+                record_audit=False,
             )
             return
         if dependency_status == "blocked":
@@ -1471,7 +1469,7 @@ class DurableToolWorker:
         # 全局会话关闭了 autoflush，终态查询前必须先刷新 Step 状态。
         db.flush()
         self._update_run_terminal_state(db, run)
-        DurableToolRunService(db)._checkpoint(run, step=step, observations=[{"type": "step_succeeded", "artifact_id": artifact.id}])
+        DurableToolRunService(db)._record_audit(run, step=step, observations=[{"type": "step_succeeded", "artifact_id": artifact.id}])
         db.commit()
 
     def _finish_terminal(self, db: Session, run: AgentRun, step: AgentStep, event: AgentOutboxEvent, claim: DurableStepClaim, *, status: str, error_code: str, error_message: str) -> None:
@@ -1491,7 +1489,7 @@ class DurableToolWorker:
         run.state_version += 1
         db.flush()
         self._update_run_terminal_state(db, run)
-        DurableToolRunService(db)._checkpoint(run, step=step, observations=[{"type": f"step_{status}", "error_code": error_code}])
+        DurableToolRunService(db)._record_audit(run, step=step, observations=[{"type": f"step_{status}", "error_code": error_code}])
         db.commit()
 
     def _retry_or_dlq(self, db: Session, run: AgentRun, step: AgentStep, event: AgentOutboxEvent, claim: DurableStepClaim, message: str) -> None:
@@ -1515,7 +1513,7 @@ class DurableToolWorker:
             run.state_version += 1
             db.flush()
             self._update_run_terminal_state(db, run)
-            DurableToolRunService(db)._checkpoint(run, step=step, observations=[{"type": "step_dead_letter", "error": message}])
+            DurableToolRunService(db)._record_audit(run, step=step, observations=[{"type": "step_dead_letter", "error": message}])
             db.commit()
             return
         delay = min(60, 2 ** max(0, step.attempts - 1))
@@ -1532,7 +1530,7 @@ class DurableToolWorker:
         delay_seconds: int,
         error_code: str,
         error_message: str,
-        record_checkpoint: bool = True,
+        record_audit: bool = True,
     ) -> None:
         if not self._lock_claim(db, run, step, event, claim):
             return
@@ -1551,9 +1549,9 @@ class DurableToolWorker:
         event.lease_expires_at = None
         db.flush()
         self._update_run_terminal_state(db, run)
-        if record_checkpoint:
+        if record_audit:
             run.state_version += 1
-            DurableToolRunService(db)._checkpoint(run, step=step, observations=[{"type": "step_requeued", "delay_seconds": delay_seconds, "error_code": error_code}])
+            DurableToolRunService(db)._record_audit(run, step=step, observations=[{"type": "step_requeued", "delay_seconds": delay_seconds, "error_code": error_code}])
         db.commit()
 
     def _lock_claim(

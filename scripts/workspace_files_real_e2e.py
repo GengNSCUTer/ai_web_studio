@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.core.database import SessionLocal  # noqa: E402
-from app.models import (AgentArtifact, AgentCheckpoint, AgentOutboxEvent, AgentRun, AgentStep,
+from app.models import (AgentArtifact, AgentRunAuditEvent, AgentOutboxEvent, AgentRun, AgentStep,
                         Conversation, Message, Project, ProjectFile, ToolCallRun, ToolRouteRun)  # noqa: E402
 from app.services.durable_handoff_service import DurableHandoffService  # noqa: E402
 from stage46a_real_e2e import prepare_fixture, cleanup  # noqa: E402
@@ -144,7 +144,7 @@ def run_worker_case(user_id: str, project_id: str):
                     "correct_fact_returned": True, "execution": "independent_worker", "llm_final_answer": False}
     finally:
         with SessionLocal() as db:
-            for model in (AgentArtifact, AgentOutboxEvent, AgentCheckpoint, AgentStep, AgentRun):
+            for model in (AgentArtifact, AgentOutboxEvent, AgentRunAuditEvent, AgentStep, AgentRun):
                 column = model.id if model is AgentRun else model.run_id
                 db.execute(delete(model).where(column == run_id))
             db.commit()

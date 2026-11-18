@@ -15,7 +15,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.core.migrations import upgrade_database
-from app.models.agent_runtime import AgentArtifact, AgentCheckpoint, AgentRun, AgentStep
+from app.models.agent_runtime import AgentArtifact, AgentRunAuditEvent, AgentRun, AgentStep
 from app.models.chat_run import ChatRun
 from app.models.conversation import Conversation
 from app.models.user import User
@@ -36,7 +36,8 @@ def crash_child(url, rid, claim, window):
     persistence = ChatToolPersistence(harness.sessions, claim)
     persistence.initialize()
     original_execute = ToolExecutor._execute
-    original_save = persistence.save
+    original_record = persistence.record_outcomes
+    original_writes = ChatToolPostgresSaver.aput_writes
 
     async def execute(executor, call):
         with engine.begin() as db:
@@ -45,17 +46,20 @@ def crash_child(url, rid, claim, window):
             os._exit(81)
         return await original_execute(executor, call)
 
-    def save(run, next_node):
-        if next_node == "observe" and window == "after_artifact":
+    def record_outcomes(run):
+        if window == "after_artifact":
             os._exit(81)
-        original_save(run, next_node)
-        if next_node == "plan" and run.round_index == 1 and run.observations and window == "next_plan":
+        original_record(run)
+
+    async def put_writes(saver, config, writes, task_id, task_path=""):
+        await original_writes(saver, config, writes, task_id, task_path)
+        if window == "pending_plan" and ("route", "execute") in writes:
             os._exit(81)
 
-    persistence.save = save
+    persistence.record_outcomes = record_outcomes
     calls = [harness.tool("A"), harness.tool("B", "workspace.files.list", depends=["A"])]
-    planner = unit.FixedPlanner(calls, more=window == "next_plan")
-    with patch.object(ToolExecutor, "_execute", execute):
+    planner = unit.FixedPlanner(calls)
+    with patch.object(ToolExecutor, "_execute", execute), patch.object(ChatToolPostgresSaver, "aput_writes", put_writes):
         asyncio.run(harness.context(persistence, planner))
 
 
@@ -118,6 +122,7 @@ class ChatToolRecoveryPostgresTest(unit.ChatToolRecoveryTest):
             self.assertEqual(Counter(db.scalars(text("SELECT call_id FROM chat_test_calls"))), {"A": 1, "B": 1})
             native = db.scalar(text("SELECT count(*) FROM aiws_graph.checkpoints"))
             self.assertGreater(native, 0)
+            self.assertIsNone(db.scalar(select(AgentRunAuditEvent.id).where(AgentRunAuditEvent.run_id == first.agent_id)))
             for value in db.scalars(text("SELECT checkpoint FROM aiws_graph.checkpoints")):
                 self.assertNotIn("sources", value["channel_values"])
                 self.assertNotIn("arguments", value["channel_values"])
@@ -132,6 +137,21 @@ class ChatToolRecoveryPostgresTest(unit.ChatToolRecoveryTest):
         second = self.expire_and_claim(rid)
         with patch.object(ToolExecutor, "_execute", side_effect=AssertionError("不得重做已提交工具")):
             result = await self.context(second, unit.FixedPlanner([]))
+        self.assertIn("短事务", result.context_text)
+
+    async def test_process_exit_after_native_pending_plan_reuses_plan(self):
+        rid, claim, first = self.fixture()
+        process = multiprocessing.get_context("spawn").Process(target=crash_child,
+            args=(self.engine.url.render_as_string(hide_password=False), rid, claim, "pending_plan"))
+        process.start()
+        await asyncio.to_thread(process.join, 30)
+        self.assertEqual(process.exitcode, 81)
+        with self.sessions() as db:
+            self.assertEqual(db.scalar(text("SELECT count(*) FROM chat_test_calls")), 0)
+            self.assertEqual(db.scalar(text("SELECT count(*) FROM aiws_graph.checkpoint_writes WHERE channel='tool_state'")) > 0, True)
+        planner = unit.FixedPlanner([])
+        result = await self.context(self.expire_and_claim(rid), planner)
+        self.assertEqual(planner.count, 0)
         self.assertIn("短事务", result.context_text)
 
     async def test_stale_owner_native_checkpoint_write_denied(self):

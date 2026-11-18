@@ -17,13 +17,16 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 
 def run(output, *, artifact_review=False):
-    from sqlalchemy import delete, select
+    from sqlalchemy import delete, select, text
     from app.core.database import SessionLocal
-    from app.models.agent_runtime import AgentRun, AgentStep, AgentCheckpoint
+    from app.models.agent_runtime import AgentRun, AgentStep
+    from app.models.project import Project
     from stage46a_real_e2e import prepare_fixture, cleanup
     from playwright.sync_api import sync_playwright, expect
 
     token, uid, pid, fid, _ = prepare_fixture()
+    with SessionLocal() as db:
+        model_name = db.get(Project, pid).default_model
     report = {"scope": "共用调用内核三路径业务回归，不是恢复率或容量评测", "cases": [], "passed": False}
     errors = []
 
@@ -51,7 +54,7 @@ def run(output, *, artifact_review=False):
                 raise AssertionError("任务超过业务验收时限")
 
             cid = api("/conversations", {"project_id": pid, "title": "调用内核三路径回归",
-                "model_name": "deepseek-ai/DeepSeek-V3.2"})["id"]
+                "model_name": model_name})["id"]
             started = time.monotonic()
             response = chat_response(client, "/api/chat/runs", json={"conversation_id": cid,
                 "tool_run_mode": "guided_research", "web_search_enabled": True,
@@ -62,23 +65,16 @@ def run(output, *, artifact_review=False):
             assert chat["status"] == "succeeded" and "# 阶段 4.6A 临时文件" in chat["content"]
             assert events[-1]["type"] == "done"
             with SessionLocal() as db:
-                from app.services.chat_tool_snapshot import ChatToolSnapshotCodec
-                from app.services.tools import runtime_codec as codec
                 agent = db.scalar(select(AgentRun).where(AgentRun.chat_run_id == chat["id"]))
                 steps = list(db.scalars(select(AgentStep).where(AgentStep.run_id == agent.id, AgentStep.sequence > 0)))
                 assert {"workspace.files.search", "workspace.files.read"} <= {s.tool_key for s in steps}
                 assert all(s.status == "succeeded" and s.attempts == 1 for s in steps)
-                checkpoints = list(db.scalars(select(AgentCheckpoint).where(AgentCheckpoint.run_id == agent.id)))
-                sizes = [len(c.planner_state_json.encode()) for c in checkpoints]
-                report["checkpoint_baseline"] = {"count": len(sizes), "total_bytes": sum(sizes), "max_bytes": max(sizes)}
-                legacy_sizes = [len(codec.dumps(ChatToolSnapshotCodec(db, agent).loads(c.planner_state_json)).encode())
-                    for c in checkpoints]
-                report["checkpoint_same_payload_comparison"] = {"checkpoints": len(sizes),
-                    "legacy_bytes": sum(legacy_sizes), "stored_bytes": sum(sizes),
-                    "reduction_fraction": round(1 - sum(sizes) / sum(legacy_sizes), 5)}
+                report["native_checkpoints"] = db.scalar(text("SELECT count(*) FROM aiws_graph.checkpoints c "
+                    "JOIN aiws_graph.runtime_threads t USING(thread_id) WHERE t.run_id=:id"), {"id": agent.id})
+                assert report["native_checkpoints"] > 0
             report["cases"].append({"name": "chat_search_read_answer", "passed": True,
                 "elapsed_ms": round((time.monotonic() - started) * 1000), "steps": len(steps),
-                "answer_chars": len(chat["content"]), "model": "deepseek-ai/DeepSeek-V3.2"})
+                "answer_chars": len(chat["content"]), "model": model_name})
             save()
 
             started = time.monotonic()
@@ -89,6 +85,7 @@ def run(output, *, artifact_review=False):
             assert api("/agent-runtime/tool-handoffs/confirm", body)["id"] == handoff["id"]
             state = terminal("/agent-runtime/runs/" + handoff["id"], nested=True)
             assert len(state["artifacts"]) == 1 and state["steps"][0]["attempts"] == 1
+            assert state["latest_audit_event"]["event_types"] and "checkpoint" not in state
             report["cases"].append({"name": "durable_confirm_worker_result", "passed": True,
                 "elapsed_ms": round((time.monotonic() - started) * 1000), "duplicate_confirm": "same_run"})
             save()
@@ -134,7 +131,7 @@ def run(output, *, artifact_review=False):
                 upgrade = client.post("/api/tools/skills/agent.artifact-review/upgrade")
                 upgrade.raise_for_status()
                 history_cid = api("/conversations", {"project_id":pid,"title":"历史文档复用验收",
-                    "model_name":"deepseek-ai/DeepSeek-V3.2"})["id"]
+                    "model_name":model_name})["id"]
                 response = chat_response(client, "/api/chat/runs", json={"conversation_id":history_cid,
                     "web_search_enabled":True,"tool_run_mode":"guided_research","skill_key":"agent.artifact-review",
                     "content":"请查找当前项目此前生成的文档草稿产物，先列出历史产物，再读取其中的文档草稿，总结用途和安全边界。不要重跑文档生成，不要联网，只使用本地产物工具。"})
