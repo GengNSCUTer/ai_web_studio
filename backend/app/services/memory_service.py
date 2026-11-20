@@ -12,6 +12,7 @@ from app.schemas.memory import MemorySuggestion, UserMemoryCreate, UserMemoryRes
 from app.services.memory_policy import contains_credential, equivalent_content, lifetime, memory_identity, requested_response_language
 from app.services.memory_extraction_policy import redact_source
 from app.services.memory_conflict_policy import load_review, validate_review, coexist_ids, has_structured_conflict, CONFIDENCE_MIN
+from app.services.memory_injection_policy import lexical_evidence, memory_query_terms, SEMANTIC_MIN, QUERY_LIMIT
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,6 @@ class MemoryContextSelection:
 
     memories: list[UserMemory]
     relevant_count: int
-    always_on_count: int
 
 
 class MemoryService:
@@ -357,11 +357,13 @@ class MemoryService:
         *,
         query: str | None,
         project_id: str | None = None,
-        max_memories: int = 8,
+        max_memories: int = QUERY_LIMIT,
         semantic_scores: dict[str, float] | None = None,
         ranking_scores: dict[str, float] | None = None,
         candidate_memories: list[UserMemory] | None = None,
         lexical_scores: dict[str, float] | None = None,
+        explicit_recall: bool = False,
+        turn_query: str | None = None,
     ) -> MemoryContextSelection:
         expire_due = getattr(self.repo, "expire_due", None)
         if expire_due and candidate_memories is None:
@@ -369,7 +371,7 @@ class MemoryService:
         scoped_reader = getattr(self.repo, "list_for_retrieval", None)
         memories = candidate_memories if candidate_memories is not None else (
             scoped_reader(user_id, project_id) if scoped_reader else self.repo.list_by_user(user_id, enabled_only=True))
-        language_override = requested_response_language(query)
+        language_override = requested_response_language(turn_query if turn_query is not None else query)
         memories = [
             memory
             for memory in memories
@@ -393,45 +395,32 @@ class MemoryService:
         memories = list(current.values())
         max_memories = max(0, min(max_memories, 32))
         if not memories:
-            return MemoryContextSelection(memories=[], relevant_count=0, always_on_count=0)
+            return MemoryContextSelection(memories=[], relevant_count=0)
 
         # 无问题的历史调用仍按最近更新时间选择；Chat 总是提供当前问题。
         normalized_query = self.normalize_text(query)
-        if not normalized_query:
+        if explicit_recall or not normalized_query:
             return MemoryContextSelection(
                 memories=memories[:max_memories],
                 relevant_count=len(memories[:max_memories]),
-                always_on_count=0,
             )
 
-        always_on: list[tuple[UserMemory, float]] = []
         relevant: list[tuple[UserMemory, float]] = []
+        query_terms = memory_query_terms(normalized_query, self._search_terms)
         for memory in memories:
-            title = self.normalize_text(getattr(memory, "title", ""))
-            content = self.normalize_text(getattr(memory, "content", ""))
             relevance = (lexical_scores.get(memory.id, 0.) if lexical_scores is not None else
-                         self._query_relevance_score(normalized_query, f"{title}\n{content}"))
+                         lexical_evidence(memory, normalized_query, self._search_terms, query_terms))
             # 语义相似度只是召回信号，不能覆盖范围、状态、版本或本轮明确要求。
             semantic = (semantic_scores or {}).get(getattr(memory, "id", ""), 0.0)
-            if semantic >= 0.45:
+            if semantic >= SEMANTIC_MIN:
                 relevance = max(relevance, semantic)
             score = self._memory_rank_score(memory, (ranking_scores or {}).get(getattr(memory, "id", ""), relevance))
-            if memory.memory_type in {"instruction", "profile"}:
-                always_on.append((memory, score))
-            elif relevance > 0:
+            if relevance > 0:
                 relevant.append((memory, score))
 
-        # 少量偏好常驻，其余名额按相关性选择，不能让偏好占满事实名额。
-        always_on.sort(key=lambda item: item[1], reverse=True)
         relevant.sort(key=lambda item: item[1], reverse=True)
-        preferences = always_on[:min(2, max(0, max_memories - (1 if relevant else 0)))]
-        facts = relevant[:max_memories - len(preferences)]
-        selected = [memory for memory, _ in [*preferences, *facts]]
-        return MemoryContextSelection(
-            memories=selected,
-            relevant_count=sum(1 for memory, _ in relevant if memory in selected),
-            always_on_count=sum(1 for memory, _ in always_on if memory in selected),
-        )
+        selected = [memory for memory, _ in relevant[:max_memories]]
+        return MemoryContextSelection(memories=selected, relevant_count=len(selected))
 
     @classmethod
     def _memory_rank_score(cls, memory: UserMemory, relevance: float) -> float:

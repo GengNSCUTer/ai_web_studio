@@ -133,7 +133,7 @@ class MemoryContextTest(unittest.TestCase):
         enriched = MemoryService.enrich_suggestion_risks(suggestions=[suggestion], existing_memories=[])
         self.assertEqual(enriched[0].risk_level, "review_required")
 
-    def test_query_selection_keeps_preferences_but_drops_irrelevant_facts(self) -> None:
+    def test_query_selection_drops_irrelevant_preferences_and_facts(self) -> None:
         repo = FakeMemoryRepository(
             [
                 SimpleNamespace(memory_type="profile", title="表达风格", content="回答简洁、有条理"),
@@ -148,10 +148,10 @@ class MemoryContextTest(unittest.TestCase):
             query="Agent 项目的 RAG 检索如何实现？",
         )
 
-        self.assertIn("回答简洁", context or "")
+        self.assertNotIn("回答简洁", context or "")
         self.assertIn("工具调用", context or "")
         self.assertNotIn("冰岛", context or "")
-        self.assertEqual(count, 2)
+        self.assertEqual(count, 1)
 
     def test_query_selection_does_not_drop_all_facts_when_query_is_unavailable(self) -> None:
         repo = FakeMemoryRepository(

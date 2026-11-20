@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from time import perf_counter
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
@@ -28,6 +29,7 @@ from app.services.file_edit_response import build_file_edit_response
 from app.services.knowledge_context_service import KnowledgeContextService
 from app.services.message_service import MessageService
 from app.services.memory_retrieval_service import MemoryRetrievalResult, MemoryRetrievalService
+from app.services.memory_injection_policy import decide_memory_read
 from app.services.prompt_builder_service import ContextPromptBuilder
 from app.services.provider_capabilities import resolve_provider_capabilities
 from app.services.skill_catalog import SkillExecutionContext
@@ -127,16 +129,23 @@ class ChatContextAssemblyService:
         *,
         query: str | None = None,
         project_id: str | None = None,
+        prior_user_text: str = "",
     ) -> MemoryRetrievalResult:
-        # 长期记忆是用户级上下文，不属于单个 conversation；是否注入由用户设置控制。
-        if not getattr(settings, "memory_enabled", True):
-            return MemoryRetrievalResult(diagnostics={"mode": "disabled"})
+        started = perf_counter()
+        decision = decide_memory_read(query or "", enabled=getattr(settings, "memory_enabled", True),
+                                      prior_user_text=prior_user_text)
+        if decision.mode in {"disabled", "skipped"}:
+            return MemoryRetrievalResult(diagnostics={"mode": decision.mode, "read_decision": decision.mode,
+                "read_reason": decision.reason, "read_rows": 0, "embedding_calls": 0, "elapsed_ms": 0})
 
         max_chars = int(getattr(settings, "memory_max_chars", 4000) or 4000)
         # 结束主链的只读事务；召回使用独立短 Session，外部向量请求期间不占数据库连接。
         self.db.commit()
         retrieval = MemoryRetrievalService(session_factory=sessionmaker(bind=self.db.get_bind(), autoflush=False))
-        return await retrieval.retrieve(user_id=self.user_id, max_chars=max_chars, query=query or "", project_id=project_id)
+        result = await retrieval.retrieve(user_id=self.user_id, max_chars=max_chars, query=query or "",
+                                          project_id=project_id, decision=decision)
+        result.diagnostics["elapsed_ms"] = round((perf_counter() - started) * 1000, 2)
+        return result
 
     async def build_execution_context(
         self,
@@ -202,10 +211,14 @@ class ChatContextAssemblyService:
 
     async def retrieve_memory(self, assembly: ChatAssemblyRuntime) -> None:
         """使用独立短Session召回长期记忆，并准备本轮附件。"""
+        user_message_id = assembly.user_message.id
+        prior_user_text = next((content for message_id, role, content, _ in reversed(assembly.history_snapshot)
+                                if role == "user" and message_id != user_message_id and content), "")
         assembly.memory_bundle = await self.build_memory_context(
             assembly.runtime.settings,
             query=assembly.query,
             project_id=getattr(assembly.conversation, "project_id", None),
+            prior_user_text=prior_user_text,
         )
 
         # 当前轮附件上下文只围绕本轮 user_message 选择，不扫描全部历史附件。
@@ -356,8 +369,9 @@ class ChatContextAssemblyService:
         assembly.governed_context = assembly.runtime.governance_service.govern_messages(assembly.prompt_result.messages)
         if spec:
             self._recheck_final_completion(assembly, spec)
-        assembly.memory_diagnostics = assembly.memory_bundle.after_governance(
-            assembly.governed_context.retained_reference_texts.get("long_term_memory", ""))
+        retained_memory = assembly.governed_context.retained_reference_texts.get("long_term_memory", "")
+        assembly.memory_diagnostics = assembly.memory_bundle.after_governance(retained_memory)
+        assembly.memory_diagnostics["injected_tokens_estimate"] = assembly.runtime.tokenizer.estimate_text_tokens(retained_memory)
         assembly.prompt_diagnostics = self._build_prompt_diagnostics(
             conversation=assembly.conversation,
             prompt_result=assembly.prompt_result,

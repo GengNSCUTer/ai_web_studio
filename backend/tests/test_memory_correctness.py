@@ -79,7 +79,7 @@ class MemoryClassificationTest(unittest.TestCase):
         fact = SimpleNamespace(memory_type="fact", title="项目数据库", content="项目数据库使用 PostgreSQL")
         selection = MemoryService(FakeMemoryRepository([*preferences, fact])).select_memories_for_query("u", query="项目数据库是什么")
         self.assertIn(fact, selection.memories)
-        self.assertEqual(selection.always_on_count, 2)
+        self.assertEqual(selection.memories, [fact])
         self.assertEqual(selection.relevant_count, 1)
 
     def test_explicit_current_language_removes_saved_language_from_prompt_only(self):
@@ -90,7 +90,7 @@ class MemoryClassificationTest(unittest.TestCase):
         self.assertNotIn("默认英文", context)
         self.assertIn("PostgreSQL", context)
         self.assertEqual(count, 1)
-        self.assertIn(preference, service.select_memories_for_query("u", query="解释数据库").memories)
+        self.assertIn(preference, service.select_memories_for_query("u", query="默认回答语言是什么").memories)
 
     def test_long_preference_cannot_consume_fact_character_budget(self):
         profile = SimpleNamespace(memory_type="profile", title="表达风格", content="偏好" * 180)
@@ -236,10 +236,10 @@ class MemoryPersistenceCorrectnessTest(unittest.TestCase):
             service = self.service(db)
             old = service.create_memory(self.user_id, UserMemoryCreate(memory_type="profile", title="回答语言", content="默认中文回答"))
             temp = service.create_memory(self.user_id, UserMemoryCreate(memory_type="profile", title="回答语言", content="今天默认英文回答", expires_at=datetime.now(timezone.utc) + timedelta(hours=1)))
-            self.assertEqual(service.select_memories_for_query(self.user_id, query="你好").memories[0].id, temp.id)
+            self.assertEqual(service.select_memories_for_query(self.user_id, query="回答语言是什么").memories[0].id, temp.id)
             db.get(UserMemory, temp.id).expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
             db.commit()
-            self.assertEqual(service.select_memories_for_query(self.user_id, query="你好").memories[0].id, old.id)
+            self.assertEqual(service.select_memories_for_query(self.user_id, query="回答语言是什么").memories[0].id, old.id)
             self.assertEqual(db.get(UserMemory, old.id).status, "active")
 
     def test_temporary_candidate_cannot_supersede_long_term_baseline(self):

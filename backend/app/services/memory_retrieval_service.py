@@ -28,6 +28,10 @@ from app.services.memory_service import MemoryService
 from app.services.memory_policy import contains_credential
 from app.services.setting_service import SettingService
 from app.services.memory_read_cache import MemoryReadCache
+from app.services.memory_injection_policy import (
+    MemoryReadDecision, PREFERENCE_TYPES, RECALL_LIMIT, SEMANTIC_MIN,
+    decide_memory_read, lexical_evidence, memory_query_terms,
+)
 
 
 def text_hash(memory: UserMemory) -> str:
@@ -95,7 +99,6 @@ class _FrozenEmbeddingSettings:
 class MemoryRetrievalService:
     # 首次最多补 32 条，后续复用；所有合规事实仍参加词法召回。避免一次冷启动无界调用。
     INDEX_BATCH_SIZE = 32
-    SEMANTIC_MIN = 0.45
 
     def __init__(self, *, session_factory=SessionLocal, embedding_service=None, timeout_seconds: float = 8,
                  read_cache=None):
@@ -104,7 +107,7 @@ class MemoryRetrievalService:
         self.timeout_seconds = timeout_seconds
         self.read_cache = read_cache if read_cache is not None else MemoryReadCache()
 
-    def _snapshot(self, user_id: str, project_id: str | None, query="", max_chars=4000):
+    def _snapshot(self, user_id: str, project_id: str | None, query="", max_chars=4000, turn_query=""):
         with self.sessions() as db:
             settings = SettingService(UserSettingRepository(db))
             setting = settings.get_or_create_user_settings(user_id)
@@ -116,9 +119,10 @@ class MemoryRetrievalService:
             repo = UserMemoryRepository(db)
             key = self.read_cache.key(db, user_id, project_id) if self.read_cache.enabled else None
             # 含凭证或被脱敏的问题不进缓存；问题只在 Redis 值字段内，绝不输出到日志。
-            if len(query) > 2000 or redact_source(query) != query:
+            if len(query) > 2000 or redact_source(query) != query or redact_source(turn_query) != turn_query:
                 key = None
-            field = json.dumps([query, max_chars, setting.memory_max_chars, self.signature(config)], ensure_ascii=False)
+            field = json.dumps(["on_demand_v1", query, turn_query, max_chars, setting.memory_max_chars,
+                                self.signature(config)], ensure_ascii=False)
             indexed = db.get_bind().dialect.name == "postgresql"
             metadata = repo.retrieval_metadata(user_id, project_id) if key or indexed else None
             # Redis 也是网络 I/O；短 PG 快照先结束，不在缓存等待中占住数据库连接。
@@ -207,7 +211,7 @@ class MemoryRetrievalService:
         return cached, missing
 
     @classmethod
-    def _rank(cls, rows, facts, cached, query_vector, query, user_id, project_id, database_scores=None):
+    def _rank(cls, rows, facts, cached, query_vector, query, user_id, project_id, database_scores=None, *, turn_query=None):
         """词法/余弦及记忆规则都在线程中计算，避免阻塞 Web 事件循环。"""
         semantic = dict(database_scores or {})
         ids = [row.id for row in facts if row.id in cached]
@@ -219,20 +223,20 @@ class MemoryRetrievalService:
             query_array /= np.max(np.abs(query_array))
             query_array /= np.linalg.norm(query_array)
             semantic.update(zip(ids, np.clip(np.einsum("ij,j->i", matrix, query_array), -1, 1).tolist()))
-        terms = MemoryService._search_terms(query)
-        lexical = {row.id: MemoryService._query_relevance_score(query, f"{row.title}\n{row.content}",
-                   query_terms=terms) for row in facts}
+        terms = memory_query_terms(query, MemoryService._search_terms)
+        lexical = {row.id: lexical_evidence(row, query, MemoryService._search_terms, terms) for row in rows}
         ranking = {}
-        for scores, minimum in ((lexical, .000001), (semantic, cls.SEMANTIC_MIN)):
+        for scores, minimum in ((lexical, .000001), (semantic, SEMANTIC_MIN)):
             ordered = sorted((key for key, value in scores.items() if value >= minimum), key=lambda key: (-scores[key], key))
             for rank, key in enumerate(ordered, 1):
                 ranking[key] = ranking.get(key, 0) + .5 * 61 / (60 + rank)
         selected = MemoryService(None).select_memories_for_query(user_id, query=query, project_id=project_id,
-            semantic_scores=semantic, ranking_scores=ranking, candidate_memories=rows, lexical_scores=lexical)
+            semantic_scores=semantic, ranking_scores=ranking, candidate_memories=rows, lexical_scores=lexical,
+            turn_query=turn_query)
         return semantic, ranking, {row.id: text_hash(row) for row in rows}, [row.id for row in selected.memories]
 
     def _finalize(self, user_id, project_id, query, max_chars, signature, vectors, semantic, ranking, diagnostics,
-                  cache_state=None, candidate_ids=None):
+                  cache_state=None, candidate_ids=None, *, turn_query=None):
         snapshot_hashes = diagnostics.pop("snapshot_hashes", {})
         with self.sessions() as db:
             setting = db.scalar(select(UserSetting).where(UserSetting.user_id == user_id))
@@ -264,15 +268,14 @@ class MemoryRetrievalService:
             semantic = {key: value for key, value in semantic.items() if key in valid_ids}
             ranking = {key: value for key, value in ranking.items() if key in valid_ids}
             selection = service.select_memories_for_query(user_id, query=query, project_id=project_id,
-                semantic_scores=semantic, ranking_scores=ranking, candidate_memories=current_rows)
+                semantic_scores=semantic, ranking_scores=ranking, candidate_memories=current_rows, turn_query=turn_query)
             context, records = service.render_selection(selection.memories, max_chars=min(max_chars, setting.memory_max_chars))
             for record in records:
                 row = next(item for item in selection.memories if item.id == record["id"])
                 record["project_id"] = service._memory_scope(row, user_id)
-                lexical = service._query_relevance_score(query, f"{row.title}\n{row.content}")
-                record.update(reason="profile" if row.memory_type in {"profile", "instruction"} else
-                    "hybrid" if lexical > 0 and semantic.get(row.id, 0) >= self.SEMANTIC_MIN else
-                    "semantic" if semantic.get(row.id, 0) >= self.SEMANTIC_MIN else "lexical",
+                lexical = lexical_evidence(row, query, service._search_terms)
+                record.update(reason="hybrid" if lexical > 0 and semantic.get(row.id, 0) >= SEMANTIC_MIN else
+                    "semantic" if semantic.get(row.id, 0) >= SEMANTIC_MIN else "lexical",
                     lexical_score=lexical, semantic_score=round(semantic.get(row.id, 0), 4))
             if (cache_state and not hit and cache_state.get("key") and not diagnostics.get("fallback_reason")
                     and not diagnostics.get("embedding_deferred")
@@ -288,12 +291,37 @@ class MemoryRetrievalService:
                 self.read_cache.put(cache_state["key"], cache_state["field"], value)
             return MemoryRetrievalResult(context, records, diagnostics)
 
-    async def retrieve(self, *, user_id: str, project_id: str | None, query: str, max_chars: int) -> MemoryRetrievalResult:
+    def _explicit_recall(self, user_id, project_id, query, max_chars, diagnostics):
+        with self.sessions() as db:
+            setting = db.scalar(select(UserSetting).where(UserSetting.user_id == user_id))
+            if setting is None or not setting.memory_enabled:
+                return MemoryRetrievalResult(diagnostics={**diagnostics, "mode": "disabled"})
+            repo = UserMemoryRepository(db)
+            rows = repo.list_preferences_for_recall(user_id, project_id, limit=RECALL_LIMIT * 3)
+            service = MemoryService(repo, ConversationRepository(db))
+            selection = service.select_memories_for_query(user_id, query=query, project_id=project_id,
+                candidate_memories=rows, max_memories=RECALL_LIMIT, explicit_recall=True)
+            context, records = service.render_selection(selection.memories, max_chars=min(max_chars, setting.memory_max_chars))
+            selected = {row.id: row for row in selection.memories}
+            for record in records:
+                record.update(reason="explicit_recall", project_id=service._memory_scope(selected[record["id"]], user_id))
+            return MemoryRetrievalResult(context, records, {**diagnostics, "mode": "explicit_recall", "read_rows": len(rows)})
+
+    async def retrieve(self, *, user_id: str, project_id: str | None, query: str, max_chars: int,
+                       decision: MemoryReadDecision | None = None) -> MemoryRetrievalResult:
+        decision = decision or decide_memory_read(query)
+        diagnostics = {"read_decision": decision.mode, "read_reason": decision.reason, "read_rows": 0,
+                       "embedding_calls": 0}
+        if decision.mode in {"skipped", "disabled"}:
+            return MemoryRetrievalResult(diagnostics={**diagnostics, "mode": decision.mode})
+        turn_query, query = query, decision.query
         try:
-            rows, config, cache_state = await asyncio.to_thread(self._snapshot, user_id, project_id, query, max_chars)
+            if decision.mode == "explicit_recall":
+                return await asyncio.to_thread(self._explicit_recall, user_id, project_id, turn_query, max_chars, diagnostics)
+            rows, config, cache_state = await asyncio.to_thread(self._snapshot, user_id, project_id, query, max_chars, turn_query)
         except SQLAlchemyError:
-            return MemoryRetrievalResult(diagnostics={"mode": "unavailable", "fallback_reason": "memory_database_unavailable"})
-        diagnostics = dict(mode="lexical", eligible_count=cache_state.get("eligible_count", len(rows)),
+            return MemoryRetrievalResult(diagnostics={**diagnostics, "mode": "unavailable", "fallback_reason": "memory_database_unavailable"})
+        diagnostics.update(mode="lexical", eligible_count=cache_state.get("eligible_count", len(rows)),
                            read_cache=cache_state.get("state", "disabled"),
                            read_rows=len(rows), embedding_cache_hits=0,
                            embedding_generated=0, embedding_deferred=0, fallback_reason=None)
@@ -308,8 +336,8 @@ class MemoryRetrievalService:
         if hit and config:
             diagnostics.update(mode=hit.get("mode", "lexical"), snapshot_hashes=hit["hashes"])
             return await asyncio.to_thread(self._finalize, user_id, project_id, query, max_chars,
-                self.signature(config), [], hit["semantic"], hit["ranking"], diagnostics, cache_state)
-        facts = [row for row in rows if row.memory_type not in {"profile", "instruction"}]
+                self.signature(config), [], hit["semantic"], hit["ranking"], diagnostics, cache_state, turn_query=turn_query)
+        facts = [row for row in rows if row.memory_type not in PREFERENCE_TYPES]
         clean_query = redact_source(query).strip()[:2000]
         if (facts or cache_state.get("has_facts")) and clean_query and config:
             signature = self.signature(config)
@@ -324,6 +352,7 @@ class MemoryRetrievalService:
             diagnostics["embedding_deferred"] = max(0, len(missing) - len(batch))
             adapter = self.embedding_service or KnowledgeEmbeddingService(_FrozenEmbeddingSettings(config))
             try:
+                diagnostics["embedding_calls"] += 1
                 vectors = await asyncio.wait_for(adapter.embed_texts(user_id=user_id,
                     knowledge_base=SimpleNamespace(embedding_provider=config["provider"], embedding_model=config["model"]),
                     texts=[clean_query, *[redact_source(f"{row.title}\n{row.content}")[:4000] for row in batch]]), self.timeout_seconds)
@@ -344,13 +373,13 @@ class MemoryRetrievalService:
                 unique = {row.id: row for row in rows}
                 unique.update({row.id: row for row in semantic_rows if row.id not in unique})
                 rows = list(unique.values())
-                facts = [row for row in rows if row.memory_type not in {"profile", "instruction"}]
+                facts = [row for row in rows if row.memory_type not in PREFERENCE_TYPES]
                 diagnostics.update(info, read_rows=len(rows))
             except SQLAlchemyError:
                 diagnostics["fallback_reason"] = "semantic_database_unavailable"
-        # 在已授权快照上先选出最多八条，再用 PG 重新校验；不重复搬运整批向量正文。
+        # 普通回答先选少量候选，再用 PG 重新校验；不重复搬运整批向量正文。
         semantic, ranking, hashes, candidate_ids = await asyncio.to_thread(
-            self._rank, rows, facts, cached, query_vector, query, user_id, project_id, database_scores)
+            self._rank, rows, facts, cached, query_vector, query, user_id, project_id, database_scores, turn_query=turn_query)
         diagnostics["snapshot_hashes"] = hashes
         return await asyncio.to_thread(self._finalize, user_id, project_id, query, max_chars,
-            signature, generated, semantic, ranking, diagnostics, cache_state, candidate_ids)
+            signature, generated, semantic, ranking, diagnostics, cache_state, candidate_ids, turn_query=turn_query)

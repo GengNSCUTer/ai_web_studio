@@ -192,12 +192,26 @@ class CapacityCases:
             self.retrieve(query=f"冬季假期方案 {i}")
         self.assertLessEqual(self.client.hlen(self.keys[-1]), MemoryReadCache.MAX_QUERIES)
 
+    def test_previous_selection_cache_field_is_ignored(self):
+        self.retrieve()
+        key = self.keys[-1]
+        with self.sessions() as db:
+            setting = db.scalar(select(UserSetting).where(UserSetting.user_id == self.uid))
+            signature = self.reader.signature(dict(provider=setting.knowledge_embedding_provider,
+                model=setting.knowledge_embedding_model, dimensions=setting.knowledge_embedding_dimensions,
+                base_url=setting.knowledge_embedding_base_url))
+            old_field = json.dumps(["冬季假期去哪", 2000, setting.memory_max_chars, signature], ensure_ascii=False)
+        values = list(self.client.data[key].values()) if isinstance(self.client, FakeRedis) else self.client.hvals(key)
+        self.client.delete(key)
+        self.client.hset(key, old_field, values[0])
+        self.assertEqual(self.retrieve().diagnostics["read_cache"], "miss")
+
     def test_ranking_runs_outside_event_loop_thread(self):
         current = threading.get_ident()
         original = self.reader._rank
-        def checked(*args):
+        def checked(*args, **kwargs):
             self.assertNotEqual(threading.get_ident(), current)
-            return original(*args)
+            return original(*args, **kwargs)
         with patch.object(self.reader, "_rank", side_effect=checked) as rank:
             self.retrieve()
         rank.assert_called_once()

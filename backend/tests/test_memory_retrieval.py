@@ -208,8 +208,47 @@ class MemoryRetrievalTest(unittest.TestCase):
     def test_current_turn_language_request_does_not_mutate_default(self):
         memory = self.memory(memory_type="profile", title="回答语言", content="默认英文回答")
         self.assertFalse(self.retrieve("这次用中文回答").records)
-        self.assertEqual(self.retrieve("解释 TCP").records[0]["id"], memory)
+        self.assertFalse(self.retrieve("解释 TCP").records)
+        self.assertEqual(self.retrieve("默认回答语言是什么").records[0]["id"], memory)
         self.adapter.embed_texts.assert_not_called()
+
+    def test_explicit_recall_is_bounded_and_scoped(self):
+        for index in range(10):
+            self.memory(memory_type="profile", title=f"偏好{index}", content="简洁表达")
+        self.memory(memory_type="profile", title="项目 B 偏好", content="仅项目 B 可见", project_id=self.b)
+        self.memory(memory_type="profile", title="已撤销偏好", content="旧值", status="revoked")
+        self.memory(memory_type="fact", title="项目事实", content="内容不属于偏好")
+        result = self.retrieve("你记得我有哪些偏好？")
+        self.assertEqual(result.diagnostics["read_decision"], "explicit_recall")
+        self.assertEqual(result.count, 8)
+        self.assertNotIn("项目 B", result.context_text)
+        self.assertNotIn("旧值", result.context_text)
+        self.assertNotIn("项目事实", result.context_text)
+        self.adapter.embed_texts.assert_not_called()
+
+    def test_skip_does_not_open_session_or_read_cache(self):
+        self.service.sessions = lambda: self.fail("本轮不能建立记忆数据库 Session")
+        for query, reason in [("谢谢！", "social_only"), ("这次不要用长期记忆回答。解释 TCP", "user_opt_out"),
+                              ("  ", "empty_query")]:
+            with self.subTest(query=query):
+                result = self.retrieve(query)
+                self.assertFalse(result.records)
+                self.assertEqual(result.diagnostics["read_reason"], reason)
+        self.adapter.embed_texts.assert_not_called()
+
+    def test_followup_expands_recall_but_uses_current_turn_language_override(self):
+        from app.services.memory_injection_policy import decide_memory_read
+
+        item = self.memory(title="Redis 集群", content="Redis 集群使用三主三从")
+        self.memory(memory_type="profile", title="回答语言", content="默认英文回答")
+        self.adapter.embed_texts.side_effect = TimeoutError()
+        query = "上次说的方案呢？这次用中文回答"
+        decision = decide_memory_read(query, prior_user_text="Redis 集群的回答语言是什么？")
+        result = asyncio.run(self.service.retrieve(user_id=self.user, project_id=self.a, query=query,
+                                                  max_chars=1000, decision=decision))
+        self.assertEqual(decision.reason, "contextual_follow_up")
+        self.assertEqual([row["id"] for row in result.records], [item])
+        self.assertEqual(result.diagnostics["fallback_reason"], "embedding_timeout")
 
     def test_low_similarity_irrelevant_memory_is_not_forced_into_prompt(self):
         self.memory()

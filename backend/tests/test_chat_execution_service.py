@@ -551,6 +551,31 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_prepare_chat_execution_only_injects_relevant_memory(self) -> None:
+        from app.models.user_memory import UserMemory
+
+        async def run_test():
+            self.db.add(UserMemory(user_id=self.user.id, memory_type="profile",
+                title="回答语言", content="默认英文回答"))
+            self.db.commit()
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+            for query, reason, expected in (("你好！", "social_only", False),
+                                             ("请解释 TCP", "query_relevance", False),
+                                             ("我默认回答语言是什么？", "query_relevance", True),
+                                             ("这次用中文回答，我默认回答语言是什么？", "query_relevance", False)):
+                with self.subTest(query=query), patch(
+                    "app.services.chat_context_assembly_service.ExternalContextService", FakeExternalContextService
+                ):
+                    context = await service.prepare_chat_execution(ChatStreamRequest(
+                        content=query, model_name="qwen-test", web_search_enabled=False))
+                    prompt = json.dumps(context.history_messages, ensure_ascii=False)
+                    trace = context.context_stats["memory_retrieval"]
+                    self.assertEqual("默认英文回答" in prompt, expected)
+                    self.assertEqual(trace["injected_count"], int(expected))
+                    self.assertEqual(trace["read_reason"], reason)
+
+        asyncio.run(run_test())
+
     def test_prepare_chat_execution_builds_context_without_external_services(self) -> None:
         async def run_test() -> None:
             service = ChatExecutionService(db=self.db, current_user=self.user)

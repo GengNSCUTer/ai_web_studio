@@ -117,10 +117,10 @@ class UserMemoryRepository:
 
         self._search_deadline()
         filters = self._retrieval_filter(user_id, project_id)
-        terms = sorted(MemoryService._search_terms(query))[:64]
-        ids = list(self.db.scalars(select(UserMemory.id).where(*filters,
-            UserMemory.memory_type.in_(["profile", "instruction"]), UserMemory.sensitivity != "sensitive"
-        ).order_by(UserMemory.importance.desc(), UserMemory.updated_at.desc(), UserMemory.id).limit(8)))
+        from app.services.memory_injection_policy import memory_query_terms
+
+        terms = sorted(memory_query_terms(query, MemoryService._search_terms))[:64]
+        ids = []
         if terms:
             tsquery = func.to_tsquery("simple", " | ".join(terms))
             score = func.ts_rank_cd(UserMemory.search_vector, tsquery)
@@ -179,6 +179,15 @@ class UserMemoryRepository:
             stmt = stmt.options(defer(UserMemory.embedding_vector), defer(UserMemory.embedding_signature),
                                 defer(UserMemory.embedding_text_hash))
         stmt = stmt.order_by(UserMemory.updated_at.desc(), UserMemory.id).execution_options(populate_existing=True)
+        return list(self.db.scalars(stmt))
+
+    def list_preferences_for_recall(self, user_id: str, project_id: str | None, *, limit: int):
+        if self.db.get_bind().dialect.name == "postgresql":
+            self._search_deadline()
+        stmt = select(UserMemory).where(*self._retrieval_filter(user_id, project_id),
+            UserMemory.memory_type.in_(["profile", "instruction"]), UserMemory.sensitivity != "sensitive").options(
+                defer(UserMemory.embedding_vector), defer(UserMemory.embedding_signature),
+                defer(UserMemory.embedding_text_hash)).order_by(UserMemory.updated_at.desc(), UserMemory.id).limit(limit)
         return list(self.db.scalars(stmt))
 
     def expire_due(self, user_id: str) -> int:
