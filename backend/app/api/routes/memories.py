@@ -15,6 +15,10 @@ from app.repositories.setting_repo import UserSettingRepository
 from app.schemas.memory import (
     MemoryExtractionJobResponse,
     MemoryActivityResponse,
+    MemoryHistoryResponse,
+    MemoryMaintenanceJobResponse,
+    MemoryMaintenanceRequest,
+    MemoryMaintenanceReview,
     MemoryReviewRequest,
     MemoryConflictCheckRequest,
     MemoryTriggerDecisionResponse,
@@ -32,6 +36,7 @@ from app.services.memory_extraction_policy import extraction_prompt, verify_evid
 from app.repositories.memory_job_repo import MemoryExtractionJobRepository
 from app.services.setting_service import SettingService
 from app.services.memory_conflict_service import MemoryConflictService
+from app.services.memory_maintenance_service import MemoryMaintenanceService
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
@@ -100,10 +105,7 @@ def list_memories(
         allowed = {"pending", "active", "rejected", "superseded", "expired", "revoked"}
         if memory_status not in allowed:
             raise HTTPException(status_code=400, detail="Invalid memory status")
-        return [
-            service._memory_response(item, current_user.id)
-            for item in UserMemoryRepository(db).list_by_user_and_status(current_user.id, memory_status)
-        ]
+        return service.memory_responses(service.repo.list_by_user_and_status(current_user.id, memory_status), current_user.id)
     return service.list_memories(current_user.id)
 
 
@@ -183,6 +185,91 @@ def get_memory_activity(
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
 
+@router.post("/maintenance", response_model=MemoryMaintenanceJobResponse, status_code=202)
+def enqueue_maintenance(payload: MemoryMaintenanceRequest, db: Session = Depends(get_db),
+                        current_user: User = Depends(get_current_user)):
+    try:
+        return MemoryMaintenanceService(db).enqueue(current_user.id, str(payload.project_id))
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/maintenance/latest", response_model=MemoryMaintenanceJobResponse | None)
+def latest_maintenance(response: Response, project_id: str, db: Session = Depends(get_db),
+                       current_user: User = Depends(get_current_user)):
+    response.headers["Cache-Control"] = "no-store"
+    service = MemoryMaintenanceService(db)
+    try:
+        job = service.latest(current_user.id, project_id)
+        return service.preview(job) if job else None
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.get("/maintenance/{job_id}", response_model=MemoryMaintenanceJobResponse)
+def get_maintenance(job_id: str, response: Response, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
+    response.headers["Cache-Control"] = "no-store"
+    service = MemoryMaintenanceService(db)
+    try:
+        return service.preview(service.get(current_user.id, job_id))
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/maintenance/{job_id}/proposals/{proposal_id}", response_model=MemoryMaintenanceJobResponse)
+def review_maintenance(job_id: str, proposal_id: str, payload: MemoryMaintenanceReview,
+                       db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    try:
+        return MemoryMaintenanceService(db).review(current_user.id, job_id, proposal_id, payload)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+def _owned_memory(service, memory_id, user_id):
+    memory = service.repo.get_by_user(memory_id, user_id)
+    if not memory:
+        raise HTTPException(404, "Memory not found")
+    return memory
+
+
+@router.post("/{memory_id}/reextract", response_model=MemoryExtractionJobResponse, status_code=202)
+def reextract_memory(memory_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
+    memory = _owned_memory(service, memory_id, current_user.id)
+    try:
+        if memory.status not in {"active", "pending"} or not service.source_issues([memory]):
+            raise ValueError("只有来源已失效且未关闭的记忆可以重新提取")
+        return MemoryExtractionJobResponse.model_validate(MemoryExtractionJobService(db).reextract(current_user.id, memory))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/{memory_id}/save-independent", response_model=UserMemoryResponse, status_code=201)
+def save_independent_memory(memory_id: str, payload: MemoryConflictCheckRequest, db: Session = Depends(get_db),
+                            current_user: User = Depends(get_current_user)):
+    service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
+    try:
+        return service.save_independent(_owned_memory(service, memory_id, current_user.id), payload.expected_version)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/{memory_id}/history", response_model=MemoryHistoryResponse)
+def memory_history(memory_id: str, response: Response, db: Session = Depends(get_db),
+                   current_user: User = Depends(get_current_user)):
+    response.headers["Cache-Control"] = "no-store"
+    service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
+    try:
+        return service.history(_owned_memory(service, memory_id, current_user.id))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @router.post("/{memory_id}/approve", response_model=UserMemoryResponse)
 async def approve_memory_candidate(
     memory_id: str,
@@ -196,7 +283,7 @@ async def approve_memory_candidate(
     if not memory:
         raise HTTPException(status_code=404, detail="Memory not found")
     try:
-        if not memory.conflict_review_json:
+        if memory.status == "pending" and not memory.conflict_review_json:
             version = memory.version
             await asyncio.to_thread(db.commit)
             await MemoryConflictService().recheck(user_id=user_id, memory_id=memory_id, expected_version=version)

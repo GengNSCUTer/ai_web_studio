@@ -16,6 +16,7 @@ from app.repositories.setting_repo import UserSettingRepository
 from app.services.setting_service import SettingService
 from app.services.memory_policy import contains_credential
 from app.services.memory_extraction_policy import redact_source
+from app.services.memory_source_service import source_issues
 from app.services.memory_retrieval_service import MemoryRetrievalService, _FrozenEmbeddingSettings, text_hash, valid_vector
 from app.services.knowledge_index_service import KnowledgeEmbeddingService
 
@@ -54,6 +55,7 @@ class MemoryIndexWorker:
                 api_key=settings.resolve_knowledge_model_api_key(uid, "embedding"))
             accepted = []
             repo = UserMemoryRepository(db)
+            invalid_sources = source_issues(db, rows)
             for row in rows:
                 scope = row.project_id
                 if scope is None and row.source_conversation_id:
@@ -62,7 +64,7 @@ class MemoryIndexWorker:
                     scope = source.project_id if source else None
                 permitted = db.scalar(select(UserMemory.id).where(UserMemory.id == row.id,
                     *repo._retrieval_filter(uid, scope))) is not None
-                if not permitted or contains_credential(row.title, row.content):
+                if not permitted or row.id in invalid_sources or contains_credential(row.title, row.content):
                     db.execute(update(UserMemory).where(UserMemory.id == row.id).values(
                         embedding_retry_after=now + timedelta(days=1), updated_at=UserMemory.updated_at))
                     continue

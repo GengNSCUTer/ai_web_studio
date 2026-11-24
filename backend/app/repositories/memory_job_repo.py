@@ -32,16 +32,27 @@ class MemoryExtractionJobRepository:
             ).all()
         )
 
-    def claim_next(self, owner: str, *, lease_seconds: int = 90) -> MemoryExtractionJob | None:
+    def claim_next(self) -> MemoryExtractionJob | None:
         now = datetime.now(timezone.utc)
+        available = or_(MemoryExtractionJob.status == "pending",
+            (MemoryExtractionJob.status == "running") & (MemoryExtractionJob.lease_expires_at <= now))
+        exhausted = self.db.scalars(select(MemoryExtractionJob).where(available,
+            MemoryExtractionJob.attempts >= MemoryExtractionJob.max_attempts)
+            .order_by(MemoryExtractionJob.created_at, MemoryExtractionJob.id)
+            .limit(20).with_for_update(skip_locked=True)).all()
+        for job in exhausted:
+            job.status = "failed"
+            job.finished_at = now
+            job.error_code = "attempts_exhausted"
+            job.error_message = "提取任务已用完重试次数，未保存新记忆。"
+            job.lease_owner = job.lease_expires_at = None
+        if exhausted:
+            self.db.flush()
         statement = (
             select(MemoryExtractionJob)
             .where(
-                or_(
-                    MemoryExtractionJob.status == "pending",
-                    (MemoryExtractionJob.status == "running")
-                    & (MemoryExtractionJob.lease_expires_at < now),
-                ),
+                available,
+                MemoryExtractionJob.attempts < MemoryExtractionJob.max_attempts,
                 or_(MemoryExtractionJob.available_at.is_(None), MemoryExtractionJob.available_at <= now),
             )
             .order_by(MemoryExtractionJob.priority.desc(), MemoryExtractionJob.created_at.asc())

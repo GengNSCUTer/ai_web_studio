@@ -18,12 +18,14 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
 from app.models.conversation import Conversation
+from app.models.message import Message
 from app.models.project import Project
 from app.models.user import User
-from app.models.user_memory import UserMemory
+from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.models.user_setting import UserSetting
 from app.repositories.memory_repo import UserMemoryRepository
 from app.services.memory_index_service import MemoryIndexWorker
+from app.services.memory_extraction_policy import source_snapshot
 from app.services.memory_read_cache import MemoryReadCache
 from app.services.memory_retrieval_service import MemoryRetrievalService, text_hash
 from backend.tests.test_chat_memory_capacity import FakeRedis
@@ -89,6 +91,31 @@ class IndexedMemoryTest(unittest.TestCase):
     def retrieve(self, query="冬季假期去哪", project=None):
         return asyncio.run(self.reader.retrieve(user_id=self.uid, project_id=project or self.a,
                                                query=query, max_chars=4000))
+
+    def test_source_edit_invalidates_cached_memory_without_changing_memory_revision(self):
+        with self.sessions.begin() as db:
+            conversation = Conversation(user_id=self.uid, project_id=self.a, title="来源", model_name="test")
+            db.add(conversation)
+            db.flush()
+            message = Message(conversation_id=conversation.id, role="user", content="喜欢到雪山滑雪")
+            db.add(message)
+            db.flush()
+            job = MemoryExtractionJob(user_id=self.uid, project_id=self.a, conversation_id=conversation.id,
+                source_message_ids=message.id, source_snapshot=source_snapshot([message]),
+                status="succeeded", idempotency_key=uuid4().hex)
+            db.add(job)
+            db.flush()
+        target = self.memory(source="auto_confirmed", source_conversation_id=conversation.id,
+                             source_message_ids=message.id, extraction_job_id=job.id)
+        query = "滑雪偏好是什么？"
+        self.assertIn(target, {row["id"] for row in self.retrieve(query).records})
+        self.assertEqual(self.retrieve(query).diagnostics["read_cache"], "hit")
+        with self.sessions.begin() as db:
+            before = db.get(User, self.uid).memory_revision
+            db.get(Message, message.id).content = "现在喜欢游泳"
+        with self.sessions() as db:
+            self.assertEqual(db.get(User, self.uid).memory_revision, before)
+        self.assertNotIn(target, {row["id"] for row in self.retrieve(query).records})
 
     def test_old_semantic_fact_is_found_beyond_latest_hundred(self):
         target = self.memory(updated_at=datetime(2000, 1, 1, tzinfo=timezone.utc))

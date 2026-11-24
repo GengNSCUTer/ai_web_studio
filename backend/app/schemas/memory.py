@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -42,6 +43,7 @@ class UserMemoryResponse(BaseModel):
     source: str
     source_conversation_id: str | None = None
     source_conversation_title: str | None = None
+    source_issue: str | None = None
     source_message_ids: str | None = None
     confidence: str | None = None
     is_enabled: bool
@@ -101,6 +103,45 @@ class MemoryReviewRequest(BaseModel):
 
 class MemoryConflictCheckRequest(BaseModel):
     expected_version: int = Field(ge=1)
+
+
+class MemoryMaintenanceRequest(BaseModel):
+    project_id: UUID
+
+
+class MemoryMaintenanceProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["duplicate", "merge", "correct"]
+    target_id: str = Field(max_length=36)
+    related_id: str | None = Field(default=None, max_length=36)
+    source_id: str | None = Field(default=None, max_length=36)
+    content: str | None = Field(default=None, min_length=1, max_length=1000)
+
+
+class MemoryMaintenanceReview(BaseModel):
+    expected_version: int = Field(ge=1)
+    decision: Literal["apply", "dismiss"]
+
+
+class MemoryMaintenanceJobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    project_id: str
+    status: str
+    version: int
+    proposals: list[dict]
+    error_code: str | None = None
+    model_ms: int | None = None
+    estimated_input_tokens: int | None = None
+    estimated_output_tokens: int | None = None
+    reviewed_count: int = 0
+    accepted_count: int = 0
+    created_at: datetime
+
+
+class MemoryHistoryResponse(BaseModel):
+    versions: list[UserMemoryResponse]
+    truncated: bool
 
 
 class MemoryExtractionJobResponse(BaseModel):

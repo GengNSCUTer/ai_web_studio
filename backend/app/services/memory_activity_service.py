@@ -10,6 +10,7 @@ from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.repositories.conversation_repo import ConversationRepository
 from app.schemas.memory import MemoryActivityItem, MemoryActivityResponse
 from app.services.memory_policy import contains_credential
+from app.services.memory_source_service import source_issues
 
 
 class MemoryActivityService:
@@ -36,11 +37,14 @@ class MemoryActivityService:
             UserMemory.project_id == conversation.project_id
         ).order_by(UserMemory.created_at.desc(), UserMemory.id.desc()).limit(160)).all()
         now = datetime.now(timezone.utc)
+        issues = source_issues(self.db, rows)
         items = []
         for row in rows:
             if contains_credential(row.title, row.content):
                 continue
             state = row.status
+            if state == "active" and row.id in issues:
+                state = "disabled"
             expiry = row.expires_at
             if expiry and (expiry.replace(tzinfo=timezone.utc) if expiry.tzinfo is None else expiry) <= now:
                 if state in {"active", "pending"}:

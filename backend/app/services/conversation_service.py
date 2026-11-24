@@ -1,4 +1,10 @@
+from datetime import datetime, timezone
+
+from sqlalchemy import delete, select, update
+
 from app.models.conversation import Conversation
+from app.models.user import User
+from app.models.user_memory import MemoryExtractionJob
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.knowledge_repo import KnowledgeRetrievalLogRepository
 from app.repositories.project_repo import ProjectRepository
@@ -82,6 +88,9 @@ class ConversationService:
         *,
         commit: bool = True,
     ) -> ConversationResponse | None:
+        if "project_id" in payload.model_fields_set:
+            # 记忆提交先锁用户再锁会话，项目迁移也遵循同一顺序。
+            self.repo.db.scalar(select(User.id).where(User.id == user_id).with_for_update(key_share=True))
         conversation = self.repo.get_by_user(conversation_id, user_id)
         if not conversation:
             return None
@@ -98,16 +107,26 @@ class ConversationService:
             conversation.is_archived = payload.is_archived
         if payload.is_pinned is not None:
             conversation.is_pinned = payload.is_pinned
+        moved = "project_id" in payload.model_fields_set and conversation.project_id != payload.project_id
         if "project_id" in payload.model_fields_set:
             conversation.project_id = payload.project_id
 
         updated = self.repo.save(conversation)
+        if moved:
+            jobs = update(MemoryExtractionJob).where(MemoryExtractionJob.conversation_id == conversation.id,
+                                                    MemoryExtractionJob.user_id == user_id)
+            self.repo.db.execute(jobs.where(MemoryExtractionJob.status.in_(["pending", "running"])).values(
+                status="failed", error_code="conversation_scope_changed", finished_at=datetime.now(timezone.utc),
+                lease_owner=None, lease_expires_at=None, error_message="会话已移出提取范围。"))
+            self.repo.db.execute(jobs.where(MemoryExtractionJob.status == "succeeded").values(
+                error_code="conversation_scope_changed"))
         if commit:
             self._commit()
             self.repo.db.refresh(updated)
         return ConversationResponse.model_validate(updated)
 
     def delete_conversation(self, conversation_id: str, user_id: str) -> bool:
+        self.repo.db.scalar(select(User.id).where(User.id == user_id).with_for_update(key_share=True))
         conversation = self.repo.get_by_user(conversation_id, user_id)
         if not conversation:
             return False
@@ -119,6 +138,8 @@ class ConversationService:
                 user_id=user_id,
                 commit=False,
             )
+            self.repo.db.execute(delete(MemoryExtractionJob).where(
+                MemoryExtractionJob.user_id == user_id, MemoryExtractionJob.conversation_id == conversation.id))
             self.repo.delete(conversation)
             self.repo.db.commit()
         except Exception:

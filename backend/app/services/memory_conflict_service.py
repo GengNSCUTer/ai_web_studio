@@ -61,9 +61,9 @@ class MemoryConflictService:
                     configured_ollama_base_url=setting.ollama_base_url, configured_api_base_url=setting.api_base_url),
                 api_key=settings.resolve_provider_api_key(user_id))
             # 设置初始化可能提交事务；在它之后读取记忆，避免把已过期ORM对象带出Session。
-            rows = [row for row in repo.list_by_user(user_id) if row.id != exclude_id and row.status == 'active'
+            rows = service.valid_sources([row for row in repo.list_by_user(user_id) if row.id != exclude_id and row.status == 'active'
                     and service._memory_scope(row, user_id) == project_id
-                    and (row.expires_at is None or service._normalize_expiry(row.expires_at) > datetime.now(timezone.utc))]
+                    and (row.expires_at is None or service._normalize_expiry(row.expires_at) > datetime.now(timezone.utc))])
             for row in rows:
                 db.expunge(row)
             return rows, embedding, provider
@@ -87,13 +87,17 @@ class MemoryConflictService:
                 row = repo.get_by_user(memory_id, user_id)
                 if not row or row.status != 'pending' or row.version != expected_version:
                     raise ValueError('候选状态或版本已变化，请刷新')
-                scope = MemoryService(repo, ConversationRepository(db))._memory_scope(row, user_id)
+                service = MemoryService(repo, ConversationRepository(db))
+                service.require_valid_source(row)
+                scope = service._memory_scope(row, user_id)
                 if scope == '__unresolved__':
                     raise ValueError('来源范围无法解析')
-                return scope, MemorySuggestion(memory_type=row.memory_type, title=row.title, content=row.content,
-                    confidence=row.confidence, project_id=scope)
-        scope, suggestion = await asyncio.to_thread(snapshot)
+                return scope, row.needs_explicit_choice, MemorySuggestion(memory_type=row.memory_type, title=row.title,
+                    content=row.content, confidence=row.confidence, project_id=scope)
+        scope, needs_choice, suggestion = await asyncio.to_thread(snapshot)
         assessed, = await self.assess(user_id=user_id, project_id=scope, suggestions=[suggestion], exclude_id=memory_id)
+        if needs_choice:
+            assessed.conflict_review["requires_review"] = True
         def save():
             with self.sessions() as db:
                 repo = UserMemoryRepository(db)
@@ -102,10 +106,11 @@ class MemoryConflictService:
                     row = repo.get_by_user(memory_id, user_id)
                     if not row or row.status != 'pending' or row.version != expected_version:
                         raise ValueError('候选状态或版本已变化，请刷新')
+                    service.require_valid_source(row, lock=True)
                     row.conflict_review_json = json.dumps(assessed.conflict_review, ensure_ascii=False)
-                    existing = [item for item in repo.list_others(user_id, row.id)
+                    existing = service.valid_sources([item for item in repo.list_others(user_id, row.id)
                         if service._memory_scope(item, user_id) == scope
-                        and (item.expires_at is None or service._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))]
+                        and (item.expires_at is None or service._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))])
                     validate_review(row, existing, scope, acknowledged=True)
                     row.risk_level, row.candidate_reason = assessed.risk_level, assessed.risk_reason
                     row.supersedes_memory_id = assessed.conflict_memory_id

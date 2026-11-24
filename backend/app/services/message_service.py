@@ -249,7 +249,9 @@ class MessageService:
             if locked_assistant.status == "streaming":
                 raise MessageGenerationConflict()
             self.repo.invalidate_summary_for_changes(conversation, [user_message.id, locked_assistant.id])
-            user_message.content = content
+            if user_message.content != content:
+                user_message.content = content
+                user_message.generation_id = str(uuid4())
             self.repo.save(user_message)
             attachments: list[Attachment] | None = None
             if uploads is not None:

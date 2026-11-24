@@ -136,14 +136,16 @@ class MemoryRetrievalService:
                     isinstance(k, str) and isinstance(v, (int, float)) and not isinstance(v, bool)
                     and math.isfinite(v) and 0 <= v <= 1 for k, v in score.items()) for score in scores)):
                     rows = repo.list_for_retrieval(user_id, project_id, memory_ids=cached["ids"], include_vectors=False)
-                    for row in rows:
-                        db.expunge(row)
-                    return rows, config, dict(hit=cached, state="hit", metadata=metadata,
-                        indexed=indexed, eligible_count=None if indexed else len(metadata))
+                    if not MemoryService(repo).source_issues(rows):
+                        for row in rows:
+                            db.expunge(row)
+                        return rows, config, dict(hit=cached, state="hit", metadata=metadata,
+                            indexed=indexed, eligible_count=None if indexed else len(metadata))
             candidates, has_facts, pending = (repo.retrieval_candidates(user_id, project_id, query, self.signature(config))
                                              if indexed else (None, False, set()))
             rows = repo.list_for_retrieval(user_id, project_id, memory_ids=candidates, include_vectors=not indexed)
-            rows = [row for row in rows if row.sensitivity != "sensitive" and not contains_credential(row.title, row.content)]
+            rows = MemoryService(repo).valid_sources([row for row in rows if row.sensitivity != "sensitive"
+                                                     and not contains_credential(row.title, row.content)])
             source_ids = {row.source_conversation_id for row in rows if row.source_conversation_id and not row.project_id}
             scopes = dict(db.execute(select(Conversation.id, Conversation.project_id).where(
                 Conversation.id.in_(source_ids), Conversation.user_id == user_id)).all()) if source_ids else {}
@@ -163,7 +165,9 @@ class MemoryRetrievalService:
         with self.sessions() as db:
             repo = UserMemoryRepository(db)
             scores, diagnostics = repo.semantic_candidates(user_id, project_id, vector, signature, dimensions)
-            rows = repo.list_for_retrieval(user_id, project_id, memory_ids=list(scores), include_vectors=False)
+            rows = MemoryService(repo).valid_sources(repo.list_for_retrieval(
+                user_id, project_id, memory_ids=list(scores), include_vectors=False))
+            scores = {row.id: scores[row.id] for row in rows}
             source_ids = {r.source_conversation_id for r in rows if r.source_conversation_id and not r.project_id}
             scopes = dict(db.execute(select(Conversation.id, Conversation.project_id).where(
                 Conversation.id.in_(source_ids), Conversation.user_id == user_id)).all()) if source_ids else {}

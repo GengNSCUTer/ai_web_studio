@@ -749,6 +749,7 @@ export type UserMemory = {
   source: string;
   source_conversation_id: string | null;
   source_conversation_title: string | null;
+  source_issue?: string | null;
   source_message_ids: string | null;
   evidence_quote?: string | null;
   confidence: string | null;

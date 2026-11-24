@@ -1,12 +1,14 @@
 """冲突分析仅提供建议；最终激活的内容、范围与版本由代码复核。"""
 
 import json
+import logging
 import re
 
 from app.services.memory_policy import memory_identity
 
 
 CONFIDENCE_MIN = .85
+logger = logging.getLogger(__name__)
 _HIGH_IMPACT = re.compile(r'生产|权限|授权|安全|密钥|删除|支付|医疗|诊断|用药|法律|财务|预算|薪资|'
                           r'\b(?:production|permission|security|delete|medical|payment|salary|budget)\b', re.I)
 
@@ -37,8 +39,15 @@ def validate_review(memory, existing, project_id, *, acknowledged=False):
     review = load_review(memory)
     if review is None:
         return None
-    if (review.get('status') == 'stale' or review.get('candidate') != candidate_snapshot(memory, project_id)
-            or review.get('active_versions') != {row.id: row.version for row in existing}):
+    if review.get('status') == 'stale' or review.get('candidate') != candidate_snapshot(memory, project_id):
+        raise ValueError('记忆或相关版本已变化，请重新检查冲突后确认')
+    current = {row.id: row.version for row in existing}
+    before = review.get('active_versions')
+    if before != current:
+        before = before if isinstance(before, dict) else {}
+        analyzed = {pair.get('memory_id') for pair in review.get('pairs', [])}
+        changed = {key for key in current.keys() | before.keys() if current.get(key) != before.get(key)}
+        logger.info('memory_review_scope_drift analyzed=%d other=%d', len(changed & analyzed), len(changed - analyzed))
         raise ValueError('记忆或相关版本已变化，请重新检查冲突后确认')
     if review.get('requires_review') and not acknowledged:
         raise ValueError('该候选需要人工确认关系及影响，不能自动启用')

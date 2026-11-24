@@ -45,7 +45,7 @@ from app.models.tool_trace import ToolCallRun, ToolRouteRun
 from app.models.tool_search import ToolSearchEntry
 from app.models.user import User
 from app.models.resource_lease import ResourceLease
-from app.models.user_memory import MemoryExtractionJob, UserMemory
+from app.models.user_memory import MemoryExtractionJob, MemoryMaintenanceJob, UserMemory
 from app.models.memory_trigger_decision import MemoryTriggerDecision
 from app.models.user_setting import UserSetting
 from app.models.plugin import PluginInstallation, PluginRelease, ProjectPlugin, PluginSubmission, SandboxJob, SandboxWorkerState
@@ -100,6 +100,7 @@ __all__ = [
     "UserMemory",
     "MemoryTriggerDecision",
     "MemoryExtractionJob",
+    "MemoryMaintenanceJob",
     "UserSetting",
     "WorkspaceToolSetting",
     "WorkspaceAgentPolicy",

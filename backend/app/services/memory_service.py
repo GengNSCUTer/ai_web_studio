@@ -5,14 +5,18 @@ from dataclasses import dataclass
 from typing import Any
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
+
 from app.models.user_memory import UserMemory
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.memory_repo import UserMemoryRepository
-from app.schemas.memory import MemorySuggestion, UserMemoryCreate, UserMemoryResponse, UserMemoryUpdate
+from app.schemas.memory import MemoryHistoryResponse, MemorySuggestion, UserMemoryCreate, UserMemoryResponse, UserMemoryUpdate
 from app.services.memory_policy import contains_credential, equivalent_content, lifetime, memory_identity, requested_response_language
 from app.services.memory_extraction_policy import redact_source
 from app.services.memory_conflict_policy import load_review, validate_review, coexist_ids, has_structured_conflict, CONFIDENCE_MIN
 from app.services.memory_injection_policy import lexical_evidence, memory_query_terms, SEMANTIC_MIN, QUERY_LIMIT
+from app.services.memory_source_service import source_bound, source_issues
 
 
 @dataclass(frozen=True)
@@ -50,9 +54,35 @@ class MemoryService:
     def normalize_text(value: str | None) -> str:
         return " ".join((value or "").split()).strip()
 
-    def _memory_response(self, memory: UserMemory, user_id: str) -> UserMemoryResponse:
+    def source_issues(self, memories, *, lock=False):
+        return source_issues(getattr(self.repo, "db", None), memories, lock=lock)
+
+    def valid_sources(self, memories):
+        if self.repo is None:
+            # 脱离 Session 的排序阶段只接收快照阶段已检查过的候选，输出阶段会再查一次。
+            return memories
+        issues = self.source_issues(memories)
+        return [item for item in memories if getattr(item, "id", None) not in issues] if issues else memories
+
+    def require_valid_source(self, memory, *, lock=False):
+        try:
+            issue = self.source_issues([memory], lock=lock).get(memory.id)
+        except OperationalError as exc:
+            if getattr(exc.orig, "sqlstate", None) != "55P03":
+                raise
+            raise ValueError("来源正在更新，请刷新后重试") from exc
+        if issue:
+            raise ValueError("来源已失效，请重新提取或另存为独立记忆")
+
+    def _memory_response(self, memory: UserMemory, user_id: str, issues=None) -> UserMemoryResponse:
         response = UserMemoryResponse.model_validate(memory)
         response.conflict_review = load_review(memory)
+        response.source_issue = (issues if issues is not None else self.source_issues([memory])).get(memory.id)
+        if memory.needs_explicit_choice and memory.status == "pending" and not response.candidate_reason:
+            response.candidate_reason = "不同会话提供了相冲突的事实，请选择当前版本"
+        if response.source_issue:
+            response.is_enabled = False
+            response.evidence_quote = None
         if memory.source_conversation_id and self.conversation_repo:
             conversation = self.conversation_repo.get_by_user(memory.source_conversation_id, user_id)
             if conversation:
@@ -63,7 +93,81 @@ class MemoryService:
         expire_due = getattr(self.repo, "expire_due", None)
         if expire_due:
             expire_due(user_id)
-        return [self._memory_response(item, user_id) for item in self.repo.list_by_user(user_id)]
+        return self.memory_responses(self.repo.list_by_user(user_id), user_id)
+
+    def memory_responses(self, memories, user_id):
+        issues = self.source_issues(memories)
+        return [self._memory_response(item, user_id, issues) for item in memories]
+
+    def save_independent(self, memory, expected_version):
+        with self.repo.mutation(memory.user_id):
+            memory = self.repo.fresh(memory, expected_version)
+            if memory.status not in {"active", "pending"} or not self.source_issues([memory]):
+                raise ValueError("只有来源已失效且未关闭的记忆可以另存")
+            if memory.project_id and not self.repo.owns_project(memory.user_id, memory.project_id):
+                raise ValueError("项目不存在或无权访问")
+            new = UserMemory(user_id=memory.user_id, project_id=memory.project_id, memory_type=memory.memory_type,
+                title=memory.title, content=memory.content, source="manual", status="active", is_enabled=True,
+                expires_at=memory.expires_at, importance=memory.importance, sensitivity=memory.sensitivity,
+                supersedes_memory_id=memory.id, review_at=datetime.now(timezone.utc), version=1)
+            self._validate_persistence(new)
+            self._validate_activation(new)
+            self._set_identity(new)
+            self.mark_superseded(memory)
+            return self._memory_response(self.repo.save(new), new.user_id)
+
+    def history(self, memory: UserMemory) -> MemoryHistoryResponse:
+        """从指定版本向前后查询同项目的版本，历史结果不经过 Chat 注入。"""
+        project_id, user_id = memory.project_id, memory.user_id
+        if not project_id or not self.repo.owns_project(user_id, project_id):
+            raise ValueError("版本历史仅支持当前用户的项目记忆")
+        filters = (UserMemory.user_id == user_id, UserMemory.project_id == project_id)
+        rows, seen, limit = [], set(), 20
+        frontier = [memory]
+        while frontier and len(rows) < limit:
+            row = frontier.pop(0)
+            if row.id in seen:
+                continue
+            seen.add(row.id)
+            rows.append(row)
+            neighbors = UserMemory.supersedes_memory_id == row.id
+            if row.supersedes_memory_id:
+                neighbors |= UserMemory.id == row.supersedes_memory_id
+            frontier.extend(item for item in self.repo.db.scalars(select(UserMemory).where(*filters, neighbors)
+                .order_by(UserMemory.updated_at.desc(), UserMemory.id).limit(limit + 1)) if item.id not in seen)
+        rows.sort(key=lambda row: (row.created_at, row.id), reverse=True)
+        return MemoryHistoryResponse(versions=self.memory_responses(rows, user_id), truncated=bool(frontier))
+
+    def mark_superseded(self, memory):
+        memory.status, memory.is_enabled = "superseded", False
+        memory.version += 1
+        self.repo.flush(memory)
+
+    def apply_maintenance(self, target, related, proof, content):
+        """调用方已锁定用户、同意开关和参与记录的来源。"""
+        if content is None:
+            self.mark_superseded(related)
+            # 重复项作为保留版本的历史前驱，已有版本链则继续保留原链和本次整理记录。
+            if not target.supersedes_memory_id and not related.supersedes_memory_id:
+                linked = self.repo.db.scalar(select(UserMemory.id).where(
+                    UserMemory.supersedes_memory_id == related.id).limit(1))
+                if not linked:
+                    target.supersedes_memory_id = related.id
+                    target.version += 1
+                    self.repo.flush(target)
+            return target.id
+        if related:
+            self.mark_superseded(related)
+        # 新版本仍引用支持结论的原消息，来源被修改时同样会停止注入。
+        new = UserMemory(user_id=target.user_id, project_id=target.project_id, memory_type=target.memory_type,
+            title=target.title, content=content, source="auto_candidate", status="active", is_enabled=True,
+            source_conversation_id=proof.source_conversation_id, source_message_ids=proof.source_message_ids,
+            extraction_job_id=proof.extraction_job_id, evidence_quote=content, importance=target.importance,
+            review_at=datetime.now(timezone.utc), version=1)
+        self._validate_persistence(new)
+        self._validate_activation(new, target.id, expected_target_version=target.version)
+        self._set_identity(new)
+        return self.repo.save(new).id
 
     def create_memory(self, user_id: str, payload: UserMemoryCreate, *, assessment: MemorySuggestion | None = None) -> UserMemoryResponse:
         with self.repo.mutation(user_id):
@@ -86,6 +190,9 @@ class MemoryService:
                 memory.supersedes_memory_id = assessment.conflict_memory_id
                 if assessment.conflict_review['requires_review'] and not payload.acknowledge_conflicts:
                     memory.status, memory.is_enabled, memory.source = 'pending', False, 'manual_candidate'
+            if source_bound(memory):
+                # 客户端可标注来源，但只有后台原话核验能生成可激活的来源快照。
+                memory.status, memory.is_enabled, memory.source = "pending", False, "manual_candidate"
             if memory.status == 'active':
                 self._validate_activation(memory, payload.supersedes_memory_id,
                     acknowledged=payload.acknowledge_conflicts, expected_target_version=payload.expected_target_version)
@@ -131,6 +238,8 @@ class MemoryService:
         if hasattr(memory, "_retrieval_scope"):
             return memory._retrieval_scope
         explicit = getattr(memory, "project_id", None)
+        if source_bound(memory):
+            return explicit
         if explicit:
             return explicit
         source = getattr(memory, "source_conversation_id", None)
@@ -146,10 +255,10 @@ class MemoryService:
         if scope == "__unresolved__":
             raise ValueError("来源会话无法解析，不能激活记忆")
         memory.project_id = scope
-        existing = [item for item in self.repo.list_others(memory.user_id, memory.id)
+        existing = self.valid_sources([item for item in self.repo.list_others(memory.user_id, memory.id)
                     if item.id != memory.id and item.status == "active"
                     and (item.expires_at is None or self._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))
-                    and self._memory_scope(item, memory.user_id) == scope]
+                    and self._memory_scope(item, memory.user_id) == scope])
         review = validate_review(memory, existing, scope, acknowledged=acknowledged)
         coexist = coexist_ids(review, acknowledged=acknowledged)
         rule_existing = [item for item in existing if item.id not in coexist or has_structured_conflict(memory, item)]
@@ -177,6 +286,7 @@ class MemoryService:
             previous = self.repo.get_by_user(target_id, memory.user_id)
             if not previous or previous.id == memory.id or previous.status != "active":
                 raise ValueError("要替换的旧记忆不存在或不是 active 版本")
+            self.require_valid_source(previous, lock=True)
             if self._memory_scope(previous, memory.user_id) != scope:
                 raise ValueError("不能替换其他项目范围的记忆")
             if expected_target_version is not None and previous.version != expected_target_version:
@@ -191,9 +301,7 @@ class MemoryService:
                 raise ValueError("只能替换同一事实的旧版本")
             if current.conflict_memory_id and current.conflict_memory_id != target_id:
                 raise ValueError("冲突目标已变化，请重新审核")
-            previous.status, previous.is_enabled = "superseded", False
-            previous.version += 1
-            self.repo.flush(previous)
+            self.mark_superseded(previous)
             memory.supersedes_memory_id = previous.id
 
     @classmethod
@@ -222,11 +330,19 @@ class MemoryService:
     ) -> UserMemoryResponse:
         with self.repo.mutation(memory.user_id):
             memory = self.repo.fresh(memory, expected_version, idempotent_status="active")
+            self.require_valid_source(memory, lock=True)
             if memory.status == "active":
                 self._validate_persistence(memory)
+                if memory.source == "auto_confirmed":
+                    memory.source = "auto_candidate"
+                    memory.review_at = datetime.now(timezone.utc)
+                    memory.version += 1
+                    self.repo.save(memory)
                 return self._memory_response(memory, memory.user_id)
             if memory.status != "pending":
                 raise ValueError("只有 pending 候选可以确认")
+            if memory.needs_explicit_choice and not acknowledge_conflicts:
+                raise ValueError("请明确确认跨会话冲突的当前版本")
             if expires_at is not None:
                 memory.expires_at = self._normalize_expiry(expires_at)
             self._validate_persistence(memory)
@@ -243,6 +359,7 @@ class MemoryService:
                     'target_version': expected_target_version, 'reviewed_at': datetime.now(timezone.utc).isoformat()}}, ensure_ascii=False)
             self._set_identity(memory)
             memory.status, memory.is_enabled = "active", True
+            memory.needs_explicit_choice = False
             memory.review_at = datetime.now(timezone.utc)
             memory.version += 1
             return self._memory_response(self.repo.save(memory), memory.user_id)
@@ -275,6 +392,13 @@ class MemoryService:
         with self.repo.mutation(memory.user_id):
             memory = self.repo.fresh(memory, payload.expected_version)
             data = payload.model_dump(exclude_unset=True, exclude={"expected_version"})
+            if data.get("source_message_ids"):
+                raise ValueError("来源消息由提取流程绑定")
+            if source_bound(memory):
+                if {"source_conversation_id", "source_message_ids"} & data.keys():
+                    raise ValueError("已提取记忆的来源不能修改")
+                if data.get("is_enabled") or {"title", "content", "memory_type"} & data.keys():
+                    self.require_valid_source(memory, lock=True)
             if memory.status != "active" and data.get("is_enabled"):
                 raise ValueError("非 active 记忆不能直接启用，请使用候选审核接口")
             if memory.status not in {"active", "pending"}:
@@ -301,26 +425,28 @@ class MemoryService:
             if memory.status == "active" and changed:
                 if assessment and assessment.conflict_review:
                     proposed.conflict_review_json = json.dumps(assessment.conflict_review, ensure_ascii=False)
-                    existing = [item for item in self.repo.list_others(memory.user_id, memory.id)
+                    existing = self.valid_sources([item for item in self.repo.list_others(memory.user_id, memory.id)
                         if self._memory_scope(item, memory.user_id) == self._memory_scope(memory, memory.user_id)
-                        and (item.expires_at is None or self._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))]
+                        and (item.expires_at is None or self._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))])
                     validate_review(proposed, existing, self._memory_scope(memory, memory.user_id))
                     if assessment.conflict_review['requires_review']:
                         raise ValueError('该修改需要关系审核，请先创建待审候选并明确替换')
                 if lifetime(proposed.title, proposed.content) != "durable":
                     raise ValueError("短期记忆不能替换长期版本，请单独创建并设置有效期")
                 # 编辑已生效内容产生后继版本，旧内容和来源保留，状态切换与新行一起提交。
-                others = [item for item in self.repo.list_by_user(memory.user_id)
+                others = self.valid_sources([item for item in self.repo.list_by_user(memory.user_id)
                           if item.id != memory.id and item.status == "active"
-                          and self._memory_scope(item, memory.user_id) == self._memory_scope(memory, memory.user_id)]
+                          and self._memory_scope(item, memory.user_id) == self._memory_scope(memory, memory.user_id)])
                 risk = self.enrich_suggestion_risks(suggestions=[MemorySuggestion(
                     memory_type=proposed.memory_type, title=proposed.title, content=proposed.content)],
                     existing_memories=others, scoped=True)[0]
                 if risk.duplicate_memory_id or risk.conflict_memory_id:
                     raise ValueError("修改后的事实与其他 active 记忆重复或冲突，请先处理冲突")
                 proposed.supersedes_memory_id = memory.id
-                # 用户手动更正的正文不再冒用旧的自动核验证据或来源标签。
+                # 用户改写不展示旧引文作为新正文的证据，来源依赖仍保留到显式另存。
                 proposed.source = "manual"
+                if source_bound(memory):
+                    proposed.extraction_job_id = memory.extraction_job_id
                 proposed.evidence_quote = None
                 memory.status, memory.is_enabled = "superseded", False
                 memory.version += 1
@@ -331,6 +457,7 @@ class MemoryService:
                     setattr(memory, field, value)
                 memory.version += 1
                 if changed:
+                    memory.needs_explicit_choice = False
                     if assessment and assessment.conflict_review:
                         memory.conflict_review_json = json.dumps(assessment.conflict_review, ensure_ascii=False)
                         memory.risk_level, memory.candidate_reason = assessment.risk_level, assessment.risk_reason
@@ -338,7 +465,8 @@ class MemoryService:
                     elif memory.conflict_review_json:
                         memory.conflict_review_json = json.dumps({'status': 'stale'})
                     memory.evidence_quote = None
-                    memory.source = 'manual_candidate'
+                    if not source_bound(memory):
+                        memory.source = 'manual_candidate'
                 target = memory
             self._set_identity(target)
             return self._memory_response(self.repo.save(target), target.user_id)
@@ -374,7 +502,7 @@ class MemoryService:
         language_override = requested_response_language(turn_query if turn_query is not None else query)
         memories = [
             memory
-            for memory in memories
+            for memory in self.valid_sources(memories)
             if self._memory_matches_project_scope(memory=memory, user_id=user_id, project_id=project_id)
             and not contains_credential(memory.title, memory.content)
             and getattr(memory, "sensitivity", "normal") != "sensitive"
@@ -536,7 +664,7 @@ class MemoryService:
         # 去重辅助输入同样过滤范围和凭证，旧数据库中的危险内容也不能回传模型。
         memories = [
             memory
-            for memory in self.repo.list_by_user(user_id, enabled_only=True)
+            for memory in self.valid_sources(self.repo.list_by_user(user_id, enabled_only=True))
             if getattr(memory, "sensitivity", "normal") != "sensitive"
             and not contains_credential(memory.title, memory.content)
             and self._memory_matches_project_scope(memory=memory, user_id=user_id, project_id=project_id)

@@ -16,9 +16,11 @@ from app.api.deps import get_current_user, get_db
 from app.api.routes.memories import router
 from app.core.database import Base
 from app.models.conversation import Conversation
+from app.models.message import Message
 from app.models.user import User
 from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.services.memory_activity_service import MemoryActivityService
+from app.services.memory_extraction_policy import source_snapshot
 
 
 class MemoryActivityTest(unittest.TestCase):
@@ -51,12 +53,15 @@ class MemoryActivityTest(unittest.TestCase):
 
     def fixture(self, job_status="succeeded", **memory_values):
         with self.sessions() as db:
+            message = Message(conversation_id=self.conv, role="user", content="项目采用 PostgreSQL 16")
+            db.add(message)
+            db.flush()
             job = MemoryExtractionJob(user_id=self.user, conversation_id=self.conv,
-                idempotency_key=uuid4().hex, source_message_ids="test-source", status=job_status)
+                idempotency_key=uuid4().hex, source_message_ids=message.id, source_snapshot=source_snapshot([message]), status=job_status)
             db.add(job)
             db.flush()
             values = dict(user_id=self.user, source_conversation_id=self.conv,
-                extraction_job_id=job.id, memory_type="fact", title="项目数据库",
+                extraction_job_id=job.id, source_message_ids=message.id, memory_type="fact", title="项目数据库",
                 content="项目采用 PostgreSQL 16", status="active", source="auto_confirmed", is_enabled=True)
             values.update(memory_values)
             memory = UserMemory(**values)

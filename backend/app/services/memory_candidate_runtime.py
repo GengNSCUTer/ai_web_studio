@@ -3,16 +3,19 @@ from __future__ import annotations
 import socket
 import asyncio
 import json
+import logging
 import re
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Callable
+from uuid import uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only
 
 from app.core.database import SessionLocal
-from app.models.user_memory import MemoryExtractionJob, UserMemory
+from app.models.user_memory import MemoryExtractionJob, MemoryMaintenanceJob, UserMemory
 from app.models.memory_trigger_decision import MemoryTriggerDecision
 from app.models.conversation import Conversation
 from app.models.message import Message
@@ -33,6 +36,9 @@ from app.services.setting_service import SettingService
 from app.services.memory_conflict_service import MemoryConflictService
 from app.services.memory_trigger_policy import POLICY_VERSION, classify_memory_signal, forget_target, read_trigger_state
 from app.services.memory_semantic_gate import semantic_prompt, MIN_BUFFER_MESSAGES, COOLDOWN_SECONDS
+from app.services.memory_source_service import source_bound, source_message_ids
+
+logger = logging.getLogger(__name__)
 
 
 def utcnow() -> datetime:
@@ -68,6 +74,38 @@ def _candidate_prompt(*, recent_text: str, existing_text: str) -> list[dict[str,
 class MemoryExtractionJobService:
     def __init__(self, db: Session) -> None:
         self.db = db
+
+    def reextract(self, user_id: str, memory: UserMemory) -> MemoryExtractionJob:
+        """只重新提取同一项目仍存在的用户原话，避免会话迁移引起隐式跨项目复制。"""
+        conversation = self.db.scalar(select(Conversation).where(Conversation.id == memory.source_conversation_id,
+            Conversation.user_id == user_id).execution_options(populate_existing=True).with_for_update())
+        if not conversation or conversation.project_id != memory.project_id or not source_bound(memory):
+            raise ValueError("原消息已删除或移出当前范围，请在当前项目提供新的原话")
+        setting = self.db.scalar(select(UserSetting).where(UserSetting.user_id == user_id))
+        if not setting or not setting.memory_enabled:
+            raise ValueError("请先启用长期记忆")
+        messages = list(self.db.scalars(select(Message).where(Message.conversation_id == conversation.id,
+            Message.id.in_(source_message_ids(memory)), Message.role == "user").order_by(Message.sequence, Message.id)))
+        if not messages or len(messages) != len(source_message_ids(memory)):
+            raise ValueError("原消息已删除，请在当前项目提供新的原话")
+        snapshot = source_snapshot(messages)
+        # 同一原文的重复点击复用正在执行或成功的任务；失败后可以手动再提交。
+        previous = self.db.scalar(select(MemoryExtractionJob).where(
+            MemoryExtractionJob.user_id == user_id, MemoryExtractionJob.conversation_id == conversation.id,
+            MemoryExtractionJob.project_id == memory.project_id, MemoryExtractionJob.source_snapshot == snapshot,
+            MemoryExtractionJob.trigger_reason == "source_reextract",
+            MemoryExtractionJob.error_code.is_(None),
+            MemoryExtractionJob.status.in_(["pending", "running", "succeeded"])).limit(1))
+        if previous:
+            self.db.commit()
+            return previous
+        job = MemoryExtractionJob(user_id=user_id, conversation_id=conversation.id, project_id=memory.project_id,
+            idempotency_key=f"memory-reextract:{memory.id}:{uuid4()}",
+            source_message_ids=",".join(item.id for item in messages), source_snapshot=snapshot,
+            cursor_end=0, trigger_reason="source_reextract", priority=100)
+        self.db.add(job)
+        self.db.commit()
+        return job
 
     def enqueue_after_turn(
         self,
@@ -335,13 +373,20 @@ class MemoryCandidateWorker:
     async def run_once(self) -> bool:
         claimed = self._claim()
         if not claimed:
+            if await self._run_maintenance():
+                return True
             from app.services.memory_index_service import MemoryIndexWorker
             return await MemoryIndexWorker(session_factory=self.session_factory).run_once()
         job_id, lease_version = claimed
         from app.services.agent_graph.memory_extraction_graph import run_memory_extraction_graph
+        await self._with_heartbeat(MemoryExtractionJob, job_id, lease_version,
+                                   run_memory_extraction_graph(self, job_id, lease_version), self._fail)
+        return True
+
+    async def _with_heartbeat(self, model, job_id, lease_version, operation, fail):
         stop, lost = asyncio.Event(), asyncio.Event()
-        work = asyncio.create_task(run_memory_extraction_graph(self, job_id, lease_version))
-        heartbeat = asyncio.create_task(self._heartbeat_loop(job_id, lease_version, stop, lost, work))
+        work = asyncio.create_task(operation)
+        heartbeat = asyncio.create_task(self._heartbeat_loop(job_id, lease_version, stop, lost, work, model=model))
         try:
             await work
         except asyncio.CancelledError:
@@ -349,13 +394,12 @@ class MemoryCandidateWorker:
             if not lost.is_set():
                 raise
         except Exception as exc:
-            self._fail(job_id, lease_version, exc)
+            fail(job_id, lease_version, exc)
         finally:
             stop.set()
             await heartbeat
-        return True
 
-    async def _heartbeat_loop(self, job_id, lease_version, stop, lost, work):
+    async def _heartbeat_loop(self, job_id, lease_version, stop, lost, work, *, model=MemoryExtractionJob):
         while not stop.is_set():
             try:
                 await asyncio.wait_for(stop.wait(), self.HEARTBEAT_SECONDS)
@@ -364,8 +408,8 @@ class MemoryCandidateWorker:
                 pass
             try:
                 with self.session_factory() as db:
-                    job = db.scalar(select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update())
-                    if job and job.lease_version == lease_version and job.status == "succeeded":
+                    job = db.scalar(select(model).where(model.id == job_id).with_for_update())
+                    if job and job.lease_version == lease_version and job.status in {"succeeded", "ready", "completed"}:
                         # 保存已完成，不能在积压排队节点前把自己的图取消。
                         return
                     if not self._owns(job, lease_version):
@@ -379,6 +423,73 @@ class MemoryCandidateWorker:
             if lost.is_set():
                 work.cancel()
                 return
+
+    async def _run_maintenance(self):
+        from app.services.memory_maintenance_service import MemoryMaintenanceService, generate_proposals
+
+        model = MemoryMaintenanceJob
+        now = utcnow()
+        with self.session_factory() as db:
+            claimable = or_(model.status == "pending", (model.status == "running") & (model.lease_expires_at <= now))
+            for job in db.scalars(select(model).where(claimable, model.attempts >= model.max_attempts)
+                                   .limit(20).with_for_update(skip_locked=True)):
+                job.status, job.error_code, job.finished_at = "failed", "attempts_exhausted", now
+                job.lease_owner = job.lease_expires_at = None
+                job.version += 1
+            db.flush()
+            job = db.scalar(select(model).where(claimable, model.attempts < model.max_attempts,
+                or_(model.available_at.is_(None), model.available_at <= now))
+                .order_by(model.created_at, model.id).limit(1).with_for_update(skip_locked=True))
+            if not job:
+                db.commit()
+                return False
+            job.status, job.lease_owner = "running", self.owner
+            job.attempts += 1
+            job.lease_version += 1
+            job.lease_expires_at = now + timedelta(seconds=self.LEASE_SECONDS)
+            job_id, lease_version, user_id = job.id, job.lease_version, job.user_id
+            db.commit()
+
+        async def execute():
+            with self.session_factory() as db:
+                job = db.get(model, job_id)
+                if not self._owns(job, lease_version):
+                    return
+                versions, facts, call = MemoryMaintenanceService(db).load(job)
+            drafts, metrics = await generate_proposals(self.provider, facts, call)
+            with self.session_factory() as db:
+                service = MemoryMaintenanceService(db)
+                with service.repo.mutation(user_id):
+                    job = service.get(user_id, job_id, lock=True)
+                    if self._owns(job, lease_version):
+                        service.complete(job, versions, drafts, metrics)
+
+        await self._with_heartbeat(model, job_id, lease_version, execute(), self._fail_maintenance)
+        return True
+
+    def _fail_maintenance(self, job_id, lease_version, exc):
+        with self.session_factory() as db:
+            job = db.get(MemoryMaintenanceJob, job_id, with_for_update=True)
+            if not self._owns(job, lease_version):
+                return
+            job.lease_owner = job.lease_expires_at = None
+            if not isinstance(exc, (ValueError, LookupError, PermissionError)) and job.attempts < job.max_attempts:
+                job.status, job.error_code = "pending", "provider_unavailable"
+                job.available_at = utcnow() + timedelta(seconds=2 ** job.attempts)
+            else:
+                job.status, job.finished_at = "failed", utcnow()
+                if isinstance(exc, PermissionError):
+                    job.error_code = "memory_disabled"
+                elif isinstance(exc, LookupError):
+                    job.error_code = "project_unavailable"
+                elif isinstance(exc, ValueError):
+                    job.error_code = "invalid_model_output"
+                else:
+                    job.error_code = "provider_unavailable"
+            logger.warning("memory_maintenance status=%s reason=%s exception=%s", job.status, job.error_code,
+                           type(exc).__name__)
+            job.version += 1
+            db.commit()
 
     @staticmethod
     def _decode_candidates(raw, snapshot):
@@ -410,7 +521,7 @@ class MemoryCandidateWorker:
         """执行期间新增的消息在下一批处理，不等用户再发一轮。"""
         with self.session_factory() as db:
             job = db.get(MemoryExtractionJob, job_id)
-            if not job or job.status != "succeeded":
+            if not job or job.status != "succeeded" or job.trigger_reason == "source_reextract":
                 return
             assistant = db.scalar(select(Message).where(Message.conversation_id == job.conversation_id,
                 Message.role == "assistant", Message.status == "done").order_by(
@@ -421,8 +532,9 @@ class MemoryCandidateWorker:
 
     def _claim(self) -> tuple[str, int] | None:
         with self.session_factory() as db:
-            job = MemoryExtractionJobRepository(db).claim_next(self.owner)
+            job = MemoryExtractionJobRepository(db).claim_next()
             if not job:
+                db.commit()
                 return None
             now = utcnow()
             job.status = "running"
@@ -498,16 +610,22 @@ class MemoryCandidateWorker:
             return result
 
     def _complete(self, job_id: str, lease_version: int, suggestions: list) -> bool:
-        with self.session_factory() as db:
-            job = db.scalars(
-                select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update()
-            ).first()
-            if not self._owns(job, lease_version):
-                return False
-            repo = UserMemoryRepository(db)
-            with repo.mutation(job.user_id):
+        with self._locked_extraction(job_id, lease_version) as (db, repo, job):
+            if job:
                 self._persist_results(db, repo, job, suggestions)
-            return True
+            return job is not None
+
+    @contextmanager
+    def _locked_extraction(self, job_id, lease_version):
+        with self.session_factory() as db:
+            user_id = db.scalar(select(MemoryExtractionJob.user_id).where(MemoryExtractionJob.id == job_id))
+            repo = UserMemoryRepository(db)
+            if not user_id:
+                yield db, repo, None
+                return
+            with repo.mutation(user_id):
+                job = db.get(MemoryExtractionJob, job_id, with_for_update=True, populate_existing=True)
+                yield db, repo, job if self._owns(job, lease_version) else None
 
     def _load_sources(self, db: Session, job: MemoryExtractionJob) -> list:
         ids = set(job.source_message_ids.split(","))
@@ -536,10 +654,11 @@ class MemoryCandidateWorker:
         if settings and not settings.memory_auto_candidate_enabled and job.trigger_reason == "explicit_remember":
             explicit_ids = {item.id for item in messages if classify_memory_signal(item.content).reason == "explicit_remember"}
             checked = [item for item in checked if item.source_message_id in explicit_ids]
+        scoped = service.valid_sources([item for item in repo.list_by_user(job.user_id)
+                                       if service._memory_scope(item, job.user_id) == job.project_id])
         legacy_enriched = service.enrich_suggestion_risks(
             suggestions=checked,
-            existing_memories=[item for item in repo.list_by_user(job.user_id)
-                               if service._memory_scope(item, job.user_id) == job.project_id],
+            existing_memories=scoped,
             scoped=True,
         )
         enriched = [original if original.conflict_review else legacy for original, legacy in zip(checked, legacy_enriched)]
@@ -553,10 +672,10 @@ class MemoryCandidateWorker:
                 content=suggestion.content,
                 project_id=job.project_id,
             )
-            if repo.find_by_content_hash(job.user_id, content_hash):
+            if any(row.content_hash == content_hash for row in scoped):
                 continue
             source = next((item for item in messages if item.id == suggestion.source_message_id), None)
-            automatic = bool(job.source_snapshot and settings and settings.memory_enabled
+            automatic = bool(job.trigger_reason != "source_reextract" and job.source_snapshot and settings and settings.memory_enabled
                 and settings.memory_auto_candidate_enabled and settings.memory_auto_activate_enabled
                 and allows_automatic(suggestion, source)
                 and not (suggestion.conflict_review or {}).get('requires_review', False))
@@ -596,6 +715,11 @@ class MemoryCandidateWorker:
                 if memory.risk_level == "safe":
                     memory.risk_level = "review_required"
                 memory.candidate_reason = "用户已有撤销/替换历史，需重新确认" if blocked else "缺少可核验的逐条用户原文，需人工审核"
+            could_auto_activate = (job.trigger_reason != "source_reextract" and not blocked and settings
+                and settings.memory_auto_candidate_enabled and settings.memory_auto_activate_enabled and job.source_snapshot)
+            if (could_auto_activate and service._candidate_content_risk(suggestion)[0] == "safe"
+                    and allows_automatic(suggestion.model_copy(update={"risk_level": "safe"}), source)):
+                self._hold_competing_automatic(memory, scoped, repo)
             if memory.status == "active":
                 # 同批次内也重新检查最新事实，禁止两条候选同时自动写入矛盾值。
                 try:
@@ -613,14 +737,44 @@ class MemoryCandidateWorker:
                 else:
                     memory.review_at = utcnow()
             repo.flush(memory)
+            scoped.append(memory)
             created += 1
         self._finish_job(conversation, job, created)
+
+    @staticmethod
+    def _hold_competing_automatic(memory, scoped, repo):
+        """两个独立来源竞争同一事实时，不能由 Worker 提交顺序决定当前值。"""
+        identity = memory_identity(memory.memory_type, memory.title, memory.content)
+        competitors = []
+        for row in scoped:
+            if row.source_conversation_id == memory.source_conversation_id or not row.evidence_quote:
+                continue
+            old = memory_identity(row.memory_type, row.title, row.content)
+            if old.key != identity.key or old.value == identity.value or equivalent_content(row.content, memory.content):
+                continue
+            if row.status == "active" and row.source == "auto_confirmed" and row.is_enabled:
+                competitors.append(row)
+            elif row.status == "pending" and row.needs_explicit_choice:
+                competitors.append(row)
+            elif row.status == "active" and row.is_enabled and row.source != "auto_confirmed":
+                return
+        if not competitors:
+            return
+        for row in [*competitors, memory]:
+            row.status, row.is_enabled, row.source = "pending", False, "auto_candidate"
+            row.risk_level = "review_required"
+            row.needs_explicit_choice = True
+            row.candidate_reason = "不同会话提供了相冲突的事实，请选择当前版本"
+            row.supersedes_memory_id = row.conflict_review_json = None
+            if row is not memory:
+                row.version += 1
+                repo.flush(row)
 
     @staticmethod
     def _check_consent(job, settings):
         if settings and not settings.memory_enabled:
             raise PermissionError("memory_disabled")
-        if (job.trigger_reason not in {"explicit_remember", "explicit_forget", "manual_request", "legacy_batch"}
+        if (job.trigger_reason not in {"explicit_remember", "explicit_forget", "manual_request", "legacy_batch", "source_reextract"}
                 and not (settings and settings.memory_auto_candidate_enabled)):
             raise PermissionError("automatic_extraction_disabled")
 
@@ -634,6 +788,8 @@ class MemoryCandidateWorker:
         job.lease_expires_at = None
         job.error_code = None
         job.error_message = None
+        if job.trigger_reason == "source_reextract":
+            return
         conversation.memory_extraction_cursor = max(conversation.memory_extraction_cursor or 0, job.cursor_end or 0)
         state = read_trigger_state(conversation.memory_trigger_state)
         state["project_id"] = conversation.project_id
@@ -645,27 +801,25 @@ class MemoryCandidateWorker:
 
     def _reserve_semantic_call(self, job_id: str, lease_version: int) -> bool:
         """网络前提交用户级调用间隔与 Job 标记；崩溃重领不再次增加价值判断调用。"""
-        with self.session_factory() as db:
-            job = db.scalar(select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update())
-            if not self._owns(job, lease_version) or job.trigger_action != "buffer" or job.semantic_model_called:
+        with self._locked_extraction(job_id, lease_version) as (db, _, job):
+            if not job or job.trigger_action != "buffer" or job.semantic_model_called:
                 return False
-            with UserMemoryRepository(db).mutation(job.user_id):
-                conversation = db.scalar(select(Conversation).where(Conversation.id == job.conversation_id,
-                    Conversation.user_id == job.user_id).with_for_update())
-                if not conversation or conversation.project_id != job.project_id:
-                    raise ValueError("conversation_scope_changed")
-                sources = self._load_sources(db, job)
-                settings = db.scalar(select(UserSetting).where(UserSetting.user_id == job.user_id).with_for_update())
-                self._check_consent(job, settings)
-                if not settings.memory_semantic_trigger_enabled or len(sources) < MIN_BUFFER_MESSAGES:
-                    return False
-                last = settings.memory_semantic_last_checked_at
-                if last and last.replace(tzinfo=last.tzinfo or timezone.utc) > utcnow() - timedelta(seconds=COOLDOWN_SECONDS):
-                    return False
-                settings.memory_semantic_last_checked_at = utcnow()
-                job.semantic_model_called = True
-                db.execute(update(MemoryTriggerDecision).where(MemoryTriggerDecision.job_id == job.id)
-                    .values(semantic_model_called=True))
+            conversation = db.scalar(select(Conversation).where(Conversation.id == job.conversation_id,
+                Conversation.user_id == job.user_id).with_for_update())
+            if not conversation or conversation.project_id != job.project_id:
+                raise ValueError("conversation_scope_changed")
+            sources = self._load_sources(db, job)
+            settings = db.scalar(select(UserSetting).where(UserSetting.user_id == job.user_id).with_for_update())
+            self._check_consent(job, settings)
+            if not settings.memory_semantic_trigger_enabled or len(sources) < MIN_BUFFER_MESSAGES:
+                return False
+            last = settings.memory_semantic_last_checked_at
+            if last and last.replace(tzinfo=last.tzinfo or timezone.utc) > utcnow() - timedelta(seconds=COOLDOWN_SECONDS):
+                return False
+            settings.memory_semantic_last_checked_at = utcnow()
+            job.semantic_model_called = True
+            db.execute(update(MemoryTriggerDecision).where(MemoryTriggerDecision.job_id == job.id)
+                .values(semantic_model_called=True))
             return True
 
     def _record_semantic_decision(self, job_id: str, lease_version: int, action: str,
@@ -688,60 +842,55 @@ class MemoryCandidateWorker:
 
     def _defer_semantic_buffer(self, job_id: str, lease_version: int) -> bool:
         """等待后续上下文，不消费来源；同一批次幂等键不再排队直到有新输入。"""
-        with self.session_factory() as db:
-            job = db.scalar(select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update())
-            if not self._owns(job, lease_version):
+        with self._locked_extraction(job_id, lease_version) as (db, _, job):
+            if not job:
                 return False
-            with UserMemoryRepository(db).mutation(job.user_id):
-                conversation = db.scalar(select(Conversation).where(Conversation.id == job.conversation_id,
-                    Conversation.user_id == job.user_id).with_for_update())
-                if not conversation or conversation.project_id != job.project_id:
-                    raise ValueError("conversation_scope_changed")
-                self._load_sources(db, job)
-                settings = db.scalar(select(UserSetting).where(UserSetting.user_id == job.user_id).with_for_update())
-                self._check_consent(job, settings)
-                job.status, job.result_count, job.finished_at = "succeeded", 0, utcnow()
-                job.lease_owner, job.lease_expires_at = None, None
-                state = read_trigger_state(conversation.memory_trigger_state)
-                state["semantic_deferred"] = True
-                conversation.memory_trigger_state = json.dumps(state)
+            conversation = db.scalar(select(Conversation).where(Conversation.id == job.conversation_id,
+                Conversation.user_id == job.user_id).with_for_update())
+            if not conversation or conversation.project_id != job.project_id:
+                raise ValueError("conversation_scope_changed")
+            self._load_sources(db, job)
+            settings = db.scalar(select(UserSetting).where(UserSetting.user_id == job.user_id).with_for_update())
+            self._check_consent(job, settings)
+            job.status, job.result_count, job.finished_at = "succeeded", 0, utcnow()
+            job.lease_owner, job.lease_expires_at = None, None
+            state = read_trigger_state(conversation.memory_trigger_state)
+            state["semantic_deferred"] = True
+            conversation.memory_trigger_state = json.dumps(state)
             return True
 
     def _complete_control(self, job_id, lease_version):
         """撤销仅接受原始用户明确命令和唯一精确目标；不调用模型猜目标。"""
-        with self.session_factory() as db:
-            job = db.scalar(select(MemoryExtractionJob).where(MemoryExtractionJob.id == job_id).with_for_update())
-            if not self._owns(job, lease_version):
+        with self._locked_extraction(job_id, lease_version) as (db, repo, job):
+            if not job:
                 return False
-            repo = UserMemoryRepository(db)
-            with repo.mutation(job.user_id):
-                conversation = db.scalar(select(Conversation).where(Conversation.id == job.conversation_id,
-                    Conversation.user_id == job.user_id).execution_options(populate_existing=True).with_for_update())
-                if not conversation or conversation.project_id != job.project_id:
-                    raise ValueError("conversation_scope_changed")
-                sources = self._load_sources(db, job)
-                settings = db.scalar(select(UserSetting).where(UserSetting.user_id == job.user_id).with_for_update())
-                self._check_consent(job, settings)
-                if len(sources) != 1 or classify_memory_signal(sources[0].content).action != "revoke":
-                    raise ValueError("invalid_control_source")
-                targets = json.loads(job.control_result or "{}").get("targets", [])
-                result = "needs_review"
-                row = None
-                if len(targets) == 1:
-                    target = targets[0]
-                    row = db.scalar(select(UserMemory).where(UserMemory.id == target["id"],
-                        UserMemory.user_id == job.user_id, UserMemory.project_id == job.project_id)
-                        .execution_options(populate_existing=True).with_for_update())
-                    if (row and row.version == target["version"] and row.status in {"active", "pending"}
-                            and MemoryService(repo, ConversationRepository(db))._memory_scope(row, job.user_id) == job.project_id
-                            and row.content == forget_target(sources[0].content)):
-                        row.status, row.is_enabled = "revoked", False
-                        row.review_at = utcnow()
-                        row.version += 1
-                        repo.flush(row)
-                        result = "revoked"
-                job.control_result = json.dumps({"outcome": result, "memory_id": row.id if result == "revoked" else None})
-                self._finish_job(conversation, job, int(result == "revoked"))
+            conversation = db.scalar(select(Conversation).where(Conversation.id == job.conversation_id,
+                Conversation.user_id == job.user_id).execution_options(populate_existing=True).with_for_update())
+            if not conversation or conversation.project_id != job.project_id:
+                raise ValueError("conversation_scope_changed")
+            sources = self._load_sources(db, job)
+            settings = db.scalar(select(UserSetting).where(UserSetting.user_id == job.user_id).with_for_update())
+            self._check_consent(job, settings)
+            if len(sources) != 1 or classify_memory_signal(sources[0].content).action != "revoke":
+                raise ValueError("invalid_control_source")
+            targets = json.loads(job.control_result or "{}").get("targets", [])
+            result = "needs_review"
+            row = None
+            if len(targets) == 1:
+                target = targets[0]
+                row = db.scalar(select(UserMemory).where(UserMemory.id == target["id"],
+                    UserMemory.user_id == job.user_id, UserMemory.project_id == job.project_id)
+                    .execution_options(populate_existing=True).with_for_update())
+                if (row and row.version == target["version"] and row.status in {"active", "pending"}
+                        and MemoryService(repo, ConversationRepository(db))._memory_scope(row, job.user_id) == job.project_id
+                        and row.content == forget_target(sources[0].content)):
+                    row.status, row.is_enabled = "revoked", False
+                    row.review_at = utcnow()
+                    row.version += 1
+                    repo.flush(row)
+                    result = "revoked"
+            job.control_result = json.dumps({"outcome": result, "memory_id": row.id if result == "revoked" else None})
+            self._finish_job(conversation, job, int(result == "revoked"))
             return True
 
     def _fail(self, job_id: str, lease_version: int, exc: Exception) -> None:

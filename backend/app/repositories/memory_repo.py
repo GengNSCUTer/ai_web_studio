@@ -21,7 +21,7 @@ class UserMemoryRepository:
     def mutation(self, user_id: str):
         """按用户串行化短事务；刷新 ORM 快照，异常时整体回滚。"""
         with self.db.no_autoflush:
-            user = self.db.scalar(select(User).where(User.id == user_id).with_for_update())
+            user = self.db.scalar(select(User).where(User.id == user_id).with_for_update(key_share=True))
             if user is None:
                 raise ValueError("用户不存在")
             self._mutating = True

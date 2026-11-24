@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Computed, DateTime, Float, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy import JSON, Boolean, Computed, DateTime, Float, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -58,6 +58,8 @@ class UserMemory(Base):
     candidate_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 仅保存服务端生成的关系判断与版本快照，模型不能据此直接激活。
     conflict_review_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 两个自动来源竞争时保留待审分组，关系重新分析不会抹掉这一事实。
+    needs_explicit_choice: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # 标识由服务端生成；旧记录按需识别，不在升级时猜测或覆盖用户内容。
     fact_key: Mapped[str | None] = mapped_column(String(180), nullable=True)
@@ -125,3 +127,31 @@ class MemoryExtractionJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class MemoryMaintenanceJob(Base):
+    """一次项目记忆整理及待审核建议；只保存版本引用和供用户核对的建议。"""
+
+    __tablename__ = "memory_maintenance_jobs"
+    __table_args__ = (Index("ix_memory_maintenance_claim", "status", "available_at", "created_at"),
+                      Index("ix_memory_maintenance_project", "user_id", "project_id", "created_at"))
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(24), default="pending")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    lease_version: Mapped[int] = mapped_column(Integer, default=0)
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    input_versions: Mapped[dict] = mapped_column(JSON, default=dict)
+    proposals: Mapped[list] = mapped_column(JSON, default=list)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    model_ms: Mapped[int | None] = mapped_column(Integer)
+    estimated_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    estimated_output_tokens: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

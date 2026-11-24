@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { MemoryConflictReview, type MemoryApprovalOptions } from "@/components/memory-conflict-review";
+import { MemoryMaintenancePanel } from "@/components/memory-maintenance-panel";
 
 import {
   buildProviderPreset,
@@ -749,6 +750,40 @@ export function SettingsCenter({
       setErrorMessage(error instanceof Error ? error.message : "Memory review failed");
       const latest = await requestJson<UserMemory[]>("/api/backend/memories").catch(() => null);
       if (latest) setMemories(latest);
+    } finally {
+      setReviewingMemoryId(null);
+    }
+  }
+
+  const [memoryHistory, setMemoryHistory] = useState<{ id: string; versions: UserMemory[]; truncated: boolean } | null>(null);
+
+  async function followUpMemory(memory: UserMemory, action: "reextract" | "save-independent" | "history") {
+    if (action === "history" && memoryHistory?.id === memory.id) {
+      setMemoryHistory(null);
+      return;
+    }
+    if (action === "save-independent" && !window.confirm(uiLanguage === "zh-CN"
+      ? "确认正文仍然正确，并将它作为不依赖原消息的记忆启用？"
+      : "Confirm this is still accurate and enable it independently of the original message?")) return;
+    setReviewingMemoryId(memory.id);
+    setErrorMessage(null);
+    try {
+      const path = `/api/backend/memories/${memory.id}/${action}`;
+      if (action === "history") {
+        const history = await requestJson<{ versions: UserMemory[]; truncated: boolean }>(path);
+        setMemoryHistory({ id: memory.id, ...history });
+      } else if (action === "save-independent") {
+        await requestJson(path, { method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ expected_version: memory.version ?? 1 }) });
+        setMemories(await requestJson<UserMemory[]>("/api/backend/memories"));
+        setMemoryHistory(null);
+        setSettingsMessage(uiLanguage === "zh-CN" ? "已另存并启用独立记忆" : "Independent memory enabled");
+      } else {
+        await requestJson(path, { method: "POST" });
+        setSettingsMessage(uiLanguage === "zh-CN" ? "重新提取已排队，稍后刷新查看待审候选" : "Extraction queued. Refresh later to review candidates.");
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Memory request failed");
     } finally {
       setReviewingMemoryId(null);
     }
@@ -1839,6 +1874,11 @@ export function SettingsCenter({
                       ? "自动启用默认关闭，需同时开启自动提取与记忆注入。只有完整原文直接支持的明确稳定陈述才可能自动生效；改写无法核实、冲突、敏感信息、临时要求与长期指令仍需审核。“请记住”可提前触发提取，忘记和更正请操作对应记忆。"
                       : "Auto-enable is off by default and requires extraction and memory to be enabled. Clear stable statements with verified evidence may take effect; uncertain paraphrases, conflicts and sensitive or temporary content require review. Use memory controls to forget or correct a fact."}
                   </p>
+                  <MemoryMaintenancePanel projects={projects} enabled={Boolean(userSettings.memory_enabled)}
+                    chinese={uiLanguage === "zh-CN"} request={requestJson} onApplied={async () => {
+                      setMemories(await requestJson<UserMemory[]>("/api/backend/memories"));
+                      setMemoryHistory(null);
+                    }} />
                   <div className="rounded-[24px] border border-[var(--hairline)] bg-[var(--soft-bg)] p-4">
                     <div className="mb-3 flex items-center justify-between">
                       <p className="text-sm font-semibold text-[var(--ink-strong)]">{text.memory}</p>
@@ -1856,14 +1896,16 @@ export function SettingsCenter({
                                 <p className="mt-1 text-xs text-[var(--ink-muted)]">{memory.memory_type}</p>
                               </div>
                               <span className="rounded-full bg-[var(--soft-bg)] px-3 py-1 text-xs text-[var(--ink-soft)]">
-                                {memory.status || (memory.is_enabled ? "active" : "disabled")}
+                                {memory.source_issue && ["pending", "active"].includes(memory.status)
+                                  ? (uiLanguage === "zh-CN" ? "来源已失效" : "Source invalid")
+                                  : memory.status || (memory.is_enabled ? "active" : "disabled")}
                               </span>
                             </div>
                             <p className="mt-2 text-xs leading-6 text-[var(--ink-soft)]">{memory.content}</p>
-                            {memory.source === "auto_confirmed" ? (
+                            {memory.source === "auto_confirmed" && !memory.source_issue ? (
                               <p className="mt-2 text-xs text-[var(--ink-muted)]">{uiLanguage === "zh-CN" ? "按已开启的自动模式记住，可撤销" : "Remembered in opt-in automatic mode; revocable"}</p>
                             ) : null}
-                            {memory.evidence_quote ? (
+                            {(memory.evidence_quote && !memory.source_issue) ? (
                               <p className="mt-2 text-xs text-[var(--ink-muted)]">{uiLanguage === "zh-CN" ? "用户原话：" : "User evidence: "}{memory.evidence_quote}</p>
                             ) : null}
                             {memory.candidate_reason ? (
@@ -1873,10 +1915,10 @@ export function SettingsCenter({
                             ) : null}
                             {memory.status === "pending" ? (
                               <div className="mt-3 flex flex-wrap gap-2">
-                                <MemoryConflictReview key={`${memory.id}:${memory.version}`} memory={memory}
+                                {!memory.source_issue && <MemoryConflictReview key={`${memory.id}:${memory.version}`} memory={memory}
                                   disabled={reviewingMemoryId === memory.id} chinese={uiLanguage === "zh-CN"}
                                   onApprove={(options) => void reviewMemory(memory, "approve", options)}
-                                  onRecheck={() => void recheckMemory(memory)} />
+                                  onRecheck={() => void recheckMemory(memory)} />}
                                 <button
                                   type="button"
                                   disabled={reviewingMemoryId === memory.id}
@@ -1887,6 +1929,37 @@ export function SettingsCenter({
                                 </button>
                               </div>
                             ) : null}
+                            {memory.source_issue && ["pending", "active"].includes(memory.status) ? (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {(memory.source_issue === "source_changed" || memory.source_issue === "snapshot_missing" && memory.source_message_ids) &&
+                                  <button type="button" disabled={reviewingMemoryId === memory.id}
+                                    onClick={() => void followUpMemory(memory, "reextract")}
+                                    className="rounded-full border border-[var(--hairline)] px-3 py-1 text-xs">
+                                    {uiLanguage === "zh-CN" ? "重新提取" : "Extract again"}</button>}
+                                <button type="button" disabled={reviewingMemoryId === memory.id}
+                                  onClick={() => void followUpMemory(memory, "save-independent")}
+                                  className="rounded-full border border-[var(--hairline)] px-3 py-1 text-xs">
+                                  {uiLanguage === "zh-CN" ? "另存为独立记忆" : "Save as independent memory"}</button>
+                              </div>
+                            ) : null}
+                            {memory.project_id ? <button type="button" disabled={reviewingMemoryId === memory.id}
+                              aria-expanded={memoryHistory?.id === memory.id}
+                              onClick={() => void followUpMemory(memory, "history")}
+                              className="mt-3 rounded-full border border-[var(--hairline)] px-3 py-1 text-xs">
+                              {uiLanguage === "zh-CN" ? "版本历史" : "Version history"}</button> : null}
+                            {memoryHistory?.id === memory.id && <ol className="mt-3 grid gap-2">
+                              {memoryHistory.versions.map((version) => <li key={version.id}
+                                className="rounded-xl border border-[var(--hairline)] p-2 text-xs">
+                                <p className="font-medium">{version.title} · {version.status === "active" && version.is_enabled
+                                  ? (uiLanguage === "zh-CN" ? "当前生效" : "Current")
+                                  : version.status === "superseded"
+                                    ? (uiLanguage === "zh-CN" ? "已替换的版本" : "Superseded")
+                                    : (uiLanguage === "zh-CN" ? "未生效" : "Inactive")}</p>
+                                <p className="mt-1 whitespace-pre-wrap break-words">{version.content}</p>
+                              </li>)}
+                              {memoryHistory.truncated && <li className="text-xs text-[var(--ink-muted)]">{uiLanguage === "zh-CN"
+                                ? "仅显示最多 20 个相关版本。" : "Showing up to 20 related versions."}</li>}
+                            </ol>}
                             {memory.status === "active" ? (
                               <button
                                 type="button"
