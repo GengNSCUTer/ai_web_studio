@@ -94,13 +94,15 @@ class CompletionVerifierTest(unittest.TestCase):
 
     def test_incomplete_verdict_constrains_final_prompt_without_new_model_call(self):
         from app.services.chat_context_assembly_service import ChatContextAssemblyService
+        from app.services.memory_retrieval_service import MemoryRetrievalResult
         assembly = SimpleNamespace(
             external_context_result=SimpleNamespace(details={"tool_task_completion": {"status": "partial"}},
                 context_text=None, evidence_section=None),
             evidence_sufficiency=SimpleNamespace(guidance="原有证据约束"),
-            conversation=SimpleNamespace(system_prompt=None, context_summary=None, context_summary_boundary_message_id=None),
+            conversation=SimpleNamespace(system_prompt=None, context_summary=None,
+                context_summary_boundary_message_id=None, project_id=None),
             runtime=SimpleNamespace(settings=SimpleNamespace(), provider_type="openai-compatible", resolved_model="test"),
-            history_rows=[], memory_bundle=SimpleNamespace(context_text=None),
+            history_rows=[], memory_bundle=MemoryRetrievalResult(),
             summary_bundle=SimpleNamespace(summary=None, boundary_message_id=None),
             attachment_context_result=SimpleNamespace(context_text=None),
             knowledge_context_result=SimpleNamespace(context_text=None, evidence_section=None), skill_context=None)
@@ -108,7 +110,7 @@ class CompletionVerifierTest(unittest.TestCase):
         with patch("app.services.chat_context_assembly_service.ContextPromptBuilder") as builder:
             builder.return_value.build_chat_messages.side_effect = ValueError("已捕获Prompt输入")
             with self.assertRaisesRegex(ValueError, "已捕获Prompt输入"):
-                asyncio.run(ChatContextAssemblyService.govern_prompt(None, assembly))
+                asyncio.run(ChatContextAssemblyService.govern_prompt(SimpleNamespace(db=None, user_id="test"), assembly))
             guidance = builder.return_value.build_chat_messages.call_args.kwargs["evidence_guidance"]
             self.assertIn("原有证据约束", guidance)
             self.assertIn("不得声称任务全部完成", guidance)

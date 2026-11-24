@@ -14,7 +14,6 @@ from tempfile import TemporaryDirectory, NamedTemporaryFile
 from uuid import uuid5, NAMESPACE_URL
 
 from sqlalchemy import select, func
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -29,7 +28,7 @@ from app.repositories.message_repo import MessageRepository
 from app.schemas.document_task import DocumentTaskCreate
 from app.services.agent_runtime_service import AgentRuntimeService
 from app.services.document_delivery_service import DocumentDeliveryService
-from app.services.durable_tool_runtime import DurableToolRunService, utcnow
+from app.services.runtime_lease import utcnow
 from app.services.tools.providers.workspace_files import WorkspaceFileToolProvider
 from app.services.agent_artifact_store import AgentArtifactStore, ArtifactStoreError
 from app.services.document_completion import verify_document_draft, verify_document_export

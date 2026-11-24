@@ -73,6 +73,26 @@ class MemoryRetrievalResult:
     def chars(self) -> int:
         return len(self.context_text or "")
 
+    def recheck_for_prompt(self, db, *, user_id: str, project_id: str | None) -> None:
+        """工具和摘要可能等待很久，构建 Prompt 前复核已选中的少量记忆。"""
+        if not self.records:
+            return
+        enabled = db.scalar(select(UserSetting.memory_enabled).where(UserSetting.user_id == user_id))
+        original_count = len(self.records)
+        if enabled:
+            service = MemoryService(UserMemoryRepository(db), ConversationRepository(db))
+            versions = {record["id"]: record["version"] for record in self.records}
+            rows = service.repo.list_for_retrieval(user_id, project_id, memory_ids=versions, include_vectors=False)
+            current = {row.id for row in service.valid_sources(rows) if row.version == versions[row.id]}
+            self.records = [record for record in self.records if record["id"] in current]
+        else:
+            self.records = []
+        dropped = original_count - len(self.records)
+        if dropped:
+            header = (self.context_text or "").split("\n", 1)[0]
+            self.context_text = "\n".join([header, *(record["line"] for record in self.records)]) if self.records else None
+        self.diagnostics["dropped_at_prompt_recheck"] = dropped
+
     def after_governance(self, memory_text: str) -> dict[str, Any]:
         """只核对治理层实际保留的结构化记忆段，避免历史/网页伪造标签干扰计数。"""
         lines = set(memory_text.splitlines())

@@ -73,7 +73,6 @@ class PlannerObservationProjection:
         excerpt_usage: dict[str, dict[str, int]] = {}
         status_counts: dict[str, int] = {}
         profile_diagnostics: dict[str, dict[str, Any]] = {}
-        source_limit = min(len(sources), cls.MAX_SOURCES)
         for index, source in enumerate(sources[: cls.MAX_SOURCES], start=1):
             source_type = str(getattr(source, "source_type", "") or "unknown")
             provider = str(getattr(source, "provider", "") or "unknown")

@@ -104,4 +104,11 @@ __all__ = [
     "UserSetting",
     "WorkspaceToolSetting",
     "WorkspaceAgentPolicy",
+    "ResourceLease",
+    "PluginInstallation",
+    "PluginRelease",
+    "ProjectPlugin",
+    "PluginSubmission",
+    "SandboxJob",
+    "SandboxWorkerState",
 ]

@@ -658,7 +658,7 @@ class AmapToolProvider:
     def _extract_poi_query(query: str) -> tuple[str | None, str] | None:
         compact = re.sub(r"\s+", "", query.strip())
         poi_keyword_pattern = r"(咖啡店|咖啡|酒店|宾馆|餐厅|饭店|商场|医院|银行|地铁站|停车场|景点|超市|便利店|药店|公园|充电站|加油站)"
-        nearby_match = re.search(rf"(.+?)(?:附近|周边)(?:的|有|有没有|有什么)?(.+)?", compact)
+        nearby_match = re.search(r"(.+?)(?:附近|周边)(?:的|有|有没有|有什么)?(.+)?", compact)
         if nearby_match:
             anchor = AmapToolProvider._clean_place_text(nearby_match.group(1))
             raw_keyword = nearby_match.group(2) or ""

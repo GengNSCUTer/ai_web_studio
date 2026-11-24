@@ -7,7 +7,7 @@ from typing import Literal
 from types import SimpleNamespace
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, update
+from sqlalchemy import update
 
 from app.core.database import SessionLocal
 from app.models.user_memory import UserMemory

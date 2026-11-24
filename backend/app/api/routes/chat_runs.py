@@ -97,9 +97,10 @@ async def subscribe_events(run_id, user_id, *, after=0, sessions=SessionLocal):
 
 
 @router.get("/{run_id}/events", dependencies=[Depends(chat_subscription_capacity, scope="request")])
-async def chat_run_events(run_id: str, after: int = Query(default=0, ge=0),
+def chat_run_events(run_id: str, after: int = Query(default=0, ge=0),
     format: str = Query(default="sse", pattern="^sse$"),
     last_event_id: str | None = Header(default=None), db=Depends(get_db), user=Depends(get_current_user)):
+    # 连接前的归属与游标查询是同步 SQL，放在 FastAPI 工作线程；事件生成器继续异步订阅。
     snapshot = ChatRunService.snapshot(ChatRunService(db).owned(run_id, user.id))
     user_id = str(user.id)
     sessions = sessionmaker(bind=db.get_bind(), autoflush=False)

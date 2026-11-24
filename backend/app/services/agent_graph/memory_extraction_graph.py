@@ -68,9 +68,9 @@ async def _semantic_gate(state: MemoryExtractionState, runtime: Runtime[MemoryEx
         return {"phase": "semantic_not_scheduled", "semantic_decision": "fallback"}
     try:
         raw = await asyncio.wait_for(ctx.worker.provider.complete_chat(**ctx.snapshot["semantic_call"]), TIMEOUT_SECONDS)
-        action, confidence, reason = parse_semantic_result(raw)
+        action, confidence, _ = parse_semantic_result(raw)
     except Exception:
-        action, confidence, reason = "buffer", "low", "semantic_gate_unavailable"
+        action, confidence = "buffer", "low"
     if not ctx.worker._record_semantic_decision(ctx.job_id, ctx.lease_version, action, confidence):
         return {"phase": "lease_lost", "semantic_decision": "stop"}
     if action == "skip" and confidence == "high":

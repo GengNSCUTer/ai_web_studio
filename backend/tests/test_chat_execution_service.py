@@ -576,6 +576,41 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_memory_revoked_after_retrieval_is_excluded_from_final_prompt(self) -> None:
+        from app.models.user_memory import UserMemory
+
+        async def run_test():
+            user_id = self.user.id
+            memory = UserMemory(user_id=user_id, memory_type="profile", title="回答语言", content="默认英文回答")
+            self.db.add(memory)
+            self.db.flush()
+            memory_id = memory.id
+            self.db.commit()
+            service = ChatExecutionService(db=self.db, current_user=self.user)
+            retrieve = service.context_assembly_service.retrieve_memory
+
+            async def revoke_after_retrieval(assembly):
+                await retrieve(assembly)
+                self.assertEqual(assembly.memory_bundle.records[0]["id"], memory_id)
+                self.db.commit()
+                with self.SessionLocal() as other:
+                    row = other.get(UserMemory, memory_id)
+                    row.status, row.is_enabled = "revoked", False
+                    row.version += 1
+                    other.commit()
+
+            with patch.object(service.context_assembly_service, "retrieve_memory", side_effect=revoke_after_retrieval), patch(
+                "app.services.chat_context_assembly_service.ExternalContextService", FakeExternalContextService
+            ):
+                context = await service.prepare_chat_execution(ChatStreamRequest(
+                    content="我默认回答语言是什么？", model_name="qwen-test", web_search_enabled=False))
+            self.assertNotIn("默认英文回答", json.dumps(context.history_messages, ensure_ascii=False))
+            trace = context.context_stats["memory_retrieval"]
+            self.assertEqual(trace["injected_count"], 0)
+            self.assertEqual(trace["dropped_at_prompt_recheck"], 1)
+
+        asyncio.run(run_test())
+
     def test_prepare_chat_execution_builds_context_without_external_services(self) -> None:
         async def run_test() -> None:
             service = ChatExecutionService(db=self.db, current_user=self.user)

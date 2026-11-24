@@ -346,6 +346,8 @@ class ChatContextAssemblyService:
             evidence_guidance = FINAL_COMPLETION_GUIDANCE
         elif completion.get("status") in {"partial", "clarify", "blocked"}:
             evidence_guidance += "\n工具证据检查未全部满足：仅回答已核实部分，说明缺口，不得声称任务全部完成。等待审批不等于文件已写入。"
+        assembly.memory_bundle.recheck_for_prompt(self.db, user_id=self.user_id,
+            project_id=assembly.conversation.project_id)
         assembly.prompt_result = ContextPromptBuilder().build_chat_messages(
             messages=assembly.history_rows,
             system_prompt=clean_optional_str(assembly.conversation.system_prompt)

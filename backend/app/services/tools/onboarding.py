@@ -261,7 +261,6 @@ def evaluate_tool_onboarding_fixture_bundle(
     # 只处理 fixture 中已经提供的脱敏 JSON。
     from app.services.tools.quality import evaluate_tool_result_quality
     from app.services.tools.result_mappers import map_declared_mcp_result
-    from app.services.tools.observation_projection import PlannerObservationProjection
 
     reports: list[dict[str, Any]] = []
     all_passed = True

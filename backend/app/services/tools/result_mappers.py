@@ -563,7 +563,6 @@ def _map_amap_route(*, payload: Any, provider: str, title: str) -> list[External
             ]
     origin = _text(data.get("origin"))
     destination = _text(data.get("destination"))
-    identity = " → ".join(part for part in (origin, destination) if part)
     if not origin or not destination:
         return []
 

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
-from collections import Counter
 from dataclasses import dataclass, field, replace
 
 from app.models.knowledge import KnowledgeBase
@@ -435,124 +433,6 @@ class KnowledgeRetrievalPipeline:
     @staticmethod
     def _active_generation(knowledge_base: KnowledgeBase) -> str:
         return knowledge_base.active_index_generation or "legacy"
-
-    def _retrieve_lexical_results_in_memory(
-        self,
-        *,
-        user_id: str,
-        knowledge_base: KnowledgeBase,
-        query: str,
-        top_k: int,
-        filters: KnowledgeRetrievalFilter,
-    ) -> list[RetrievalResult]:
-        """Kept for tests/comparison only; production path uses KnowledgeLexicalStore."""
-        query_terms = KnowledgeLexicalStore.tokenize(query)
-        if not query_terms:
-            return []
-        from collections import Counter
-        import math
-
-        query_counts = Counter(query_terms)
-        chunks = self.chunk_repo.list_by_knowledge_base(
-            knowledge_base.id,
-            user_id,
-            index_generation=self._active_generation(knowledge_base),
-        )
-        docs: list[tuple[object, dict, Counter[str]]] = []
-        document_frequency: Counter[str] = Counter()
-        total_length = 0
-        for chunk in chunks:
-            metadata = json.loads(chunk.metadata_json or "{}")
-            probe = RetrievalResult(chunk=chunk, score=0, metadata=metadata)
-            if filters.enabled and not self._matches_filters(probe, filters):
-                continue
-            terms = KnowledgeLexicalStore.tokenize(chunk.content)
-            if not terms:
-                continue
-            counts = Counter(terms)
-            docs.append((chunk, metadata, counts))
-            total_length += sum(counts.values())
-            for term in set(counts):
-                document_frequency[term] += 1
-        if not docs:
-            return []
-
-        avgdl = max(1.0, total_length / len(docs))
-        scored: list[RetrievalResult] = []
-        for chunk, metadata, counts in docs:
-            score = self._bm25_score(
-                query_counts=query_counts,
-                doc_counts=counts,
-                document_frequency=document_frequency,
-                doc_count=len(docs),
-                avgdl=avgdl,
-            )
-            if score <= 0:
-                continue
-            scored.append(
-                RetrievalResult(
-                    chunk=chunk,
-                    score=score,
-                    rank_source="lexical",
-                    metadata={
-                        **metadata,
-                        "lexical_score": score,
-                        "retrieval_mode": "lexical",
-                    },
-                )
-            )
-        scored.sort(key=lambda item: item.score, reverse=True)
-        normalized = self._normalize_result_scores(scored[:top_k], score_key="lexical_score")
-        return self._apply_score_threshold(normalized, knowledge_base.score_threshold)
-
-    @staticmethod
-    def _normalize_result_scores(results: list[RetrievalResult], *, score_key: str) -> list[RetrievalResult]:
-        if not results:
-            return []
-        max_score = max(result.score for result in results) or 1.0
-        normalized: list[RetrievalResult] = []
-        for result in results:
-            raw_score = float(result.score)
-            score = raw_score / max_score if max_score > 0 else 0.0
-            normalized.append(
-                RetrievalResult(
-                    chunk=result.chunk,
-                    score=score,
-                    rerank_score=result.rerank_score,
-                    rank_source=result.rank_source,
-                    metadata={
-                        **result.metadata,
-                        score_key: raw_score,
-                        "normalized_score": score,
-                    },
-                )
-            )
-        return normalized
-
-    @staticmethod
-    def _bm25_score(
-        *,
-        query_counts: Counter[str],
-        doc_counts: Counter[str],
-        document_frequency: Counter[str],
-        doc_count: int,
-        avgdl: float,
-    ) -> float:
-        score = 0.0
-        doc_len = max(1, sum(doc_counts.values()))
-        for term, query_weight in query_counts.items():
-            tf = doc_counts.get(term, 0)
-            if tf <= 0:
-                continue
-            df = document_frequency.get(term, 0)
-            if df <= 0:
-                continue
-            idf = math.log(1 + (doc_count - df + 0.5) / (df + 0.5))
-            denom = tf + KnowledgeLexicalStore.BM25_K1 * (
-                1 - KnowledgeLexicalStore.BM25_B + KnowledgeLexicalStore.BM25_B * doc_len / avgdl
-            )
-            score += float(query_weight) * idf * (tf * (KnowledgeLexicalStore.BM25_K1 + 1) / denom)
-        return score
 
     @staticmethod
     def _fuse_rrf(

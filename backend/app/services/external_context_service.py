@@ -14,10 +14,7 @@ from app.services.tools.formatter import ExternalContextAssembler
 from app.services.tools.planner import DeterministicToolPlanner, LLMToolPlanner, PlannerRuntime
 from app.services.tools.query_rewriter import QueryRewriteService
 from app.services.tools.run_policy import ToolRunBudget, ToolRunPolicy, resolve_tool_run_policy
-from app.services.tools.schemas import (
-    ExternalContextResult,
-    ToolTraceEvent,
-)
+from app.services.tools.schemas import ExternalContextResult
 from app.services.tools.workflow import ToolWorkflowService
 from app.services.tools.observation_projection import PlannerObservationProjection
 from app.services.tools.selector import ToolCandidateSelector
