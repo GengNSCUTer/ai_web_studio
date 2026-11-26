@@ -158,20 +158,40 @@ class MessageRepository:
         conversation_id = getattr(message, "conversation_id", None)
         if not conversation_id:
             return
-        # Message sequence is allocated from MAX()+1. Lock the conversation row
-        # so concurrent requests for the same conversation cannot choose the same
-        # next value. SQLite ignores FOR UPDATE, while PostgreSQL enforces it.
-        self.db.execute(
-            select(Conversation.id)
+        # 先锁会话再取最大值。删除尾部消息后也不能复用记忆游标已越过的序号。
+        cursors = self.db.execute(
+            select(Conversation.memory_scan_cursor, Conversation.memory_extraction_cursor)
             .where(Conversation.id == conversation_id)
             .with_for_update()
-        ).scalar_one_or_none()
+        ).one_or_none()
         current_max = self.db.scalar(
             select(func.coalesce(func.max(Message.sequence), 0)).where(
                 Message.conversation_id == conversation_id
             )
         )
-        message.sequence = int(current_max or 0) + 1
+        scan_cursor, extraction_cursor = cursors or (0, 0)
+        message.sequence = max(current_max or 0, scan_cursor or 0, extraction_cursor or 0) + 1
+
+    def fill_missing_sequences(self, conversation: Conversation) -> bool:
+        """在调用方持有会话锁时补齐旧消息序号，保留已经使用的游标。"""
+        scope = Message.conversation_id == conversation.id
+        if not self.db.scalar(select(Message.id).where(scope, Message.sequence.is_(None)).limit(1)):
+            return False
+        ordered = self.db.execute(select(Message.id, Message.sequence).where(scope).order_by(
+            Message.created_at, Message.sequence.asc().nulls_last(), Message.id)).all()
+        cursor = max(conversation.memory_scan_cursor or 0, conversation.memory_extraction_cursor or 0)
+        if cursor:
+            maximum = max(cursor, max(row.sequence or 0 for row in ordered))
+            changes = [(row.id, maximum + index) for index, row in enumerate(
+                (row for row in ordered if row.sequence is None), 1)]
+        else:
+            changes = [(row.id, index) for index, row in enumerate(ordered, 1) if row.sequence != index]
+            # 保留未变化的序号，先腾出需要移动的已占用位置，避免更新之间触发唯一约束。
+            self.db.execute(update(Message).where(scope, Message.sequence.is_not(None),
+                Message.id.in_([mid for mid, _ in changes])).values(sequence=None))
+        for message_id, sequence in changes:
+            self.db.execute(update(Message).where(Message.id == message_id).values(sequence=sequence))
+        return True
 
     def lock_conversation(self, conversation_id: str) -> Conversation | None:
         """锁定会话聚合根，仅覆盖准备/状态切换的短事务。"""

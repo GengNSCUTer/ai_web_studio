@@ -18,6 +18,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.core.database import database_pool_budget
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.observability import ChatRuntimeMetric
@@ -57,7 +58,7 @@ def _get_async_session_factory() -> async_sessionmaker[AsyncSession]:
         # 或异步实现；不再引入第二套数据库驱动。
         _async_engine = create_async_engine(
             settings.sqlalchemy_database_uri,
-            pool_pre_ping=True,
+            **database_pool_budget.sqlalchemy_options(asynchronous=True),
         )
         _async_session_factory = async_sessionmaker(
             bind=_async_engine,

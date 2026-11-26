@@ -1,10 +1,12 @@
 # 单机部署与运行检查
 
+2026-11-26 起的迁移头为 `20261126_01`。从 `20261118_01` 升级会依次应用记忆整理表和会话消息序号唯一约束。已有数据先停写并备份，部署细节见下方升级流程。
+
 2026-11-18升级`20261118_01`：停止新请求，待现有 Chat 排空后停止本项目所有写入进程；备份数据库、上传和索引目录，再显式执行升级并重启唯一托管实例。未排空时迁移拒绝执行。旧 Chat v1 图线程和业务恢复快照会被删除，其他任务的业务审计保留；不能用 Alembic downgrade 复原，应使用升级前的完整备份。见[238](../docs/238_LangGraph状态与业务持久化边界审查与整合第一步_2026-11-18.md)。
 
 2026-11-08后续恢复升级：完成仓库外备份，执行20261108_02和20261108_03再重启唯一Chat Worker。普通工具图复用Agent业务表和原生PG池，崩溃后最多三次领取、两次最终生成，原任务与工具时限不重置；写入结果不明不自动重发。说明与故障验收见[217](../docs/217_Chat与工具统一持久化恢复_2026-11-08.md)。
 
-适用范围是 Linux 下的个人自部署工作台。PostgreSQL/pgvector 复用已有服务；本目录管理 API、Next.js、知识库/记忆/Durable/Chat 四个 Worker，必要时还可托管本地 Redis。运行代码与数据备份是两件事，备份恢复和版本化迁移在七项优化计划第二批处理。
+适用范围是 Linux 下的个人自部署工作台。PostgreSQL/pgvector 复用已有服务。Supervisor 管理 API、Next.js 和知识索引、记忆、摘要、Durable、Chat Worker。按需额外启动沙箱 Worker 或托管本地 Redis。
 
 2026-11-08新增普通Chat独立进程：先执行20261108_01迁移，再用`bash deploy/run_services.sh ctl reread`和`ctl update`加入唯一`chat-worker`。Web只创建Run和订阅事件，关闭页面不停止生成；POST取消才撤回执行权。`/health/workers`分别检查Chat与Durable心跳，Web依赖就绪不表示生成Worker在线。默认用户2个未完成任务、全局16个运行任务、每Worker4并发、排队300秒/执行900秒、输出8192Token、20万字符与8MiB事件；详见环境样例和[216说明](../docs/216_Chat独立任务与统一取消_2026-11-08.md)。备份暂停写入者时必须包括Chat Worker，不启动同职责的旧Screen实例。
 
@@ -31,7 +33,7 @@ npm run build
 - `TOOL_ORCHESTRATION_ENGINE`已退役，遗留环境值不生效。同步链只有图入口，失败后不自动换引擎重做。
 - 退役前正式库没有旧AgentRun；缺失/未知`runtime_engine`的导入或旧备份任务会拒绝执行/恢复，需用户重新发起。若部署其他已有旧任务的实例，先清点并安排旧版本处理或让用户重新提交，不能仅改JSON版本号绕过核验。
 - Chat工具循环、Durable工具Step、文件和文档审批、文档执行使用原生PG检查点。Chat的最终回答流不续接中断的token。记忆/知识Job仍按原Job租约、游标、generation及Outbox恢复。
-- Web与Durable Worker各自管理有界原生检查点池（最多4连接）；审批池也是独立有界4连接。容量规划要计入这些连接以及SQLAlchemy池，不能只按Web池估算。用户等待审批期间不持有连接。
+- Web 和 Worker 的原生检查点池按部署角色分配，见[数据库连接预算](#数据库连接预算)。用户等待审批期间不持有连接。
 - PDF/中文资料导入脚本也改为投递正式解析/索引Job。必须先启动独立knowledge-worker与Redis；等待超时不退回脚本内同步重建索引，任务仍可在Job页追踪。
 - 回退应用时保留新迁移链和数据库schema。已产生双角色线程的数据库不能直接恢复旧`step_id`唯一约束；若必须回退数据，应停全部写入者并按备份恢复流程执行，明确备份后的新增数据处理。
 - 现有Supervisor仍各保留一个角色；API32007、前端32008、PG35433、Redis36379不变。沙箱仍因Rootless前提不足保持禁用，不向Web授予Docker权限。
@@ -70,6 +72,34 @@ backend/.venv/bin/python deploy/check_services.py
 
 默认不启动 Redis。若明确是全新单机部署、已有地址没有服务且没有待恢复的 Redis 数据，可设置 `AIWS_MANAGE_REDIS=true`；`AIWS_REDIS_BIN` 指向已安装的 redis-server，默认端口 36379，数据保存在 `.runtime/redis`，启用 AOF。后端 `KNOWLEDGE_REDIS_URL` 必须与之匹配。已有 Redis 部署应保持 false 并复用原地址和持久化目录，不要用空实例覆盖已有队列。
 
+## 数据库连接预算
+
+Supervisor 通过 `AIWS_DB_ROLE` 选择每个进程的默认预算。表中的检查点只计入托管进程实际开启的池。
+
+| 角色 | SQLAlchemy 同步池常驻上限 + 溢出上限 | 图检查点池 | 审批检查点池 | 常规路径合计上限 |
+| --- | ---: | ---: | ---: | ---: |
+| API | 5 + 3 | 2 | 2 | 12 |
+| Chat Worker | 5 + 3 | 4 | 2 | 14 |
+| Durable Worker | 3 + 1 | 2 | 0 | 6 |
+| Knowledge Worker | 3 + 1 | 0 | 0 | 4 |
+| Memory Worker | 2 + 1 | 0 | 0 | 3 |
+| Summary Worker | 2 + 1 | 0 | 0 | 3 |
+| Sandbox Worker（启用时） | 2 + 0 | 0 | 0 | 2 |
+
+单实例每角色一个进程时，正常业务默认上限合计为 42，开启沙箱后为 44。连接按需打开。诊断用 Chat AsyncSession 如果启用，另计每进程 2 个连接且无溢出。独立维护脚本、其他实例、数据库保留连接和共享客户端也需单独计入。启动多个进程时按实际数量乘算。池满时默认等待最多 10 秒。
+
+在 `backend/.env` 中可以用 `POSTGRES_<ROLE>_<KEY>` 修改单个角色，角色名转大写并将连字符改为下划线，例如 `POSTGRES_CHAT_WORKER_GRAPH_POOL_SIZE=4`。通用 `POSTGRES_<KEY>` 次之，最终使用角色默认。可配置项为 `POOL_SIZE`、`MAX_OVERFLOW`、`POOL_TIMEOUT_SECONDS`、`ASYNC_POOL_SIZE`、`GRAPH_POOL_SIZE`、`APPROVAL_POOL_SIZE`。修改后重启对应角色。直接用 Python 启动长期进程时，显式设置 `AIWS_DB_ROLE`。迁移和临时脚本默认 `cli`。
+
+可用以下查询观察活动连接和事务状态，再结合数据库 `max_connections` 和共享负载调参。
+
+```sql
+SELECT application_name, state, count(*)
+FROM pg_stat_activity
+WHERE application_name LIKE 'aiws-%'
+GROUP BY application_name, state
+ORDER BY application_name, state;
+```
+
 ## 主机重启后的恢复
 
 Screen 本身不负责主机重启恢复。正式运行可将 `aiws.service.example` 复制为 `~/.config/systemd/user/aiws.service`，修改其中仓库路径和 Node.js 所在 PATH，再执行：
@@ -105,10 +135,11 @@ systemctl --user status aiws.service
 
 ```bash
 PYTHONPATH=backend backend/.venv/bin/python deploy/data_backup.py backup /path/to/backup --pg-bin /path/to/pg-bin
-PYTHONPATH=backend backend/.venv/bin/python -m scripts.migrate_database upgrade --adopt-legacy --backup-dir /path/to/backup
+PYTHONPATH=backend backend/.venv/bin/python -m scripts.migrate_database upgrade
+PYTHONPATH=backend backend/.venv/bin/python -m scripts.migrate_database check
 ```
 
-非空历史库只有在备份清单对应当前数据库时才允许 `--adopt-legacy`。版本、表、列、索引不匹配会拒绝收编；迁移失败不会写入新版本。
+只有未受 Alembic 管理的非空历史库需要在 upgrade 命令上加 `--adopt-legacy --backup-dir /path/to/backup`。它会校验备份清单、表、列和索引。迁移失败时版本号随事务回滚。若 `20261126_01` 检测到重复的非空消息序号，应在停写窗口人工核对受影响会话及摘要、记忆游标。历史空序号可以保留。
 
 ## 恢复演练
 

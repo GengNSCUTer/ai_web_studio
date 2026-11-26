@@ -3,10 +3,12 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import os
+from threading import Barrier
 import unittest
 from uuid import uuid4
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError, TimeoutError
 from sqlalchemy.orm import sessionmaker
 from alembic.migration import MigrationContext
 
@@ -18,6 +20,126 @@ from fastapi import HTTPException
 
 @unittest.skipUnless(os.getenv("TEST_POSTGRES_URL"), "需要隔离 PostgreSQL 测试环境")
 class MigrationPostgresTest(unittest.TestCase):
+    @staticmethod
+    def _seed_sequence_conversations(conn):
+        conn.execute(text("insert into users(id,email) values ('sequence-user','sequence-migration@example.test')"))
+        conn.execute(text("insert into conversations(id,user_id,title,model_name,is_archived,is_pinned) values "
+                          "('seq-a','sequence-user','test','test',false,false),"
+                          "('seq-b','sequence-user','test','test',false,false)"))
+
+    @staticmethod
+    def _insert_sequence(conn, message_id, conversation_id, sequence):
+        conn.execute(text("insert into messages(id,conversation_id,generation_id,role,content,status,sequence) "
+                          "values (:id,:conversation,:id,'user','迁移样本','done',:sequence)"),
+                     {"id": message_id, "conversation": conversation_id, "sequence": sequence})
+
+    def test_message_sequence_migration_preserves_null_and_adds_scoped_uniqueness(self):
+        upgrade_database(self.engine, target="20261124_01")
+        with self.engine.begin() as conn:
+            self._seed_sequence_conversations(conn)
+            for message_id, conversation_id, sequence in (
+                ("a1", "seq-a", 1), ("b1", "seq-b", 1), ("old-a", "seq-a", None), ("old-b", "seq-a", None)
+            ):
+                self._insert_sequence(conn, message_id, conversation_id, sequence)
+        upgrade_database(self.engine)
+        with self.engine.begin() as conn:
+            self.assertEqual(conn.execute(text("select id,sequence from messages order by id")).all(),
+                             [("a1", 1), ("b1", 1), ("old-a", None), ("old-b", None)])
+            with self.assertRaises(IntegrityError), conn.begin_nested():
+                self._insert_sequence(conn, "duplicate", "seq-a", 1)
+
+    def test_message_sequence_migration_rejects_ambiguous_history_without_rewriting_it(self):
+        upgrade_database(self.engine, target="20261124_01")
+        with self.engine.begin() as conn:
+            self._seed_sequence_conversations(conn)
+            self._insert_sequence(conn, "first", "seq-a", 1)
+            self._insert_sequence(conn, "second", "seq-a", 1)
+        with self.assertRaisesRegex(RuntimeError, "重复会话序号"):
+            upgrade_database(self.engine)
+        with self.engine.connect() as conn:
+            self.assertEqual(MigrationContext.configure(conn).get_current_revision(), "20261124_01")
+            self.assertEqual(conn.execute(text("select sequence from messages")).scalars().all(), [1, 1])
+
+    def test_concurrent_message_allocation_respects_lock_and_existing_memory_cursors(self):
+        from app.models.message import Message
+        from app.repositories.message_repo import MessageRepository
+
+        upgrade_database(self.engine)
+        with self.engine.begin() as conn:
+            self._seed_sequence_conversations(conn)
+            self._insert_sequence(conn, "old", "seq-a", 3)
+            conn.execute(text("update conversations set memory_scan_cursor=8, memory_extraction_cursor=7 where id='seq-a'"))
+        sessions = sessionmaker(self.engine)
+        barrier = Barrier(2)
+
+        def insert():
+            with sessions.begin() as db:
+                barrier.wait(timeout=10)
+                return MessageRepository(db).create(Message(conversation_id="seq-a", role="user", content="并发写入")).sequence
+
+        with ThreadPoolExecutor(2) as workers:
+            results = [workers.submit(insert) for _ in range(2)]
+            self.assertEqual(sorted(result.result(timeout=15) for result in results), [9, 10])
+
+    def test_process_budget_enforces_real_postgres_connection_limit(self):
+        from app.core.database_pool import resolve_database_pool_budget
+
+        budget = resolve_database_pool_budget("memory-worker",
+            {"POSTGRES_POOL_SIZE": "1", "POSTGRES_MAX_OVERFLOW": "0", "POSTGRES_POOL_TIMEOUT_SECONDS": "1"})
+        engine = create_engine(self.engine.url, **budget.sqlalchemy_options())
+        self.addCleanup(engine.dispose)
+        self.assertEqual(engine.pool.checkedin(), 0)
+        with engine.connect() as connection:
+            self.assertEqual(connection.scalar(text("show application_name")), "aiws-memory-worker-sql")
+            with self.assertRaises(TimeoutError):
+                engine.connect()
+        with engine.connect() as connection:
+            self.assertEqual(connection.scalar(text("select 1")), 1)
+
+    def test_verified_subscription_can_acquire_and_release_quota_with_one_connection(self):
+        from functools import partial
+        from unittest.mock import patch
+
+        import jwt
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.api.deps import get_db
+        from app.api.routes.chat_runs import router
+        from app.core.config import settings
+        from app.models.user import User
+        from app.schemas.message import ChatStreamRequest
+        from app.services.chat_run_service import ChatRunService
+        from app.services.resource_quota_service import resource_capacity
+
+        upgrade_database(self.engine)
+        engine = create_engine(self.engine.url, pool_size=1, max_overflow=0, pool_timeout=1)
+        self.addCleanup(engine.dispose)
+        sessions = sessionmaker(engine)
+        with sessions() as db:
+            user = User(id="single-slot", email="single-slot@example.test")
+            db.add(user)
+            db.commit()
+            service = ChatRunService(db)
+            run_id = service.create(user=user, payload=ChatStreamRequest(content="连接池测试")).id
+            claim = service.claim_next("test")
+            self.assertTrue(service.finish(claim, status="succeeded"))
+
+        def database():
+            with sessions() as db:
+                yield db
+
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_db] = database
+        token = jwt.encode({"sub": "single-slot"}, settings.auth_secret_key, algorithm=settings.auth_algorithm)
+        with patch("app.api.resource_limits.resource_capacity",
+                   partial(resource_capacity, service=ResourceQuotaService(sessions))), TestClient(app) as client:
+            response = client.get(f"/chat/runs/{run_id}/events", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('"type": "done"', response.text)
+        with engine.connect() as conn:
+            self.assertEqual(conn.scalar(text("select count(*) from resource_leases")), 0)
+
     def test_native_checkpoint_cutover_drains_chat_and_keeps_business_audit(self):
         from datetime import timedelta
         from app.models.agent_runtime import AgentRun, AgentStep

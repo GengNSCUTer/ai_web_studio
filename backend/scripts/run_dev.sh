@@ -9,4 +9,5 @@ fi
 
 cd "$ROOT_DIR"
 export PYTHONPATH=.
+export AIWS_DB_ROLE="${AIWS_DB_ROLE:-api}"
 exec "$PYTHON_BIN" -c 'import uvicorn; from app.core.config import settings; uvicorn.run("app.main:app", host=settings.app_host, port=settings.app_port)'

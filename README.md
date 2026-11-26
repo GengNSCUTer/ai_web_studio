@@ -7,7 +7,7 @@
 ## 核心链路
 
 - RAG：文档解析 -> Chunk -> Embedding -> pgvector/BM25 -> RRF -> Rerank -> 引用上下文
-- Chat：最近消息、滚动摘要、长期记忆、附件、RAG 和 Tool 结果统一进入 Token 预算
+- Chat：API 创建 ChatRun，独立 Chat Worker 组装上下文并流式生成。浏览器通过原生 SSE 订阅，关闭页面后任务可以继续运行
 - Tool：代码筛选候选和执行安全校验，LLM Planner 只在候选集内生成结构化调用计划
 - Knowledge Worker：PostgreSQL Outbox -> Redis Stream -> Worker -> Lease/Heartbeat -> inactive generation -> CAS 激活
 - Durable Tool：Tool Plan -> 用户预览/确认 -> Run/Step/Checkpoint -> Worker -> 原会话终态回写；任务页支持状态观察、受控重放和脱敏 JSONL 审计
@@ -20,25 +20,27 @@
 
 ## 本地运行
 
-首次安装、统一托管、生产配置和健康检查见 [部署说明](deploy/README.md)。默认使用 `backend/.venv`；以下分开启动的步骤适用于开发调试，不要与托管服务同时启动同一角色。
+首次安装、生产配置和健康检查见 [部署说明](deploy/README.md)。日常使用 Supervisor 统一托管，默认使用 `backend/.venv`。
 
 1. 复制 `backend/.env.example` 和 `frontend/.env.local.example` 为对应本地配置文件。
-2. 启动 PostgreSQL + pgvector 与 Redis。
-3. 执行 `backend/scripts/run_dev.sh` 启动 API。
-4. 执行 `backend/scripts/run_knowledge_worker.sh` 启动知识库 Worker。
-5. 若在设置中启用“自动生成待审核记忆候选”，执行 `backend/scripts/run_memory_candidate_worker.sh` 启动 Memory Worker。
-6. 若要执行用户确认的 Durable 只读任务，执行 `backend/scripts/run_agent_tool_worker.sh` 启动 Agent Worker。
-7. 在 `frontend` 下执行 `npm run dev -- --hostname 127.0.0.1 --port 32008`。
+2. 确认 PostgreSQL + pgvector 和 Redis 可用。新库先迁移。已有库先按 [升级流程](deploy/README.md#升级) 停写并备份。
+3. 在仓库根目录执行下面的命令。Supervisor 启动 API、前端与 Chat、知识索引、记忆、摘要、Durable Worker。沙箱 Worker 需要单独满足部署条件。
 
-后端默认地址为 `http://127.0.0.1:32007`，接口文档位于 `/docs`。
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m scripts.migrate_database upgrade
+bash deploy/run_services.sh
+```
+
+在另一个终端用 `bash deploy/run_services.sh ctl status` 查看进程，或运行 `backend/.venv/bin/python deploy/check_services.py` 检查健康状态。前端默认地址是 `http://127.0.0.1:32008`，后端是 `http://127.0.0.1:32007`，接口文档位于 `/docs`。
+
+仅在开发调试时可以单独启动角色。API 用 `bash backend/scripts/run_dev.sh`，Chat 生成用 `AIWS_DB_ROLE=chat-worker PYTHONPATH=backend backend/.venv/bin/python -m scripts.run_chat_worker`，前端在 `frontend` 下运行 `npm run dev -- --hostname 127.0.0.1 --port 32008`。同一角色只启动一套。连接池容量见 [数据库连接预算](deploy/README.md#数据库连接预算)。
 
 ## 验证
 
 ```bash
-cd backend
-PYTHONPATH=. python -m unittest discover -s tests -v
+PYTHONPATH=backend backend/.venv/bin/python -m unittest discover -s backend/tests -v
 
-cd ../frontend
+cd frontend
 npm run lint
 npm run build
 ```

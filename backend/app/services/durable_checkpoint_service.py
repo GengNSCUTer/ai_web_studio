@@ -13,6 +13,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy.engine import make_url
 
+from app.core.database import database_pool_budget
 
 GRAPH_RUNTIME_VERSION = "langgraph_tool_v1"
 _pools: WeakKeyDictionary = WeakKeyDictionary()
@@ -48,8 +49,10 @@ def checkpoint_conninfo(url) -> str:
 
 
 async def _new_pool(conninfo):
-    pool = AsyncConnectionPool(conninfo, open=False, min_size=0, max_size=4, timeout=10,
+    pool = AsyncConnectionPool(conninfo, open=False, min_size=0, max_size=database_pool_budget.graph_size,
+        timeout=database_pool_budget.timeout,
         kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row,
+                "application_name": f"aiws-{database_pool_budget.role}-graph",
                 "options": "-c search_path=aiws_graph,public"})
     await pool.open()
     try:

@@ -138,19 +138,7 @@ class MemoryExtractionJobService:
             self.db.commit()
             return None
         # 只有旧数据存在空序号时才修复，读取列而非全部历史正文；会话锁仍覆盖此短事务。
-        missing_sequence = self.db.scalar(select(Message.id).where(
-            Message.conversation_id == conversation_id, Message.sequence.is_(None)).limit(1))
-        if missing_sequence:
-            ordered = self.db.execute(select(Message.id, Message.sequence).where(
-                Message.conversation_id == conversation_id).order_by(Message.created_at,
-                Message.sequence.asc().nulls_last(), Message.id)).all()
-            maximum = max((row.sequence or 0 for row in ordered), default=0)
-            for index, row in enumerate(ordered, 1):
-                if not conversation.memory_extraction_cursor or row.sequence is None:
-                    maximum += 1
-                    value = index if not conversation.memory_extraction_cursor else maximum
-                    self.db.execute(update(Message).where(Message.id == row.id).values(sequence=value))
-            self.db.flush()
+        if MessageRepository(self.db).fill_missing_sequences(conversation):
             self.db.refresh(assistant)
         repo = MemoryExtractionJobRepository(self.db)
         outstanding = self.db.scalar(select(MemoryExtractionJob).where(

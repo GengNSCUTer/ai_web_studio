@@ -11,6 +11,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from sqlalchemy.engine import make_url
 
+from app.core.database import database_pool_budget
 from app.services.durable_checkpoint_service import checkpoint_conninfo
 
 
@@ -42,8 +43,10 @@ class ApprovalIdentity:
 
 
 def _new_pool(url):
-    return ConnectionPool(checkpoint_conninfo(url), open=True, min_size=0, max_size=4, timeout=10,
+    return ConnectionPool(checkpoint_conninfo(url), open=True, min_size=0,
+        max_size=database_pool_budget.approval_size, timeout=database_pool_budget.timeout,
         kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row,
+                "application_name": f"aiws-{database_pool_budget.role}-approval",
                 "connect_timeout": 5,
                 "options": "-c search_path=aiws_graph,public -c lock_timeout=5000 -c statement_timeout=15000"})
 
