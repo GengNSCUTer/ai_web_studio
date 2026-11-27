@@ -12,11 +12,12 @@ from uuid import uuid4
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, load_only
+from sqlalchemy.orm import Session, aliased, load_only
 
 from app.core.database import SessionLocal
 from app.models.user_memory import MemoryExtractionJob, MemoryMaintenanceJob, UserMemory
 from app.models.memory_trigger_decision import MemoryTriggerDecision
+from app.models.chat_run import ChatRun, ChatRunMemoryTrigger
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user_setting import UserSetting
@@ -37,6 +38,7 @@ from app.services.memory_conflict_service import MemoryConflictService
 from app.services.memory_trigger_policy import POLICY_VERSION, classify_memory_signal, forget_target, read_trigger_state
 from app.services.memory_semantic_gate import semantic_prompt, MIN_BUFFER_MESSAGES, COOLDOWN_SECONDS
 from app.services.memory_source_service import source_bound, source_message_ids
+from app.services.runtime_lease import aware
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +116,8 @@ class MemoryExtractionJobService:
         conversation_id: str,
         assistant_message_id: str,
         force: bool = False,
+        commit: bool = True,
+        trigger: ChatRunMemoryTrigger | None = None,
     ) -> MemoryExtractionJob | None:
         conversation = self.db.scalar(select(Conversation).where(
             Conversation.id == conversation_id, Conversation.user_id == user_id
@@ -123,19 +127,23 @@ class MemoryExtractionJobService:
         # 重新读取同意状态，不能复用当前Session中早先缓存的开关值。
         setting = self.db.scalar(select(UserSetting).where(UserSetting.user_id == user_id)
             .execution_options(populate_existing=True))
-        automatic = bool(setting and setting.memory_auto_candidate_enabled)
+        automatic = bool(setting and setting.memory_auto_candidate_enabled
+                         and (trigger is None or trigger.automatic_enabled))
 
         assistant = self.db.scalar(select(Message).where(Message.conversation_id == conversation_id,
             Message.id == assistant_message_id, Message.role == "assistant", Message.status == "done")
             .options(load_only(Message.id, Message.role, Message.status, Message.sequence)))
         if not assistant:
-            self.db.commit()
+            if commit:
+                self.db.commit()
             return None
-        if setting and not setting.memory_enabled:
+        if (setting and not setting.memory_enabled) or (trigger and not trigger.memory_enabled):
             # 总开关关闭后不读正文、不分类或新增触发观测，仅推进位置以避免重新开启时补记。
-            conversation.memory_scan_cursor = max(conversation.memory_scan_cursor or 0, assistant.sequence or 0)
-            conversation.memory_trigger_state = json.dumps({"project_id": conversation.project_id, "pending": []})
-            self.db.commit()
+            if (assistant.sequence or 0) > (conversation.memory_scan_cursor or 0):
+                conversation.memory_scan_cursor = assistant.sequence
+                conversation.memory_trigger_state = json.dumps({"project_id": conversation.project_id, "pending": []})
+            if commit:
+                self.db.commit()
             return None
         # 只有旧数据存在空序号时才修复，读取列而非全部历史正文；会话锁仍覆盖此短事务。
         if MessageRepository(self.db).fill_missing_sequences(conversation):
@@ -209,12 +217,14 @@ class MemoryExtractionJobService:
                     row.job_id = outstanding.id
                 elif row.message_id in allowed_ids:
                     row.outcome = "deferred_existing_job"
-            self.db.commit()
+            if commit:
+                self.db.commit()
             return outstanding
         interval = max(1, min(int(getattr(setting, "memory_auto_candidate_turn_interval", 4) or 4), 50))
         urgent = max((decision for _, decision in signals), key=lambda decision: decision.priority, default=None)
         if not signals or (not force and not urgent.priority and len(signals) < interval):
-            self.db.commit()
+            if commit:
+                self.db.commit()
             return None
         action = urgent.action if urgent.priority else "buffer"
         reason = "manual_request" if force else urgent.reason if urgent.priority else "batch_fallback"
@@ -258,7 +268,8 @@ class MemoryExtractionJobService:
                 if row.message_id in set(existing.source_message_ids.split(",")):
                     row.job_id = existing.id
                     row.outcome = "existing_job"
-            self.db.commit()
+            if commit:
+                self.db.commit()
             return existing
         job = MemoryExtractionJob(
             user_id=user_id,
@@ -287,6 +298,8 @@ class MemoryExtractionJobService:
                 row.job_id = job.id
                 row.job_created = True
                 row.outcome = "queued"
+        if not commit:
+            return job
         try:
             self.db.commit()
             self.db.refresh(job)
@@ -359,17 +372,57 @@ class MemoryCandidateWorker:
         self.conflicts = conflict_service or MemoryConflictService(session_factory=session_factory, provider_service=self.provider)
 
     async def run_once(self) -> bool:
+        scanned = self._consume_turn_trigger()
         claimed = self._claim()
         if not claimed:
             if await self._run_maintenance():
                 return True
             from app.services.memory_index_service import MemoryIndexWorker
-            return await MemoryIndexWorker(session_factory=self.session_factory).run_once()
+            indexed = await MemoryIndexWorker(session_factory=self.session_factory).run_once()
+            return scanned or indexed
         job_id, lease_version = claimed
         from app.services.agent_graph.memory_extraction_graph import run_memory_extraction_graph
         await self._with_heartbeat(MemoryExtractionJob, job_id, lease_version,
                                    run_memory_extraction_graph(self, job_id, lease_version), self._fail)
         return True
+
+    def _consume_turn_trigger(self) -> bool:
+        with self.session_factory() as db:
+            # 与编辑、建轮、已有记忆扫描共享会话锁。不同会话可并行消费。
+            previous = aliased(ChatRun)
+            earlier_pending = select(previous.id).join(ChatRunMemoryTrigger,
+                ChatRunMemoryTrigger.run_id == previous.id).where(previous.conversation_id == ChatRun.conversation_id,
+                or_(previous.finished_at < ChatRun.finished_at,
+                    (previous.finished_at == ChatRun.finished_at) & (previous.id < ChatRun.id)))
+            row = db.execute(select(ChatRunMemoryTrigger, ChatRun.user_id, ChatRun.conversation_id,
+                ChatRun.assistant_message_id, ChatRun.generation_id, Conversation.project_id)
+                .join(ChatRun, ChatRun.id == ChatRunMemoryTrigger.run_id)
+                .join(Conversation, Conversation.id == ChatRun.conversation_id)
+                .where(ChatRunMemoryTrigger.available_at <= utcnow(), Conversation.user_id == ChatRun.user_id,
+                       ~earlier_pending.exists())
+                .order_by(ChatRunMemoryTrigger.available_at, ChatRunMemoryTrigger.run_id)
+                .with_for_update(of=Conversation, skip_locked=True).limit(1)).first()
+            if row is None:
+                return False
+            candidate, user_id, conversation_id, assistant_message_id, generation_id, project_id = row
+            trigger = db.get(ChatRunMemoryTrigger, candidate.run_id, with_for_update=True, populate_existing=True)
+            if trigger is None or aware(trigger.available_at) > utcnow():
+                return False
+            try:
+                with db.begin_nested():
+                    if trigger.project_id == project_id and db.scalar(select(Message.generation_id).where(
+                        Message.id == assistant_message_id, Message.conversation_id == conversation_id
+                    )) == generation_id:
+                        MemoryExtractionJobService(db).enqueue_after_turn(user_id=user_id,
+                            conversation_id=conversation_id, assistant_message_id=assistant_message_id,
+                            commit=False, trigger=trigger)
+                    db.delete(trigger)
+            except Exception as exc:
+                # 保留待消费事件，单条失败暂退后让其他会话继续前进。
+                logger.warning("Chat长期记忆触发暂缓 run_id=%s error=%s", trigger.run_id, type(exc).__name__)
+                trigger.available_at = utcnow() + timedelta(seconds=15)
+            db.commit()
+            return True
 
     async def _with_heartbeat(self, model, job_id, lease_version, operation, fail):
         stop, lost = asyncio.Event(), asyncio.Event()
@@ -511,9 +564,11 @@ class MemoryCandidateWorker:
             job = db.get(MemoryExtractionJob, job_id)
             if not job or job.status != "succeeded" or job.trigger_reason == "source_reextract":
                 return
+            pending_turn = select(ChatRunMemoryTrigger.run_id).join(ChatRun).where(
+                ChatRun.conversation_id == job.conversation_id)
             assistant = db.scalar(select(Message).where(Message.conversation_id == job.conversation_id,
-                Message.role == "assistant", Message.status == "done").order_by(
-                    Message.created_at.desc(), Message.sequence.desc().nulls_first(), Message.id.desc()).limit(1))
+                Message.role == "assistant", Message.status == "done", ~pending_turn.exists()).order_by(
+                    *MessageRepository.order_columns(descending=True)).limit(1))
             if assistant:
                 MemoryExtractionJobService(db).enqueue_after_turn(user_id=job.user_id,
                     conversation_id=job.conversation_id, assistant_message_id=assistant.id)

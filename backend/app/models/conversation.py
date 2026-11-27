@@ -33,6 +33,8 @@ class Conversation(Base):
     context_summary_boundary_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     context_summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     context_history_revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 删除历史只移除消息，保留已经分配过的最大序号。
+    message_sequence_high_water: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     # 仅在候选与任务结果同事务提交成功后推进；与滚动摘要边界分别管理。
     memory_extraction_cursor: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # 扫描与成功提取分别推进；缓冲保存来源 ID/摘要，不复制对话正文。

@@ -116,6 +116,7 @@ os._exit(17)
         with self.sessions() as db:
             db.get(ChatRun, run).lease_expires_at = utcnow() - timedelta(seconds=1)
             db.commit()
+        self.assertEqual(self.call("reconcile"), 1)
         second = self.call("claim_next", "new-worker")
         self.assertIsNotNone(second)
         snap = self.snapshot(run)

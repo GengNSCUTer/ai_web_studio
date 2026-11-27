@@ -107,7 +107,7 @@ class SummaryRebuildWorker:
             boundary = db.get(Message, job.cursor_message_id) if job.cursor_message_id else None
             if boundary:
                 stmt = stmt.where(repo._sql_order_key() > repo._order_key(boundary))
-            rows = list(db.scalars(stmt.order_by(Message.created_at, Message.sequence.asc().nulls_last(), Message.id).limit(48)))
+            rows = list(db.scalars(stmt.order_by(*repo.order_columns()).limit(48)))
             if conv.context_summary_boundary_message_id != job.cursor_message_id:
                 raise ValueError("summary_cursor_changed")
             runtime = ChatExecutionService(db=db, current_user=user)._build_runtime_config(conv)

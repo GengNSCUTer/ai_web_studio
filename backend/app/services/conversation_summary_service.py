@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from sqlalchemy import delete, select, tuple_
+from sqlalchemy import delete, select
 
 from app.models.message import Message
 from app.models.conversation_summary import ConversationSummaryCheckpoint as Checkpoint, ConversationSummaryJob as Job
@@ -77,14 +77,13 @@ class ConversationSummaryService:
         if existing is None:
             existing = Checkpoint(conversation_id=conversation.id, boundary_message_id=boundary.id)
             self.db.add(existing)
-        order = self.repo._order_key(boundary)
-        existing.boundary_created_at, existing.boundary_sequence = order[:2]
+        existing.boundary_created_at, existing.boundary_sequence = boundary.created_at, boundary.sequence or 0
         existing.summary_text, existing.mode = conversation.context_summary, mode
         existing.source_revision = conversation.context_history_revision or 0
         self.db.flush()
-        stale = list(self.db.scalars(select(Checkpoint.id).where(Checkpoint.conversation_id == conversation.id)
-            .order_by(Checkpoint.boundary_created_at.desc(), Checkpoint.boundary_sequence.desc(),
-                      Checkpoint.boundary_message_id.desc()).offset(self.KEEP_CHECKPOINTS)))
+        stale = list(self.db.scalars(select(Checkpoint.id).join(Message, Message.id == Checkpoint.boundary_message_id)
+            .where(Checkpoint.conversation_id == conversation.id)
+            .order_by(*self.repo.order_columns(descending=True)).offset(self.KEEP_CHECKPOINTS)))
         if stale:
             self.db.execute(delete(Checkpoint).where(Checkpoint.id.in_(stale)))
 
@@ -111,13 +110,14 @@ class ConversationSummaryService:
             job.lease_version += 1
             job.lease_owner, job.lease_expires_at = None, None
         affected = bool(conversation.context_summary and (not boundary or self.repo._order_key(boundary) >= first))
-        cp_key = tuple_(Checkpoint.boundary_created_at, Checkpoint.boundary_sequence, Checkpoint.boundary_message_id)
-        self.db.execute(delete(Checkpoint).where(Checkpoint.conversation_id == conversation.id, cp_key >= first))
+        cp_key = self.repo._sql_order_key()
+        prefix = select(Message.id).where(Message.conversation_id == conversation.id, cp_key < first)
+        self.db.execute(delete(Checkpoint).where(Checkpoint.conversation_id == conversation.id,
+            Checkpoint.boundary_message_id.not_in(prefix)))
         if affected:
             safe = self.db.scalar(select(Checkpoint).join(Message, (Message.id == Checkpoint.boundary_message_id)
                 & (Message.conversation_id == Checkpoint.conversation_id)).where(Checkpoint.conversation_id == conversation.id,
-                cp_key < first).order_by(Checkpoint.boundary_created_at.desc(), Checkpoint.boundary_sequence.desc(),
-                                         Checkpoint.boundary_message_id.desc()).limit(1))
+                cp_key < first).order_by(*self.repo.order_columns(descending=True)).limit(1))
             conversation.context_summary = safe.summary_text if safe else None
             conversation.context_summary_boundary_message_id = safe.boundary_message_id if safe else None
             conversation.context_summary_updated_at = datetime.now(timezone.utc) if safe else None
@@ -138,8 +138,7 @@ class ConversationSummaryService:
                 return None
             stmt = stmt.where(self.repo._sql_order_key() <= self.repo._order_key(through))
         # 第25条最新消息是需要摘要的固定目标；不跟随随后追加的新消息扩张。
-        return self.db.scalar(stmt.order_by(Message.created_at.desc(), Message.sequence.desc().nulls_first(),
-            Message.id.desc()).offset(self.repo.RECENT_CONTEXT_LIMIT).limit(1))
+        return self.db.scalar(stmt.order_by(*self.repo.order_columns(descending=True)).offset(self.repo.RECENT_CONTEXT_LIMIT).limit(1))
 
     def ensure_job(self, conversation, *, through_id=None, exclude_ids=(), retry_failed=False):
         self.db.flush()

@@ -257,8 +257,11 @@ class ConversationMessageContractTest(unittest.TestCase):
         self.assertEqual(first.sequence, 1)
         self.assertEqual(second.sequence, 2)
         self.assertEqual([message.id for message in repo.list_by_conversation(conversation.id)], [first.id, second.id])
+        repo.delete(second)
+        replacement = repo.create(Message(conversation_id=conversation.id, role="assistant", content="replacement"))
+        self.assertEqual(replacement.sequence, 3)
 
-    def test_message_listing_uses_sequence_as_created_at_tie_breaker(self) -> None:
+    def test_message_history_uses_sequence_even_if_timestamps_are_inverted(self) -> None:
         conversation = Conversation(user_id=self.user.id, title="Ordered", model_name="model")
         self.db.add(conversation)
         self.db.commit()
@@ -270,7 +273,7 @@ class ConversationMessageContractTest(unittest.TestCase):
             sequence=2,
             role="assistant",
             content="second",
-            created_at=datetime(2026, 8, 3, 12, 0, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 8, 3, 12, 0, 0, tzinfo=timezone.utc),
         )
         earlier_created = Message(
             conversation_id=conversation.id,
@@ -286,6 +289,8 @@ class ConversationMessageContractTest(unittest.TestCase):
 
         self.assertEqual([message.sequence for message in ordered], [1, 2])
         self.assertEqual([message.content for message in ordered], ["first", "second"])
+        self.assertEqual(list(repo.list_for_context(conversation)), ordered)
+        self.assertEqual(repo.latest_user_before(later_created).id, earlier_created.id)
 
     def test_stale_streaming_message_rotates_generation_to_fence_late_writer(self) -> None:
         conversation = Conversation(user_id=self.user.id, title="Stale", model_name="model")

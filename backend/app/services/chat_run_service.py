@@ -10,10 +10,11 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, or_, select, update
 
 from app.core.config import settings
-from app.models.chat_run import ChatRun, ChatRunEvent
+from app.models.chat_run import ChatRun, ChatRunEvent, ChatRunMemoryTrigger
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.observability import ChatRuntimeMetric
+from app.models.user_setting import UserSetting
 from app.repositories.message_repo import MessageGenerationConflict
 from app.services.chat_execution_service import ChatExecutionService
 from app.services.resource_quota_service import exhausted, quota_lock
@@ -156,27 +157,25 @@ class ChatRunService:
         if not run or run.status not in allowed or not owns_live_lease(run, owner=claim.owner, version=claim.version):
             self.db.rollback()
             return None
-        message = self.db.get(Message, run.assistant_message_id, populate_existing=True)
-        if not message or message.generation_id != run.generation_id:
+        generation_id = self.db.scalar(select(Message.generation_id).where(Message.id == run.assistant_message_id))
+        if generation_id != run.generation_id:
             self._terminal(run, "interrupted", "generation_superseded", write_message=False)
             self.db.commit()
             return None
         return run
 
     def claim_next(self, owner):
+        now = utcnow()
+        run = self.db.scalar(select(ChatRun).where(ChatRun.status == "queued", ChatRun.queued_expires_at > now)
+                             .order_by(ChatRun.created_at, ChatRun.id).with_for_update(skip_locked=True).limit(1))
+        if not run:
+            self.db.commit()
+            return None
         quota_lock(self.db, "__chat_claim_global__")
-        self.reconcile(commit=False)
-        # Session关闭autoflush；过期收口必须先进入SQL，下面的领取查询才看不到旧queued。
-        self.db.flush()
         now = utcnow()
         running = self.db.scalar(select(func.count()).select_from(ChatRun).where(ChatRun.status.in_(
             ("running", "cancel_requested")))) or 0
-        if running >= settings.chat_run_global_concurrency:
-            self.db.commit()
-            return None
-        run = self.db.scalar(select(ChatRun).where(ChatRun.status == "queued").order_by(ChatRun.created_at)
-                             .with_for_update(skip_locked=True).limit(1))
-        if not run:
+        if running >= settings.chat_run_global_concurrency or aware(run.queued_expires_at) <= now:
             self.db.commit()
             return None
         run.status, run.phase = "running", "prepare"
@@ -242,21 +241,27 @@ class ChatRunService:
         run = self._locked_claim(claim)
         if not run:
             return False
+        answer, reasoning = [], []
         for event in events:
             kind = event.get("type")
             if kind == "answer_delta":
-                run.content += str(event.get("text") or "")
+                answer.append(str(event.get("text") or ""))
             elif kind == "reasoning_delta":
-                run.reasoning_content += str(event.get("text") or "")
+                reasoning.append(str(event.get("text") or ""))
             elif kind == "context_info":
                 run.context_json = json.dumps(event.get("info") or {}, ensure_ascii=False, default=str)
             elif kind == "tool_sources":
                 run.sources_json = json.dumps(event.get("sources") or [], ensure_ascii=False, default=str)
             self._event(run, event)
+        if answer:
+            run.content += "".join(answer)
+        if reasoning:
+            run.reasoning_content += "".join(reasoning)
         if len(run.content) + len(run.reasoning_content) > settings.chat_run_max_chars or run.event_bytes > settings.chat_run_event_max_bytes:
             self.db.rollback()
             raise ChatRunOutputBudgetExceeded("chat_output_budget_exhausted")
-        self._message(run, "streaming")
+        if answer or reasoning or any(event.get("type") == "tool_sources" for event in events):
+            self._message(run, "streaming", checkpoint=True)
         self.db.commit()
         return True
 
@@ -282,6 +287,12 @@ class ChatRunService:
             run.citation_audit_json = json.dumps(audit, ensure_ascii=False)
             self._event(run, {"type": "citation_audit", "audit": audit})
         self._terminal(run, status, error_code)
+        if status == "succeeded":
+            scope = self.db.execute(select(Conversation.project_id, UserSetting.memory_enabled,
+                UserSetting.memory_auto_candidate_enabled).outerjoin(UserSetting, UserSetting.user_id == run.user_id)
+                .where(Conversation.id == run.conversation_id)).one()
+            self.db.add(ChatRunMemoryTrigger(run_id=run.id, available_at=utcnow(), project_id=scope.project_id,
+                memory_enabled=scope.memory_enabled is not False, automatic_enabled=bool(scope.memory_auto_candidate_enabled)))
         if metric:
             row = self.db.scalar(select(ChatRuntimeMetric).where(ChatRuntimeMetric.assistant_message_id == run.assistant_message_id))
             if not row:
@@ -298,13 +309,22 @@ class ChatRunService:
     def _message_status(status):
         return "done" if status == "succeeded" else "cancelled" if status == "cancelled" else "failed"
 
-    def _message(self, run, status):
-        message = self.db.scalar(select(Message).where(Message.id == run.assistant_message_id,
-            Message.generation_id == run.generation_id).with_for_update().execution_options(populate_existing=True))
-        if message:
-            message.content, message.reasoning_content = run.content, run.reasoning_content or None
-            message.external_sources, message.citation_audit = run.sources_json, run.citation_audit_json
-            message.status, message.updated_at = status, utcnow()
+    def _message(self, run, status, *, checkpoint=False):
+        now = utcnow()
+        stmt = update(Message).where(Message.id == run.assistant_message_id,
+                                    Message.generation_id == run.generation_id)
+        if checkpoint:
+            # 就地复制已落库的快照，正文只传给数据库一次。历史消息每秒最多同步一次。
+            self.db.flush()
+            stmt = stmt.where(Message.updated_at <= now - timedelta(seconds=1),
+                              ChatRun.assistant_message_id == Message.id, ChatRun.id == run.id)
+            values = dict(content=ChatRun.content, reasoning_content=func.nullif(ChatRun.reasoning_content, ""),
+                external_sources=ChatRun.sources_json, citation_audit=ChatRun.citation_audit_json)
+        else:
+            values = dict(content=run.content, reasoning_content=run.reasoning_content or None,
+                external_sources=run.sources_json, citation_audit=run.citation_audit_json)
+        self.db.execute(stmt.values(**values, status=status, updated_at=now)
+            .execution_options(synchronize_session=False))
 
     def _terminal(self, run, status, error_code, *, write_message=True):
         run.status, run.phase, run.error_code = status, "terminal", error_code
@@ -331,7 +351,7 @@ class ChatRunService:
         if status == "succeeded":
             self._event(run, {"type": "done", "assistant_message_id": run.assistant_message_id})
 
-    def reconcile(self, *, commit=True):
+    def reconcile(self):
         now = utcnow()
         runs = list(self.db.scalars(select(ChatRun).where(or_(
             (ChatRun.status == "queued") & (ChatRun.queued_expires_at <= now),
@@ -346,8 +366,7 @@ class ChatRunService:
                 self._requeue(run, "worker_lease_expired")
             else:
                 self._terminal(run, "interrupted", "worker_lease_expired")
-        if commit:
-            self.db.commit()
+        self.db.commit()
         return len(runs)
 
     def _can_recover(self, run):

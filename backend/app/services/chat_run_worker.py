@@ -155,14 +155,11 @@ class ChatRunWorker:
                     await flush()
                     audit = _stream_citation_audit(context, content=partial["content"], status_value=status_value)
                     code = _public_stream_error(error)[0] if error else None
-                    saved = await asyncio.to_thread(self._call, "finish", claim,
+                    return await asyncio.to_thread(self._call, "finish", claim,
                         status="succeeded" if status_value == "done" else "failed",
                         content=partial["content"], reasoning=partial["reasoning"], sources=context.external_sources,
                         audit=audit, error_code=code, metric={"provider_type": context.provider_type,
                             "model_name": context.resolved_model, "stats": context.context_stats})
-                    if saved and status_value == "done":
-                        await asyncio.to_thread(self._enqueue_memory, claim.run_id)
-                    return saved
 
                 events = generate_chat_events(context, self.provider_factory(), persist_callback=persist)
                 # 这里只消费生成图的事件迭代器，不创建HTTP响应或等待订阅者。
@@ -199,27 +196,22 @@ class ChatRunWorker:
             current_tool_persistence.reset(persistence_token)
             current_chat_guard.reset(token)
 
-    def _enqueue_memory(self, run_id):
-        from app.services.memory_candidate_runtime import MemoryExtractionJobService
-        try:
-            with self.sessions() as db:
-                run = db.get(ChatRun, run_id)
-                if run and run.status == "succeeded":
-                    MemoryExtractionJobService(db).enqueue_after_turn(user_id=run.user_id,
-                        conversation_id=run.conversation_id, assistant_message_id=run.assistant_message_id)
-        except Exception:
-            logger.warning("ChatRun完成后的记忆任务暂未登记")
-
     async def run_forever(self):
         instance = await asyncio.to_thread(self._registry, "register", owner=self.owner)
         tasks = set()
-        last_prune = 0
+        last_prune = last_reconcile = 0
         try:
             while not self.stop.is_set():
                 registered = await asyncio.to_thread(self._registry, "heartbeat", owner=self.owner, instance_id=instance,
                     status="running" if tasks else "idle")
                 if not registered:
                     raise RuntimeError("ChatWorker已失去注册身份")
+                if time.monotonic() - last_reconcile >= 2:
+                    try:
+                        await asyncio.to_thread(self._call, "reconcile")
+                    except Exception:
+                        logger.warning("ChatWorker回收过期任务失败，稍后重试")
+                    last_reconcile = time.monotonic()
                 while len(tasks) < settings.chat_worker_concurrency and not self.stop.is_set():
                     tasks.add(asyncio.create_task(self.run_once()))
                 await asyncio.sleep(.5)
@@ -232,7 +224,6 @@ class ChatRunWorker:
                             logger.warning("ChatWorker轮询失败，稍后重试")
                         tasks.discard(task)
                 if time.monotonic() - last_prune > 60:
-                    await asyncio.to_thread(self._call, "reconcile")
                     await asyncio.to_thread(self._call, "prune_events")
                     last_prune = time.monotonic()
         finally:

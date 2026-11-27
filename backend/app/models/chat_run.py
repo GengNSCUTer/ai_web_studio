@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -59,3 +59,14 @@ class ChatRunEvent(Base):
     sequence: Mapped[int] = mapped_column(Integer)
     event_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChatRunMemoryTrigger(Base):
+    """回答完成时登记的待扫描轮次，消费后删除。"""
+
+    __tablename__ = "chat_run_memory_triggers"
+    run_id: Mapped[str] = mapped_column(ForeignKey("chat_runs.id", ondelete="CASCADE"), primary_key=True)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    project_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    memory_enabled: Mapped[bool] = mapped_column(Boolean)
+    automatic_enabled: Mapped[bool] = mapped_column(Boolean)

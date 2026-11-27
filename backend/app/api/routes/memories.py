@@ -146,7 +146,7 @@ def enqueue_extraction_job(
         raise HTTPException(status_code=404, detail="Conversation not found")
     assistant = db.scalar(select(Message).where(Message.conversation_id == conversation_id,
         Message.role == "assistant", Message.status == "done").order_by(
-            Message.sequence.desc().nulls_last(), Message.created_at.desc(), Message.id.desc()).limit(1))
+            *MessageRepository.order_columns(descending=True)).limit(1))
     if not assistant:
         raise HTTPException(status_code=400, detail="Conversation has no completed assistant turn")
     job = MemoryExtractionJobService(db).enqueue_after_turn(

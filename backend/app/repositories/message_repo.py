@@ -33,17 +33,7 @@ class MessageRepository:
         self.db = db
 
     def list_by_conversation(self, conversation_id: str) -> list[Message]:
-        # prompt 组装和前端展示都依赖稳定顺序。新消息优先用 sequence 解决同时间戳问题；
-        # 旧消息 sequence 为空时仍按 created_at 兼容。
-        stmt = (
-            select(Message)
-            .where(Message.conversation_id == conversation_id)
-            .order_by(
-                Message.created_at.asc(),
-                Message.sequence.asc().nulls_last(),
-                Message.id.asc(),
-            )
-        )
+        stmt = select(Message).where(Message.conversation_id == conversation_id).order_by(*self.order_columns())
         return list(self.db.scalars(stmt).all())
 
     RECENT_CONTEXT_LIMIT = 24
@@ -66,11 +56,17 @@ class MessageRepository:
         created = row.created_at
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
-        return created, row.sequence if row.sequence is not None else 2147483647, row.id
+        return row.sequence or 0, created, row.id
 
     @staticmethod
     def _sql_order_key():
-        return tuple_(Message.created_at, func.coalesce(Message.sequence, 2147483647), Message.id)
+        return tuple_(func.coalesce(Message.sequence, 0), Message.created_at, Message.id)
+
+    @staticmethod
+    def order_columns(*, descending=False):
+        if descending:
+            return Message.sequence.desc().nulls_last(), Message.created_at.desc(), Message.id.desc()
+        return Message.sequence.asc().nulls_first(), Message.created_at.asc(), Message.id.asc()
 
     def list_for_context(self, conversation, *, exclude_message_id=None, attachments=True,
                          through_message_id=None) -> ContextHistory:
@@ -89,8 +85,7 @@ class MessageRepository:
                                      Message.status, Message.created_at, Message.sequence))
         if attachments:
             stmt = stmt.options(selectinload(Message.attachments))
-        recent = list(self.db.scalars(stmt.order_by(Message.created_at.desc(),
-            Message.sequence.desc().nulls_first(), Message.id.desc()).limit(self.RECENT_CONTEXT_LIMIT)))
+        recent = list(self.db.scalars(stmt.order_by(*self.order_columns(descending=True)).limit(self.RECENT_CONTEXT_LIMIT)))
         if not recent:
             return ContextHistory()
         boundary_id = getattr(conversation, "context_summary_boundary_message_id", None)
@@ -98,8 +93,7 @@ class MessageRepository:
         pending = stmt.where(self._sql_order_key() < self._order_key(recent[-1]))
         if boundary:
             pending = pending.where(self._sql_order_key() > self._order_key(boundary))
-        pending = list(self.db.scalars(pending.order_by(Message.created_at,
-            Message.sequence.asc().nulls_last(), Message.id).limit(self.SUMMARY_BATCH_LIMIT + 1))) if len(recent) == self.RECENT_CONTEXT_LIMIT else []
+        pending = list(self.db.scalars(pending.order_by(*self.order_columns()).limit(self.SUMMARY_BATCH_LIMIT + 1))) if len(recent) == self.RECENT_CONTEXT_LIMIT else []
         has_backlog = len(pending) > self.SUMMARY_BATCH_LIMIT
         pending = pending[:self.SUMMARY_BATCH_LIMIT]
         rows = {row.id: row for row in [*pending, *recent, *([boundary] if boundary else [])]}
@@ -113,7 +107,7 @@ class MessageRepository:
         """重生成不能把摘要批次中的旧用户误认成本轮问题；单独按顺序查最近用户。"""
         return self.db.scalar(select(Message).where(Message.conversation_id == assistant.conversation_id,
             Message.role == "user", self._sql_order_key() < self._order_key(assistant)).order_by(
-                Message.created_at.desc(), Message.sequence.desc().nulls_first(), Message.id.desc()).limit(1))
+                *self.order_columns(descending=True)).limit(1))
 
     def create(self, message: Message) -> Message:
         # Repository 只 flush；一轮聊天可能还要同时写会话、附件和 assistant 占位消息。
@@ -132,7 +126,7 @@ class MessageRepository:
         )
         if exclude_message_id is not None:
             stmt = stmt.where(Message.id != exclude_message_id)
-        stmt = stmt.order_by(Message.created_at.asc(), Message.sequence.asc().nulls_last(), Message.id.asc())
+        stmt = stmt.order_by(*self.order_columns())
         return [tuple(row) for row in self.db.execute(stmt).all()]
 
     def invalidate_summary_for_changes(
@@ -158,39 +152,40 @@ class MessageRepository:
         conversation_id = getattr(message, "conversation_id", None)
         if not conversation_id:
             return
-        # 先锁会话再取最大值。删除尾部消息后也不能复用记忆游标已越过的序号。
-        cursors = self.db.execute(
-            select(Conversation.memory_scan_cursor, Conversation.memory_extraction_cursor)
-            .where(Conversation.id == conversation_id)
-            .with_for_update()
-        ).one_or_none()
-        current_max = self.db.scalar(
-            select(func.coalesce(func.max(Message.sequence), 0)).where(
-                Message.conversation_id == conversation_id
-            )
-        )
-        scan_cursor, extraction_cursor = cursors or (0, 0)
-        message.sequence = max(current_max or 0, scan_cursor or 0, extraction_cursor or 0) + 1
+        # 同一会话串行分配序号，水位和消息同事务提交。
+        allocation = self.db.execute(select(Conversation.message_sequence_high_water,
+            Conversation.memory_scan_cursor, Conversation.memory_extraction_cursor)
+            .where(Conversation.id == conversation_id).with_for_update()).one()
+        current_max = self.db.scalar(select(func.max(Message.sequence)).where(Message.conversation_id == conversation_id))
+        message.sequence = max(*allocation, current_max or 0) + 1
+        self.db.execute(update(Conversation).where(Conversation.id == conversation_id)
+            .values(message_sequence_high_water=message.sequence))
 
     def fill_missing_sequences(self, conversation: Conversation) -> bool:
-        """在调用方持有会话锁时补齐旧消息序号，保留已经使用的游标。"""
+        """在会话锁内补齐旧消息序号，优先保留编号和既有游标。"""
         scope = Message.conversation_id == conversation.id
-        if not self.db.scalar(select(Message.id).where(scope, Message.sequence.is_(None)).limit(1)):
+        missing = list(self.db.scalars(select(Message.id).where(scope, Message.sequence.is_(None))
+            .order_by(Message.created_at, Message.id)))
+        if not missing:
             return False
-        ordered = self.db.execute(select(Message.id, Message.sequence).where(scope).order_by(
-            Message.created_at, Message.sequence.asc().nulls_last(), Message.id)).all()
+        first, last = self.db.execute(select(func.min(Message.sequence), func.max(Message.sequence)).where(scope)).one()
         cursor = max(conversation.memory_scan_cursor or 0, conversation.memory_extraction_cursor or 0)
+        water = max(conversation.message_sequence_high_water or 0, last or 0, cursor)
+        # 尚未扫描的混合历史若没有足够的前缀位置，整体移入新号段，保持现有阅读顺序。
+        start = 0
         if cursor:
-            maximum = max(cursor, max(row.sequence or 0 for row in ordered))
-            changes = [(row.id, maximum + index) for index, row in enumerate(
-                (row for row in ordered if row.sequence is None), 1)]
-        else:
-            changes = [(row.id, index) for index, row in enumerate(ordered, 1) if row.sequence != index]
-            # 保留未变化的序号，先腾出需要移动的已占用位置，避免更新之间触发唯一约束。
-            self.db.execute(update(Message).where(scope, Message.sequence.is_not(None),
-                Message.id.in_([mid for mid, _ in changes])).values(sequence=None))
-        for message_id, sequence in changes:
-            self.db.execute(update(Message).where(Message.id == message_id).values(sequence=sequence))
+            start = water
+        elif first is not None and first <= len(missing):
+            start = water
+            shift = start + len(missing)
+            self.db.execute(update(Message).where(scope, Message.sequence.is_not(None))
+                .values(sequence=Message.sequence + shift))
+            water = last + shift
+        if first is not None and cursor:
+            self.invalidate_summary_for_changes(conversation, missing)
+        for number, message_id in enumerate(missing, start + 1):
+            self.db.execute(update(Message).where(Message.id == message_id).values(sequence=number))
+        conversation.message_sequence_high_water = max(water, start + len(missing))
         return True
 
     def lock_conversation(self, conversation_id: str) -> Conversation | None:
@@ -297,7 +292,7 @@ class MessageRepository:
         stmt = select(Message).where(
             Message.conversation_id == conversation_id,
             Message.id.in_(message_ids),
-        ).order_by(Message.created_at, Message.sequence.asc().nulls_last(), Message.id).execution_options(
+        ).order_by(*self.order_columns()).execution_options(
             populate_existing=True)
         return list(self.db.scalars(stmt).all())
 

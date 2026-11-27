@@ -61,39 +61,57 @@ def cancel_chat_run(run_id: str, db=Depends(get_db), user=Depends(get_current_us
     return ChatRunService(db).cancel(run_id, user.id)
 
 
+def _head(db, run_id, user_id):
+    head = db.execute(select(ChatRun.status, ChatRun.event_sequence, ChatRun.events_pruned_through,
+        ChatRun.conversation_id, ChatRun.assistant_message_id)
+        .join(Conversation, Conversation.id == ChatRun.conversation_id)
+        .where(ChatRun.id == run_id, ChatRun.user_id == user_id, Conversation.user_id == user_id)).one_or_none()
+    if head is None:
+        raise HTTPException(404, "任务不存在")
+    return head
+
+
 def _page(run_id, user_id, after, sessions):
-    # 一次短查询结束即释放连接，绝不跨SSE等待持有事务。
+    # 空轮询只读元数据。本批事件上界取自同一次头查询，避免把稍后提交的事件与旧状态混用。
     with sessions() as db:
-        run = ChatRunService(db).owned(run_id, user_id)
-        snapshot = ChatRunService.snapshot(run)
+        head = _head(db, run_id, user_id)
+        if after < head.events_pruned_through or (after >= head.event_sequence and head.status in TERMINAL):
+            snapshot = ChatRunService.snapshot(ChatRunService(db).owned(run_id, user_id))
+            tail = snapshot["last_event_id"]
+            events = [(tail, {"type": "run_snapshot", "run": snapshot})]
+            if after < head.events_pruned_through and snapshot["status"] in TERMINAL:
+                events.append((tail, {"type": "done" if snapshot["status"] == "succeeded" else "run_status",
+                    "status": snapshot["status"], "assistant_message_id": snapshot["assistant_message_id"]}))
+            return head, events
+        if after >= head.event_sequence:
+            return head, []
         rows = db.scalars(select(ChatRunEvent).where(ChatRunEvent.run_id == run_id,
-            ChatRunEvent.sequence > after).order_by(ChatRunEvent.sequence).limit(256)).all()
-        return snapshot, [(row.sequence, json.loads(row.event_json)) for row in rows]
+            ChatRunEvent.sequence > after, ChatRunEvent.sequence <= head.event_sequence)
+            .order_by(ChatRunEvent.sequence).limit(256)).all()
+        return head, [(row.sequence, json.loads(row.event_json)) for row in rows]
 
 
 async def subscribe_events(run_id, user_id, *, after=0, sessions=SessionLocal):
     last_heartbeat = time.monotonic()
+    delay = .25
     while True:
-        snapshot, rows = await asyncio.to_thread(_page, run_id, user_id, after, sessions)
-        if after < snapshot["events_pruned_through"]:
-            after = snapshot["last_event_id"]
-            rows = [(after, {"type": "run_snapshot", "run": snapshot})]
-            if snapshot["status"] in TERMINAL:
-                rows.append((after, {"type": "done" if snapshot["status"] == "succeeded" else "run_status",
-                    "status": snapshot["status"], "assistant_message_id": snapshot["assistant_message_id"]}))
-        elif not rows and snapshot["status"] in TERMINAL:
-            # 重连游标已到末尾时仍返回终态快照，不能让客户端把正常结束当作再次断流。
-            rows = [(snapshot["last_event_id"], {"type": "run_snapshot", "run": snapshot})]
+        head, rows = await asyncio.to_thread(_page, run_id, user_id, after, sessions)
         for sequence, event in rows:
             after = sequence
             yield encode_chat_sse({**event, "event_id": sequence, "run_id": run_id},
                 event_id=f"{run_id}:{sequence}")
-        if after >= snapshot["last_event_id"] and snapshot["status"] in TERMINAL:
+        if after >= head.event_sequence and head.status in TERMINAL:
             return
         if time.monotonic() - last_heartbeat > 15:
             yield ": heartbeat\n\n"
             last_heartbeat = time.monotonic()
-        await asyncio.sleep(.25)
+        if rows:
+            delay = .25
+            if after < head.event_sequence:
+                continue
+        await asyncio.sleep(delay)
+        if not rows:
+            delay = min(.75, delay * 1.5)
 
 
 @router.get("/{run_id}/events", dependencies=[Depends(chat_subscription_capacity, scope="request")])
@@ -101,7 +119,7 @@ def chat_run_events(run_id: str, after: int = Query(default=0, ge=0),
     format: str = Query(default="sse", pattern="^sse$"),
     last_event_id: str | None = Header(default=None), db=Depends(get_db), user=Depends(get_current_user)):
     # 连接前的归属与游标查询是同步 SQL，放在 FastAPI 工作线程；事件生成器继续异步订阅。
-    snapshot = ChatRunService.snapshot(ChatRunService(db).owned(run_id, user.id))
+    head = _head(db, run_id, user.id)
     user_id = str(user.id)
     sessions = sessionmaker(bind=db.get_bind(), autoflush=False)
     db.close()
@@ -116,10 +134,10 @@ def chat_run_events(run_id: str, after: int = Query(default=0, ge=0),
             after = max(after, sequence)
         except ValueError as exc:
             raise HTTPException(400, "事件游标不属于当前任务") from exc
-    if after > snapshot["last_event_id"] or after < 0:
+    if after > head.event_sequence or after < 0:
         raise HTTPException(400, "事件游标超出范围")
     return StreamingResponse(subscribe_events(run_id, user_id, after=after, sessions=sessions),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no",
-            "x-chat-run-id": run_id, "x-conversation-id": snapshot["conversation_id"],
-            "x-assistant-message-id": snapshot["assistant_message_id"]})
+            "x-chat-run-id": run_id, "x-conversation-id": head.conversation_id,
+            "x-assistant-message-id": head.assistant_message_id})

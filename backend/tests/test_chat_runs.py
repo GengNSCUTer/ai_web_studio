@@ -12,12 +12,13 @@ from types import SimpleNamespace
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
 from app.models import *  # noqa: F403 - 注册全部业务表
-from app.models.chat_run import ChatRun, ChatRunEvent
+from app.models.chat_run import ChatRun, ChatRunEvent, ChatRunMemoryTrigger
+from app.models.user_memory import MemoryExtractionJob
 from app.models.user import User
 from app.models.message import Message
 from app.schemas.message import ChatStreamRequest, ChatRegenerateRequest
@@ -177,6 +178,7 @@ class ChatRunTest(unittest.IsolatedAsyncioTestCase):
         with self.sessions() as db:
             db.get(ChatRun, run).lease_expires_at = utcnow() - timedelta(seconds=1)
             db.commit()
+        self.assertEqual(self.call("reconcile"), 1)
         second = self.call("claim_next", "B")
         self.assertIsNotNone(second)
         self.assertFalse(self.call("finish", claim, status="succeeded", content="覆盖"))
@@ -206,6 +208,8 @@ class ChatRunTest(unittest.IsolatedAsyncioTestCase):
             db.get(ChatRun, first).queued_expires_at = utcnow() - timedelta(seconds=1)
             db.commit()
         self.assertIsNone(self.call("claim_next", "A"))
+        self.assertEqual(self.snapshot(first)["status"], "queued")
+        self.assertEqual(self.call("reconcile"), 1)
         self.assertEqual(self.snapshot(first)["status"], "expired")
         second = self.create("second")
         claim = self.call("claim_next", "B")
@@ -219,14 +223,83 @@ class ChatRunTest(unittest.IsolatedAsyncioTestCase):
         with patch("app.services.chat_run_service.settings", replace(settings, chat_run_global_concurrency=1,
                                                                       chat_run_max_chars=8)):
             claim = self.call("claim_next", "A")
+            remaining = second if claim.run_id == first else first
             self.assertIsNone(self.call("claim_next", "B"))
-            before = self.snapshot(first)["last_event_id"]
+            before = self.snapshot(claim.run_id)["last_event_id"]
             with self.assertRaisesRegex(ValueError, "budget"):
                 self.call("append", claim, [{"type": "answer_delta", "text": "x" * 9}])
-            self.assertEqual(self.snapshot(first)["last_event_id"], before)
-            self.assertEqual(self.snapshot(first)["content"], "")
+            self.assertEqual(self.snapshot(claim.run_id)["last_event_id"], before)
+            self.assertEqual(self.snapshot(claim.run_id)["content"], "")
             self.call("finish", claim, status="failed", error_code="output_budget_exhausted")
-            self.assertEqual(self.call("claim_next", "B").run_id, second)
+            self.assertEqual(self.call("claim_next", "B").run_id, remaining)
+
+    def test_success_enqueues_memory_and_failed_scan_is_retried(self):
+        from app.services.memory_candidate_runtime import MemoryCandidateWorker, MemoryExtractionJobService
+
+        run_id = self.create()
+        claim = self.call("claim_next", "A")
+        with self.sessions() as db:
+            run = db.get(ChatRun, run_id)
+            db.get(Message, run.user_message_id).content = "请记住：项目数据库用 PostgreSQL"
+            db.commit()
+        self.assertTrue(self.call("finish", claim, status="succeeded", content="收到"))
+        worker = MemoryCandidateWorker(session_factory=self.sessions)
+        with patch.object(MemoryExtractionJobService, "enqueue_after_turn", side_effect=RuntimeError):
+            self.assertTrue(worker._consume_turn_trigger())
+        with self.sessions() as db:
+            trigger = db.get(ChatRunMemoryTrigger, run_id)
+            self.assertIsNotNone(trigger)
+            self.assertIsNone(db.scalar(select(MemoryExtractionJob.id)))
+            trigger.available_at = utcnow()
+            db.commit()
+        self.assertTrue(worker._consume_turn_trigger())
+        self.assertFalse(worker._consume_turn_trigger())
+        with self.sessions() as db:
+            self.assertIsNone(db.get(ChatRunMemoryTrigger, run_id))
+            self.assertEqual(db.scalar(select(func.count()).select_from(MemoryExtractionJob)), 1)
+
+    def test_cancelled_finish_does_not_enqueue_memory(self):
+        run_id = self.create()
+        claim = self.call("claim_next", "A")
+        self.call("cancel", run_id, "u")
+        self.call("finish", claim, status="succeeded", content="迟到回答")
+        with self.sessions() as db:
+            self.assertIsNone(db.get(ChatRunMemoryTrigger, run_id))
+
+    def test_partial_message_checkpoint_and_terminal_flush(self):
+        run_id = self.create()
+        message_id = self.snapshot(run_id)["assistant_message_id"]
+        claim = self.call("claim_next", "A")
+        with self.sessions() as db:
+            db.get(Message, message_id).updated_at = utcnow() - timedelta(seconds=3)
+            db.commit()
+        self.call("append", claim, [{"type": "answer_delta", "text": "甲"}])
+        self.call("append", claim, [{"type": "answer_delta", "text": "乙"}])
+        self.assertEqual(self.snapshot(run_id)["content"], "甲乙")
+        with self.sessions() as db:
+            self.assertEqual(db.get(Message, message_id).content, "甲")
+        self.call("finish", claim, status="failed")
+        with self.sessions() as db:
+            self.assertEqual(db.get(Message, message_id).content, "甲乙")
+
+    def test_idle_sse_reads_one_lightweight_query(self):
+        from app.api.routes.chat_runs import _page
+
+        run_id = self.create()
+        tail = self.snapshot(run_id)["last_event_id"]
+        statements = []
+
+        def capture(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+
+        event.listen(self.engine, "before_cursor_execute", capture)
+        try:
+            _, rows = _page(run_id, "u", tail, self.sessions)
+        finally:
+            event.remove(self.engine, "before_cursor_execute", capture)
+        self.assertEqual(rows, [])
+        self.assertEqual(len(statements), 1)
+        self.assertNotIn("chat_runs.content", statements[0])
 
     async def test_cursor_at_terminal_tail_returns_snapshot(self):
         run = self.create()

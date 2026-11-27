@@ -144,7 +144,6 @@ class MigrationPostgresTest(unittest.TestCase):
         from datetime import timedelta
         from app.models.agent_runtime import AgentRun, AgentStep
         from app.models.chat_run import ChatRun
-        from app.models.conversation import Conversation
         from app.models.message import Message
         from app.models.user import User
 
@@ -152,8 +151,8 @@ class MigrationPostgresTest(unittest.TestCase):
         with sessionmaker(self.engine)() as db:
             db.add(User(id="u", email="cutover@example.test"))
             db.flush()
-            db.add(Conversation(id="conv", user_id="u", title="迁移", model_name="test"))
-            db.flush()
+            db.execute(text("insert into conversations(id,user_id,title,model_name,is_archived,is_pinned) "
+                            "values ('conv','u','迁移','test',false,false)"))
             db.add_all([Message(id="question", conversation_id="conv", role="user", content="问题"),
                         Message(id="answer", conversation_id="conv", role="assistant", content="保留答案", generation_id="g")])
             db.flush()

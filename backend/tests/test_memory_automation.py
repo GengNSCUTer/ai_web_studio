@@ -313,7 +313,9 @@ class MemoryAutomationTest(unittest.TestCase):
         with self.sessions() as db:
             job = MemoryExtractionJobService(db).enqueue_after_turn(user_id=self.user,
                 conversation_id=self.conv, assistant_message_id=original_assistant, force=True)
-            self.assertEqual(job.cursor_end, 1)
+            self.assertEqual(job.source_message_ids, self.source)
+            self.assertEqual(job.cursor_end, db.get(Message, self.source).sequence)
+            self.assertGreater(db.get(Message, next_source).sequence, job.cursor_end)
         self.execute([])
         with self.sessions() as db:
             followup = db.scalar(select(MemoryExtractionJob).where(MemoryExtractionJob.status == "pending"))
