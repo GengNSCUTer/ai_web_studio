@@ -99,6 +99,7 @@ class ChatRunWorker:
     async def _execute(self, claim, partial):
         from app.services.chat_stream_service import generate_chat_events, _stream_citation_audit, _public_stream_error
 
+        started = time.monotonic()
         token = current_chat_guard.set(lambda: self._guard(claim))
         persistence = ChatToolPersistence(self.sessions, claim)
         persistence_token = current_tool_persistence.set(persistence)
@@ -118,15 +119,16 @@ class ChatRunWorker:
                 if assistant.generation_id != run.generation_id:
                     raise ChatLeaseLost()
                 service = ChatExecutionService(db=db, current_user=user, manage_prepare_failure=False)
-                history = service.message_repo.list_for_context(conversation, exclude_message_id=assistant.id,
-                    through_message_id=user_message.id)
+                from app.repositories.message_repo import ContextHistory
+                history = ContextHistory([user_message])
+                history.through_message_id = user_message.id
                 options = {name: request.get(name) for name in (
                     "model_name", "system_prompt", "thinking_enabled", "thinking_budget", "web_search_enabled",
                     "knowledge_base_id", "knowledge_base_ids", "skill_key", "tool_run_mode")}
                 output_tokens = run.max_output_tokens
                 context = await service.prepare_existing_turn_execution(ExistingTurnExecutionInput(
                     conversation=conversation, history_rows=history, user_message=user_message,
-                    assistant_message=assistant, **options))
+                    assistant_message=assistant, history_mode=request.get("history_mode", "complete"), **options))
                 context.max_tokens = min(context.max_tokens or output_tokens, output_tokens)
                 context.context_stats.update(chat_run_id=claim.run_id, chat_run_lease_version=claim.version,
                                              chat_run_output_token_limit=context.max_tokens,
@@ -181,6 +183,8 @@ class ChatRunWorker:
                                 break
                             next_chunk = None
                             event = chunk
+                            if event["type"] == "answer_delta" and "first_answer_delta_ms" not in context.context_stats:
+                                context.context_stats["first_answer_delta_ms"] = round((time.monotonic() - started) * 1000, 2)
                             if event["type"] in {"done", "model_error", "citation_audit"}:
                                 continue
                             if pending and event["type"] in {"answer_delta", "reasoning_delta"} and pending[-1]["type"] == event["type"]:

@@ -31,6 +31,7 @@ type ThreadMessage = {
   created_at: string;
   attachments: UploadItem[];
   isEphemeral?: boolean;
+  currentTurnOnly?: boolean;
 };
 
 type ChatMessageListText = {
@@ -390,6 +391,11 @@ function MessageItem({
       {isUser && message.mcpResources?.length ? <p className="mt-2 break-all text-xs text-[var(--ink-muted)]">
         MCP资料：{message.mcpResources.map((item) => item.uri).join("、")}
       </p> : null}
+      {!isUser && message.currentTurnOnly ? (
+        <p className="mt-2 text-xs text-[var(--ink-muted)]">
+          {uiLanguage === "en-US" ? "Used only this turn" : "仅使用本轮内容"}
+        </p>
+      ) : null}
       {!isUser ? <CitationAuditNotice audit={message.citationAudit} english={uiLanguage === "en-US"} /> : null}
 
       {!isUser && message.reasoningContent?.trim() ? (

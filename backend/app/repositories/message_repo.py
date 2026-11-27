@@ -103,6 +103,21 @@ class MessageRepository:
         result.pending_count = len(pending)
         return result
 
+    def summary_history(self, conversation_id, *, through, boundary=None, attachments=False):
+        key = self._sql_order_key()
+        stmt = select(Message).where(Message.conversation_id == conversation_id,
+            Message.role.in_(["user", "assistant"]), Message.status != "streaming",
+            key < self._order_key(through))
+        if boundary is not None:
+            stmt = stmt.where(key > self._order_key(boundary))
+        if attachments:
+            stmt = stmt.options(selectinload(Message.attachments))
+        return stmt
+
+    def message_key(self, conversation_id, message_id):
+        return self.db.execute(select(Message.id, Message.sequence, Message.created_at).where(
+            Message.conversation_id == conversation_id, Message.id == message_id)).one_or_none()
+
     def latest_user_before(self, assistant) -> Message | None:
         """重生成不能把摘要批次中的旧用户误认成本轮问题；单独按顺序查最近用户。"""
         return self.db.scalar(select(Message).where(Message.conversation_id == assistant.conversation_id,

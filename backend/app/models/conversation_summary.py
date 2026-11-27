@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -20,6 +20,7 @@ class ConversationSummaryCheckpoint(Base):
     boundary_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     boundary_sequence: Mapped[int] = mapped_column(Integer)
     source_revision: Mapped[int] = mapped_column(Integer)
+    facts: Mapped[list[dict]] = mapped_column(JSON, default=list)
     mode: Mapped[str] = mapped_column(String(16), default="model")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -37,6 +38,7 @@ class ConversationSummaryJob(Base):
     partial_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     partial_offset: Mapped[int] = mapped_column(Integer, default=0)
     partial_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    partial_facts: Mapped[list[dict]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(24), default="queued")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     batches: Mapped[int] = mapped_column(Integer, default=0)

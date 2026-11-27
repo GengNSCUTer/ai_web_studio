@@ -43,6 +43,12 @@ async def _snapshot(state: ContextGraphState, runtime: Runtime[ContextGraphConte
             "history_count": len(context.assembly.history_rows)}
 
 
+async def _summary_preflight(state: ContextGraphState, runtime: Runtime[ContextGraphContext]):
+    context = runtime.context
+    await context.service.summary_preflight(context.assembly)
+    return _record(runtime, "summary_preflight")
+
+
 async def _retrieve(state: ContextGraphState, runtime: Runtime[ContextGraphContext]):
     context = runtime.context
     tasks = [asyncio.create_task(operation(context.assembly)) for operation in (
@@ -93,7 +99,7 @@ async def _finalize(state: ContextGraphState, runtime: Runtime[ContextGraphConte
 @lru_cache(maxsize=1)
 def build_context_graph():
     graph = StateGraph(ContextGraphState, context_schema=ContextGraphContext)
-    nodes = [("snapshot", _snapshot), ("retrieval", _retrieve), ("tools", _tools),
+    nodes = [("snapshot", _snapshot), ("summary_preflight", _summary_preflight), ("retrieval", _retrieve), ("tools", _tools),
              ("summary", _summary), ("govern", _govern), ("context_ready", _finalize)]
     previous = START
     for name, function in nodes:

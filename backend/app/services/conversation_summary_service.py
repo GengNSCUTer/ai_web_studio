@@ -66,7 +66,7 @@ class ConversationSummaryService:
         self.db = db
         self.repo = MessageRepository(db)
 
-    def save_checkpoint(self, conversation, *, mode="model"):
+    def save_checkpoint(self, conversation, *, mode="model", facts=None):
         if not conversation.context_summary or not conversation.context_summary_boundary_message_id:
             return
         boundary = self.db.get(Message, conversation.context_summary_boundary_message_id)
@@ -79,6 +79,7 @@ class ConversationSummaryService:
             self.db.add(existing)
         existing.boundary_created_at, existing.boundary_sequence = boundary.created_at, boundary.sequence or 0
         existing.summary_text, existing.mode = conversation.context_summary, mode
+        existing.facts = facts or []
         existing.source_revision = conversation.context_history_revision or 0
         self.db.flush()
         stale = list(self.db.scalars(select(Checkpoint.id).join(Message, Message.id == Checkpoint.boundary_message_id)
@@ -106,7 +107,7 @@ class ConversationSummaryService:
             return
         conversation.context_history_revision = (conversation.context_history_revision or 0) + 1
         for job in jobs:
-            job.status, job.partial_summary = "cancelled", None
+            job.status, job.partial_summary, job.partial_facts = "cancelled", None, []
             job.lease_version += 1
             job.lease_owner, job.lease_expires_at = None, None
         affected = bool(conversation.context_summary and (not boundary or self.repo._order_key(boundary) >= first))
@@ -117,7 +118,7 @@ class ConversationSummaryService:
         if affected:
             safe = self.db.scalar(select(Checkpoint).join(Message, (Message.id == Checkpoint.boundary_message_id)
                 & (Message.conversation_id == Checkpoint.conversation_id)).where(Checkpoint.conversation_id == conversation.id,
-                cp_key < first).order_by(*self.repo.order_columns(descending=True)).limit(1))
+                cp_key < first, Checkpoint.mode != "fallback").order_by(*self.repo.order_columns(descending=True)).limit(1))
             conversation.context_summary = safe.summary_text if safe else None
             conversation.context_summary_boundary_message_id = safe.boundary_message_id if safe else None
             conversation.context_summary_updated_at = datetime.now(timezone.utc) if safe else None
@@ -141,23 +142,56 @@ class ConversationSummaryService:
         retained = recent_history_limit if recent_history_limit is not None else self.repo.RECENT_CONTEXT_LIMIT
         return self.db.scalar(stmt.order_by(*self.repo.order_columns(descending=True)).offset(retained).limit(1))
 
-    def ensure_job(self, conversation, *, through_id=None, exclude_ids=(), retry_failed=False, recent_history_limit=None):
+    def checkpoint(self, conversation):
+        return self.db.scalar(select(Checkpoint).where(Checkpoint.conversation_id == conversation.id,
+            Checkpoint.boundary_message_id == conversation.context_summary_boundary_message_id))
+
+    def repair_fallback(self, conversation, checkpoint):
+        if checkpoint is None or checkpoint.mode != "fallback":
+            return checkpoint
+        cutoff = (checkpoint.boundary_sequence, checkpoint.boundary_created_at, checkpoint.boundary_message_id)
+        safe = self.db.scalar(select(Checkpoint).join(Message, Message.id == Checkpoint.boundary_message_id)
+            .where(Checkpoint.conversation_id == conversation.id, Checkpoint.mode != "fallback",
+                   Message.conversation_id == conversation.id, self.repo._sql_order_key() < cutoff)
+            .order_by(*self.repo.order_columns(descending=True)).limit(1))
+        conversation.context_summary = safe.summary_text if safe else None
+        conversation.context_summary_boundary_message_id = safe.boundary_message_id if safe else None
+        conversation.context_summary_updated_at = safe.created_at if safe else None
+        conversation.context_history_revision += 1
+        jobs = self.db.scalars(select(Job).where(Job.conversation_id == conversation.id,
+            Job.status.in_(["queued", "running", "failed"])))
+        for job in jobs:
+            job.status, job.partial_summary, job.partial_facts = "cancelled", None, []
+            job.lease_version += 1
+            job.lease_owner = job.lease_expires_at = None
+        self.ensure_job(conversation, target=self.db.get(Message, checkpoint.boundary_message_id))
+        return safe
+
+    def active_job(self, conversation):
+        return self.db.scalar(select(Job).where(Job.conversation_id == conversation.id,
+            Job.source_revision == (conversation.context_history_revision or 0),
+            Job.status.in_(["queued", "running", "failed"]))
+            .order_by(Job.created_at.desc(), Job.id.desc()).limit(1))
+
+    def ensure_job(self, conversation, *, through_id=None, exclude_ids=(), retry_failed=False,
+                   recent_history_limit=None, target=None):
         self.db.flush()
-        target = self.target(conversation, through_id=through_id, exclude_ids=exclude_ids,
-                             recent_history_limit=recent_history_limit)
+        previous = self.active_job(conversation)
+        if previous and retry_failed and previous.status == "failed":
+            previous.status, previous.attempts, previous.error_code = "queued", 0, None
+            previous.next_attempt_at = None
+        target = target or self.target(conversation, through_id=through_id, exclude_ids=exclude_ids,
+                                       recent_history_limit=recent_history_limit)
         if target is None:
-            return None
+            return previous
         boundary = self.db.get(Message, conversation.context_summary_boundary_message_id) if conversation.context_summary_boundary_message_id else None
         if boundary and self.repo._order_key(boundary) >= self.repo._order_key(target):
             return None
         revision = conversation.context_history_revision or 0
-        previous = self.db.scalar(select(Job).where(Job.conversation_id == conversation.id,
-            Job.source_revision == revision, Job.status.in_(["queued", "running", "failed"]))
-            .order_by(Job.created_at.desc(), Job.id.desc()).limit(1))
         if previous:
-            if previous.status == "failed" and retry_failed:
-                previous.status, previous.attempts, previous.error_code = "queued", 0, None
-                previous.next_attempt_at = None
+            current_target = self.db.get(Message, previous.target_message_id)
+            if current_target is None or self.repo._order_key(current_target) < self.repo._order_key(target):
+                previous.target_message_id = target.id
             return previous
         job = Job(conversation_id=conversation.id, source_revision=revision,
                   target_message_id=target.id, cursor_message_id=conversation.context_summary_boundary_message_id)

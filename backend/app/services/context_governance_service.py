@@ -68,8 +68,6 @@ class ContextBudgetPlanner:
     HARD_MAX_CONTEXT_WINDOW = 262144
     MIN_CONTEXT_WINDOW = 8192
     RESERVED_OUTPUT_TOKENS = 8192
-    SUMMARY_REFRESH_MIN_MESSAGES = 6
-    SUMMARY_REFRESH_MIN_CHARS = 4000
 
     MODE_HISTORY_LIMITS = {
         "conservative": 10,
@@ -163,6 +161,7 @@ class ContextGovernanceService:
         messages: list[dict[str, Any]],
         *,
         preferred_reference_layers: tuple[str, ...] = (),
+        preserve_history: bool = False,
     ) -> GovernedContext:
         stats = ContextLayerStats()
         notices: list[str] = []
@@ -172,12 +171,12 @@ class ContextGovernanceService:
         # 2. reference context：RAG/工具/记忆等资料，优先级低于 system 和当前用户问题，可被预算治理截断。
         # 3. recent history：真实对话历史，保留最近若干条。
         system_prefix, reference_prefix, history_messages = self._split_prefix_messages(messages)
-        history_slice = history_messages[-self.budget.max_history_messages :]
+        history_slice = history_messages if preserve_history else history_messages[-self.budget.max_history_messages :]
         stats.truncated_history_messages = max(0, len(history_messages) - len(history_slice))
         selected_messages = [*system_prefix, *reference_prefix, *history_slice]
 
         governed_messages, clipped_chars, dropped_layers, truncated_layers = self._fit_to_budget(
-            selected_messages, preferred_reference_layers=preferred_reference_layers)
+            selected_messages, preferred_reference_layers=preferred_reference_layers, preserve_history=preserve_history)
         provider_messages = [self._strip_internal_fields(message) for message in governed_messages]
         # 对最终渲染后的完整消息重新估算，覆盖合并文本和视觉部件。
         stats.total_chars_estimate, stats.total_tokens_estimate = self.require_fit(provider_messages)
@@ -207,7 +206,7 @@ class ContextGovernanceService:
             messages=provider_messages,
             stats=stats,
             notices=notices,
-            # 持久化滚动摘要由 build_incremental_summary 在 Prompt 组装前完成。
+            # 持久化滚动摘要由历史覆盖预检在 Prompt 组装前完成。
             # 预算裁剪后再临时生成摘要却不重新注入，只会产生误导诊断。
             summary=None,
             summary_triggered=False,
@@ -242,126 +241,19 @@ class ContextGovernanceService:
             index += 1
         return system_prefix, reference_prefix, messages[index:]
 
-    async def build_incremental_summary(
-        self,
-        *,
-        existing_summary: str | None,
-        summary_boundary_message_id: str | None,
-        conversation_messages: list[object],
-        summarizer: Any | None = None,
-        recent_history_limit: int | None = None,
-        require_contiguous_coverage: bool = False,
-    ) -> tuple[str | None, str | None, dict[str, int]]:
-        source_messages = [
-            message
-            for message in conversation_messages
-            if getattr(message, "role", None) in {"user", "assistant"}
-        ]
-        if not source_messages:
-            return existing_summary, summary_boundary_message_id, {
-                "summary_refresh_triggered": 0,
-                "summary_refresh_source_messages": 0,
-                "summary_refresh_source_chars": 0,
-                "summary_refresh_source_tokens": 0,
-                "summary_refresh_model_used": 0,
-                "summary_refresh_fallback_used": 0,
-                "summary_boundary_reset": 0,
-            }
-
-        start_index = 0
-        boundary_reset = 0
-        if summary_boundary_message_id:
-            boundary_found = False
-            for index, message in enumerate(source_messages):
-                if getattr(message, "id", None) == summary_boundary_message_id:
-                    start_index = index + 1
-                    boundary_found = True
-                    break
-            if not boundary_found:
-                # 消息被删除或历史被重建后，旧摘要已无法证明覆盖范围。
-                existing_summary = None
-                summary_boundary_message_id = None
-                boundary_reset = 1
-
-        pending_messages = source_messages[start_index:]
-        # 数据库读取的近期窗口可以大于本模式最终注入数量；不得把窗口的一部分
-        # 拼进本批摘要，越过尚未读取的积压消息。边界只能推进至最早连续批次末尾。
-        retained = recent_history_limit if recent_history_limit is not None else self.budget.max_history_messages
-        pending_source = pending_messages[:-max(1, retained)]
-        if not pending_source:
-            return existing_summary, summary_boundary_message_id, {
-                "summary_refresh_triggered": 0,
-                "summary_refresh_source_messages": 0,
-                "summary_refresh_source_chars": 0,
-                "summary_refresh_source_tokens": 0,
-                "summary_refresh_model_used": 0,
-                "summary_refresh_fallback_used": 0,
-                "summary_boundary_reset": boundary_reset,
-            }
-
-        pending_chars = sum(len((getattr(item, "content", None) or "").strip()) for item in pending_source)
-        pending_tokens = self._estimate_object_messages_tokens(pending_source)
-        should_refresh = (
-            require_contiguous_coverage
-            or existing_summary is None
-            or len(pending_source) >= ContextBudgetPlanner.SUMMARY_REFRESH_MIN_MESSAGES
-            or pending_chars >= ContextBudgetPlanner.SUMMARY_REFRESH_MIN_CHARS
-        )
-        if not should_refresh:
-            return existing_summary, summary_boundary_message_id, {
-                "summary_refresh_triggered": 0,
-                "summary_refresh_source_messages": len(pending_source),
-                "summary_refresh_source_chars": pending_chars,
-                "summary_refresh_source_tokens": pending_tokens,
-                "summary_refresh_model_used": 0,
-                "summary_refresh_fallback_used": 0,
-                "summary_boundary_reset": boundary_reset,
-            }
-
-        summary = None
-        model_used = 0
-        fallback_used = 0
-        if summarizer is not None:
-            try:
-                summary = await summarizer(
-                    existing_summary=existing_summary,
-                    source_messages=pending_source,
-                    max_summary_chars=self.budget.max_summary_chars,
-                )
-                model_used = 1 if summary else 0
-            except Exception:
-                summary = None
-
-        if not summary:
-            summary = self._build_structured_summary(
-                existing_summary=existing_summary,
-                source_messages=pending_source,
-            )
-            fallback_used = 1 if summary else 0
-
-        boundary_message_id = getattr(pending_source[-1], "id", None)
-        return summary, boundary_message_id, {
-            "summary_refresh_triggered": 1,
-            "summary_refresh_source_messages": len(pending_source),
-            "summary_refresh_source_chars": pending_chars,
-            "summary_refresh_source_tokens": pending_tokens,
-            "summary_refresh_model_used": model_used,
-            "summary_refresh_fallback_used": fallback_used,
-            "summary_boundary_reset": boundary_reset,
-        }
-
     def _fit_to_budget(
         self,
         messages: list[dict[str, Any]],
         *,
         preferred_reference_layers: tuple[str, ...],
+        preserve_history: bool = False,
     ) -> tuple[list[dict[str, Any]], int, list[str], list[str]]:
         # 原始消息在治理期间不可变。候选只会重渲染受影响的参考消息。
-        costs = {id(message): self._message_cost(message) for message in messages}
+        costs = {id(message): self.message_cost(message) for message in messages}
 
         def measure(message):
             key = id(message)
-            return costs[key] if key in costs else self._message_cost(message)
+            return costs[key] if key in costs else self.message_cost(message)
 
         def exceeds(candidate):
             return self._over_budget(*self._totals(candidate, measure))
@@ -369,9 +261,11 @@ class ContextGovernanceService:
         preferred = tuple(dict.fromkeys(preferred_reference_layers))
         # 显式选中的证据优先于可裁剪的旧历史，默认流程保留原裁剪行为。
         order = (*[layer for layer in self.REFERENCE_DROP_ORDER if layer not in preferred], None, *reversed(preferred))
+        if preserve_history:
+            order = tuple(layer for layer in order if layer not in {None, "conversation_summary"})
         return self._trim_reference_layers_to_fit(messages, order, exceeds, measure)
 
-    def _message_cost(self, message):
+    def message_cost(self, message):
         chars = self._estimate_message_chars(message)
         return chars, self._estimate_message_tokens(message) if self.tokenizer else 0
 
@@ -387,7 +281,7 @@ class ContextGovernanceService:
         return chars > self.budget.max_total_chars or tokens > self.budget.max_total_tokens
 
     def require_fit(self, messages: list[dict[str, Any]]) -> tuple[int, int]:
-        chars, tokens = self._totals(messages, self._message_cost)
+        chars, tokens = self._totals(messages, self.message_cost)
         if self._over_budget(chars, tokens):
             raise ContextBudgetExceeded()
         return chars, tokens
@@ -652,61 +546,3 @@ class ContextGovernanceService:
             messages,
             image_equiv_tokens=self.budget.max_image_equiv_tokens,
         )
-
-    def _estimate_object_messages_tokens(self, messages: list[object]) -> int:
-        if not messages:
-            return 0
-        normalized_messages = [
-            {
-                "role": getattr(message, "role", "user"),
-                "content": getattr(message, "content", "") or "",
-            }
-            for message in messages
-        ]
-        return self._estimate_messages_tokens(normalized_messages)
-
-    def _build_structured_summary(
-        self,
-        *,
-        existing_summary: str | None,
-        source_messages: list[object],
-    ) -> str | None:
-        user_points: list[str] = []
-        assistant_points: list[str] = []
-        facts: list[str] = []
-
-        for message in source_messages:
-            role = getattr(message, "role", None)
-            text = " ".join((getattr(message, "content", None) or "").split()).strip()
-            if not text:
-                continue
-
-            excerpt = text[:220]
-            if role == "user":
-                user_points.append(excerpt)
-                if any(keyword in text for keyword in ("需要", "希望", "想", "请", "帮我", "要求", "不要")):
-                    facts.append(f"用户目标/约束：{excerpt}")
-            elif role == "assistant":
-                assistant_points.append(excerpt)
-                if any(keyword in text for keyword in ("建议", "结论", "可以", "步骤", "方案", "已")):
-                    facts.append(f"已有结论/建议：{excerpt}")
-
-        sections: list[str] = []
-        if existing_summary:
-            sections.append("【已有滚动摘要】")
-            sections.append(existing_summary.strip()[: max(1200, self.budget.max_summary_chars // 2)])
-
-        sections.append("【本次新增摘要】")
-        if user_points:
-            sections.append("用户新增关键信息：")
-            sections.extend(f"- {item}" for item in user_points[-6:])
-        if assistant_points:
-            sections.append("助手新增关键信息：")
-            sections.extend(f"- {item}" for item in assistant_points[-6:])
-        if facts:
-            deduped_facts = list(dict.fromkeys(facts))
-            sections.append("沉淀出的事实与约束：")
-            sections.extend(f"- {item}" for item in deduped_facts[-8:])
-
-        summary = "\n".join(section for section in sections if section.strip()).strip()
-        return summary[: self.budget.max_summary_chars] if summary else None

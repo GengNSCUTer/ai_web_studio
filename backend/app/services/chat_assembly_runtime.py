@@ -24,6 +24,9 @@ class ChatAssemblyRuntime:
     knowledge_base_ids: list[str] | None = None
     skill_context: Any = None
     tool_run_mode: str = "quick_chat"
+    history_mode: str = "complete"
+    coverage_state: tuple | None = None
+    coverage_through: tuple | None = None
     query: str = ""
     conversation_id: str | None = None
     user_message_id: str | None = None

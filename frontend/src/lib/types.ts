@@ -622,6 +622,7 @@ export type Message = {
   reasoning_content?: string | null;
   external_sources?: string | null;
   citation_audit?: string | null;
+  history_mode?: "complete" | "current_turn_only";
   tool_events?: ToolTraceEvent[];
   status: "done" | "streaming" | "failed" | "cancelled" | string;
   created_at: string;

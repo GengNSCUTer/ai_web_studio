@@ -4,7 +4,6 @@ import hashlib
 import json
 from time import perf_counter
 from dataclasses import replace
-from datetime import datetime, timezone
 from typing import Any
 from types import SimpleNamespace
 from fastapi import HTTPException
@@ -22,11 +21,11 @@ from app.services.chat_execution_models import (
     SummaryRefreshBundle,
 )
 from app.services.chat_assembly_runtime import ChatAssemblyRuntime
-from app.services.chat_provider_service import ChatProviderService
+from app.services.chat_summary_coverage import ChatSummaryCoverage
 from app.services.external_context_service import ExternalContextService
 from app.services.evidence_sufficiency import assess_evidence_sufficiency
 from app.services.file_edit_response import build_file_edit_response
-from app.services.knowledge_context_service import KnowledgeContextService
+from app.services.knowledge_context_service import KnowledgeContextResult, KnowledgeContextService
 from app.services.message_service import MessageService
 from app.services.memory_retrieval_service import MemoryRetrievalResult, MemoryRetrievalService
 from app.services.memory_injection_policy import decide_memory_read
@@ -40,7 +39,7 @@ from app.services.mcp_resource_service import McpResourceService
 from app.services.tools.formatter import ExternalContextAssembler
 from app.services.tools.task_spec import build_task_spec
 from app.services.tools.completion_verifier import verify_final_completion, sources_from_final_map, FINAL_COMPLETION_GUIDANCE
-from app.services.tools.schemas import ToolTraceEvent
+from app.services.tools.schemas import ExternalContextResult, ToolTraceEvent
 
 
 def clean_optional_str(value: str | None) -> str | None:
@@ -48,57 +47,6 @@ def clean_optional_str(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
-
-
-def build_summary_source_text(source_messages: list[object]) -> str:
-    # 调用前已按Token预算选批，不能再截断正文却推进整条消息的边界。
-    lines: list[str] = []
-    for index, message in enumerate(source_messages, start=1):
-        role = getattr(message, "role", "unknown")
-        content = " ".join((getattr(message, "content", None) or "").split()).strip()
-        if not content:
-            continue
-        lines.append(f"{index}. {role}: {content}")
-    return "\n".join(lines).strip()
-
-
-def build_summary_prompt(
-    *,
-    existing_summary: str | None,
-    source_messages: list[object],
-    max_summary_chars: int,
-) -> list[dict[str, str]]:
-    # 摘要本质是“压缩历史”，不是回答用户问题；system prompt 明确禁止新增事实。
-    source_text = build_summary_source_text(source_messages)
-    existing = (existing_summary or "").strip()
-    target_chars = max(800, min(max_summary_chars, 6000))
-
-    system_prompt = (
-        "你是一个对话上下文压缩器。你的任务是把较早历史压缩成后续问答可用的滚动摘要，"
-        "不要回答用户问题，不要调用任何工具，不要新增不存在的信息。"
-    )
-    user_prompt = f"""请基于已有摘要和新增历史，生成一份可继续用于后续对话的中文滚动摘要。
-
-要求：
-- 固定使用以下五个小节：用户目标与原话约束、关键事实与术语、已完成工作与决策、错误与解决方式、未完成事项与下一步。
-- 用户明确表达的要求、禁止项和验收标准尽量保留原句，不要改写成模糊偏好。
-- 保留涉及的资源 ID、文件名、接口名、关键参数和仍有效的错误信息；不要保留密钥或认证凭证。
-- 删除寒暄、重复表达、无关过程和低价值细节。
-- 如果已有摘要与新增历史冲突，以新增历史为准，并在摘要中体现最新状态。
-- 输出使用简洁 Markdown，最多约 {target_chars} 个中文字符。
-- 只输出摘要正文，不要输出解释。
-- 不要调用工具；如果缺少细节就明确写“需重新读取/检索”，不要猜测。
-
-【已有滚动摘要】
-{existing or "无"}
-
-【新增历史】
-{source_text or "无"}
-"""
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
 
 
 class ChatContextAssemblyService:
@@ -162,6 +110,7 @@ class ChatContextAssemblyService:
         skill_context: SkillExecutionContext | None = None,
         tool_run_mode: str = "quick_chat",
         generation_id: str | None = None,
+        history_mode: str = "complete",
     ) -> ChatExecutionContext:
         # 独立图节点调用原业务步骤，不再在一个函数里顺序编排所有上下文来源。
         from app.services.agent_graph.context_graph import run_context_graph
@@ -173,7 +122,7 @@ class ChatContextAssemblyService:
             thinking_budget=thinking_budget, web_search_enabled=web_search_enabled,
             knowledge_base_id=knowledge_base_id, knowledge_base_ids=knowledge_base_ids,
             skill_context=skill_context, tool_run_mode=tool_run_mode,
-            assistant_generation_id=generation_id,
+            assistant_generation_id=generation_id, history_mode=history_mode,
         )
         return await run_context_graph(self, assembly)
 
@@ -235,9 +184,19 @@ class ChatContextAssemblyService:
         assembly.runtime.governance_service.require_fit(current.messages)
         assembly.current_user_payload = current.messages[-1]
 
+    async def summary_preflight(self, assembly: ChatAssemblyRuntime) -> None:
+        if assembly.history_mode == "current_turn_only":
+            ChatSummaryCoverage(self.db).prepare_current_turn(assembly)
+            assembly.summary_bundle = SummaryRefreshBundle(None, None, {"history_coverage": "current_turn_only"})
+        else:
+            await ChatSummaryCoverage(self.db).prepare(assembly)
+
     async def retrieve_memory(self, assembly: ChatAssemblyRuntime) -> None:
         """使用独立短 Session 召回长期记忆。"""
         user_message_id = assembly.user_message_id
+        if assembly.history_mode == "current_turn_only":
+            assembly.memory_bundle = MemoryRetrievalResult(diagnostics={"mode": "skipped"})
+            return
         prior_user_text = next((content for message_id, role, content, _ in reversed(assembly.history_snapshot)
                                 if role == "user" and message_id != user_message_id and content), "")
         assembly.memory_bundle = await self.build_memory_context(
@@ -252,6 +211,10 @@ class ChatContextAssemblyService:
         # 外部上下文包括联网搜索、地图、天气等工具。只有 web_search_enabled=True 时才会真正规划/调用工具。
         assembly.resource_sources, assembly.resource_notices = [], []
         assembly.resource_service = None
+        if assembly.history_mode == "current_turn_only":
+            assembly.external_context_result = ExternalContextResult(context_text=None, sources=[], notices=[], diagnostics={}, details={})
+            assembly.evidence_sufficiency = assess_evidence_sufficiency(query=assembly.query, sources=[])
+            return
         if assembly.resource_selections:
             resource_project_id = getattr(assembly.conversation, "project_id", None)
             self.db.commit()
@@ -290,6 +253,9 @@ class ChatContextAssemblyService:
 
     async def retrieve_knowledge(self, assembly: ChatAssemblyRuntime) -> None:
         """检索知识库并将原始召回日志绑定到本轮消息。"""
+        if assembly.history_mode == "current_turn_only":
+            assembly.knowledge_context_result = KnowledgeContextResult(context_text=None)
+            return
         sessions = sessionmaker(bind=self.db.get_bind(), autoflush=False)
         with sessions() as db:
             assembly.knowledge_context_result = await KnowledgeContextService(db=db, user_id=self.user_id).build_context(
@@ -331,22 +297,14 @@ class ChatContextAssemblyService:
 
     async def refresh_summary(self, assembly: ChatAssemblyRuntime) -> None:
         """刷新摘要并复核历史版本及MCP资料授权。"""
-        assembly.summary_bundle = await self._refresh_context_summary(
-            conversation=assembly.conversation,
-            runtime=assembly.runtime,
-            expected_history=assembly.history_snapshot,
-            assistant_id=assembly.assistant_id,
-            generation_id=assembly.assistant_generation_id,
-            bounded_history=assembly.bounded_history,
-            history_through_message_id=assembly.history_through_message_id,
-        )
-
         if assembly.resource_service:
             self.db.commit()
             await assembly.resource_service.revalidate()
 
     async def govern_prompt(self, assembly: ChatAssemblyRuntime) -> None:
         """构建分层Prompt，并按完整证据单元执行预算治理。"""
+        if assembly.coverage_through is not None:
+            ChatSummaryCoverage(self.db).verify(assembly)
         # PromptBuilder携带结构化证据；Governance按保留单元渲染最终输入。
         completion = assembly.external_context_result.details.get("tool_task_completion", {})
         evidence_guidance = assembly.evidence_sufficiency.guidance
@@ -381,7 +339,8 @@ class ChatContextAssemblyService:
         )
         preferred = self._preferred_reference_layers(assembly)
         assembly.governed_context = assembly.runtime.governance_service.govern_messages(
-            assembly.prompt_result.messages, preferred_reference_layers=preferred)
+            assembly.prompt_result.messages, preferred_reference_layers=preferred,
+            preserve_history=assembly.coverage_state is not None)
         assembly.prompt_result.diagnostics["prompt_preferred_reference_layers"] = ",".join(preferred)
         if spec:
             self._recheck_final_completion(assembly, spec)
@@ -460,7 +419,7 @@ class ChatContextAssemblyService:
 
     def finalize_context(self, assembly: ChatAssemblyRuntime) -> ChatExecutionContext:
         """从同一份治理结果生成可调用上下文和最终来源映射。"""
-        summary_text = assembly.summary_bundle.summary or clean_optional_str(getattr(assembly.conversation, "context_summary", None)) or ""
+        summary_text = assembly.summary_bundle.summary or ""
         summary_tokens = assembly.runtime.tokenizer.estimate_text_tokens(summary_text)
         summary_source_tokens = int(assembly.summary_bundle.stats.get("summary_refresh_source_tokens", 0) or 0)
         summary_compression_ratio = (
@@ -568,19 +527,21 @@ class ChatContextAssemblyService:
                 "truncated_reference_layers": assembly.governed_context.stats.truncated_reference_layers,
                 "retained_reference_tokens": assembly.governed_context.stats.retained_reference_tokens,
                 "summary_chars": len(
-                    assembly.summary_bundle.summary or clean_optional_str(getattr(assembly.conversation, "context_summary", None)) or ""
+                    assembly.summary_bundle.summary or ""
                 ),
                 "summary_tokens": summary_tokens,
                 "summary_triggered": int(assembly.governed_context.summary_triggered),
-                "summary_refresh_triggered": assembly.summary_bundle.stats["summary_refresh_triggered"],
-                "summary_refresh_source_messages": assembly.summary_bundle.stats["summary_refresh_source_messages"],
-                "summary_refresh_source_chars": assembly.summary_bundle.stats["summary_refresh_source_chars"],
-                "summary_refresh_model_used": assembly.summary_bundle.stats["summary_refresh_model_used"],
-                "summary_refresh_fallback_used": assembly.summary_bundle.stats["summary_refresh_fallback_used"],
-                "summary_boundary_reset": assembly.summary_bundle.stats["summary_boundary_reset"],
+                "summary_refresh_triggered": assembly.summary_bundle.stats.get("summary_refresh_triggered", 0),
+                "summary_refresh_source_messages": assembly.summary_bundle.stats.get("summary_refresh_source_messages", 0),
+                "summary_refresh_source_chars": assembly.summary_bundle.stats.get("summary_refresh_source_chars", 0),
+                "summary_refresh_model_used": assembly.summary_bundle.stats.get("summary_refresh_model_used", 0),
                 "summary_remaining_backlog": assembly.summary_bundle.stats.get("summary_remaining_backlog", 0),
                 "summary_mode": assembly.summary_bundle.stats.get("summary_mode", "unknown"),
                 "summary_repair_status": assembly.summary_bundle.stats.get("summary_repair_status", "ready"),
+                "history_coverage": assembly.summary_bundle.stats.get("history_coverage", "unknown"),
+                "summary_preflight_ms": assembly.summary_bundle.stats.get("summary_preflight_ms", 0),
+                "summary_refresh_ms": assembly.summary_bundle.stats.get("summary_refresh_ms", 0),
+                "summary_refresh_input_tokens": assembly.summary_bundle.stats.get("summary_refresh_input_tokens", 0),
                 "summary_refresh_source_tokens": summary_source_tokens,
                 "summary_compression_ratio": summary_compression_ratio,
                 "attachment_context_tokens": attachment_context_tokens,
@@ -619,7 +580,7 @@ class ChatContextAssemblyService:
             },
             context_details=context_details,
             verified_file_edit_answer=verified_file_edit_answer,
-            context_summary=assembly.summary_bundle.summary or clean_optional_str(getattr(assembly.conversation, "context_summary", None)),
+            context_summary=assembly.summary_bundle.summary,
             thinking_enabled=assembly.thinking_enabled,
             thinking_budget=assembly.thinking_budget,
             tool_events=[event.to_public_dict() for event in assembly.external_context_result.tool_events],
@@ -691,135 +652,6 @@ class ChatContextAssemblyService:
             external_context=external_context_result,
         )
         return external_context_result
-
-    async def _refresh_context_summary(
-        self,
-        *,
-        conversation: object,
-        runtime: ChatRuntimeConfig,
-        expected_history: list[tuple[str, str, str, str | None]],
-        assistant_id: str,
-        generation_id: str | None,
-        bounded_history: bool = False,
-        history_through_message_id: str | None = None,
-    ) -> SummaryRefreshBundle:
-        repo = MessageRepository(self.db)
-        conversation_id = conversation.id
-
-        def lock_and_check_history() -> object:
-            locked = repo.lock_conversation(conversation_id)
-            assistant = repo.lock_message(assistant_id, conversation_id)
-            # 只复核实际参与本轮的有界证据；覆盖历史的改写仍由同事务摘要失效保护。
-            current_history = (
-                [(row.id, row.role, row.content, row.generation_id) for row in
-                 repo.list_for_context(locked, exclude_message_id=assistant_id, attachments=False,
-                                       through_message_id=history_through_message_id)]
-                if locked is not None and bounded_history else
-                repo.history_snapshot(conversation_id, exclude_message_id=assistant_id)
-            )
-            if (
-                locked is None
-                or assistant is None
-                or assistant.generation_id != generation_id
-                or assistant.status != "streaming"
-                or current_history != expected_history
-            ):
-                self.db.rollback()
-                raise HTTPException(status_code=409, detail="会话历史已变化，请重试本轮回答。")
-            return locked
-
-        conversation = lock_and_check_history()
-        previous_state = (conversation.context_summary, conversation.context_summary_boundary_message_id)
-        history_revision = conversation.context_history_revision or 0
-        # 网络等待期间释放短事务和行锁；纯值副本不会隐式触发 ORM 懒加载。
-        summary_rows = [
-            SimpleNamespace(id=mid, role=role, content=content, generation_id=gid)
-            for mid, role, content, gid in expected_history if role in {"user", "assistant"}
-        ]
-        existing_summary = clean_optional_str(previous_state[0])
-        existing_boundary = clean_optional_str(previous_state[1])
-        from app.services.conversation_summary_service import (
-            ConversationSummaryService, SummaryRebuildRequired, select_summary_batch, summary_source_budget)
-        from app.models.conversation_summary import ConversationSummaryJob
-        from sqlalchemy import select
-        recent_history_limit = runtime.governance_service.budget.max_history_messages
-        if bounded_history:
-            history = repo.list_for_context(conversation, exclude_message_id=assistant_id, attachments=False,
-                                            through_message_id=history_through_message_id)
-            start = next((i + 1 for i, row in enumerate(summary_rows) if row.id == existing_boundary), 0)
-            pending = summary_rows[start:-recent_history_limit]
-            chosen = select_summary_batch(pending, tokenizer=runtime.tokenizer if hasattr(runtime, 'tokenizer')
-                else runtime.governance_service.tokenizer, max_tokens=summary_source_budget(runtime.governance_service.budget))
-            active = self.db.scalar(select(ConversationSummaryJob).where(
-                ConversationSummaryJob.conversation_id == conversation_id,
-                ConversationSummaryJob.source_revision == history_revision,
-                ConversationSummaryJob.status.in_(['queued', 'running', 'failed'])).limit(1))
-            needs_rebuild = active is not None or getattr(history, 'has_backlog', False) or chosen.partial_id or len(chosen.rows) < len(pending)
-            if needs_rebuild:
-                # 新问题或“重新生成”是一次显式重试；恢复失败的任务沿用已提交进度。
-                job = ConversationSummaryService(self.db).ensure_job(conversation, through_id=history_through_message_id,
-                    retry_failed=bool(active and active.status == 'failed'), recent_history_limit=recent_history_limit)
-                self.db.commit()
-                if job is not None:
-                    raise SummaryRebuildRequired('context_summary_rebuild_failed' if job.status == 'failed' else 'context_summary_rebuilding')
-        self.db.commit()
-        # 滚动摘要只在上下文治理判断需要时刷新；刷新失败时治理层会走 fallback，不应阻断普通聊天。
-        async def summarize_with_model(
-            *,
-            existing_summary: str | None,
-            source_messages: list[object],
-            max_summary_chars: int,
-        ) -> str | None:
-            summary_model = runtime.resolved_model or clean_optional_str(getattr(runtime.settings, "default_model", None))
-            if not summary_model:
-                return None
-            summary = await ChatProviderService().complete_chat(
-                provider_type=runtime.provider_type,
-                base_url=runtime.base_url,
-                api_key=runtime.provider_api_key,
-                model_name=summary_model,
-                messages=build_summary_prompt(
-                    existing_summary=existing_summary,
-                    source_messages=source_messages,
-                    max_summary_chars=max_summary_chars,
-                ),
-                temperature=0.2,
-                top_p=0.9,
-                max_tokens=min(2048, max(512, max_summary_chars // 2)),
-            )
-            return summary[:max_summary_chars].strip() if summary else None
-
-        next_summary, boundary_message_id, stats = await runtime.governance_service.build_incremental_summary(
-            existing_summary=existing_summary,
-            summary_boundary_message_id=existing_boundary,
-            conversation_messages=summary_rows,
-            summarizer=summarize_with_model,
-            recent_history_limit=recent_history_limit,
-            require_contiguous_coverage=bounded_history,
-        )
-        conversation = lock_and_check_history()
-        if ((conversation.context_summary, conversation.context_summary_boundary_message_id) != previous_state
-                or (conversation.context_history_revision or 0) != history_revision):
-            self.db.rollback()
-            raise HTTPException(status_code=409, detail="会话摘要已更新，请重试本轮回答。")
-        if stats["summary_boundary_reset"]:
-            # boundary 消失意味着旧摘要覆盖范围不可验证；没有足够旧消息生成新摘要时也必须清空旧状态。
-            conversation.context_summary = next_summary
-            conversation.context_summary_boundary_message_id = boundary_message_id
-            conversation.context_summary_updated_at = datetime.now(timezone.utc) if next_summary else None
-            self.conversation_repo.save(conversation)
-        elif stats["summary_refresh_triggered"] and next_summary:
-            # 摘要和边界必须一起保存，否则后续 prompt 无法知道哪些历史已被摘要覆盖。
-            conversation.context_summary = next_summary
-            conversation.context_summary_boundary_message_id = boundary_message_id
-            conversation.context_summary_updated_at = datetime.now(timezone.utc)
-            self.conversation_repo.save(conversation)
-        if next_summary and stats['summary_refresh_triggered']:
-            ConversationSummaryService(self.db).save_checkpoint(conversation,
-                mode='fallback' if stats['summary_refresh_fallback_used'] else 'model')
-        stats.update(summary_remaining_backlog=0, summary_mode='fallback' if stats['summary_refresh_fallback_used'] else 'model',
-                     summary_repair_status='ready')
-        return SummaryRefreshBundle(summary=next_summary, boundary_message_id=boundary_message_id, stats=stats)
 
     @staticmethod
     def _build_prompt_diagnostics(

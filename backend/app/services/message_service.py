@@ -338,6 +338,7 @@ class MessageService:
         message.reasoning_content = None
         message.external_sources = None
         message.citation_audit = None
+        message.history_mode = "complete"
         message.status = "streaming"
 
     def _serialize_message(self, message: Message) -> MessageResponse:
@@ -350,6 +351,7 @@ class MessageService:
             reasoning_content=message.reasoning_content,
             external_sources=message.external_sources,
             citation_audit=message.citation_audit,
+            history_mode=message.history_mode,
             mcp_resources=json.loads(message.mcp_resources_json or "[]"),
             status=message.status,
             created_at=message.created_at,

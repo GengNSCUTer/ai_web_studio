@@ -24,6 +24,9 @@ class StageService:
     def snapshot(self, assembly):
         self.mark("snapshot")
 
+    async def summary_preflight(self, assembly):
+        self.mark("summary_preflight")
+
     async def retrieve_memory(self, assembly):
         self.mark("memory")
         assembly.memory_bundle = SimpleNamespace(count=0)
@@ -58,9 +61,9 @@ class ChatGraphStagesTest(unittest.IsolatedAsyncioTestCase):
     async def test_actual_context_stages_run_once_on_same_thread(self):
         service = StageService()
         result = await run_context_graph(service, assembly())
-        self.assertEqual(service.calls, ["snapshot", "memory", "rag", "tools", "summary", "govern", "ready"])
+        self.assertEqual(service.calls, ["snapshot", "summary_preflight", "memory", "rag", "tools", "summary", "govern", "ready"])
         self.assertEqual(result.context_details["context_graph_phases"],
-                         ["snapshot", "memory", "rag", "tools_subgraph", "summary", "govern", "context_ready"])
+                         ["snapshot", "summary_preflight", "memory", "rag", "tools_subgraph", "summary", "govern", "context_ready"])
         self.assertIsNone(build_context_graph().checkpointer)
 
     async def test_context_error_does_not_replay_tools_or_enter_later_nodes(self):
@@ -68,7 +71,16 @@ class ChatGraphStagesTest(unittest.IsolatedAsyncioTestCase):
         service.retrieve_knowledge = AsyncMock(side_effect=RuntimeError("controlled"))
         with self.assertRaisesRegex(RuntimeError, "controlled"):
             await run_context_graph(service, assembly())
-        self.assertEqual(service.calls, ["snapshot", "memory"])
+        self.assertEqual(service.calls, ["snapshot", "summary_preflight", "memory"])
+
+    async def test_summary_preflight_block_prevents_retrieval_tools_and_prompt(self):
+        from app.services.conversation_summary_service import SummaryRebuildRequired
+
+        service = StageService()
+        service.summary_preflight = AsyncMock(side_effect=SummaryRebuildRequired())
+        with self.assertRaises(SummaryRebuildRequired):
+            await run_context_graph(service, assembly())
+        self.assertEqual(service.calls, ["snapshot"])
 
     async def test_independent_retrievals_overlap_and_failure_cancels_sibling(self):
         service = StageService()
@@ -89,7 +101,7 @@ class ChatGraphStagesTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "controlled"):
             await asyncio.wait_for(run_context_graph(service, assembly()), 2)
         self.assertTrue(memory_closed.is_set())
-        self.assertEqual(service.calls, ["snapshot"])
+        self.assertEqual(service.calls, ["snapshot", "summary_preflight"])
 
     async def test_context_instances_never_share_phases(self):
         first, second = assembly(), assembly()

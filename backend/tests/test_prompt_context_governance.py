@@ -10,7 +10,7 @@ from app.services.context_governance_service import (
     ContextGovernanceService,
 )
 from app.services.prompt_builder_service import ContextPromptBuilder
-from app.services.chat_context_assembly_service import build_summary_prompt
+from app.services.summary_output import build_summary_prompt
 from app.services.tokenizer_service import TokenizerEstimator
 
 
@@ -351,32 +351,6 @@ class PromptContextGovernanceTest(unittest.TestCase):
         self.assertFalse(governed.summary_triggered)
         self.assertIsNone(governed.summary)
         self.assertFalse(any("已生成会话摘要" in notice for notice in governed.notices))
-
-    def test_missing_summary_boundary_resets_stale_summary(self) -> None:
-        import asyncio
-
-        budget = ContextBudgetPlanner.build(
-            model_context_window=8192,
-            context_mode="balanced",
-        )
-        service = ContextGovernanceService(budget=budget)
-        messages = [
-            DummyMessage(id=f"m{index}", role="user" if index % 2 == 0 else "assistant", content="short")
-            for index in range(4)
-        ]
-
-        summary, boundary, stats = asyncio.run(
-            service.build_incremental_summary(
-                existing_summary="STALE_SUMMARY",
-                summary_boundary_message_id="deleted-message",
-                conversation_messages=messages,
-            )
-        )
-
-        self.assertIsNone(summary)
-        self.assertIsNone(boundary)
-        self.assertEqual(stats["summary_boundary_reset"], 1)
-
 
 if __name__ == "__main__":
     unittest.main()

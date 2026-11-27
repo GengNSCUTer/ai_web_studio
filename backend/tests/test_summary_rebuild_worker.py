@@ -20,6 +20,7 @@ from app.services.context_governance_service import ContextBudgetPlanner
 from app.services.conversation_summary_service import ConversationSummaryService
 from app.services.message_service import MessageService
 from app.services.summary_rebuild_worker import SummaryRebuildWorker
+from app.services.summary_output import SUMMARY_SECTIONS
 from app.services.tokenizer_service import TokenizerEstimator
 from app.services.runtime_lease import utcnow
 
@@ -38,7 +39,7 @@ class SummaryRebuildCases:
         class Provider:
             async def complete_chat(self, **kwargs):
                 test.calls.append(kwargs['messages'])
-                return '保留有效历史的测试摘要'
+                return '\n'.join(f'## {title}\n保留有效历史的测试摘要' for title in SUMMARY_SECTIONS)
         self.worker = SummaryRebuildWorker(session_factory=self.sessions, provider_factory=Provider)
         self.config = patch('app.services.chat_execution_service.ChatExecutionService._build_runtime_config', return_value=self.runtime)
         self.config.start()

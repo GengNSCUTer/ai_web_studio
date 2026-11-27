@@ -15,7 +15,7 @@ from app.models.conversation_summary import ConversationSummaryJob as Job
 from app.models.message import Message
 from app.models.user import User
 from app.repositories.message_repo import MessageRepository
-from app.services.chat_context_assembly_service import build_summary_prompt
+from app.services.summary_output import InvalidSummary, generate_summary, merge_summary_facts
 from app.services.chat_execution_service import ChatExecutionService
 from app.services.chat_provider_service import ChatProviderService
 from app.services.conversation_summary_service import ConversationSummaryService, select_summary_batch, summary_source_budget
@@ -63,7 +63,7 @@ class SummaryRebuildWorker:
                     db.rollback()
                     continue
                 if job.source_revision != (conv.context_history_revision or 0):
-                    job.status, job.partial_summary = "cancelled", None
+                    job.status, job.partial_summary, job.partial_facts = "cancelled", None, []
                     db.commit()
                     continue
                 if job.attempts >= 3:
@@ -114,12 +114,18 @@ class SummaryRebuildWorker:
             batch = select_summary_batch(rows, tokenizer=runtime.tokenizer,
                 max_tokens=summary_source_budget(runtime.budget), partial_id=job.partial_message_id, offset=job.partial_offset)
             source_snapshot = [(r.id, r.content, r.generation_id) for r in rows[:len(batch.rows)]]
+            checkpoint = ConversationSummaryService(db).checkpoint(conv)
+            if checkpoint and checkpoint.mode == "fallback":
+                ConversationSummaryService(db).repair_fallback(conv, checkpoint)
+                db.commit()
+                return None
+            previous = job.partial_facts if job.partial_summary else (checkpoint.facts if checkpoint else [])
+            completed = set(batch.completed)
+            facts = merge_summary_facts(previous, [row for row in rows if row.id in completed])
             data = SimpleNamespace(runtime=runtime, batch=batch, revision=job.source_revision,
                 old_boundary=conv.context_summary_boundary_message_id, old_summary=conv.context_summary,
-                existing=job.partial_summary or conv.context_summary, snapshot=source_snapshot)
-            data.prompt = build_summary_prompt(existing_summary=data.existing, source_messages=batch.rows,
-                                               max_summary_chars=runtime.budget.max_summary_chars)
-            data.estimated_input_tokens = runtime.tokenizer.estimate_messages_tokens(data.prompt, image_equiv_tokens=0)
+                existing=job.partial_summary or conv.context_summary, snapshot=source_snapshot,
+                facts=facts, estimated_input_tokens=0)
             db.commit()
             return data
 
@@ -148,26 +154,26 @@ class SummaryRebuildWorker:
                 if data.batch.partial_id:
                     # 分片摘要只在Job内暂存，不能提前宣称整条原文已覆盖。
                     job.partial_message_id, job.partial_offset = data.batch.partial_id, data.batch.offset
-                    job.partial_summary = summary
+                    job.partial_summary, job.partial_facts = summary, data.facts
                 else:
-                    job.partial_message_id, job.partial_offset, job.partial_summary = None, 0, None
+                    job.partial_message_id, job.partial_offset, job.partial_summary, job.partial_facts = None, 0, None, []
                     job.cursor_message_id = data.batch.completed[-1]
                     conv.context_summary, conv.context_summary_boundary_message_id = summary, job.cursor_message_id
                     conv.context_summary_updated_at = utcnow()
-                    ConversationSummaryService(db).save_checkpoint(conv)
+                    ConversationSummaryService(db).save_checkpoint(conv, facts=data.facts)
             job.status = "succeeded" if not data.batch.rows or job.cursor_message_id == job.target_message_id else "queued"
             job.lease_owner, job.lease_expires_at, job.next_attempt_at = None, None, None
             job.attempts, job.error_code = 0, None
             db.commit()
             return True
 
-    def fail(self, claim, *, transient=False, stopped=False):
+    def fail(self, claim, *, transient=False, stopped=False, code=None):
         with self.sessions() as db:
             job = db.scalar(select(Job).where(Job.id == claim.id).with_for_update())
             if not self._owns(job, claim):
                 return
             job.status = "queued" if stopped or (transient and job.attempts < 3) else "failed"
-            job.error_code = "summary_worker_stopped" if stopped else "summary_provider_error" if transient else "summary_rebuild_error"
+            job.error_code = "summary_worker_stopped" if stopped else (code or ("summary_provider_error" if transient else "summary_rebuild_error"))
             job.next_attempt_at = utcnow() + timedelta(seconds=(2 ** (job.attempts - 1)) + random.uniform(0, .5))
             if stopped:
                 # 部署停机不是Provider失败，不消耗该批次的错误重试额度。
@@ -189,15 +195,8 @@ class SummaryRebuildWorker:
                 return
             summary = data.existing or ""
             if data.batch.rows:
-                runtime = data.runtime
-                summary = await asyncio.wait_for(self.provider_factory().complete_chat(
-                    provider_type=runtime.provider_type, base_url=runtime.base_url, api_key=runtime.provider_api_key,
-                    model_name=runtime.resolved_model, messages=data.prompt,
-                    temperature=.2, top_p=.9, max_tokens=min(2048, max(512, runtime.budget.max_summary_chars // 2))),
-                    timeout=self.MODEL_TIMEOUT_SECONDS)
-                if not summary or not summary.strip():
-                    raise ValueError("summary_provider_empty")
-                summary = summary.strip()[:runtime.budget.max_summary_chars]
+                summary, data.estimated_input_tokens = await generate_summary(self.provider_factory(), data.runtime,
+                    existing=data.existing, rows=data.batch.rows, facts=data.facts, timeout=self.MODEL_TIMEOUT_SECONDS)
             await asyncio.to_thread(self.complete, claim, data, summary)
         self.active = asyncio.create_task(execute())
         heart = asyncio.create_task(watch_lease(done, interval=self.HEARTBEAT_SECONDS,
@@ -211,7 +210,8 @@ class SummaryRebuildWorker:
             status = getattr(exc, "status_code", None)
             transient_types = (TimeoutError, ConnectionError, httpx.TimeoutException, httpx.TransportError, APIConnectionError)
             transient = isinstance(exc, transient_types) or isinstance(exc.__cause__, transient_types) or status in {408, 429, 500, 502, 503, 504}
-            await asyncio.to_thread(self.fail, claim, transient=transient)
+            await asyncio.to_thread(self.fail, claim, transient=transient or isinstance(exc, InvalidSummary),
+                code=str(exc) if isinstance(exc, InvalidSummary) else None)
         finally:
             done.set()
             await heart

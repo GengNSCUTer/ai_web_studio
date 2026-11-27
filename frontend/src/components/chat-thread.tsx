@@ -71,6 +71,8 @@ type ThreadMessage = {
   created_at: string;
   attachments: UploadItem[];
   isEphemeral?: boolean;
+  currentTurnOnly?: boolean;
+  canAnswerCurrentTurn?: boolean;
 };
 
 type ConversationCreateResponse = {
@@ -389,6 +391,7 @@ function toThreadMessages(messages: Message[]): ThreadMessage[] {
       reasoningContent: message.reasoning_content ?? null,
       externalSources: parseExternalSources(message.external_sources),
       citationAudit: parseCitationAudit(message.citation_audit),
+      currentTurnOnly: message.history_mode === "current_turn_only",
       mcpResources: message.mcp_resources || [],
       toolEvents: message.tool_events ?? [],
       status: message.status,
@@ -504,7 +507,7 @@ type ChatStreamEvent =
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_sources"; sources: ExternalSource[] }
   | { type: "citation_audit"; audit: CitationAudit }
-  | { type: "model_error"; error?: string; error_code?: string; assistant_message_id?: string }
+  | { type: "model_error"; error?: string; error_code?: string; assistant_message_id?: string; can_answer_current_turn?: boolean }
   | { type: "stream_error"; error?: string }
   | { type: "run_status"; status: string }
   | { type: "run_snapshot"; run: ChatRunSnapshot }
@@ -935,6 +938,8 @@ export function ChatThread({
         setThreadMessages((current) => current.map((message) => message.id === run.assistant_message_id ? {
           ...message, content, reasoningContent: reasoning, externalSources: sources, citationAudit: audit,
           status, ...(events ? { toolEvents: events } : {}),
+          currentTurnOnly: run.history_mode === "current_turn_only",
+          canAnswerCurrentTurn: run.can_answer_current_turn,
         } : message));
       };
       restore(run.content, run.reasoning_content, run.external_sources, run.citation_audit, runMessageStatus(run.status));
@@ -1405,6 +1410,8 @@ export function ChatThread({
     let sources: ExternalSource[] = [], audit: CitationAudit | null = null;
     let events: ToolTraceEvent[] = [];
     let status = "streaming";
+    let canAnswerCurrentTurn = false;
+    let currentTurnOnly = run.history_mode === "current_turn_only";
     await subscribeChatRun(run.id, signal, (raw) => {
       const event = raw as ChatStreamEvent;
       if (event.type === "answer_delta") answer += event.text;
@@ -1416,6 +1423,7 @@ export function ChatThread({
       else if (event.type === "done") status = "done";
       else if (event.type === "model_error" || event.type === "stream_error") {
         status = "failed";
+        canAnswerCurrentTurn = event.type === "model_error" && Boolean(event.can_answer_current_turn);
         setLocalError(event.error ?? text.replyModelFailed);
       } else if (event.type === "run_snapshot") {
         const recoveryMessage = chatRunFailureMessage(event.run.error_code);
@@ -1425,12 +1433,14 @@ export function ChatThread({
         sources = event.run.external_sources;
         audit = event.run.citation_audit;
         status = runMessageStatus(event.run.status);
+        canAnswerCurrentTurn = Boolean(event.run.can_answer_current_turn);
+        currentTurnOnly = event.run.history_mode === "current_turn_only";
         events = [];
         onContextInfoChange(event.run.context_info, run.conversation_id);
       } else if (isToolTraceEvent(event)) events = [...events, event];
       setThreadMessages((current) => current.map((message) => message.id === messageId ? {
         ...message, content: answer, reasoningContent: reasoning, externalSources: sources,
-        citationAudit: audit, toolEvents: events, status,
+        citationAudit: audit, toolEvents: events, status, canAnswerCurrentTurn, currentTurnOnly,
       } : message));
     });
     return status;
@@ -1517,7 +1527,7 @@ export function ChatThread({
     }
   }
 
-  async function handleRegenerateLastAssistant(assistantMessageId: string) {
+  async function handleRegenerateLastAssistant(assistantMessageId: string, currentTurnOnly = false) {
     const conversationId = activeConversationIdRef.current;
     if (!conversationId || !latestAssistantMessageId || assistantMessageId !== latestAssistantMessageId) {
       return;
@@ -1530,11 +1540,13 @@ export function ChatThread({
         model_name: selectedModel,
         system_prompt: systemPrompt,
         thinking_enabled: isDeepThinkingEnabled,
-        web_search_enabled: isWebSearchEnabled,
-        knowledge_base_id: selectedKnowledgeBaseIds[0] || null,
-        knowledge_base_ids: selectedKnowledgeBaseIds,
-        skill_key: selectedSkillKey,
-        tool_run_mode: toolRunMode,
+        ...(currentTurnOnly ? { history_mode: "current_turn_only" } : {
+          web_search_enabled: isWebSearchEnabled,
+          knowledge_base_id: selectedKnowledgeBaseIds[0] || null,
+          knowledge_base_ids: selectedKnowledgeBaseIds,
+          skill_key: selectedSkillKey,
+          tool_run_mode: toolRunMode,
+        }),
       }, assistantMessageId);
     } catch {
       // localError 已在 helper 中设置
@@ -1820,6 +1832,12 @@ export function ChatThread({
         {displayError ? (
           <div className="mx-auto mb-2.5 w-full max-w-[74rem] rounded-2xl border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger-text)]">
             {displayError}
+            {!isGenerating && latestAssistantMessage?.status === "failed" && latestAssistantMessage.canAnswerCurrentTurn ? (
+              <button type="button" className="mt-2 block rounded-full border border-current px-3 py-1 text-xs"
+                onClick={() => void handleRegenerateLastAssistant(latestAssistantMessage.id, true)}>
+                {uiLanguage === "en-US" ? "Answer using only this turn" : "仅用本轮问题回答"}
+              </button>
+            ) : null}
           </div>
         ) : null}
 

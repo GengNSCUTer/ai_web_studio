@@ -144,7 +144,6 @@ class MigrationPostgresTest(unittest.TestCase):
         from datetime import timedelta
         from app.models.agent_runtime import AgentRun, AgentStep
         from app.models.chat_run import ChatRun
-        from app.models.message import Message
         from app.models.user import User
 
         upgrade_database(self.engine, target="20261117_01")
@@ -153,9 +152,8 @@ class MigrationPostgresTest(unittest.TestCase):
             db.flush()
             db.execute(text("insert into conversations(id,user_id,title,model_name,is_archived,is_pinned) "
                             "values ('conv','u','迁移','test',false,false)"))
-            db.add_all([Message(id="question", conversation_id="conv", role="user", content="问题"),
-                        Message(id="answer", conversation_id="conv", role="assistant", content="保留答案", generation_id="g")])
-            db.flush()
+            db.execute(text("insert into messages (id,conversation_id,role,content,generation_id,status) values "
+                            "('question','conv','user','问题','q','done'), ('answer','conv','assistant','保留答案','g','done')"))
             db.add(ChatRun(id="chat", user_id="u", conversation_id="conv", user_message_id="question",
                 assistant_message_id="answer", generation_id="g", client_request_id="request", request_json="{}",
                 status="running", max_output_tokens=100, queued_expires_at=datetime.now(timezone.utc) + timedelta(minutes=1)))

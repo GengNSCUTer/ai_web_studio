@@ -23,6 +23,18 @@ from app.models.user import User
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.message_repo import MessageRepository
 from app.services.chat_context_assembly_service import ChatContextAssemblyService
+from app.services.chat_assembly_runtime import ChatAssemblyRuntime
+from app.services.chat_summary_coverage import ChatSummaryCoverage
+from app.services.conversation_summary_service import SummaryRebuildRequired
+from app.services.summary_output import SUMMARY_SECTIONS
+from app.services.tokenizer_service import TokenizerEstimator
+
+
+def test_summary(body="新摘要"):
+    return "\n".join(f"## {section}\n{body}" for section in SUMMARY_SECTIONS)
+
+
+PROVIDER = "app.services.chat_summary_coverage.ChatProviderService.complete_chat"
 from app.services.context_governance_service import ContextBudgetPlanner, ContextGovernanceService
 from app.services.message_service import MessageService
 
@@ -44,7 +56,7 @@ class SummaryLifecycleCases:
             row = Message(
                 conversation_id=self.conversation.id,
                 role="user" if index % 2 == 0 else "assistant",
-                content=f"历史消息 {index}",
+                content=f"历史消息 {index} " + "较早内容" * 65,
                 status="done",
                 created_at=start + timedelta(seconds=index),
             )
@@ -62,9 +74,11 @@ class SummaryLifecycleCases:
             message_service=self.service, tool_trace_repo=None,
         )
         budget = replace(ContextBudgetPlanner.build(model_context_window=16000, context_mode="balanced"),
-                         max_history_messages=2)
+                         max_history_messages=2, max_total_tokens=1500, max_total_chars=3200)
+        tokenizer = TokenizerEstimator()
         self.runtime = SimpleNamespace(
-            governance_service=ContextGovernanceService(budget=budget),
+            budget=ContextBudgetPlanner.build(model_context_window=32000, context_mode="balanced"),
+            tokenizer=tokenizer, governance_service=ContextGovernanceService(budget, tokenizer),
             resolved_model="test-summary", settings=SimpleNamespace(default_model="test-summary"),
             provider_type="openai_compatible", base_url="https://example.com/v1", provider_api_key=None,
         )
@@ -125,54 +139,59 @@ class SummaryLifecycleCases:
         self.service.reset_assistant_for_regeneration(self.rows[1])
         self.assert_summary_cleared()
 
-    def _refresh(self, *, snapshot=None):
-        expected = snapshot if snapshot is not None else self.repo.history_snapshot(
-            self.conversation.id, exclude_message_id=self.assistant.id
-        )
-        return asyncio.run(self.assembly._refresh_context_summary(
-            conversation=self.conversation, runtime=self.runtime,
-            expected_history=expected, assistant_id=self.assistant.id, generation_id=self.assistant.generation_id,
-        ))
+    def _refresh(self):
+        user = self.rows[-2]
+        runtime = ChatAssemblyRuntime(self.conversation, [user], user, self.assistant,
+                                      self.runtime, False, None, False)
+        self.assembly.snapshot(runtime)
+        coverage = ChatSummaryCoverage(self.db)
+        asyncio.run(coverage.prepare(runtime))
+        coverage.verify(runtime)
+        return runtime
 
     def test_unchanged_history_refreshes_without_transaction_during_model_wait(self):
         async def summarize(**kwargs):
             self.assertFalse(self.db.in_transaction())
-            return "新摘要"
-        with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat", side_effect=summarize):
+            return test_summary()
+        with patch(PROVIDER, side_effect=summarize):
             result = self._refresh()
         self.db.commit()
-        self.assertEqual(result.summary, "新摘要")
-        self.assertEqual(self.conversation.context_summary_boundary_message_id, self.rows[-3].id)
+        self.assertEqual(result.summary_bundle.summary, test_summary())
+        self.assertTrue(result.summary_bundle.stats["summary_refresh_source_messages"])
 
-    def test_bounded_chat_summarizes_rows_outside_its_mode_even_below_refresh_threshold(self):
-        budget = replace(self.runtime.governance_service.budget, max_history_messages=len(self.rows) - 3)
-        self.runtime.governance_service = ContextGovernanceService(budget)
-        history = self.repo.list_for_context(self.conversation, exclude_message_id=self.assistant.id)
-        snapshot = [(row.id, row.role, row.content, row.generation_id) for row in history]
-        complete = AsyncMock(return_value="已覆盖模式窗口之外的消息")
-        with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat", new=complete):
-            result = asyncio.run(self.assembly._refresh_context_summary(
-                conversation=self.conversation, runtime=self.runtime, expected_history=snapshot,
-                assistant_id=self.assistant.id, generation_id=self.assistant.generation_id, bounded_history=True))
-        complete.assert_awaited_once()
-        self.assertEqual(result.stats["summary_refresh_source_messages"], 1)
-        self.assertEqual(result.boundary_message_id, self.rows[2].id)
-
-    def test_provider_failure_preserves_fallback(self):
-        with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat",
-                   new=AsyncMock(side_effect=TimeoutError())):
+    def test_all_uncovered_history_is_retained_when_it_fits(self):
+        budget = replace(self.runtime.budget, max_total_chars=16000, max_total_tokens=8000)
+        self.runtime.governance_service = ContextGovernanceService(budget, self.runtime.tokenizer)
+        with patch(PROVIDER, new=AsyncMock()) as provider:
             result = self._refresh()
-        self.db.commit()
-        self.assertEqual(result.stats["summary_refresh_fallback_used"], 1)
-        self.assertTrue(self.conversation.context_summary)
+        provider.assert_not_awaited()
+        self.assertEqual([row.id for row in result.history_rows], [row.id for row in self.rows[2:-1]])
 
-    def test_history_changed_before_summary_rejects_old_context(self):
-        snapshot = self.repo.history_snapshot(self.conversation.id, exclude_message_id=self.assistant.id)
-        self.service.delete_message(self.rows[0].id, self.conversation.id)
-        with self.assertRaises(HTTPException) as caught:
-            self._refresh(snapshot=snapshot)
-        self.assertEqual(caught.exception.status_code, 409)
-        self.assert_summary_cleared()
+    def test_balanced_retains_complete_suffix_past_its_nominal_window(self):
+        self.db.delete(self.assistant)
+        for index in range(12, 41):
+            self.rows.append(self.repo.create(Message(conversation_id=self.conversation.id,
+                role="user" if index % 2 == 0 else "assistant", content=f"历史 {index}", status="done")))
+        self.assistant = self.repo.create(Message(conversation_id=self.conversation.id,
+            role="assistant", content="", status="streaming"))
+        self.conversation.context_summary_boundary_message_id = self.rows[15].id
+        self.db.commit()
+        budget = ContextBudgetPlanner.build(model_context_window=32000, context_mode="balanced")
+        self.runtime.governance_service = ContextGovernanceService(budget, self.runtime.tokenizer)
+        user = self.rows[-1]
+        runtime = ChatAssemblyRuntime(self.conversation, [user], user, self.assistant, self.runtime, False, None, False)
+        self.assembly.snapshot(runtime)
+        with patch(PROVIDER, new=AsyncMock()) as provider:
+            asyncio.run(ChatSummaryCoverage(self.db).prepare(runtime))
+        provider.assert_not_awaited()
+        self.assertEqual([row.id for row in runtime.history_rows], [row.id for row in self.rows[16:]])
+
+    def test_provider_failure_preserves_safe_boundary_and_registers_job(self):
+        with patch(PROVIDER, new=AsyncMock(side_effect=TimeoutError())):
+            with self.assertRaises(SummaryRebuildRequired):
+                self._refresh()
+        self.assertEqual(self.conversation.context_summary, "已压缩的旧历史")
+        self.assertEqual(self.conversation.context_summary_boundary_message_id, self.rows[1].id)
 
     def test_late_summary_cannot_restore_deleted_history(self):
         mid, cid = self.rows[0].id, self.conversation.id
@@ -182,8 +201,8 @@ class SummaryLifecycleCases:
                 if self.engine.dialect.name == "postgresql":
                     other.execute(text("set local lock_timeout = '1s'"))
                 MessageService(MessageRepository(other)).delete_message(mid, cid)
-            return "包含已删除内容的迟到摘要"
-        with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat", side_effect=summarize):
+            return test_summary("包含已删除内容的迟到摘要")
+        with patch(PROVIDER, side_effect=summarize):
             with self.assertRaises(HTTPException) as caught:
                 self._refresh()
         self.assertEqual(caught.exception.status_code, 409)
@@ -198,8 +217,8 @@ class SummaryLifecycleCases:
                 repo.invalidate_summary_for_changes(conversation, [mid])
                 other.get(Message, mid).content = "同 ID 新内容"
                 other.commit()
-            return "过期摘要"
-        with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat", side_effect=summarize):
+            return test_summary("过期摘要")
+        with patch(PROVIDER, side_effect=summarize):
             with self.assertRaises(HTTPException):
                 self._refresh()
         self.assert_summary_cleared()
@@ -212,8 +231,8 @@ class SummaryLifecycleCases:
                 repo.lock_conversation(cid)
                 repo.lock_message(aid, cid).generation_id = str(uuid4())
                 other.commit()
-            return "旧请求的摘要"
-        with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat", side_effect=summarize):
+            return test_summary("旧请求的摘要")
+        with patch(PROVIDER, side_effect=summarize):
             with self.assertRaises(HTTPException) as caught:
                 self._refresh()
         self.assertEqual(caught.exception.status_code, 409)
@@ -236,8 +255,8 @@ class ContextSummaryPostgresTest(SummaryLifecycleCases, unittest.TestCase):
     def test_delete_waits_for_summary_commit_then_invalidates_new_summary(self):
         """验证返回后到组装提交前，删除不能越过会话行锁。"""
         mid, cid = self.rows[0].id, self.conversation.id
-        with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat",
-                   new=AsyncMock(return_value="新摘要")):
+        with patch(PROVIDER,
+                   new=AsyncMock(return_value=test_summary())):
             self._refresh()
         with Session(self.engine, autoflush=False) as other:
             other.execute(text("set local lock_timeout = '100ms'"))

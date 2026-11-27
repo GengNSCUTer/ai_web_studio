@@ -36,6 +36,7 @@ class MessageResponse(BaseModel):
     reasoning_content: str | None = None
     external_sources: str | None = None
     citation_audit: str | None = None
+    history_mode: str = "complete"
     mcp_resources: list[McpResourceSelection] = Field(default_factory=list)
     tool_events: list[dict[str, Any]] = Field(default_factory=list)
     status: str
@@ -88,6 +89,7 @@ class ChatRegenerateRequest(BaseModel):
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=10)
     skill_key: str | None = Field(default=None, max_length=128)
     tool_run_mode: ToolRunMode = "quick_chat"
+    history_mode: Literal["complete", "current_turn_only"] = "complete"
 
 
 class ChatEditLastUserRequest(BaseModel):

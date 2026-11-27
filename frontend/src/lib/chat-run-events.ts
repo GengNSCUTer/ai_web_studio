@@ -6,6 +6,8 @@ export type ChatRunSnapshot = {
   assistant_message_id: string;
   status: string;
   error_code?: string | null;
+  history_mode?: "complete" | "current_turn_only";
+  can_answer_current_turn?: boolean;
   content: string;
   reasoning_content: string;
   external_sources: ExternalSource[];

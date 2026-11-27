@@ -40,6 +40,7 @@ class Message(Base):
     reasoning_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_sources: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 与本次生成同事务保存标签审计；不代表证据语义支持性已经验证。
+    history_mode: Mapped[str] = mapped_column(String(24), default="complete", server_default="complete")
     citation_audit: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 用户本轮显式选择的MCP资源；重生成时重新授权读取，不重用过期正文。
     mcp_resources_json: Mapped[str | None] = mapped_column(Text, nullable=True)

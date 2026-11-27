@@ -288,20 +288,24 @@ class CapacityCases:
                 conv.context_summary_boundary_message_id = ids[99]
                 db.commit()
                 repo = MessageRepository(db)
-                rows = repo.list_for_context(conv, exclude_message_id=aid)
+                user = repo.latest_user_before(db.get(Message, aid))
                 assembly = ChatContextAssemblyService(db=db, user_id=self.uid,
                     conversation_repo=ConversationRepository(db), message_service=MessageService(repo), tool_trace_repo=None)
-                runtime = SimpleNamespace(governance_service=ContextGovernanceService(ContextBudgetPlanner.build(
-                    model_context_window=16000, context_mode=mode)), resolved_model="synthetic",
-                    settings=SimpleNamespace(), provider_type="openai-compatible", base_url="https://example.test", provider_api_key=None)
+                from app.services.chat_assembly_runtime import ChatAssemblyRuntime
+                from app.services.chat_summary_coverage import ChatSummaryCoverage
+                from app.services.tokenizer_service import TokenizerEstimator
+                tokenizer = TokenizerEstimator()
+                budget = ContextBudgetPlanner.build(model_context_window=8192, context_mode=mode)
+                runtime = SimpleNamespace(governance_service=ContextGovernanceService(budget, tokenizer),
+                    budget=budget, tokenizer=tokenizer, resolved_model="synthetic", settings=SimpleNamespace(),
+                    provider_type="openai-compatible", base_url="https://example.test", provider_api_key=None)
                 from app.services.conversation_summary_service import SummaryRebuildRequired
                 from app.models.conversation_summary import ConversationSummaryJob
-                with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat",
-                           new=AsyncMock(return_value="新摘要")) as provider:
+                request = ChatAssemblyRuntime(conv, [user], user, db.get(Message, aid), runtime, False, None, False)
+                assembly.snapshot(request)
+                with patch("app.services.chat_summary_coverage.ChatProviderService.complete_chat", new=AsyncMock()) as provider:
                     with self.assertRaises(SummaryRebuildRequired):
-                        asyncio.run(assembly._refresh_context_summary(conversation=conv, runtime=runtime,
-                            expected_history=[(r.id, r.role, r.content, r.generation_id) for r in rows],
-                            assistant_id=aid, generation_id=db.get(Message, aid).generation_id, bounded_history=True))
+                        asyncio.run(ChatSummaryCoverage(db).prepare(request))
                     provider.assert_not_awaited()
                 self.assertEqual(conv.context_summary_boundary_message_id, ids[99])
                 self.assertIsNotNone(db.scalar(select(ConversationSummaryJob).where(

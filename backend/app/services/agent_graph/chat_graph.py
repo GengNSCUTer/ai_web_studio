@@ -126,6 +126,8 @@ async def _assemble_context(state: ChatGraphState, runtime: Runtime[ChatGraphCon
             "knowledge_base_ids": payload.knowledge_base_ids,
             "tool_run_mode": payload.tool_run_mode,
         }
+    if context.turn_kind != "new" and payload.history_mode != "complete":
+        values["history_mode"] = payload.history_mode
     context.result = await service.context_assembly_service.build_execution_context(
         conversation=context.conversation,
         history_rows=context.history_rows if context.history_rows is not None else [],

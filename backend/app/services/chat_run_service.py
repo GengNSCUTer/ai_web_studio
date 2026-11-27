@@ -27,6 +27,21 @@ LEASE_SECONDS = 45
 MAX_WORKER_ATTEMPTS = 3
 MAX_GENERATION_ATTEMPTS = 2
 
+SUMMARY_BLOCK_CODES = frozenset({"context_summary_rebuilding", "context_summary_rebuild_failed"})
+
+
+def _run_options(run):
+    return json.loads(run.request_json).get("payload", {})
+
+
+def _plain_chat(options):
+    return options.get("tool_run_mode", "quick_chat") == "quick_chat" and not any(options.get(key) for key in (
+        "web_search_enabled", "knowledge_base_id", "knowledge_base_ids", "skill_key", "mcp_resources"))
+
+
+def _can_answer_current_turn(run):
+    return (run.status == "failed" and run.error_code in SUMMARY_BLOCK_CODES and _plain_chat(_run_options(run)))
+
 
 @dataclass(frozen=True)
 class ChatClaim:
@@ -52,6 +67,8 @@ class ChatRunService:
         if not 1 <= len(request_id) <= 128:
             raise HTTPException(422, "请求标识长度不合法")
         request = {"kind": kind, "payload": payload.model_dump(mode="json", exclude={"client_request_id"})}
+        if request["payload"].get("history_mode") == "complete":
+            request["payload"].pop("history_mode")
         encoded = json.dumps(request, ensure_ascii=False, sort_keys=True)
         service = ChatExecutionService(db=self.db, current_user=user)
         # 默认设置可能首次创建并提交，必须先完成，再进入消息/Run原子事务。
@@ -84,6 +101,12 @@ class ChatRunService:
                 user_message = service.message_repo.latest_user_before(assistant)
                 if not user_message or (kind == "edit" and user_message.id != payload.user_message_id):
                     raise HTTPException(400, "未找到最后一轮用户消息")
+                if request["payload"].get("history_mode") == "current_turn_only":
+                    previous_run = self.db.scalar(select(ChatRun).where(ChatRun.assistant_message_id == assistant.id,
+                        ChatRun.generation_id == assistant.generation_id, ChatRun.user_id == user.id))
+                    if (previous_run is None or not _can_answer_current_turn(previous_run)
+                            or not _plain_chat(request["payload"]) or json.loads(user_message.mcp_resources_json or "[]")):
+                        raise HTTPException(409, "当前轮次无法仅用本轮问题回答")
                 if kind == "edit":
                     service.validate_attachment_context_inputs(payload.attachments or [])
                     service.message_service.edit_and_reset_for_regeneration(user_message=user_message,
@@ -130,6 +153,8 @@ class ChatRunService:
             "citation_audit": json.loads(run.citation_audit_json) if run.citation_audit_json else None,
             "last_event_id": run.event_sequence, "events_pruned_through": run.events_pruned_through,
             "model_attempts": run.model_attempts, "error_code": run.error_code,
+            "history_mode": _run_options(run).get("history_mode", "complete"),
+            "can_answer_current_turn": _can_answer_current_turn(run),
             "created_at": run.created_at.isoformat(),
             "finished_at": run.finished_at.isoformat() if run.finished_at else None}
 
@@ -323,7 +348,8 @@ class ChatRunService:
                 external_sources=ChatRun.sources_json, citation_audit=ChatRun.citation_audit_json)
         else:
             values = dict(content=run.content, reasoning_content=run.reasoning_content or None,
-                external_sources=run.sources_json, citation_audit=run.citation_audit_json)
+                external_sources=run.sources_json, citation_audit=run.citation_audit_json,
+                history_mode=_run_options(run).get("history_mode", "complete"))
         self.db.execute(stmt.values(**values, status=status, updated_at=now)
             .execution_options(synchronize_session=False))
 
@@ -347,6 +373,7 @@ class ChatRunService:
             self._event(run, {"type": "model_error", "error_code": error_code,
                 "error": public_errors.get(error_code, "回答生成已中断，已保留收到的内容。可查看详情或重新生成。"),
                 "retryable": error_code in summary_errors,
+                "can_answer_current_turn": _can_answer_current_turn(run),
                 "assistant_message_id": run.assistant_message_id})
         # 原生订阅收到终态即关闭；先发送具体错误，不能让终态吞掉错误说明。
         self._event(run, {"type": "run_status", "status": status, "run_id": run.id, "error_code": error_code})

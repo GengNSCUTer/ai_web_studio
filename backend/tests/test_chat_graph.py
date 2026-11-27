@@ -94,7 +94,7 @@ class ChatGraphTests(unittest.TestCase):
             web_search_enabled=False,
             knowledge_base_id=None,
             knowledge_base_ids=None,
-            tool_run_mode="quick_chat",
+            history_mode="complete", tool_run_mode="quick_chat",
         )
         result = asyncio.run(run_chat_graph(ChatGraphContext(
             service=service,
