@@ -77,7 +77,9 @@ class SummaryRebuildCases:
             MessageService(MessageRepository(db)).delete_message(self.ids[749], self.cid)
             conv = db.get(Conversation, self.cid)
             self.assertEqual(conv.context_summary_boundary_message_id, self.ids[599])
-            self.assertEqual(db.scalars(select(Checkpoint.boundary_message_id).where(Checkpoint.conversation_id==self.cid)).all(), self.ids[199:600:200])
+            checkpoints = db.scalars(select(Checkpoint.boundary_message_id)
+                .where(Checkpoint.conversation_id == self.cid).order_by(Checkpoint.boundary_sequence)).all()
+            self.assertEqual(checkpoints, self.ids[199:600:200])
         for _ in range(12):
             if not asyncio.run(self.worker.run_once()): break
         with self.sessions() as db:
