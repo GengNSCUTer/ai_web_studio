@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.evidence_context import EvidenceSection
+from app.services.memory_injection_policy import BEHAVIOR_REFERENCE_TITLE, MEMORY_REFERENCE_TITLE
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class ContextPromptBuilder:
         "knowledge_context",
         "external_context",
         "attachment_context",
+        "memory_behavior",
         "long_term_memory",
         "conversation_summary",
     )
@@ -47,6 +49,7 @@ class ContextPromptBuilder:
         external_context: str | None,
         attachment_context: str | None,
         provider_type: str,
+        memory_behavior: str | None = None,
         knowledge_context: str | None = None,
         model_name: str | None = None,
         skill_instructions: str | None = None,
@@ -108,9 +111,13 @@ class ContextPromptBuilder:
 
         if memory_context:
             current_evidence_sections.append(
-                self._reference_section("long_term_memory", "长期记忆", memory_context)
+                self._reference_section("long_term_memory", MEMORY_REFERENCE_TITLE, memory_context)
             )
             layers.append("long_term_memory")
+
+        if memory_behavior:
+            current_evidence_sections.append(self._reference_section("memory_behavior", BEHAVIOR_REFERENCE_TITLE, memory_behavior))
+            layers.append("memory_behavior")
 
         # Some OpenAI-compatible providers only accept one leading system message.
         prompt_messages.append(
@@ -160,7 +167,7 @@ class ContextPromptBuilder:
             provider_message["_context_layer"] = "recent_history"
             if attachment_context and is_current_user:
                 current_evidence_sections.insert(
-                    len(current_evidence_sections) - (1 if memory_context else 0),
+                    len(current_evidence_sections) - int(bool(memory_context)) - int(bool(memory_behavior)),
                     self._reference_section(
                         "attachment_context",
                         "当前轮附件片段",

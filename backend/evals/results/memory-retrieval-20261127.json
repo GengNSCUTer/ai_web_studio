@@ -1,0 +1,62 @@
+{
+  "cases": 128,
+  "holdout": 64,
+  "models": [
+    {
+      "model": "BAAI/bge-m3",
+      "signature": "0c6d0815cc750254dbbbd03b9430675ea1d35c83955687dec4fb2567df9172a1",
+      "strategies": {
+        "rrf": {
+          "threshold": 0.55,
+          "precision_at_3": 0.7395833333333334,
+          "recall_at_3": 0.9166666666666666,
+          "irrelevant_injection_rate": 0.328125
+        },
+        "weighted": {
+          "threshold": 0.6,
+          "semantic_weight": 0.3,
+          "precision_at_3": 0.7526041666666666,
+          "recall_at_3": 0.8125,
+          "irrelevant_injection_rate": 0.171875,
+          "passes_holdout": false
+        },
+        "hybrid": {
+          "threshold": 0.6,
+          "semantic_weight": 0.3,
+          "precision_at_3": 0.7526041666666666,
+          "recall_at_3": 0.8125,
+          "irrelevant_injection_rate": 0.171875,
+          "passes_holdout": false
+        }
+      }
+    },
+    {
+      "model": "BAAI/bge-large-zh-v1.5",
+      "signature": "a9d82bae321ff6be944fe85a62b9d42c61487a81b00aa0753234266b19b5de3a",
+      "strategies": {
+        "rrf": {
+          "threshold": 0.55,
+          "precision_at_3": 0.65625,
+          "recall_at_3": 0.625,
+          "irrelevant_injection_rate": 0.09375
+        },
+        "weighted": {
+          "threshold": 0.5,
+          "semantic_weight": 0.3,
+          "precision_at_3": 0.6770833333333333,
+          "recall_at_3": 0.7708333333333334,
+          "irrelevant_injection_rate": 0.25,
+          "passes_holdout": false
+        },
+        "hybrid": {
+          "threshold": 0.5,
+          "semantic_weight": 0.3,
+          "precision_at_3": 0.6770833333333333,
+          "recall_at_3": 0.7708333333333334,
+          "irrelevant_injection_rate": 0.25,
+          "passes_holdout": false
+        }
+      }
+    }
+  ]
+}

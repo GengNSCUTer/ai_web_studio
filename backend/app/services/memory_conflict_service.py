@@ -8,11 +8,9 @@ from typing import Literal
 from types import SimpleNamespace
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import update
 
 from app.core.database import SessionLocal
 from app.core.config import settings as app_settings
-from app.models.user_memory import UserMemory
 from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.conversation_repo import ConversationRepository
 from app.repositories.setting_repo import UserSettingRepository
@@ -23,7 +21,10 @@ from app.services.setting_service import SettingService
 from app.services.memory_service import MemoryService
 from app.services.memory_policy import contains_credential, equivalent_content, lifetime, memory_identity
 from app.services.memory_extraction_policy import redact_source
-from app.services.memory_retrieval_service import MemoryRetrievalService, _FrozenEmbeddingSettings, text_hash, valid_vector, cosine
+from app.services.memory_retrieval_service import (
+    MemoryRetrievalService, _FrozenEmbeddingSettings, embedding_config, lock_embedding_setting,
+    write_memory_vectors, text_hash, valid_vector, cosine,
+)
 from app.services.memory_conflict_policy import CONFIDENCE_MIN, candidate_snapshot, high_impact, structured_fact_key
 
 logger = logging.getLogger(__name__)
@@ -86,15 +87,14 @@ class MemoryConflictService:
             return rows, embedding, provider, exact
 
     def _save_vectors(self, user_id, config, generated):
+        if not generated:
+            return
         signature = MemoryRetrievalService.signature(config)
         with self.sessions() as db:
-            for row, vector in generated:
-                db.execute(update(UserMemory).where(UserMemory.id == row.id, UserMemory.user_id == user_id,
-                    UserMemory.version == row.version, UserMemory.status == 'active',
-                    UserMemory.title == row.title, UserMemory.content == row.content).values(
-                    embedding_vector=json.dumps(vector), embedding_signature=signature,
-                    embedding_text_hash=text_hash(row), updated_at=UserMemory.updated_at)
-                    .execution_options(synchronize_session=False))
+            setting = lock_embedding_setting(db, user_id)
+            if not setting or signature != MemoryRetrievalService.signature(embedding_config(setting)):
+                return
+            write_memory_vectors(db, user_id, signature, generated, enabled_only=False)
             db.commit()
 
     async def recheck(self, *, user_id, memory_id, expected_version):

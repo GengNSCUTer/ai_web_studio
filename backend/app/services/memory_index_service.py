@@ -1,7 +1,6 @@
 """后台有限补建记忆向量；网络等待不持有事务，失败不阻塞普通 Chat。"""
 
 import asyncio
-import json
 import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -18,7 +17,10 @@ from app.services.setting_service import SettingService
 from app.services.memory_policy import contains_credential
 from app.services.memory_extraction_policy import redact_source
 from app.services.memory_source_service import source_issues
-from app.services.memory_retrieval_service import MemoryRetrievalService, _FrozenEmbeddingSettings, text_hash, valid_vector
+from app.services.memory_retrieval_service import (
+    MemoryRetrievalService, _FrozenEmbeddingSettings, embedding_config, lock_embedding_setting,
+    valid_vector, write_memory_vectors,
+)
 from app.services.knowledge_index_service import KnowledgeEmbeddingService
 
 logger = logging.getLogger(__name__)
@@ -83,21 +85,13 @@ class MemoryIndexWorker:
     def _save(self, uid, config, lease, rows, vectors):
         with self.sessions() as db:
             # 短事务锁配置行，防止刚核对完模型又被切换、迟到向量覆盖失效标记。
-            setting = db.scalar(select(UserSetting).where(UserSetting.user_id == uid).with_for_update())
+            setting = lock_embedding_setting(db, uid)
             if not setting or not setting.memory_enabled:
                 return
-            current = dict(provider=setting.knowledge_embedding_provider, model=setting.knowledge_embedding_model,
-                dimensions=setting.knowledge_embedding_dimensions, base_url=setting.knowledge_embedding_base_url)
-            if MemoryRetrievalService.signature(current) != MemoryRetrievalService.signature(config):
+            signature = MemoryRetrievalService.signature(config)
+            if MemoryRetrievalService.signature(embedding_config(setting)) != signature:
                 return
-            for row, vector in zip(rows, vectors):
-                db.execute(update(UserMemory).where(UserMemory.id == row["id"], UserMemory.user_id == uid,
-                    UserMemory.version == row["version"], UserMemory.title == row["title"],
-                    UserMemory.content == row["content"], UserMemory.status == "active",
-                    UserMemory.is_enabled.is_(True), UserMemory.embedding_retry_after == lease).values(
-                        embedding_vector=json.dumps(vector), embedding_signature=MemoryRetrievalService.signature(config),
-                        embedding_text_hash=text_hash(SimpleNamespace(**row)), embedding_retry_after=None,
-                        updated_at=UserMemory.updated_at))
+            write_memory_vectors(db, uid, signature, zip((SimpleNamespace(**row) for row in rows), vectors), lease=lease)
             db.commit()
 
     async def run_once(self):

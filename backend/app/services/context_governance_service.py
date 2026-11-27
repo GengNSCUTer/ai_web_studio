@@ -143,6 +143,7 @@ class ContextGovernanceService:
     # 默认先裁剪低优先级参考资料。任务显式选中的资料可在本轮获得更高优先级。
     REFERENCE_DROP_ORDER = (
         "conversation_summary",
+        "memory_behavior",
         "long_term_memory",
         "attachment_context",
         "external_context",
@@ -337,7 +338,7 @@ class ContextGovernanceService:
             all_layers = self._reference_layers(current)
             structured = any(isinstance(self._reference_sections(current[i])[j].get("_evidence_section"), EvidenceSection)
                              for i, j in matching)
-            if len(all_layers) == 1 or structured:
+            if len(all_layers) == 1 or structured or layer in {"long_term_memory", "memory_behavior"}:
                 current, clipped_delta, retained = self._truncate_one_reference_layer(current, layer, exceeds)
                 clipped_chars += clipped_delta
                 if retained and clipped_delta:
@@ -396,10 +397,11 @@ class ContextGovernanceService:
                 best = original_text[:middle]
                 low = middle + 1
         clipped = max(0, len(original_text) - len(best))
-        if layer == "long_term_memory" and clipped:
+        if layer in {"long_term_memory", "memory_behavior"} and clipped:
             # 不把半条事实送给模型：最后一行被截断时退回到上一条完整记忆。
-            best = best.rsplit("\n", 1)[0] if "\n" in best else ""
-            if not any(line.startswith("- [") for line in best.splitlines()):
+            if original_text[len(best):len(best) + 1] != "\n":
+                best = best.rsplit("\n", 1)[0] if "\n" in best else ""
+            if not any(line.startswith("- ") for line in best.splitlines()):
                 best = ""
             clipped = len(original_text) - len(best)
         if not best.strip():

@@ -45,9 +45,13 @@ def lifetime(title: str, content: str) -> str:
 def requested_response_language(query: str | None) -> str | None:
     """本轮明确语言要求在代码层覆盖默认值，不让两个相反要求同时进入 Prompt。"""
     text = normalize(query).lower()
-    match = re.search(r"(?:这次|本次|这一轮|这轮|请|please).{0,40}?(?:用|使用|in)\s*(中文|汉语|英文|英语|chinese|english)", text)
+    match = re.search(r"(?:^|[，。；！？,;!?]\s*)(?:(?:这次|本次|本轮|这一轮|这轮)\s*)?(?:请\s*)?"
+                      r"(?:用|使用|以)\s*(中文|汉语|英文|英语|chinese|english)\s*"
+                      r"(?:(?:来)?(?:回答|回复|作答|输出)|(?=$|[，。；！？,;!?]))"
+                      r"|(?:回答|回复|作答|输出|answer|respond|reply)\s*(?:请\s*)?(?:请用|使用|用|语言[为是：:]?|\bin\b)\s*"
+                      r"(中文|汉语|英文|英语|chinese\b|english\b)", text)
     if match:
-        return "zh" if match.group(1) in {"中文", "汉语", "chinese"} else "en"
+        return "zh" if (match.group(1) or match.group(2)) in {"中文", "汉语", "chinese"} else "en"
     return None
 
 

@@ -1,0 +1,33 @@
+# 项目\t标题\t记忆正文\t明确查询\t语义改写\t英文同义查询\t相近但无关查询
+ops	Kafka 消费者	订单事件消费组使用手动提交 offset，处理成功后再确认。	Kafka 消费组何时提交 offset？	消息处理成功后怎样确认消费进度？	When does our order event listener acknowledge records?	Kafka 如何调整生产者的压缩算法？
+ops	PostgreSQL 备份	生产库每晚两点创建全量备份，保存十四天。	PostgreSQL 全量备份保留多久？	数据快照有几周可以恢复？	What is our production database backup retention?	PostgreSQL 如何让查询使用复合索引？
+ops	Redis 缓存	库存缓存键的默认 TTL 为五分钟，写入库存后立即失效。	库存 Redis 缓存 TTL 是多少？	商品数量在缓存里能存多久？	How long may cached stock counts stay valid?	如何给 Redis Sentinel 设置选举超时？
+ops	告警值班	支付事故的一级告警由值班组在五分钟内响应。	支付一级告警的响应时限？	付款出问题后当班人员多久接手？	What is the on-call response time for a payment incident?	用户能否更换支付方式？
+ops	应用日志	线上应用结构化日志保留七天，敏感字段先做脱敏。	应用日志保留几天？	排查一周前的错误还有记录吗？	How long do we keep production application logs?	Linux 如何按时间筛选日志？
+ops	发布变更	生产发布先向百分之十的实例试运行三十分钟。	生产发布的灰度比例和时长？	新版本先给小部分服务跑多久？	What is our initial canary rollout size and duration?	如何撰写新版本的公开发布说明？
+ops	连接池	订单数据库连接池限制为每个进程十二条连接。	订单数据库连接池上限是多少？	订单服务的单进程最多能连数据库几次？	How many database sessions may one order process open?	如何检查 Kubernetes Pod 网络连通性？
+ops	指标采集	计费服务每三十秒上报指标，保留九十天。	计费指标采集周期和保留期？	账务服务监控数据多久采一次？	How often do we scrape the billing service metrics?	如何计算新用户的获客成本？
+shop	Kafka 生产者	商店的商品变更事件使用 zstd 压缩，等待全部副本确认。	商品 Kafka 生产者采用何种压缩？	商品写入消息队列时怎样编码和确认？	What compression does the catalog event publisher use?	Kafka 消费组何时提交 offset？
+shop	订单超时	订单创建接口超时为三十秒，失败后最多重试三次。	订单创建超时和重试次数？	下单失败后客户端还可以尝试几次？	What retry limit applies to creating an order?	订单号由什么算法生成？
+shop	运费门槛	大陆订单满九十九元免普通配送费，偏远地区除外。	订单满多少钱免运费？	购买多少金额能免普通快递费？	At what basket value is mainland shipping free?	海外订单的进口税是多少？
+shop	退货窗口	服装商品签收后十五天内可以发起退货。	服装退货有效期是几天？	收到衣服多久还能申请退？	What is the apparel return window after delivery?	定制服饰能否改尺码？
+shop	促销券叠加	同一订单最多使用一张店铺券，允许叠加平台积分。	店铺券能和积分一起用吗？	结账时有没有优惠券数量限制？	Can a shop coupon be combined with platform points?	过期优惠券能退款吗？
+shop	缺货提醒	库存回补时发送一次站内提醒，有效订阅保留三十天。	订阅缺货提醒保留多久？	感兴趣的商品重新有货后会怎样通知？	How does our store notify users when stock returns?	怎样计算商品库存周转率？
+shop	发票时间	付款完成后的电子发票通常在两个工作日内开具。	电子发票什么时候开？	付款之后多久能收到报销凭证？	When is the electronic invoice issued after payment?	跨境购物需要填写什么海关申报类别？
+shop	购物车保留	未登录购物车在浏览器保留七天，登录后服务端保留三十天。	购物车登录前后分别保存几天？	临时挑选的商品多久会从待结算列表消失？	How long is an anonymous basket retained?	购物车如何添加礼包组合商品？
+research	样稿引用	技术报告引用采用顺序编码，附录列出数据版本。	技术报告引用使用什么格式？	研究样稿的参考文献怎样编号？	Which citation format is used in the technical report?	专利申请的官方费用是多少？
+research	试验编号	每轮实验使用 RUN 加日期和四位序号作为唯一编号。	实验编号格式是什么？	每批测试如何生成唯一标识？	How should an experiment run identifier be formed?	如何算两组结果间的显著性？
+research	采样规则	回访样本按地区分层，每层至少五十条记录。	回访样本如何按地区抽取？	不同地域都要留多少调查样本？	What is the minimum follow-up sample per geographic stratum?	样本问卷的访问密码是什么？
+research	报告更新	研究周报每周四下午更新，由轮值人员审核。	研究周报每周何时更新？	哪天可以看到本周研究进展？	When is the weekly research update published?	项目经理的手机号是什么？
+research	数据归档	最终数据集使用 Parquet，归档副本放入冷存储并保存五年。	最终数据集归档格式和保留期？	试验原始结果长期储存用什么文件类型？	What file format is used for archived research results?	如何在 PostgreSQL 修改默认排序？
+research	缺失值标记	数据清洗把未知数值标为 NA，零保留作实际观测。	清洗时如何标记缺失值？	没有录入的数据会不会和实际零混淆？	How do we distinguish missing numeric observations from zero?	怎样用决策树预测未知分类？
+research	复核比例	研究结果抽取百分之二十样本，由第二人独立复核。	结果需要抽查多少比例？	两人独立校验覆盖多大一部分？	What share of results receives an independent second review?	双盲试验的随机分组如何设计？
+research	表格版式	研究表格保留两位小数，误差范围用括号表示。	研究表格要保留几位小数？	结果表里如何展示不确定性区间？	How should numeric precision and uncertainty appear in tables?	如何给 Excel 设置访问密码？
+personal	会议时间	我偏好把一对一会议安排在周二上午。	我偏好何时开一对一会议？	单独交流通常安排在哪半天？	When do I prefer holding one-on-one meetings?	东京到京都的新干线是什么时候发车？
+personal	周末活动	周末喜欢到雪山滑雪，避免在人多时去热门景点。	假期我偏好什么户外活动？	休假去高山可以体验什么运动？	What winter activity do I enjoy on a weekend?	初学滑雪需要买哪种头盔？
+personal	阅读形式	我习惯读电子书，晚上打开暖色显示。	我偏好哪种阅读形式？	晚间看书会选择怎样的设备模式？	Do I prefer ebooks or printed books?	电子书 EPUB 与 PDF 文件有何区别？
+personal	健康饮食	我平时选择不含咖啡因的热饮。	我适合点含咖啡因的饮品吗？	根据已知偏好推荐一种晚间热饮。	What kind of hot drinks do I prefer?	咖啡因的化学结构是什么？
+personal	简报风格	我喜欢先看到结论，再按主题列出三项依据。	我喜欢简报按什么顺序呈现？	给我复述一下简短报告应先写什么。	What is my preferred structure for a briefing?	政府公报如何按年份归档？
+personal	出行时间	周五下班后我倾向坐地铁回家，避开高峰驾车。	我周五下班偏好什么交通方式？	一周最后一个工作日傍晚我倾向怎么通勤？	How do I prefer commuting home on Friday evenings?	上海地铁本月哪些线路停运？
+personal	运动记录	跑步后我会记录配速和平均心率，不记录服装品牌。	我跑步后会记哪些指标？	运动完成后要抄哪些健康表读数？	Which metrics do I track after a run?	马拉松比赛如何取得认证成绩？
+personal	笔记组织	个人笔记按月份存放，每个项目单独建一个文件夹。	我如何整理个人笔记？	工作想法按什么目录规则归档？	How are my personal notes organized?	如何恢复被删除的文件目录？

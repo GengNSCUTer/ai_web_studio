@@ -551,7 +551,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_prepare_chat_execution_only_injects_relevant_memory(self) -> None:
+    def test_prepare_chat_execution_applies_default_language_without_query_match(self) -> None:
         from app.models.user_memory import UserMemory
 
         async def run_test():
@@ -560,7 +560,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             self.db.commit()
             service = ChatExecutionService(db=self.db, current_user=self.user)
             for query, reason, expected in (("你好！", "social_only", False),
-                                             ("请解释 TCP", "query_relevance", False),
+                                             ("请解释 TCP", "query_relevance", True),
                                              ("我默认回答语言是什么？", "query_relevance", True),
                                              ("这次用中文回答，我默认回答语言是什么？", "query_relevance", False)):
                 with self.subTest(query=query), patch(
@@ -570,7 +570,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
                         content=query, model_name="qwen-test", web_search_enabled=False))
                     prompt = json.dumps(context.history_messages, ensure_ascii=False)
                     trace = context.context_stats["memory_retrieval"]
-                    self.assertEqual("默认英文回答" in prompt, expected)
+                    self.assertEqual("使用英文回答。" in prompt, expected)
                     self.assertEqual(trace["injected_count"], int(expected))
                     self.assertEqual(trace["read_reason"], reason)
 
@@ -604,7 +604,7 @@ class ChatExecutionServiceTest(unittest.TestCase):
             ):
                 context = await service.prepare_chat_execution(ChatStreamRequest(
                     content="我默认回答语言是什么？", model_name="qwen-test", web_search_enabled=False))
-            self.assertNotIn("默认英文回答", json.dumps(context.history_messages, ensure_ascii=False))
+            self.assertNotIn("使用英文回答。", json.dumps(context.history_messages, ensure_ascii=False))
             trace = context.context_stats["memory_retrieval"]
             self.assertEqual(trace["injected_count"], 0)
             self.assertEqual(trace["dropped_at_prompt_recheck"], 1)

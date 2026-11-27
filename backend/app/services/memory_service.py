@@ -594,7 +594,8 @@ class MemoryService:
         return context, len(records), len(context or "")
 
     @classmethod
-    def render_selection(cls, memories: list[UserMemory], *, max_chars: int) -> tuple[str | None, list[dict[str, Any]]]:
+    def render_selection(cls, memories: list[UserMemory], *, max_chars: int,
+                         max_records: int = 32) -> tuple[str | None, list[dict[str, Any]]]:
         """保留整条事实；返回逐条行文本，供总预算治理后核对实际注入。"""
         if not memories:
             return None, []
@@ -603,27 +604,31 @@ class MemoryService:
         chunks: list[str] = []
         records: list[dict[str, Any]] = []
         total_chars = len(header) + 1
-        limit = max(500, min(max_chars, 20000))
+        limit = max(0, min(max_chars, 20000))
 
         preference_chars = 0
         has_facts = any(item.memory_type not in {"profile", "instruction"} for item in memories)
         for memory in memories:
+            if len(records) >= max_records:
+                break
             title = cls.normalize_text(memory.title)
             content = cls.normalize_text(memory.content)
             if not content:
                 continue
             label = cls.TYPE_LABELS.get(memory.memory_type, "长期记忆")
             line = f"- [{label}] {title}: {content}"
-            if has_facts and memory.memory_type in {"profile", "instruction"}:
+            is_preference = has_facts and memory.memory_type in {"profile", "instruction"}
+            if is_preference:
                 # 除数量外也限制字符，避免一条长偏好吞掉所有事实输入空间。
                 if preference_chars + len(line) + 1 > limit // 4:
                     continue
-                preference_chars += len(line) + 1
             next_total = total_chars + len(line) + (1 if chunks else 0)
             if next_total > limit:
                 # 单条异常长记忆不能阻塞后续所有短记忆；也不截断事实，避免把半句话注入模型。
                 continue
             chunks.append(line)
+            if is_preference:
+                preference_chars += len(line) + 1
             records.append({"id": getattr(memory, "id", None), "type": memory.memory_type,
                             "project_id": getattr(memory, "project_id", None),
                             "version": getattr(memory, "version", 1), "line": line})

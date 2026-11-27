@@ -53,21 +53,24 @@ class MemoryReadCache:
 
     def put(self, key, field, value):
         if not self.enabled or not key:
-            return
+            return "disabled"
         raw = json.dumps(value, ensure_ascii=False, allow_nan=False)
         if len(raw.encode()) > max(1024, settings.memory_read_cache_max_bytes):
-            return
+            return "oversize"
         try:
             client = self.client if self.client is not None else _redis_client()
             # 原子限制每个用户/项目最多八种问题，TTL 只回收空间；一致性依赖 PG 复核。
-            client.eval("""
+            evicted = client.eval("""
+                local evicted = 0
                 if redis.call('HEXISTS', KEYS[1], ARGV[1]) == 0
                    and redis.call('HLEN', KEYS[1]) >= tonumber(ARGV[4]) then
                     redis.call('DEL', KEYS[1])
+                    evicted = 1
                 end
                 redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
                 redis.call('EXPIRE', KEYS[1], ARGV[3])
-                return 1
+                return evicted
             """, 1, key, field, raw, max(1, min(300, settings.memory_read_cache_ttl_seconds)), self.MAX_QUERIES)
+            return "capacity_clear" if evicted else "stored"
         except (RedisError, ValueError, TypeError):
-            return
+            return "unavailable"

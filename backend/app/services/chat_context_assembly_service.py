@@ -86,7 +86,8 @@ class ChatContextAssemblyService:
             return MemoryRetrievalResult(diagnostics={"mode": decision.mode, "read_decision": decision.mode,
                 "read_reason": decision.reason, "read_rows": 0, "embedding_calls": 0, "elapsed_ms": 0})
 
-        max_chars = int(getattr(settings, "memory_max_chars", 4000) or 4000)
+        configured = getattr(settings, "memory_max_chars", 4000)
+        max_chars = int(configured) if configured is not None else 4000
         # 快照阶段已结束主事务。记忆召回自行管理短会话。
         retrieval = MemoryRetrievalService(session_factory=sessionmaker(bind=self.db.get_bind(), autoflush=False))
         result = await retrieval.retrieve(user_id=self.user_id, max_chars=max_chars, query=query or "",
@@ -322,6 +323,7 @@ class ChatContextAssemblyService:
             messages=assembly.history_rows,
             system_prompt=assembly.system_prompt,
             memory_context=assembly.memory_bundle.context_text,
+            memory_behavior=assembly.memory_bundle.behavior_context,
             context_summary=assembly.summary_bundle.summary,
             summary_boundary_message_id=assembly.summary_bundle.boundary_message_id,
             external_context=assembly.external_context_result.context_text,
@@ -345,8 +347,10 @@ class ChatContextAssemblyService:
         if spec:
             self._recheck_final_completion(assembly, spec)
         retained_memory = assembly.governed_context.retained_reference_texts.get("long_term_memory", "")
-        assembly.memory_diagnostics = assembly.memory_bundle.after_governance(retained_memory)
-        assembly.memory_diagnostics["injected_tokens_estimate"] = assembly.runtime.tokenizer.estimate_text_tokens(retained_memory)
+        retained_behavior = assembly.governed_context.retained_reference_texts.get("memory_behavior", "")
+        assembly.memory_diagnostics = assembly.memory_bundle.after_governance(retained_memory, retained_behavior)
+        assembly.memory_diagnostics["injected_tokens_estimate"] = sum(assembly.runtime.tokenizer.estimate_text_tokens(text)
+            for text in (retained_memory, retained_behavior))
         assembly.prompt_diagnostics = self._build_prompt_diagnostics(
             conversation=assembly.conversation,
             prompt_result=assembly.prompt_result,

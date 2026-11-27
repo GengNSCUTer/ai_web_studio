@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from contextlib import contextmanager
 
 from pgvector.sqlalchemy import HALFVEC, Vector
-from sqlalchemy import and_, cast, func, literal_column, or_, select, text, update
+from sqlalchemy import and_, case, cast, func, literal_column, or_, select, text, update
 from sqlalchemy.orm import Session, defer
 
 from app.models.user_memory import UserMemory
@@ -254,6 +254,29 @@ class UserMemoryRepository:
                 defer(UserMemory.embedding_vector), defer(UserMemory.embedding_signature),
                 defer(UserMemory.embedding_text_hash)).order_by(UserMemory.updated_at.desc(), UserMemory.id).limit(limit)
         return list(self.db.scalars(stmt))
+
+    def behavior_candidates(self, user_id, project_id, keys):
+        base = select(UserMemory).where(*self._retrieval_filter(user_id, project_id),
+            UserMemory.memory_type.in_(["profile", "instruction"]), UserMemory.sensitivity != "sensitive"
+        ).options(defer(UserMemory.embedding_vector), defer(UserMemory.embedding_signature),
+                  defer(UserMemory.embedding_text_hash))
+        language_field = UserMemory.fact_key == "response_language"
+        filters = {
+            "response_language": or_(language_field, and_(UserMemory.fact_key.is_(None),
+                or_(*(UserMemory.content.ilike(f"%{value}%") for value in
+                    ("中文", "英文", "汉语", "英语", "chinese", "english"))))),
+            "code_comments": UserMemory.content.ilike("%中文注释%"),
+        }
+        rows = {}
+        for key in keys:
+            # 已识别的事实优先。分范围取候选，避免同项目的近期记录挤掉个人默认。
+            order = [case((language_field, 0), else_=1)] if key == "response_language" else []
+            scopes = (project_id, None) if project_id is not None else (None,)
+            for scope in scopes:
+                stmt = base.where(filters[key], self._conflict_scope(user_id, scope)).order_by(
+                    *order, UserMemory.updated_at.desc(), UserMemory.id).limit(16)
+                rows.update((row.id, row) for row in self.db.scalars(stmt))
+        return list(rows.values())
 
     def expire_due(self, user_id: str) -> int:
         # 到期也是记忆状态变更，必须与激活/替换使用同一用户锁。

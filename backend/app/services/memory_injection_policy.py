@@ -3,13 +3,36 @@
 import re
 from dataclasses import dataclass
 
-from app.services.memory_policy import memory_identity, normalize
+from app.services.memory_policy import lifetime, memory_identity, normalize, requested_response_language
 
 
 SEMANTIC_MIN = .55
 QUERY_LIMIT = 3
 RECALL_LIMIT = 8
 PREFERENCE_TYPES = ("profile", "instruction")
+MEMORY_REFERENCE_TITLE = "长期记忆"
+BEHAVIOR_REFERENCE_TITLE = "已启用的回答偏好"
+BEHAVIOR_HEADER = "遵循下列已启用的回答偏好，本轮明确要求和平台规则优先。"
+BEHAVIOR_VALUES = {
+    ("response_language", "zh"): "使用中文回答。",
+    ("response_language", "en"): "使用英文回答。",
+    ("code_comments", "zh_detailed"): "代码示例使用详细的中文注释。",
+}
+_COMMENT_PREFERENCE = re.compile(
+    r"(?:所有|以后(?:的)?|今后(?:的)?|默认)?(?:代码示例|代码样例|示例代码|代码)(?:中|里)?(?:都)?"
+    r"(?:需要|应当|应该|要|请|须|使用|包含|加上|添加|写上)*详细(?:的)?中文注释[。.!！]?",
+)
+_CODE_TASK = re.compile(
+    r"^\s*(?:请\s*|帮我\s*)?(?:实现|编写|写(?:一个|一段|个|段|代码|程序|脚本|函数)|重构)"
+    r"|(?:生成|修改|修复|补全|优化).{0,30}(?:代码|函数|脚本|程序|类|模块|SQL)"
+    r"|(?:给出|提供|举(?:一个)?)(?:.{0,20})(?:代码|程序|脚本).{0,6}(?:示例|样例|例子)"
+    r"|^\s*(?:please\s+)?(?:implement|refactor)\b"
+    r"|\b(?:write|generate|fix|modify).{0,35}\b(?:code|script|function|class|program|query)\b"
+    r"|\b(?:give|provide|show)(?:.{0,35})code (?:example|sample)\b", re.I)
+_COMMENT_OVERRIDE = re.compile(
+    r"(?:不用|不要|别|无需|禁止|无须|无需添加|去掉|删除)(?:.{0,12})注释"
+    r"|(?:注释(?:请|要|须|使用|用|写成|保持|改成|简短|简洁)|(?:英文|英语|简短|简洁|简要|最少|少量)注释)"
+    r"|\b(?:no|without|omit|remove|brief|short|minimal|english)\s+(?:code\s+)?comments?\b|\bcomments?\s+(?:in|must|should)\b", re.I)
 
 _SOCIAL = re.compile(r"你好|您好|嗨|哈喽|早上好|晚上好|谢谢(?:你|了)?|多谢|好的|收到|明白了|再见|"
                      r"hi|hello|hey|thanks|thank you|ok(?:ay)?|got it|bye", re.I)
@@ -79,3 +102,24 @@ def lexical_evidence(memory, query: str, terms_for, query_terms=None) -> float:
 
 def memory_query_terms(query, terms_for):
     return terms_for(query) - _GENERIC_TERMS
+
+
+def behavior_preference(memory):
+    if memory.memory_type not in PREFERENCE_TYPES or lifetime(memory.title, memory.content) == "turn":
+        return None
+    identity = memory_identity(memory.memory_type, memory.title, memory.content)
+    if identity.structured and identity.key == "response_language":
+        return identity.key, identity.value
+    if _COMMENT_PREFERENCE.fullmatch(normalize(memory.content)):
+        return "code_comments", "zh_detailed"
+    return None
+
+
+def applicable_behavior_keys(turn_query):
+    text = normalize(turn_query)
+    keys = []
+    if not requested_response_language(text):
+        keys.append("response_language")
+    if _CODE_TASK.search(text) and not _COMMENT_OVERRIDE.search(text):
+        keys.append("code_comments")
+    return keys

@@ -50,9 +50,11 @@ class FakeRedis:
 
     def eval(self, script, keys, key, field, value, ttl, maximum):
         fields = self.data.setdefault(key, {})
-        if field not in fields and len(fields) >= maximum:
+        evicted = field not in fields and len(fields) >= maximum
+        if evicted:
             fields.clear()
         fields[field] = value
+        return int(evicted)
 
     def hlen(self, key):
         return len(self.data.get(key, {}))
@@ -188,9 +190,12 @@ class CapacityCases:
         self.assertEqual(set(json.loads(value)), {"metadata", "ids", "hashes", "semantic", "ranking", "mode"})
 
     def test_cache_fields_are_bounded(self):
+        observations = []
         for i in range(13):
-            self.retrieve(query=f"冬季假期方案 {i}")
+            observations.append(self.retrieve(query=f"冬季假期方案 {i}").diagnostics)
         self.assertLessEqual(self.client.hlen(self.keys[-1]), MemoryReadCache.MAX_QUERIES)
+        self.assertEqual(sum(m["read_cache_capacity_clear"] for m in observations), 1)
+        self.assertEqual(observations[8]["read_cache_write"], "capacity_clear")
 
     def test_previous_selection_cache_field_is_ignored(self):
         self.retrieve()

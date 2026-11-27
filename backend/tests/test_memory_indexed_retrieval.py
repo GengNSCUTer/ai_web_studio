@@ -25,10 +25,12 @@ from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.models.user_setting import UserSetting
 from app.repositories.memory_repo import UserMemoryRepository
 from app.services.memory_index_service import MemoryIndexWorker
+from app.services.memory_conflict_service import MemoryConflictService
 from app.services.memory_extraction_policy import source_snapshot
 from app.services.memory_read_cache import MemoryReadCache
 from app.services.memory_retrieval_service import MemoryRetrievalService, text_hash
 from backend.tests.test_chat_memory_capacity import FakeRedis
+from backend.scripts.repair_memory_index_signatures import reconcile
 
 
 @unittest.skipUnless(os.getenv("TEST_POSTGRES_URL"), "需要隔离 PostgreSQL/pgvector 集成环境")
@@ -238,9 +240,30 @@ class IndexedMemoryTest(unittest.TestCase):
     def test_model_change_invalidates_index_and_allows_background_rebuild(self):
         mid = self.memory()
         with self.sessions() as db:
+            row = db.get(UserMemory, mid)
+            previous = (row.version, row.updated_at, row.content)
             db.scalar(select(UserSetting).where(UserSetting.user_id == self.uid)).knowledge_embedding_model = "new-model"
+            db.execute(update(UserSetting).where(UserSetting.user_id != self.uid).values(memory_enabled=False))
             db.commit()
             self.assertIsNone(db.scalar(select(UserMemory.search_embedding).where(UserMemory.id == mid)))
+        conflicts = MemoryConflictService(session_factory=self.sessions)
+        conflicts._save_vectors(self.uid, self.config, [(row, self.vector)])
+        with self.sessions() as db:
+            self.assertIsNone(db.scalar(select(UserMemory.search_embedding).where(UserMemory.id == mid)))
+            # 模拟升级前已存在的错误签名残留。只清除本隔离测试库中的派生索引。
+            db.execute(update(UserMemory).where(UserMemory.id == mid).values(embedding_vector=json.dumps(self.vector),
+                embedding_signature=self.signature, embedding_text_hash=text_hash(row), updated_at=UserMemory.updated_at))
+            db.commit()
+        self.assertGreaterEqual(reconcile(self.sessions)["stale"], 1)
+        result = reconcile(self.sessions, apply=True)
+        self.assertGreaterEqual(result["requeued"], 1)
+        worker = MemoryIndexWorker(session_factory=self.sessions, embedding_service=self.embedding)
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.sessions() as db:
+            updated = db.get(UserMemory, mid)
+            self.assertEqual((updated.version, updated.updated_at, updated.content), previous)
+            self.assertIsNotNone(updated.search_embedding)
+            self.assertEqual(updated.embedding_signature, self.reader.signature({**self.config, "model": "new-model"}))
 
     def test_revision_rolls_back_with_business_transaction(self):
         mid = self.memory()
