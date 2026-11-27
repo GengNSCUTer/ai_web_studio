@@ -75,6 +75,8 @@ class ChatToolRecoveryTest(unittest.IsolatedAsyncioTestCase):
         with self.sessions() as db:
             db.get(ChatRun, rid).lease_expires_at = utcnow() - timedelta(seconds=1)
             db.commit()
+        # 模拟 Worker 独立回收过期租约，再尝试接管。领取事务已不执行回收。
+        self.assertEqual(self.call("reconcile"), 1)
         claim = self.call("claim_next", owner)
         self.assertIsNotNone(claim)
         persistence = ChatToolPersistence(self.sessions, claim)

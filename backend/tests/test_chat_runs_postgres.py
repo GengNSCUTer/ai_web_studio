@@ -2,23 +2,28 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing, AsyncExitStack
 from datetime import timedelta
 import os
 import subprocess
 import sys
 import threading
+from types import SimpleNamespace
 import unittest
 from uuid import uuid4
 
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
+from starlette.datastructures import State
 
+from app.api.routes.chat_runs import subscribe_events
 from app.core.migrations import upgrade_database
 from app.models.chat_run import ChatRun
 from app.models.message import Message
 from app.models.user import User
 from app.repositories.setting_repo import UserSettingRepository
+from app.services.chat_event_listener import chat_event_listener_lifespan
 from app.services.chat_run_service import ChatRunService
 from app.services.runtime_lease import utcnow
 from app.services.setting_service import SettingService
@@ -54,6 +59,63 @@ class ChatRunPostgresTest(unit.ChatRunTest):
     def tearDown(self):
         with self.engine.begin() as db:
             db.execute(text("TRUNCATE users CASCADE"))
+
+    async def test_committed_events_wake_each_api_and_disconnect_falls_back_to_replay(self):
+        run = self.create()
+        claim = self.call("claim_next", "worker")
+        after = self.snapshot(run)["last_event_id"]
+
+        async def wait_for_state(listener, ready):
+            async def check():
+                while listener.ready != ready:
+                    await asyncio.sleep(.01)
+            await asyncio.wait_for(check(), 5)
+
+        async with AsyncExitStack() as stack:
+            listeners = []
+            for _ in range(2):
+                app = SimpleNamespace(state=State())
+                await stack.enter_async_context(chat_event_listener_lifespan(app, self.engine.url, enabled=True))
+                listener = app.state.chat_event_listener
+                await wait_for_state(listener, True)
+                listeners.append(listener)
+
+            with listeners[0].subscribe(run) as wake:
+                with self.sessions() as db:
+                    row = db.get(ChatRun, run)
+                    row.event_sequence += 1
+                    db.flush()
+                    db.rollback()
+                with self.assertRaises(asyncio.TimeoutError):
+                    await asyncio.wait_for(wake.wait(), .15)
+
+            streams = [await stack.enter_async_context(aclosing(subscribe_events(
+                run, "u", after=after, sessions=self.sessions, listener=listener))) for listener in listeners]
+            reads = [asyncio.create_task(anext(stream)) for stream in streams]
+            try:
+                await asyncio.sleep(.15)
+                self.call("append", claim, [{"type": "answer_delta", "text": "提交后唤醒"}])
+                events = await asyncio.wait_for(asyncio.gather(*reads), 2)
+                self.assertEqual(events[0], events[1])
+                self.assertIn(f"id: {run}:{after + 1}", events[0])
+                self.assertIn("提交后唤醒", events[0])
+                reads = [asyncio.create_task(anext(streams[0]))]
+                with self.engine.begin() as db:
+                    killed = db.scalars(text("""
+                        SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+                        WHERE datname = current_database() AND application_name = 'aiws-api-chat-listener'
+                    """)).all()
+                self.assertEqual(killed, [True, True])
+                await wait_for_state(listeners[0], False)
+                self.call("append", claim, [{"type": "answer_delta", "text": "断线补读"}])
+                event = await asyncio.wait_for(reads[0], .95)
+                self.assertIn(f"id: {run}:{after + 2}", event)
+                self.assertIn("断线补读", event)
+                await wait_for_state(listeners[0], True)
+            finally:
+                for read in reads:
+                    read.cancel()
+                await asyncio.gather(*reads, return_exceptions=True)
 
     def test_concurrent_same_request_creates_exactly_one_turn(self):
         barrier = threading.Barrier(6)
@@ -102,6 +164,7 @@ class ChatRunPostgresTest(unit.ChatRunTest):
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from starlette.datastructures import State
 from app.services.chat_run_service import ChatRunService
 engine=create_engine(os.environ["TEST_CHAT_DATABASE"])
 with sessionmaker(engine)() as db:

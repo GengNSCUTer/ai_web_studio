@@ -31,6 +31,7 @@ from app.core.config import settings as app_settings, validate_runtime_security_
 # 导入初始化函数：确保运行时数据库表/结构存在
 from app.core.startup import ensure_runtime_schema
 from app.services.chat_persistence_service import dispose_async_engine
+from app.services.chat_event_listener import chat_event_listener_lifespan
 from app.services.provider_client_pool import start_provider_client_pool, close_provider_client_pool
 from app.services.durable_checkpoint_service import checkpoint_pool_lifespan
 from app.services.approval_checkpoint_service import approval_pool_lifespan
@@ -38,14 +39,16 @@ from app.core.database import engine as database_engine
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     """启动检查版本，退出时释放Provider、Chat与图检查点的独立连接池。"""
     await anyio.to_thread.run_sync(ensure_runtime_schema)
     start_provider_client_pool()
     try:
         with approval_pool_lifespan(database_engine.url):
             async with checkpoint_pool_lifespan(database_engine.url):
-                yield
+                async with chat_event_listener_lifespan(app, database_engine.url,
+                    enabled=app_settings.chat_sse_notify_enabled):
+                    yield
     finally:
         try:
             await close_provider_client_pool()

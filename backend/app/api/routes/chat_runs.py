@@ -1,10 +1,11 @@
 """Chat任务资源与只读事件订阅；断开订阅绝不发送取消命令。"""
 
 import asyncio
+from contextlib import nullcontext
 import json
 import time
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
@@ -75,47 +76,69 @@ def _page(run_id, user_id, after, sessions):
     # 空轮询只读元数据。本批事件上界取自同一次头查询，避免把稍后提交的事件与旧状态混用。
     with sessions() as db:
         head = _head(db, run_id, user_id)
-        if after < head.events_pruned_through or (after >= head.event_sequence and head.status in TERMINAL):
-            snapshot = ChatRunService.snapshot(ChatRunService(db).owned(run_id, user_id))
-            tail = snapshot["last_event_id"]
-            events = [(tail, {"type": "run_snapshot", "run": snapshot})]
-            if after < head.events_pruned_through and snapshot["status"] in TERMINAL:
-                events.append((tail, {"type": "done" if snapshot["status"] == "succeeded" else "run_status",
-                    "status": snapshot["status"], "assistant_message_id": snapshot["assistant_message_id"]}))
-            return head, events
-        if after >= head.event_sequence:
-            return head, []
-        rows = db.scalars(select(ChatRunEvent).where(ChatRunEvent.run_id == run_id,
-            ChatRunEvent.sequence > after, ChatRunEvent.sequence <= head.event_sequence)
-            .order_by(ChatRunEvent.sequence).limit(256)).all()
-        return head, [(row.sequence, json.loads(row.event_json)) for row in rows]
+        if after >= head.events_pruned_through:
+            if after < head.event_sequence:
+                rows = db.scalars(select(ChatRunEvent).where(ChatRunEvent.run_id == run_id,
+                    ChatRunEvent.sequence > after, ChatRunEvent.sequence <= head.event_sequence)
+                    .order_by(ChatRunEvent.sequence).limit(256)).all()
+                if rows:
+                    return head, [(row.sequence, json.loads(row.event_json)) for row in rows]
+                # 头查询与事件查询之间可能发生裁剪或删除，立即确认是否需要快照。
+                head = _head(db, run_id, user_id)
+                if after >= head.events_pruned_through:
+                    return head, []
+            elif head.status not in TERMINAL:
+                return head, []
+        snapshot = ChatRunService.snapshot(ChatRunService(db).owned(run_id, user_id))
+        tail = snapshot["last_event_id"]
+        events = [(tail, {"type": "run_snapshot", "run": snapshot})]
+        if after < head.events_pruned_through and snapshot["status"] in TERMINAL:
+            events.append((tail, {"type": "done" if snapshot["status"] == "succeeded" else "run_status",
+                "status": snapshot["status"], "assistant_message_id": snapshot["assistant_message_id"]}))
+        return head, events
 
 
-async def subscribe_events(run_id, user_id, *, after=0, sessions=SessionLocal):
+async def subscribe_events(run_id, user_id, *, after=0, sessions=SessionLocal, listener=None):
     last_heartbeat = time.monotonic()
     delay = .25
-    while True:
-        head, rows = await asyncio.to_thread(_page, run_id, user_id, after, sessions)
-        for sequence, event in rows:
-            after = sequence
-            yield encode_chat_sse({**event, "event_id": sequence, "run_id": run_id},
-                event_id=f"{run_id}:{sequence}")
-        if after >= head.event_sequence and head.status in TERMINAL:
-            return
-        if time.monotonic() - last_heartbeat > 15:
-            yield ": heartbeat\n\n"
-            last_heartbeat = time.monotonic()
-        if rows:
-            delay = .25
-            if after < head.event_sequence:
-                continue
-        await asyncio.sleep(delay)
-        if not rows:
-            delay = min(.75, delay * 1.5)
+    # 先登记唤醒，再读取已提交事件。查询期间到达的通知会保留到下一次等待。
+    with listener.subscribe(run_id) if listener else nullcontext() as wake:
+        while True:
+            if wake is not None:
+                wake.clear()
+            try:
+                head, rows = await asyncio.to_thread(_page, run_id, user_id, after, sessions)
+            except HTTPException as exc:
+                if exc.status_code == 404:
+                    return
+                raise
+            for sequence, event in rows:
+                after = sequence
+                yield encode_chat_sse({**event, "event_id": sequence, "run_id": run_id},
+                    event_id=f"{run_id}:{sequence}")
+            if after >= head.event_sequence and head.status in TERMINAL:
+                return
+            if time.monotonic() - last_heartbeat >= 15:
+                yield ": heartbeat\n\n"
+                last_heartbeat = time.monotonic()
+            if rows:
+                delay = .25
+                if after < head.event_sequence:
+                    continue
+            if wake is None:
+                await asyncio.sleep(delay)
+            else:
+                timeout = 5 if listener.ready else delay
+                try:
+                    await asyncio.wait_for(wake.wait(), timeout)
+                except asyncio.TimeoutError:
+                    pass
+            if not rows:
+                delay = min(.75, delay * 1.5)
 
 
 @router.get("/{run_id}/events", dependencies=[Depends(chat_subscription_capacity, scope="request")])
-def chat_run_events(run_id: str, after: int = Query(default=0, ge=0),
+def chat_run_events(run_id: str, request: Request, after: int = Query(default=0, ge=0),
     format: str = Query(default="sse", pattern="^sse$"),
     last_event_id: str | None = Header(default=None), db=Depends(get_db), user=Depends(get_current_user)):
     # 连接前的归属与游标查询是同步 SQL，放在 FastAPI 工作线程；事件生成器继续异步订阅。
@@ -136,7 +159,8 @@ def chat_run_events(run_id: str, after: int = Query(default=0, ge=0),
             raise HTTPException(400, "事件游标不属于当前任务") from exc
     if after > head.event_sequence or after < 0:
         raise HTTPException(400, "事件游标超出范围")
-    return StreamingResponse(subscribe_events(run_id, user_id, after=after, sessions=sessions),
+    listener = getattr(request.app.state, "chat_event_listener", None)
+    return StreamingResponse(subscribe_events(run_id, user_id, after=after, sessions=sessions, listener=listener),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no",
             "x-chat-run-id": run_id, "x-conversation-id": head.conversation_id,

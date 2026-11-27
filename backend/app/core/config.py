@@ -76,6 +76,7 @@ class Settings:
     chat_run_global_concurrency: int = int(os.getenv("CHAT_RUN_GLOBAL_CONCURRENCY", "16"))
     chat_worker_concurrency: int = int(os.getenv("CHAT_WORKER_CONCURRENCY", "4"))
     chat_run_event_retention_days: int = int(os.getenv("CHAT_RUN_EVENT_RETENTION_DAYS", "7"))
+    chat_sse_notify_enabled: bool = _env_bool("CHAT_SSE_NOTIFY_ENABLED")
     # Web 事件循环内的 Provider 客户端数量与每个客户端的 HTTP 连接上限。
     provider_client_pool_max_size: int = int(os.getenv("PROVIDER_CLIENT_POOL_MAX_SIZE", "32"))
     provider_client_pool_wait_seconds: float = float(os.getenv("PROVIDER_CLIENT_POOL_WAIT_SECONDS", "10"))
