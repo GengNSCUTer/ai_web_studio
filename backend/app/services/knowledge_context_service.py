@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
+from itertools import zip_longest
+from types import SimpleNamespace
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -17,7 +20,7 @@ from app.repositories.knowledge_repo import (
     KnowledgeRetrievalLogRepository,
 )
 from app.repositories.setting_repo import UserSettingRepository
-from app.services.knowledge_index_service import RetrievalResult
+from app.services.knowledge_index_service import KnowledgeRerankService, RetrievalResult
 from app.services.knowledge_query_rewriter import (
     KnowledgeQueryRewriteResult,
     KnowledgeQueryRewriteService,
@@ -29,7 +32,9 @@ from app.services.knowledge_error import (
 )
 from app.services.setting_service import SettingService
 from app.services.tools.schemas import ExternalSource
-from app.services.knowledge_parent_context import unique_parent_results, bounded_evidence
+from app.services.knowledge_parent_context import unique_parent_results, bounded_evidence, parent_excerpt
+from app.services.knowledge_read_runtime import FrozenReadSettings, run_knowledge_db
+from app.services.knowledge_relevance import query_anchors
 from app.services.evidence_context import EvidenceSection, build_evidence_section, complete_excerpt
 
 
@@ -46,6 +51,8 @@ class KnowledgeContextResult:
     retrieval_log_id: str | None = None
     retrieval_log_ids: list[str] = field(default_factory=list)
     evidence_section: EvidenceSection | None = None
+    candidates: tuple[RetrievalResult, ...] = ()
+    base: object | None = None
 
 
 class KnowledgeContextService:
@@ -68,6 +75,13 @@ class KnowledgeContextService:
         self.setting_service = SettingService(UserSettingRepository(db))
         self.index_service = index_service
         self.query_rewriter = query_rewriter or KnowledgeQueryRewriteService()
+        bind = db.get_bind()
+        self.pg_bind = bind if bind.dialect.name == "postgresql" else None
+
+    async def _db_call(self, operation):
+        if self.pg_bind is None:
+            return operation(self.db)
+        return await run_knowledge_db(self.pg_bind, operation)
 
     async def build_context(
         self,
@@ -102,29 +116,35 @@ class KnowledgeContextService:
             )
 
         started_at = time.monotonic()
+        # 测试替身仍可通过原来的单库结果接口供给上下文。
+        collect_only = self.index_service is None
         partials = await asyncio.gather(
             *[
                 self._build_single_context(
                     knowledge_base_id=base_id,
                     original_query=rewrite.original_query,
                     retrieval_query=rewrite.rewritten_query,
-                    rewrite=rewrite,
+                    rewrite=rewrite, collect_only=collect_only,
                 )
                 for base_id in resolved_ids
             ],
         )
         latency_ms = int((time.monotonic() - started_at) * 1000)
         notices = [notice for partial in partials for notice in partial.notices]
-        all_sources = [source for partial in partials for source in partial.sources]
-        ranked_sources = sorted(
-            all_sources,
-            key=lambda source: float(source.score or 0),
-            reverse=True,
-        )
-        max_context_chars = self._multi_context_char_budget(resolved_ids)
-        all_results = self._prepare_multi_sources(self._relabel_sources(ranked_sources), max_context_chars)
-        injected_sources = all_results
-        evidence_section = self._evidence_section(injected_sources).fit(lambda value: len(value.render()) <= max_context_chars)
+        if collect_only:
+            ranked_sources, rank_mode = await self._rank_multi(partials, rewrite.rewritten_query,
+                timeout=max(0., settings.knowledge_context_timeout_seconds - (time.monotonic() - started_at)))
+            budgets = [part.base.max_context_chars for part in partials if part.base is not None]
+            max_context_chars = min(sum(budgets), 30000) if budgets else 12000
+        else:
+            ranked_sources = [source for partial in partials for source in partial.sources]
+            rank_mode = "injected_candidates"
+            max_context_chars = self._multi_context_char_budget(resolved_ids)
+        injected_sources = self._relabel_sources(ranked_sources)
+        evidence_section = self._evidence_section(injected_sources, query=rewrite.original_query).fit(
+            lambda value: len(value.render()) <= max_context_chars)
+        known_labels = [source.citation_label for source in injected_sources]
+        injected_sources = [ExternalSource(**unit.public_source()) for unit in evidence_section.units]
         context_text = evidence_section.render() if evidence_section.units else None
         retrieval_log_ids = [partial.retrieval_log_id for partial in partials if partial.retrieval_log_id]
         diagnostics = self._merge_multi_diagnostics(
@@ -136,6 +156,11 @@ class KnowledgeContextService:
             retrieval_log_ids=retrieval_log_ids,
             rewrite=rewrite,
         )
+        if collect_only:
+            await self._save_global_selection(partials, injected_sources, rank_mode)
+        diagnostics["knowledge_global_ranking"] = rank_mode
+        diagnostics["knowledge_rerank_used"] = int(rank_mode == "global_rerank" or diagnostics["knowledge_rerank_used"])
+        diagnostics["knowledge_retrieval_latency_ms"] = int((time.monotonic() - started_at) * 1000)
         return KnowledgeContextResult(
             context_text=context_text,
             sources=injected_sources,
@@ -146,11 +171,73 @@ class KnowledgeContextService:
                 "knowledge_retrieval_log_ids": retrieval_log_ids,
                 "knowledge_base_ids": resolved_ids,
                 "knowledge_query_rewrite": rewrite.to_public_dict(),
+                "knowledge_known_source_labels": known_labels,
             },
             retrieval_log_id=retrieval_log_ids[0] if retrieval_log_ids else None,
             retrieval_log_ids=retrieval_log_ids,
             evidence_section=evidence_section,
         )
+
+    async def _save_global_selection(self, partials, sources, rank_mode):
+        def save(db):
+            repo = KnowledgeRetrievalLogRepository(db)
+            for part in partials:
+                if not part.retrieval_log_id:
+                    continue
+                log = repo.get_by_user(part.retrieval_log_id, self.user_id)
+                if not log:
+                    continue
+                selected = [source.to_public_dict() for source in sources
+                            if source.metadata["retrieval_log_id"] == log.id]
+                log.selected_json = json.dumps([{**source["metadata"], "preview": source["display_text"][:1200],
+                    "score": source["score"], "rank": source["rank"]} for source in selected], ensure_ascii=False)
+                diagnostics = json.loads(log.diagnostics_json or "{}")
+                diagnostics.update(knowledge_global_ranking=rank_mode, knowledge_chunks_injected=len(selected))
+                log.diagnostics_json = json.dumps(diagnostics, ensure_ascii=False)
+            db.commit()
+        await self._db_call(save)
+
+    @staticmethod
+    def _multi_pool(partials):
+        """按库轮流取同一名次，避免某一库占满统一精排池。"""
+        groups = [tuple((part, result) for result in part.candidates) for part in partials]
+        return [entry for row in zip_longest(*groups) for entry in row if entry is not None][:100]
+
+    async def _rank_multi(self, partials, query, *, timeout):
+        pool = self._multi_pool(partials)
+        rank_mode = "local_rank_interleave"
+        if len(pool) > 1 and timeout > 0 and all(part.base.rerank_enabled for part, _ in pool):
+            try:
+                config = await self._db_call(lambda db: FrozenReadSettings(SettingService(UserSettingRepository(db)), self.user_id))
+                model = SimpleNamespace(rerank_provider=config.config.knowledge_rerank_provider,
+                                        rerank_model=config.config.knowledge_rerank_model)
+                if config.knowledge_keys["rerank"] and model.rerank_provider != "ollama":
+                    reranked = await asyncio.wait_for(KnowledgeRerankService(config).rerank(user_id=self.user_id,
+                        knowledge_base=model, query=query, documents=[result.chunk.content[:4000] for _, result in pool],
+                        top_n=len(pool)), timeout=timeout)
+                    ranked = {}
+                    for index, score in reranked:
+                        if 0 <= index < len(pool) and math.isfinite(score):
+                            ranked.setdefault(index, score)
+                    if ranked:
+                        reranked_pool = [(pool[i][0], replace(pool[i][1], rerank_score=score, rank_source="global_rerank"))
+                                         for i, score in sorted(ranked.items(), key=lambda item: -item[1])]
+                        pool = [*reranked_pool, *(entry for i, entry in enumerate(pool) if i not in ranked)]
+                        rank_mode = "global_rerank"
+            except Exception as exc:
+                logger.info("knowledge global ranking fallback error_code=%s", classify_knowledge_error(exc))
+        owners = {part.base.id: part for part, _ in pool}
+        counts: dict[str, int] = {}
+        selected = []
+        for result in unique_parent_results([result for _, result in pool]):
+            key = result.chunk.knowledge_base_id
+            part = owners[key]
+            if counts.get(key, 0) >= part.base.max_context_chunks:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+            selected.extend(self._build_sources(knowledge_base_id=key, knowledge_base_name=part.base.name,
+                results=[result], retrieval_log_id=part.retrieval_log_id, limit=part.base.max_context_chars, query=query))
+        return selected, rank_mode
 
     async def _build_single_context(
         self,
@@ -159,8 +246,9 @@ class KnowledgeContextService:
         original_query: str,
         retrieval_query: str,
         rewrite: KnowledgeQueryRewriteResult,
+        collect_only: bool = False,
     ) -> KnowledgeContextResult:
-        knowledge_base = self.base_repo.get_by_user(knowledge_base_id, self.user_id)
+        knowledge_base = await self._db_call(lambda db: KnowledgeBaseRepository(db).get_by_user(knowledge_base_id, self.user_id))
         if not knowledge_base:
             return self._empty(
                 enabled=True,
@@ -176,11 +264,8 @@ class KnowledgeContextService:
                 notices=["当前问题为空，已跳过知识库检索。"],
             )
 
-        total_chunks = self.chunk_repo.count_by_knowledge_base(
-            knowledge_base.id,
-            self.user_id,
-            index_generation=knowledge_base.active_index_generation or "legacy",
-        )
+        total_chunks = await self._db_call(lambda db: KnowledgeChunkRepository(db).count_by_knowledge_base(
+            knowledge_base.id, self.user_id, index_generation=knowledge_base.active_index_generation or "legacy"))
         if total_chunks <= 0:
             return self._empty(
                 enabled=True,
@@ -191,16 +276,23 @@ class KnowledgeContextService:
 
         started_at = time.monotonic()
         try:
-            index_service = self.index_service or KnowledgeRetrievalPipeline(
-                chunk_repo=self.chunk_repo,
-                setting_service=self.setting_service,
-            )
+            index_service = self.index_service
+            if index_service is None:
+                frozen = await self._db_call(lambda db: FrozenReadSettings(SettingService(UserSettingRepository(db)), self.user_id))
+                index_service = KnowledgeRetrievalPipeline(chunk_repo=self.chunk_repo, setting_service=frozen)
+            options = {}
+            if isinstance(index_service, KnowledgeRetrievalPipeline):
+                options = {"skip_rerank": collect_only,
+                    "evidence_limit": min(knowledge_base.max_context_chunks, knowledge_base.rerank_top_n)
+                    if knowledge_base.rerank_enabled and knowledge_base.rerank_top_n else knowledge_base.max_context_chunks}
             results = await asyncio.wait_for(
                 index_service.retrieve_async(
                     user_id=self.user_id,
                     knowledge_base=knowledge_base,
                     query=retrieval_query,
-                    top_k=knowledge_base.retrieval_top_k,
+                    top_k=min(50, max(knowledge_base.retrieval_top_k, 2 * knowledge_base.max_context_chunks))
+                        if collect_only else knowledge_base.retrieval_top_k,
+                    **options,
                 ),
                 timeout=settings.knowledge_context_timeout_seconds,
             )
@@ -239,14 +331,11 @@ class KnowledgeContextService:
             )
         latency_ms = int((time.monotonic() - started_at) * 1000)
 
-        unique_results = unique_parent_results(results)
-        selected = self._prepare_context_results(
-            knowledge_base_name=knowledge_base.name,
-            results=unique_results[:max(1, knowledge_base.max_context_chunks)],
-            max_chars=knowledge_base.max_context_chars,
-        )
-        injected_count = len(selected)
-        injected_results = selected[:injected_count]
+        unique_results = unique_parent_results(results) if not collect_only else results
+        target = max(1, min(knowledge_base.max_context_chunks, knowledge_base.retrieval_top_k))
+        if knowledge_base.rerank_enabled and knowledge_base.rerank_top_n and self.index_service is None:
+            target = min(target, knowledge_base.rerank_top_n)
+        injected_results = [] if collect_only else unique_results[:target]
         base_diagnostics = {
             "knowledge_retrieval_enabled": 1,
             "knowledge_base_id": knowledge_base.id,
@@ -262,6 +351,7 @@ class KnowledgeContextService:
             "knowledge_retrieval_latency_ms": latency_ms,
             "knowledge_query_rewrite_used": int(rewrite.did_rewrite),
             "knowledge_query_rewrite_strategy": rewrite.strategy,
+            **{f"knowledge_{key}": value for key, value in getattr(index_service, "diagnostics", {}).items()},
         }
         log_diagnostics = {
             **base_diagnostics,
@@ -270,34 +360,40 @@ class KnowledgeContextService:
             "knowledge_query_rewrite_reason": rewrite.reason,
             "knowledge_query_rewrite_context_message_id": rewrite.context_message_id,
         }
-        retrieval_log = self.retrieval_log_repo.create(
-            user_id=self.user_id,
-            knowledge_base_id=knowledge_base.id,
-            query=original_query,
-            retrieval_mode=knowledge_base.retrieval_mode,
-            top_k=knowledge_base.retrieval_top_k,
-            rerank_enabled=bool(knowledge_base.rerank_enabled),
-            rerank_model=knowledge_base.rerank_model if knowledge_base.rerank_enabled else None,
-            candidates=self._serialize_results(results),
-            selected=self._serialize_results(injected_results),
-            diagnostics=log_diagnostics,
-            sources=[],
-            status="success",
-            elapsed_ms=latency_ms,
-        )
+        def create_log(db):
+            return KnowledgeRetrievalLogRepository(db).create(
+                user_id=self.user_id, knowledge_base_id=knowledge_base.id, query=original_query,
+                retrieval_mode=knowledge_base.retrieval_mode, top_k=knowledge_base.retrieval_top_k,
+                rerank_enabled=bool(knowledge_base.rerank_enabled),
+                rerank_model=knowledge_base.rerank_model if knowledge_base.rerank_enabled else None,
+                candidates=self._serialize_results(results), selected=[], diagnostics=log_diagnostics,
+                sources=[], status="success", elapsed_ms=latency_ms)
+
+        retrieval_log = await self._db_call(create_log)
+        if collect_only:
+            return KnowledgeContextResult(None, diagnostics=base_diagnostics, retrieval_log_id=retrieval_log.id,
+                candidates=tuple(results), base=knowledge_base)
         sources = self._build_sources(
             knowledge_base_id=knowledge_base.id,
             knowledge_base_name=knowledge_base.name,
             results=injected_results,
             retrieval_log_id=retrieval_log.id,
+            limit=knowledge_base.max_context_chars,
+            query=original_query,
         )
-        evidence_section = self._evidence_section(sources).fit(
+        evidence_section = self._evidence_section(sources, query=original_query).fit(
             lambda value: len(value.render()) <= knowledge_base.max_context_chars)
-        base_diagnostics.update({"knowledge_chunks_selected": len(injected_results),
+        known_labels = [source.citation_label for source in sources]
+        sources = [ExternalSource(**unit.public_source()) for unit in evidence_section.units]
+        visible = {source.metadata["chunk_id"]: source for source in sources}
+        selected_results = [replace(item, metadata={**item.metadata,
+            "context_content": visible[item.chunk.id].display_text}) for item in injected_results if item.chunk.id in visible]
+        retrieval_log.selected_json = json.dumps(self._serialize_results(selected_results), ensure_ascii=False)
+        base_diagnostics.update({"knowledge_chunks_selected": len(selected_results),
                                  "knowledge_chunks_injected": len(evidence_section.units),
                                  "knowledge_context_chars": len(evidence_section.render()) if evidence_section.units else 0})
         retrieval_log.diagnostics_json = json.dumps({**log_diagnostics, **base_diagnostics}, ensure_ascii=False)
-        self.retrieval_log_repo.save(retrieval_log)
+        await self._db_call(lambda db: KnowledgeRetrievalLogRepository(db).save(retrieval_log))
         return KnowledgeContextResult(
             context_text=evidence_section.render() if evidence_section.units else None,
             sources=sources,
@@ -308,6 +404,7 @@ class KnowledgeContextService:
                 "knowledge_retrieval_log_id": retrieval_log.id,
                 "knowledge_retrieval_log_ids": [retrieval_log.id],
                 "knowledge_query_rewrite": rewrite.to_public_dict(),
+                "knowledge_known_source_labels": known_labels,
             },
             retrieval_log_id=retrieval_log.id,
             retrieval_log_ids=[retrieval_log.id],
@@ -359,10 +456,11 @@ class KnowledgeContextService:
         return list(dict.fromkeys(values))[:10]
 
     @staticmethod
-    def _evidence_section(sources: list[ExternalSource]) -> EvidenceSection:
+    def _evidence_section(sources: list[ExternalSource], *, query: str = "") -> EvidenceSection:
         multi = len({source.metadata.get("knowledge_base_id") for source in sources}) > 1
         return build_evidence_section("knowledge_context", sources,
-            intro=("多知识库检索。" if multi else "") + "请依据以下知识库证据回答；不足时说明不确定，引用保留的[KBn]来源。")
+            intro=("多知识库检索。" if multi else "") + "请依据以下知识库证据回答；不足时说明不确定，引用保留的[KBn]来源。",
+            anchors=query_anchors(query) if settings.knowledge_evidence_coverage_enabled else ())
 
     @staticmethod
     def _context_header(index: int, result: RetrievalResult) -> str:
@@ -575,7 +673,7 @@ class KnowledgeContextService:
                     "score": result.rerank_score if result.rerank_score is not None else result.score,
                     "vector_score": result.metadata.get("vector_score")
                     if isinstance(result.metadata.get("vector_score"), (int, float))
-                    else result.score,
+                    else result.score if result.rank_source in {"vector", "vector_fallback"} else None,
                     "rerank_score": result.rerank_score,
                     "rank_source": result.rank_source,
                     "char_count": result.chunk.char_count,
@@ -583,7 +681,7 @@ class KnowledgeContextService:
                     "source_start": result.chunk.source_start,
                     "source_end": result.chunk.source_end,
                     "preview": KnowledgeContextService._result_display_text(result)[:1200],
-                    "metadata": {k: v for k, v in result.metadata.items() if k not in {"parent_content", "context_content"}},
+                    "metadata": {k: v for k, v in result.metadata.items() if k not in {"parent_content", "context_content", "matched_children"}},
                 }
             )
         return serialized
@@ -595,13 +693,15 @@ class KnowledgeContextService:
         knowledge_base_name: str,
         results: list[RetrievalResult],
         retrieval_log_id: str | None = None,
+        limit: int | None = None,
+        query: str = "",
     ) -> list[ExternalSource]:
         sources: list[ExternalSource] = []
         for index, result in enumerate(results, start=1):
             file_name = str(result.metadata.get("file_name") or "unknown")
             score = result.rerank_score if result.rerank_score is not None else result.score
             metadata = {
-                **{k: v for k, v in result.metadata.items() if k not in {"parent_content", "context_content"}},
+                **{k: v for k, v in result.metadata.items() if k not in {"parent_content", "context_content", "matched_children"}},
                 "knowledge_base_id": knowledge_base_id,
                 "knowledge_base_name": knowledge_base_name,
                 "document_id": result.chunk.document_id,
@@ -609,7 +709,7 @@ class KnowledgeContextService:
                 "chunk_index": result.chunk.chunk_index,
                 "vector_score": result.metadata.get("vector_score")
                 if isinstance(result.metadata.get("vector_score"), (int, float))
-                else result.score,
+                else result.score if result.rank_source in {"vector", "vector_fallback"} else None,
                 "rerank_score": result.rerank_score,
                 "rank_source": result.rank_source,
                 "source_start": result.chunk.source_start,
@@ -617,7 +717,12 @@ class KnowledgeContextService:
                 "retrieval_log_id": retrieval_log_id,
                 "tool": "knowledge_retrieval",
             }
-            display_text = KnowledgeContextService._result_display_text(result)
+            existing = result.metadata.get("context_content")
+            if limit is None and isinstance(existing, str):
+                display_text = existing
+            else:
+                display_text, excerpt_metadata = parent_excerpt(result, limit, anchors=query_anchors(query) if settings.knowledge_evidence_coverage_enabled else ())
+                metadata.update(excerpt_metadata)
             metadata["context_child_offset"] = max(0, display_text.find(result.chunk.content.strip()))
             sources.append(
                 ExternalSource(

@@ -87,6 +87,8 @@ async def _govern(state: ContextGraphState, runtime: Runtime[ContextGraphContext
 
 async def _finalize(state: ContextGraphState, runtime: Runtime[ContextGraphContext]):
     context = runtime.context
+    if getattr(context.assembly, "retrieval_log_ids", None):
+        await context.service.persist_knowledge_links(context.assembly)
     context.assembly.result = context.service.finalize_context(context.assembly)
     _record(runtime, "context_ready")
     context.assembly.result.context_details["context_graph_phases"] = list(context.assembly.phases)

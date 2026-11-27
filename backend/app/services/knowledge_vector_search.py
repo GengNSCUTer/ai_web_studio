@@ -25,6 +25,7 @@ class KnowledgeVectorSearch(Protocol):
         index_generation: str,
         query_vector: list[float],
         top_k: int,
+        filters=None,
     ) -> list[KnowledgeVectorSearchHit]: ...
 
 
@@ -42,6 +43,7 @@ class PgvectorKnowledgeVectorSearch:
         index_generation: str,
         query_vector: list[float],
         top_k: int,
+        filters=None,
     ) -> list[KnowledgeVectorSearchHit]:
         rows = self.chunk_repo.search_by_cosine_distance(
             knowledge_base_id=knowledge_base.id,
@@ -53,5 +55,6 @@ class PgvectorKnowledgeVectorSearch:
             embedding_dimensions=knowledge_base.embedding_dimensions,
             embedding_version=CURRENT_EMBEDDING_VERSION,
             top_k=top_k,
+            filters=filters,
         )
         return [KnowledgeVectorSearchHit(chunk=chunk, score=score) for chunk, score in rows]

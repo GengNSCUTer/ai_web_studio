@@ -111,6 +111,7 @@ class Settings:
     # 知识库向量化模型请求超时秒数
     knowledge_model_request_timeout_seconds: int = int(os.getenv("KNOWLEDGE_MODEL_REQUEST_TIMEOUT_SECONDS", "60"))
     # 知识库检索上下文加载超时秒数
+    knowledge_evidence_coverage_enabled: bool = _env_bool("KNOWLEDGE_EVIDENCE_COVERAGE_ENABLED", False)
     knowledge_context_timeout_seconds: int = int(os.getenv("KNOWLEDGE_CONTEXT_TIMEOUT_SECONDS", "25"))
     # 知识库后台任务：HTTP 只写 PostgreSQL Outbox，独立 Worker 通过 Redis Stream 消费。
     knowledge_redis_url: str = os.getenv("KNOWLEDGE_REDIS_URL", "redis://127.0.0.1:6379/0")

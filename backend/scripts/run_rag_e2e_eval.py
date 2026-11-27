@@ -38,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--model", help="Override the configured answer model")
     parser.add_argument("--judge-model", help="Override the configured judge model")
+    parser.add_argument("--verify-claims", action="store_true", help="离线逐条核验结论和局部引用")
     parser.add_argument("--output", required=True, help="JSON result path")
     parser.add_argument("--markdown-output", help="Optional Markdown report path")
     return parser.parse_args()
@@ -151,6 +152,7 @@ def main() -> int:
             retrieval_mode="hybrid",
             rerank_enabled=True,
             top_k=args.top_k,
+            verify_claims=args.verify_claims,
         )
         payload = service.run(
             user_id=args.user_id,

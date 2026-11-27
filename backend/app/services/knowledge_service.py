@@ -704,7 +704,7 @@ class KnowledgeDocumentService:
                     score=result.rerank_score if result.rerank_score is not None else result.score,
                     vector_score=result.metadata.get("vector_score")
                     if isinstance(result.metadata.get("vector_score"), (int, float))
-                    else result.score,
+                    else result.score if result.rank_source in {"vector", "vector_fallback"} else None,
                     rerank_score=result.rerank_score,
                     rank_source=result.rank_source,
                     content=self._retrieval_display_text(result),

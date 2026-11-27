@@ -94,7 +94,7 @@ class KnowledgeE2EEvaluationHelpersTest(unittest.TestCase):
 class KnowledgeE2EEvaluationServiceTest(unittest.TestCase):
     def test_serialize_sources_respects_total_context_budget(self) -> None:
         item = SimpleNamespace(
-            chunk=SimpleNamespace(id="chunk-1", document_id="doc-1", chunk_index=0, content="x" * 100),
+            chunk=SimpleNamespace(id="chunk-1", document_id="doc-1", chunk_index=0, content="one sentence supported by evidence. " * 5),
             metadata={"file_name": "a.pdf"},
             score=0.5,
             rerank_score=None,

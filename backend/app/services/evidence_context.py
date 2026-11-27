@@ -79,6 +79,21 @@ class EvidenceUnit:
                 "retained_body_start": int(self.source["metadata"].get("evidence_body_start") or 0),
                 "retained_body_end": int(self.source["metadata"].get("evidence_body_start") or 0) + len(self.body),
                 "evidence_original_body_chars": self.original_body_chars}
+        spans = meta.pop("evidence_child_spans", None)
+        if spans is not None:
+            meta["retained_child_ids"] = list(dict.fromkeys(
+                item["id"] for item in spans if item["body_end"] <= len(self.body)))
+        if "retained_ranges" in meta:
+            ranges = []
+            for item in meta["retained_ranges"]:
+                remaining = min(item["body_end"], len(self.body)) - item["body_start"]
+                if remaining > 0:
+                    ranges.append({**item, "body_end": item["body_start"] + remaining,
+                                   "source_end": item["source_start"] + remaining})
+            meta["retained_ranges"] = ranges
+            if ranges:
+                meta["retained_body_start"] = ranges[0]["source_start"]
+                meta["retained_body_end"] = ranges[-1]["source_end"]
         return {**self.source, "display_text": self.body, "used_in_prompt": True, "metadata": meta}
 
 
@@ -87,6 +102,7 @@ class EvidenceSection:
     layer: str
     intro: str
     units: tuple[EvidenceUnit, ...]
+    anchors: tuple[str, ...] = ()
 
     def render(self) -> str:
         return "\n\n".join(part for part in (self.intro, *(unit.render() for unit in self.units)) if part)
@@ -95,7 +111,17 @@ class EvidenceSection:
         """逐单元保留或删除，仅在完整单元放不下时尝试显式节选。"""
         if accepts(self):
             return self
-        kept: tuple[EvidenceUnit, ...] = ()
+        kept: tuple[EvidenceUnit, ...] = self._reserve_coverage(accepts)
+        if kept:
+            # 先锁定互补证据，再用可用空间扩展每条证据。
+            by_label = {unit.label: unit for unit in kept}
+            for unit in self.units:
+                options = dict(by_label)
+                options[unit.label] = unit
+                candidate = replace(self, units=tuple(options[item.label] for item in self.units if item.label in options))
+                if accepts(candidate):
+                    by_label = options
+            return replace(self, units=tuple(by_label[item.label] for item in self.units if item.label in by_label))
         for index, unit in enumerate(self.units):
             candidate = replace(self, units=(*kept, unit))
             if accepts(candidate):
@@ -119,7 +145,31 @@ class EvidenceSection:
         return replace(self, units=kept)
 
 
-def build_evidence_section(layer: str, sources: list[ExternalSource], *, intro: str) -> EvidenceSection:
+    def _reserve_coverage(self, accepts):
+        if len(self.anchors) < 2:
+            return ()
+        selected = []
+        covered = set()
+        remaining = list(self.units)
+        while remaining:
+            def anchors(unit):
+                return {anchor for anchor in self.anchors if anchor in unit.body.lower()}
+            best = max(remaining, key=lambda unit: len(anchors(unit) - covered))
+            remaining.remove(best)
+            if not anchors(best) - covered:
+                break
+            # 优先完整的短前缀，只承诺节选本身出现的锚点。
+            excerpt = complete_excerpt(best.body, min(384, len(best.body)))
+            if not excerpt or not any(anchor in excerpt.lower() for anchor in anchors(best) - covered):
+                continue
+            candidate = replace(best, body=excerpt)
+            if accepts(replace(self, units=(*selected, candidate))):
+                selected.append(candidate)
+                covered.update(anchors(candidate))
+        return tuple(selected) if len(covered) >= 2 else ()
+
+
+def build_evidence_section(layer: str, sources: list[ExternalSource], *, intro: str, anchors: tuple[str, ...] = ()) -> EvidenceSection:
     units, labels = [], set()
     for source in sources:
         public = source.to_public_dict()
@@ -135,11 +185,14 @@ def build_evidence_section(layer: str, sources: list[ExternalSource], *, intro: 
         if public.get("url"):
             header += f"\nURL: {public['url']}"
         meta = public["metadata"]
+        if body != source.display_text.strip() and "evidence_child_spans" in meta:
+            # 脱敏可能改变坐标，无法核对的区间不公开为实际保留范围。
+            meta.update(evidence_child_spans=[], retained_child_ids=[], retained_ranges=[])
         if public["source_type"] == "knowledge":
             header += f"\n知识库：{meta.get('knowledge_base_name', 'unknown')}；文件：{meta.get('file_name', 'unknown')}；chunk：{meta.get('chunk_index', '')}"
         units.append(EvidenceUnit(public, header, body,
                                   max(len(body), int(meta.get('evidence_original_body_chars') or 0))))
-    return EvidenceSection(layer, intro, tuple(units))
+    return EvidenceSection(layer, intro, tuple(units), anchors)
 
 
 def final_evidence_sources(sections: list[EvidenceSection]) -> dict[str, dict]:

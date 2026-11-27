@@ -25,6 +25,7 @@ from app.services.chat_summary_coverage import ChatSummaryCoverage
 from app.services.external_context_service import ExternalContextService
 from app.services.evidence_sufficiency import assess_evidence_sufficiency
 from app.services.file_edit_response import build_file_edit_response
+from app.services.knowledge_read_runtime import run_knowledge_db
 from app.services.knowledge_context_service import KnowledgeContextResult, KnowledgeContextService
 from app.services.message_service import MessageService
 from app.services.memory_retrieval_service import MemoryRetrievalResult, MemoryRetrievalService
@@ -271,30 +272,36 @@ class ChatContextAssemblyService:
                 },
                 recent_messages=[row for row in assembly.history_rows if row.id != assembly.user_message_id],
             )
-            self._link_retrieval_logs(db, assembly)
-
-    def _link_retrieval_logs(self, db, assembly):
         assembly.retrieval_log_ids = assembly.knowledge_context_result.retrieval_log_ids or (
-            [assembly.knowledge_context_result.retrieval_log_id] if assembly.knowledge_context_result.retrieval_log_id else []
-        )
-        if assembly.retrieval_log_ids:
-            # RAG 来源定位需要把检索日志绑定到本轮消息，否则前端只能看到片段，不能跳回对应回答。
-            knowledge_log_repo = KnowledgeRetrievalLogRepository(db)
-            sources_by_log_id: dict[str, list[dict[str, Any]]] = {}
-            for source in assembly.knowledge_context_result.sources:
-                source_dict = source.to_public_dict()
-                log_id = str((source.metadata or {}).get("retrieval_log_id") or "")
-                if log_id:
-                    sources_by_log_id.setdefault(log_id, []).append(source_dict)
-            for log_id in assembly.retrieval_log_ids:
-                knowledge_log_repo.update_message_links(
-                    log_id=log_id,
-                    user_id=self.user_id,
-                    conversation_id=assembly.conversation_id,
-                    user_message_id=assembly.user_message_id,
-                    assistant_message_id=assembly.assistant_id,
-                    sources=sources_by_log_id.get(log_id, []),
-                )
+            [assembly.knowledge_context_result.retrieval_log_id] if assembly.knowledge_context_result.retrieval_log_id else [])
+
+    async def persist_knowledge_links(self, assembly):
+        if not assembly.retrieval_log_ids:
+            return
+        final = assembly.governed_context.final_source_map
+        original = assembly.knowledge_context_result.sources
+        ids = tuple(assembly.retrieval_log_ids)
+        conversation_id, user_message_id, assistant_id = assembly.conversation_id, assembly.user_message_id, assembly.assistant_id
+
+        def save(db):
+            repo = KnowledgeRetrievalLogRepository(db)
+            for log_id in ids:
+                sources = [source for source in final.values() if (source.get("metadata") or {}).get("retrieval_log_id") == log_id]
+                log = repo.update_message_links(log_id=log_id, user_id=self.user_id, conversation_id=conversation_id,
+                    user_message_id=user_message_id, assistant_message_id=assistant_id, sources=sources)
+                if log:
+                    diagnostics = json.loads(log.diagnostics_json or "{}")
+                    diagnostics["knowledge_sources_in_final_prompt"] = len(sources)
+                    diagnostics["excluded_source_labels"] = [source.citation_label for source in original
+                        if source.metadata.get("retrieval_log_id") == log_id and source.citation_label not in final]
+                    log.diagnostics_json = json.dumps(diagnostics, ensure_ascii=False)
+                    repo.save(log)
+
+        bind = self.db.get_bind()
+        if bind.dialect.name == "postgresql":
+            await run_knowledge_db(bind, save)
+        else:
+            save(self.db)
 
     async def refresh_summary(self, assembly: ChatAssemblyRuntime) -> None:
         """刷新摘要并复核历史版本及MCP资料授权。"""
@@ -441,33 +448,14 @@ class ChatContextAssemblyService:
         verified_file_edit_answer = build_file_edit_response(query=assembly.query, mode=assembly.tool_run_mode,
             sources=assembly.external_context_result.sources, final_source_map=final_source_map,
             events=assembly.external_context_result.tool_events)
-        # 候选/选择记录不变；展示来源只取最终证据，另存排除原因而非伪装成可引用来源。
-        if assembly.retrieval_log_ids:
-            log_repo = KnowledgeRetrievalLogRepository(self.db)
-            for log_id in assembly.retrieval_log_ids:
-                log = log_repo.update_message_links(log_id=log_id, user_id=self.user_id,
-                    conversation_id=getattr(assembly.conversation, "id", None), user_message_id=getattr(assembly.user_message, "id", None),
-                    assistant_message_id=getattr(assembly.assistant_message, "id", None),
-                    sources=[source for source in combined_public_sources
-                        if (source.get("metadata") or {}).get("retrieval_log_id") == log_id])
-                if log:
-                    diagnostics = json.loads(log.diagnostics_json or "{}")
-                    diagnostics["knowledge_sources_in_final_prompt"] = sum(
-                        source["metadata"].get("retrieval_log_id") == log_id for source in combined_public_sources)
-                    diagnostics["excluded_source_labels"] = [source.citation_label for source in original_sources
-                        if source.metadata.get("retrieval_log_id") == log_id and source.citation_label not in final_source_map]
-                    log.diagnostics_json = json.dumps(diagnostics, ensure_ascii=False)
-                    log_repo.save(log)
-            # 流式层会关闭请求Session，最终来源/排除原因必须在交接前提交，
-            # 否则日志会退回预算治理前的来源集合。
-            self.db.commit()
         context_details = {
             "citation_smalltalk": is_smalltalk_query(assembly.query),
             "memory_retrieval": assembly.memory_diagnostics,
             "attachment_chunks": assembly.attachment_context_result.details.get("attachment_chunks", []),
             "external_sources": combined_public_sources,
             "final_source_map": final_source_map,
-            "known_source_labels": [source.citation_label for source in original_sources if source.citation_label],
+            "known_source_labels": list(dict.fromkeys([source.citation_label for source in original_sources
+                if source.citation_label] + assembly.knowledge_context_result.details.get("knowledge_known_source_labels", []))),
             "knowledge_sources": [source for source in combined_public_sources if source["source_type"] == "knowledge"],
             "knowledge_query_rewrite": assembly.knowledge_context_result.details.get("knowledge_query_rewrite"),
             "tool_plan": assembly.external_context_result.details.get("tool_plan"),

@@ -21,6 +21,8 @@ from app.repositories.knowledge_repo import KnowledgeChunkRepository, KnowledgeD
 from app.services.knowledge_parser_service import KnowledgeParserService
 from app.services.setting_service import SettingService
 from app.services.knowledge_vector_search import CURRENT_EMBEDDING_VERSION, KnowledgeVectorSearch
+from app.services.knowledge_lexical_cache import lexical_index_cache
+from app.services.knowledge_relevance import LEXICAL_MIN_COVERAGE
 from app.services.knowledge_search_text import metadata_at, structural_markers, retrieval_text
 
 
@@ -70,6 +72,7 @@ class RetrievalResult:
 class LexicalSearchHit:
     vector_id: int
     score: float
+    coverage: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -485,6 +488,8 @@ class KnowledgeLexicalStore:
         query: str,
         top_k: int,
         generation_id: str | None = None,
+        allowed_vector_ids: set[int] | None = None,
+        diagnostics: dict[str, int] | None = None,
     ) -> list[LexicalSearchHit]:
         payload = self._load(knowledge_base_id=knowledge_base_id, generation_id=generation_id)
         query_terms = self.tokenize(query)
@@ -502,38 +507,46 @@ class KnowledgeLexicalStore:
             raise RuntimeError("知识库 BM25 索引文件格式不合法，请重建索引。")
 
         scores: dict[int, float] = defaultdict(float)
+        weighted_matches: dict[int, float] = defaultdict(float)
+        total_query_weight = 0.0
         for term, query_weight in query_counts.items():
+            df = int(document_frequency.get(term) or 0)
+            idf = math.log(1 + (doc_count - df + 0.5) / (df + 0.5))
+            total_query_weight += idf
             term_postings = postings.get(term)
             if not isinstance(term_postings, list):
                 continue
-            df = int(document_frequency.get(term) or 0)
             if df <= 0:
                 continue
-            idf = math.log(1 + (doc_count - df + 0.5) / (df + 0.5))
             for posting in term_postings:
                 if not isinstance(posting, list) or len(posting) != 2:
                     continue
                 vector_id, tf = posting
                 if not isinstance(vector_id, int) or not isinstance(tf, int) or tf <= 0:
                     continue
+                if allowed_vector_ids is not None and vector_id not in allowed_vector_ids:
+                    continue
+                weighted_matches[vector_id] += idf
                 doc_len = max(1, int(document_lengths.get(str(vector_id)) or 0))
                 denom = tf + self.BM25_K1 * (1 - self.BM25_B + self.BM25_B * doc_len / avgdl)
                 scores[vector_id] += float(query_weight) * idf * (tf * (self.BM25_K1 + 1) / denom)
 
-        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-        return [LexicalSearchHit(vector_id=vector_id, score=score) for vector_id, score in ranked[: max(1, top_k)] if score > 0]
+        threshold = LEXICAL_MIN_COVERAGE.get(self.contextual, 0.)
+        ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+        hits = [LexicalSearchHit(vector_id, score, weighted_matches[vector_id] / total_query_weight)
+                for vector_id, score in ranked if weighted_matches[vector_id] / total_query_weight >= threshold]
+        if diagnostics is not None:
+            diagnostics.update(lexical_candidates=len(ranked), lexical_passed=len(hits))
+        return hits[:max(1, top_k)]
 
     def _load(self, *, knowledge_base_id: str, generation_id: str | None = None) -> dict:
         index_path = self.index_path(knowledge_base_id, generation_id=generation_id)
-        if not index_path.exists():
-            raise RuntimeError("知识库尚未生成 BM25 索引，请先索引文档。")
         try:
-            payload = json.loads(index_path.read_text(encoding="utf-8"))
+            return lexical_index_cache.load(index_path, self.VERSION)
+        except FileNotFoundError as exc:
+            raise RuntimeError("知识库尚未生成 BM25 索引，请先索引文档。") from exc
         except json.JSONDecodeError as exc:
             raise RuntimeError("知识库 BM25 索引文件损坏，请重建索引。") from exc
-        if not isinstance(payload, dict) or payload.get("version") != self.VERSION:
-            raise RuntimeError("知识库 BM25 索引版本不兼容，请重建索引。")
-        return payload
 
     @staticmethod
     def tokenize(text: str) -> list[str]:

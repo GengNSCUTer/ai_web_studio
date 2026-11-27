@@ -204,7 +204,7 @@ class KnowledgeRetrievalChunkResponse(BaseModel):
     file_name: str
     chunk_index: int
     score: float
-    vector_score: float
+    vector_score: float | None
     rerank_score: float | None = None
     rank_source: str = "vector"
     content: str

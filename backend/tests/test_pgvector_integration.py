@@ -1,4 +1,6 @@
 import os
+import json
+from app.services.knowledge_read_runtime import run_knowledge_db
 import asyncio
 import tempfile
 import threading
@@ -27,12 +29,13 @@ class StaticEmbeddingService:
 
 @unittest.skipUnless(TEST_POSTGRES_URL, "set TEST_POSTGRES_URL to run PostgreSQL integration tests")
 class PgvectorKnowledgeChunkIntegrationTest(unittest.TestCase):
-    def test_hybrid_threads_only_touch_index_files_and_keep_serial_ranking(self):
+    def test_hybrid_uses_independent_database_sessions_and_keeps_serial_ranking(self):
         """真实PG与真实BM25：冷建、热读、损坏重建、结构索引均不跨线程访问Session。"""
         owner = threading.get_ident()
         test = self
         def assert_sql_thread(*args):
-            test.assertEqual(threading.get_ident(), owner)
+            if "SET LOCAL statement_timeout" in str(args[2]):
+                test.assertNotEqual(threading.get_ident(), owner)
         class Store(KnowledgeLexicalStore):
             def search(self, **kwargs):
                 test.assertNotEqual(threading.get_ident(), owner)
@@ -75,6 +78,48 @@ class PgvectorKnowledgeChunkIntegrationTest(unittest.TestCase):
                             [(r.chunk.id, r.score, r.metadata) for r in expected])
         finally:
             event.remove(self.engine, "before_cursor_execute", assert_sql_thread)
+
+    def test_filtered_topk_reads_target_beyond_first_200_in_both_channels(self):
+        base, distractor = self._add_knowledge_base_and_document(name="filtered", dimensions=3)
+        base.retrieval_mode, base.rerank_enabled, base.score_threshold = "hybrid", False, .2
+        target = KnowledgeDocument(knowledge_base_id=base.id, user_id=self.user.id, file_name="target.md",
+            storage_key="target.md")
+        self.db.add(target)
+        self.db.flush()
+        for number in range(1, 206):
+            self._add_chunk(knowledge_base=base, document=distractor, vector_id=number,
+                content="unique unique unique expected", embedding=[1., 0., 0.])
+        hit = self._add_chunk(knowledge_base=base, document=target, vector_id=206,
+            content="unique expected", embedding=[.8, .6, 0.])
+        hit.metadata_json = json.dumps({"section_path": "根章节 / 指定范围", "file_type": "text/markdown", "page_number": "4"})
+        self.db.commit()
+        uid = self.user.id
+        with tempfile.TemporaryDirectory() as root:
+            pipeline = KnowledgeRetrievalPipeline(chunk_repo=KnowledgeChunkRepository(self.db),
+                setting_service=Mock(), embedding_service=StaticEmbeddingService(), lexical_store=KnowledgeLexicalStore(root))
+            result = pipeline.retrieve(user_id=uid, knowledge_base=base, query="unique expected", top_k=1,
+                filters=KnowledgeRetrievalFilter(document_ids=[target.id], file_types=["markdown"],
+                                                 page_start=4, page_end=4, section_query="指定范围"))
+            self.assertEqual([row.chunk.id for row in result], [hit.id])
+            self.assertEqual(result[0].metadata["vector_rank"], 1)
+            self.assertEqual(result[0].metadata["lexical_rank"], 1)
+
+    def test_slow_query_has_database_deadline_without_blocking_loop(self):
+        async def verify():
+            task = asyncio.create_task(run_knowledge_db(self.engine, lambda db: db.execute(text("SELECT pg_sleep(4)"))))
+            await asyncio.sleep(.05)
+            self.assertFalse(task.done())
+            start = asyncio.get_running_loop().time()
+            with self.assertRaises(TimeoutError):
+                await asyncio.wait_for(task, timeout=3.7)
+            self.assertGreater(asyncio.get_running_loop().time() - start, 2.)
+            task = asyncio.create_task(run_knowledge_db(self.engine, lambda db: db.execute(text("SELECT pg_sleep(.1)"))))
+            await asyncio.sleep(.02)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertEqual(await run_knowledge_db(self.engine, lambda db: db.scalar(text("SELECT 1"))), 1)
+        asyncio.run(verify())
 
     @classmethod
     def setUpClass(cls) -> None:

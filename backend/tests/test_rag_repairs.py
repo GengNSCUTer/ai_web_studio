@@ -15,13 +15,13 @@ from scripts.import_rag_gold_set import _resolve_case
 
 
 class RerankScoreRepairTest(unittest.TestCase):
-    def test_success_keeps_low_rerank_scores_but_fallback_uses_original_threshold(self):
+    def test_rerank_and_fallback_preserve_already_gated_candidates(self):
         model = Mock(rerank=AsyncMock(return_value=[(1, 0.04), (0, 0.03)]))
         pipeline = KnowledgeRetrievalPipeline(chunk_repo=Mock(), setting_service=Mock(), rerank_service=model)
         base = SimpleNamespace(rerank_enabled=True, rerank_top_n=2,
                                score_threshold=0.8, rerank_model="test")
         items = [RetrievalResult(chunk=SimpleNamespace(id=str(i), content="证据"),
-                                 score=score, metadata={}) for i, score in enumerate([0.9, 0.4])]
+                                 score=score, metadata={}) for i, score in enumerate([0.9, 0.84])]
         async def run():
             return await pipeline._rerank_if_needed(user_id="u", knowledge_base=base,
                                                   query="概览", results=items, result_limit=2)
@@ -30,7 +30,7 @@ class RerankScoreRepairTest(unittest.TestCase):
         self.assertEqual(ranked[0].rerank_score, 0.04)
         model.rerank.side_effect = TimeoutError()
         fallback = asyncio.run(run())
-        self.assertEqual([r.chunk.id for r in fallback], ["0"])
+        self.assertEqual([r.chunk.id for r in fallback], ["0", "1"])
         self.assertTrue(fallback[0].metadata["rerank_fallback"])
 
 

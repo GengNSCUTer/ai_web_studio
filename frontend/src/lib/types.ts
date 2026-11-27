@@ -319,7 +319,7 @@ export type KnowledgeRetrievalChunk = {
   file_name: string;
   chunk_index: number;
   score: number;
-  vector_score: number;
+  vector_score: number | null;
   rerank_score: number | null;
   rank_source: string;
   content: string;

@@ -1,7 +1,8 @@
 import json
 from typing import Any
 
-from sqlalchemy import delete, func, select, update, tuple_
+from sqlalchemy import Integer, case, cast, delete, func, select, update, tuple_
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.models.knowledge import (
@@ -216,6 +217,37 @@ class KnowledgeChunkRepository:
         stmt = select(KnowledgeChunk).where(*conditions).order_by(KnowledgeChunk.vector_id.asc())
         return list(self.db.scalars(stmt).all())
 
+    @staticmethod
+    def retrieval_predicates(filters):
+        if not filters or not filters.enabled:
+            return []
+        conditions = []
+        if filters.document_ids:
+            conditions.append(KnowledgeChunk.document_id.in_(filters.document_ids))
+        metadata = cast(KnowledgeChunk.metadata_json, JSONB)
+        if filters.file_types:
+            kind = func.lower(func.trim(func.coalesce(func.nullif(metadata["file_type"].astext, ""),
+                metadata["mime_type"].astext, "")))
+            normalized = case({"application/pdf": "pdf", "text/markdown": "markdown", "md": "markdown",
+                "text/plain": "text", "txt": "text", "plain": "text", "text/html": "html"}, value=kind, else_=kind)
+            conditions.append(normalized.in_(filters.file_types))
+        if filters.page_start is not None or filters.page_end is not None:
+            pages = [func.trim(metadata[key].astext) for key in ("page_number", "page", "source_page")]
+            page = func.coalesce(*(case((value.op("~")(r"^[0-9]{1,9}$"), cast(value, Integer))) for value in pages))
+            if filters.page_start is not None:
+                conditions.append(page >= filters.page_start)
+            if filters.page_end is not None:
+                conditions.append(page <= filters.page_end)
+        if filters.section_query:
+            section = func.concat_ws(" / ", *(metadata[key].astext for key in ("section_path", "section_title", "heading")))
+            conditions.append(func.lower(section).contains(filters.section_query.lower(), autoescape=True))
+        return conditions
+
+    def allowed_vector_ids(self, knowledge_base_id, user_id, index_generation, filters):
+        return set(self.db.scalars(select(KnowledgeChunk.vector_id).where(
+            KnowledgeChunk.knowledge_base_id == knowledge_base_id, KnowledgeChunk.user_id == user_id,
+            KnowledgeChunk.index_generation == index_generation, *self.retrieval_predicates(filters))))
+
     def search_by_cosine_distance(
         self,
         *,
@@ -228,6 +260,7 @@ class KnowledgeChunkRepository:
         embedding_dimensions: int,
         embedding_version: str,
         top_k: int,
+        filters=None,
     ) -> list[tuple[KnowledgeChunk, float]]:
         if top_k <= 0:
             return []
@@ -244,6 +277,7 @@ class KnowledgeChunkRepository:
                 KnowledgeChunk.embedding_model == embedding_model,
                 KnowledgeChunk.embedding_dimensions == embedding_dimensions,
                 KnowledgeChunk.embedding_version == embedding_version,
+                *self.retrieval_predicates(filters),
             )
             .order_by(distance.asc(), KnowledgeChunk.vector_id.asc())
             .limit(top_k)

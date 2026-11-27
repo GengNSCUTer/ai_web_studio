@@ -912,7 +912,7 @@ export function KnowledgeWorkspace({
                         />
                         <Info label="Embedding" value={visibleActiveKnowledgeBase.embedding_model} />
                         <Info label="Rerank" value={visibleActiveKnowledgeBase.rerank_enabled ? visibleActiveKnowledgeBase.rerank_model : "未启用"} />
-                        <Info label="分数阈值" value={`${visibleActiveKnowledgeBase.score_threshold}`} />
+                        <Info label="向量余弦下限" value={`${visibleActiveKnowledgeBase.score_threshold}`} />
                         <div className="rounded-2xl border border-[var(--control-border)] bg-[var(--control-bg)] px-4 py-3 sm:col-span-2">
                           <SelectField
                             label="检索模式"
@@ -1235,7 +1235,7 @@ export function KnowledgeWorkspace({
                                       <p className="truncate text-sm font-semibold">{result.file_name}</p>
                                       <p className="mt-1 text-xs text-[var(--ink-muted)]">
                                         Chunk #{result.chunk_index} · 最终 {result.score.toFixed(4)}
-                                        {result.rank_source !== "lexical"
+                                        {typeof result.vector_score === "number"
                                           ? ` · 向量 ${result.vector_score.toFixed(4)}`
                                           : ""}
                                         {optionalNumber(result.metadata?.lexical_score) !== null
@@ -1740,7 +1740,7 @@ export function KnowledgeWorkspace({
                   onChange={(value) => updateCreateForm("rerank_top_n", value)}
                 />
                 <NumberField
-                  label="Score Threshold"
+                  label="向量余弦下限"
                   value={createForm.score_threshold}
                   min={0}
                   max={1}

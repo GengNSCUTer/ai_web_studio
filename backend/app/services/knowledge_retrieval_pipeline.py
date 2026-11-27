@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from dataclasses import dataclass, field, replace
+from types import SimpleNamespace
 
 from app.models.knowledge import KnowledgeBase
 from app.repositories.knowledge_repo import KnowledgeChunkRepository
@@ -26,6 +28,8 @@ from app.services.setting_service import SettingService
 from app.services.knowledge_query_expansion import KnowledgeQueryExpansionService
 from app.services.knowledge_search_text import retrieval_text
 from app.core.config import settings
+from app.services.knowledge_read_runtime import run_knowledge_db
+from app.services.knowledge_relevance import SEMANTIC_PROFILES
 
 
 @dataclass(frozen=True)
@@ -84,9 +88,18 @@ class KnowledgeRetrievalPipeline:
         self.embedding_service = embedding_service or KnowledgeEmbeddingService(setting_service)
         self.rerank_service = rerank_service or KnowledgeRerankService(setting_service)
         self.vector_search = vector_search or PgvectorKnowledgeVectorSearch(chunk_repo)
+        db = getattr(chunk_repo, "db", None)
+        bind = db.get_bind() if db is not None else None
+        self.pg_bind = bind if bind is not None and bind.dialect.name == "postgresql" else None
+        self.diagnostics: dict[str, int | str] = {}
         self.enhancement = enhancement if enhancement is not None else getattr(settings, "knowledge_retrieval_enhancement", "none")
         self.lexical_store = lexical_store or KnowledgeLexicalStore(contextual=self.enhancement in {"context", "both"})
         self.query_expansion = KnowledgeQueryExpansionService(setting_service)
+
+    async def _read(self, operation):
+        if self.pg_bind is None:
+            return operation(self.chunk_repo)
+        return await run_knowledge_db(self.pg_bind, lambda db: operation(KnowledgeChunkRepository(db)))
 
     def retrieve(
         self,
@@ -110,9 +123,12 @@ class KnowledgeRetrievalPipeline:
     async def retrieve_async(
         self, *, user_id: str, knowledge_base: KnowledgeBase, query: str, top_k: int,
         filters: KnowledgeRetrievalFilter | None = None,
+        evidence_limit: int | None = None,
+        skip_rerank: bool = False,
     ) -> list[RetrievalResult]:
+        self.diagnostics = {}
         results = await self._retrieve_async(user_id=user_id, knowledge_base=knowledge_base,
-                                             query=query, top_k=top_k, filters=filters)
+            query=query, top_k=top_k, filters=filters, evidence_limit=evidence_limit, skip_rerank=skip_rerank)
         pending = {}
         for result in results:
             index = result.metadata.get("parent_chunk_index")
@@ -121,7 +137,7 @@ class KnowledgeRetrievalPipeline:
                 pending[(chunk.knowledge_base_id, chunk.document_id, chunk.index_generation, index)] = True
         if not pending:
             return results
-        anchors = self.chunk_repo.parent_anchors(user_id=user_id, keys=list(pending))
+        anchors = await self._read(lambda repo: repo.parent_anchors(user_id=user_id, keys=list(pending)))
         parents = {(c.knowledge_base_id, c.document_id, c.index_generation, c.chunk_index):
                    json.loads(c.metadata_json or "{}").get("parent_content") for c in anchors}
         hydrated = []
@@ -141,15 +157,17 @@ class KnowledgeRetrievalPipeline:
         query: str,
         top_k: int,
         filters: KnowledgeRetrievalFilter | None = None,
+        evidence_limit: int | None = None,
+        skip_rerank: bool = False,
     ) -> list[RetrievalResult]:
         filters = filters or KnowledgeRetrievalFilter()
         if self.enhancement in {"query", "both"}:
             query, _ = await self.query_expansion.expand(user_id=user_id, query=query)
         retrieval_mode = (knowledge_base.retrieval_mode or "vector").strip().lower()
-        rerank_active = bool(knowledge_base.rerank_enabled and knowledge_base.rerank_top_n > 0)
+        rerank_active = not skip_rerank and bool(knowledge_base.rerank_enabled and knowledge_base.rerank_top_n > 0)
         channel_top_k = top_k
-        if rerank_active:
-            channel_top_k = min(top_k * 2, self.MAX_RERANK_CANDIDATES // 2)
+        if rerank_active or evidence_limit is not None:
+            channel_top_k = min(2 * max(top_k, evidence_limit or 0), self.MAX_RERANK_CANDIDATES // 2)
         index_generation = self._active_generation(knowledge_base)
         if retrieval_mode == "lexical":
             results = await self._retrieve_lexical_results(
@@ -160,15 +178,17 @@ class KnowledgeRetrievalPipeline:
                 filters=filters,
                 index_generation=index_generation,
             )
+            if skip_rerank:
+                return results[:top_k]
             return await self._rerank_if_needed(
                 user_id=user_id,
                 knowledge_base=knowledge_base,
                 query=query,
                 results=results,
                 result_limit=top_k,
+                evidence_limit=evidence_limit,
             )
         if retrieval_mode == "hybrid":
-            candidate_top_k = self._candidate_top_k(top_k=channel_top_k, filters=filters)
             async def channel(operation):
                 try:
                     return await operation, None
@@ -178,9 +198,9 @@ class KnowledgeRetrievalPipeline:
 
             tasks = [asyncio.create_task(channel(operation)) for operation in (
                 self._retrieve_vector_results(user_id=user_id, knowledge_base=knowledge_base,
-                    query=query, top_k=candidate_top_k, filters=filters, index_generation=index_generation),
+                    query=query, top_k=channel_top_k, filters=filters, index_generation=index_generation),
                 self._retrieve_lexical_results(user_id=user_id, knowledge_base=knowledge_base,
-                    query=query, top_k=candidate_top_k, filters=filters, index_generation=index_generation),
+                    query=query, top_k=channel_top_k, filters=filters, index_generation=index_generation),
             )]
             try:
                 (vector_results, vector_error_code), (lexical_results, lexical_error_code) = await asyncio.gather(*tasks)
@@ -190,10 +210,11 @@ class KnowledgeRetrievalPipeline:
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
+            self.diagnostics.update(vector_error_code=vector_error_code or "", lexical_error_code=lexical_error_code or "")
             results = self._fuse_rrf(
                 vector_results=vector_results,
                 lexical_results=lexical_results,
-                top_k=self.MAX_RERANK_CANDIDATES if rerank_active else top_k,
+                top_k=self.MAX_RERANK_CANDIDATES if rerank_active or evidence_limit is not None else top_k,
                 vector_error_code=vector_error_code,
                 lexical_error_code=lexical_error_code,
             )
@@ -202,12 +223,15 @@ class KnowledgeRetrievalPipeline:
                 # relevant document" result.  Context/evaluation callers can
                 # classify this stable error and close the request safely.
                 raise KnowledgeRetrievalUnavailableError()
+            if skip_rerank:
+                return results[:top_k]
             return await self._rerank_if_needed(
                 user_id=user_id,
                 knowledge_base=knowledge_base,
                 query=query,
                 results=results,
                 result_limit=top_k,
+                evidence_limit=evidence_limit,
             )
         results = await self._retrieve_vector_results(
             user_id=user_id,
@@ -217,12 +241,15 @@ class KnowledgeRetrievalPipeline:
             filters=filters,
             index_generation=index_generation,
         )
+        if skip_rerank:
+            return results[:top_k]
         return await self._rerank_if_needed(
             user_id=user_id,
             knowledge_base=knowledge_base,
             query=query,
             results=results,
             result_limit=top_k,
+            evidence_limit=evidence_limit,
         )
 
     async def _retrieve_vector_results(
@@ -243,28 +270,29 @@ class KnowledgeRetrievalPipeline:
             )
         )[0]
         self._validate_vectors(vectors=[query_vector], expected_count=1, dimensions=knowledge_base.embedding_dimensions)
-        candidate_top_k = self._candidate_top_k(top_k=top_k, filters=filters)
         index_generation = index_generation or self._active_generation(knowledge_base)
-        hits = self.vector_search.search(
-            user_id=user_id,
-            knowledge_base=knowledge_base,
-            index_generation=index_generation,
-            query_vector=query_vector,
-            top_k=candidate_top_k,
-        )
-        if not hits:
-            return []
-        results = [
-            RetrievalResult(
-                chunk=hit.chunk,
-                score=hit.score,
-                metadata=json.loads(hit.chunk.metadata_json or "{}"),
-            )
-            for hit in hits
-        ]
-        if filters.enabled:
-            return self._apply_filters(results, filters)[:top_k]
-        return results[:top_k]
+        arguments = dict(user_id=user_id, knowledge_base=knowledge_base, index_generation=index_generation,
+                         query_vector=query_vector, top_k=top_k)
+        if self.pg_bind is not None and isinstance(self.vector_search, PgvectorKnowledgeVectorSearch):
+            arguments["knowledge_base"] = SimpleNamespace(id=knowledge_base.id,
+                embedding_provider=knowledge_base.embedding_provider, embedding_model=knowledge_base.embedding_model,
+                embedding_dimensions=knowledge_base.embedding_dimensions)
+            hits = await self._read(lambda repo: PgvectorKnowledgeVectorSearch(repo).search(**arguments, filters=filters))
+        else:
+            if filters.enabled:
+                arguments["top_k"] = self._candidate_top_k(top_k=top_k, filters=filters)
+            hits = self.vector_search.search(**arguments)
+        results = [RetrievalResult(chunk=hit.chunk, score=hit.score,
+            metadata={**json.loads(hit.chunk.metadata_json or "{}"), "vector_score": hit.score}) for hit in hits]
+        if filters.enabled and (self.pg_bind is None or not isinstance(self.vector_search, PgvectorKnowledgeVectorSearch)):
+            results = self._apply_filters(results, filters)
+        profile = SEMANTIC_PROFILES.get((knowledge_base.embedding_provider, knowledge_base.embedding_model,
+                                         knowledge_base.embedding_dimensions))
+        floor = max(knowledge_base.score_threshold or 0., profile or 0.)
+        passed = [result for result in results if math.isfinite(result.score) and (floor <= 0 or result.score >= floor)]
+        self.diagnostics.update(vector_candidates=len(results), vector_passed=len(passed),
+                                semantic_profile="calibrated" if profile is not None else "user_threshold")
+        return passed[:top_k]
 
     async def _rerank_if_needed(
         self,
@@ -274,18 +302,22 @@ class KnowledgeRetrievalPipeline:
         query: str,
         results: list[RetrievalResult],
         result_limit: int | None = None,
+        evidence_limit: int | None = None,
     ) -> list[RetrievalResult]:
         if not results:
             return []
         # 精排不可用时只返回调用者原本申请的数量，不将扩大后的候选池泄漏到上下文。
-        fallback_results = results[:result_limit] if result_limit is not None else results
+        expanded_limit = min(evidence_limit * 2, self.MAX_RERANK_CANDIDATES) if evidence_limit else result_limit
+        fallback_results = results if evidence_limit is not None else results[:expanded_limit]
         if not knowledge_base.rerank_enabled or len(results) <= 1:
-            return self._apply_score_threshold(fallback_results, knowledge_base.score_threshold)
+            return fallback_results
         if knowledge_base.rerank_top_n <= 0:
-            return self._apply_score_threshold(fallback_results, knowledge_base.score_threshold)
+            return fallback_results
 
         rerank_top_n = min(knowledge_base.rerank_top_n, len(results))
-        if result_limit is not None:
+        if evidence_limit is not None:
+            rerank_top_n = min(len(results), expanded_limit)
+        elif result_limit is not None:
             rerank_top_n = min(rerank_top_n, result_limit)
         try:
             reranked = await self.rerank_service.rerank(
@@ -298,22 +330,18 @@ class KnowledgeRetrievalPipeline:
                 top_n=rerank_top_n,
             )
         except Exception as exc:
-            return self._apply_score_threshold(
-                self._mark_rerank_fallback(fallback_results, classify_knowledge_error(exc)),
-                knowledge_base.score_threshold,
-            )
+            return self._mark_rerank_fallback(fallback_results, classify_knowledge_error(exc))
         if not reranked:
-            return self._apply_score_threshold(
-                self._mark_rerank_fallback(fallback_results, "empty_response"),
-                knowledge_base.score_threshold,
-            )
+            return self._mark_rerank_fallback(fallback_results, "empty_response")
 
         result_by_index = {index: result for index, result in enumerate(results)}
         reranked_results: list[RetrievalResult] = []
+        seen = set()
         for index, rerank_score in reranked:
             result = result_by_index.get(index)
-            if not result:
+            if not result or index in seen or not math.isfinite(rerank_score):
                 continue
+            seen.add(index)
             metadata = {
                 **result.metadata,
                 "rerank_model": knowledge_base.rerank_model,
@@ -336,6 +364,11 @@ class KnowledgeRetrievalPipeline:
             )
         # 精排相关性分数不是向量余弦相似度，也不是 RRF 归一化分数。
         # 未经专门校准不能复用召回阈值；成功精排仅按模型排名和 top_n 收口。
+        if not reranked_results:
+            return self._mark_rerank_fallback(fallback_results, "invalid_response")
+        if evidence_limit is not None:
+            # 父块合并由消费端完成，保留经过门控的后续名次用于补齐。
+            return [*reranked_results, *(result for index, result in enumerate(results) if index not in seen)]
         return reranked_results[:rerank_top_n]
 
     async def _retrieve_lexical_results(
@@ -348,24 +381,28 @@ class KnowledgeRetrievalPipeline:
         filters: KnowledgeRetrievalFilter,
         index_generation: str | None = None,
     ) -> list[RetrievalResult]:
-        candidate_top_k = self._candidate_top_k(top_k=top_k, filters=filters)
         index_generation = index_generation or self._active_generation(knowledge_base)
-        hits = await self._search_lexical_index(
-            knowledge_base=knowledge_base,
-            user_id=user_id,
-            query=query,
-            top_k=candidate_top_k,
-            index_generation=index_generation,
-        )
+        allowed = None
+        if self.pg_bind is not None:
+            # 已删除的记录可能还残留在词法文件，先限定活动版本中的真实行。
+            allowed = await self._read(lambda repo: repo.allowed_vector_ids(knowledge_base.id, user_id, index_generation, filters))
+        elif filters.enabled:
+            all_chunks = self.chunk_repo.list_by_knowledge_base(knowledge_base.id, user_id, index_generation=index_generation)
+            allowed = {chunk.vector_id for chunk in all_chunks if self._matches_filters(
+                RetrievalResult(chunk, 0., json.loads(chunk.metadata_json or "{}")), filters)}
+        if allowed == set():
+            self.diagnostics.update(lexical_candidates=0, lexical_passed=0)
+            return []
+        statistics: dict[str, int] = {}
+        hits = await self._search_lexical_index(knowledge_base=knowledge_base, user_id=user_id, query=query,
+            top_k=top_k, index_generation=index_generation, allowed_vector_ids=allowed, diagnostics=statistics)
+        self.diagnostics.update(statistics or {"lexical_candidates": len(hits), "lexical_passed": len(hits)})
         if not hits:
             return []
         hit_vector_ids = [hit.vector_id for hit in hits]
-        chunks = self.chunk_repo.list_by_vector_ids_and_knowledge_base(
-            knowledge_base_id=knowledge_base.id,
-            user_id=user_id,
-            vector_ids=hit_vector_ids,
-            index_generation=index_generation,
-        )
+        chunks = await self._read(lambda repo: repo.list_by_vector_ids_and_knowledge_base(
+            knowledge_base_id=knowledge_base.id, user_id=user_id, vector_ids=hit_vector_ids,
+            index_generation=index_generation))
         chunk_by_vector_id = {chunk.vector_id: chunk for chunk in chunks}
         max_score = max((hit.score for hit in hits), default=1.0) or 1.0
         scored: list[RetrievalResult] = []
@@ -382,6 +419,7 @@ class KnowledgeRetrievalPipeline:
                 metadata={
                     **metadata,
                     "lexical_score": hit.score,
+                    "lexical_coverage": getattr(hit, "coverage", 0.),
                     "normalized_score": hit.score / max_score,
                     "retrieval_mode": "lexical",
                     "lexical_index": index_source,
@@ -392,7 +430,7 @@ class KnowledgeRetrievalPipeline:
             scored.append(result)
             if len(scored) >= top_k:
                 break
-        return self._apply_score_threshold(scored, knowledge_base.score_threshold)
+        return scored
 
     async def _search_lexical_index(
         self,
@@ -402,6 +440,8 @@ class KnowledgeRetrievalPipeline:
         query: str,
         top_k: int,
         index_generation: str,
+        allowed_vector_ids: set[int] | None = None,
+        diagnostics: dict[str, int] | None = None,
     ) -> list[LexicalSearchHit]:
         # 在线程启动前冻结主键；线程闭包只读取普通索引对象与字符串，不访问ORM。
         knowledge_base_id = knowledge_base.id
@@ -413,14 +453,17 @@ class KnowledgeRetrievalPipeline:
                 contextual = store.index_path(knowledge_base_id, generation_id=index_generation)
                 if primary.exists() and contextual.exists() and primary.stat().st_mtime_ns > contextual.stat().st_mtime_ns:
                     raise RuntimeError("结构索引落后于当前发布索引，需重建")
+            options = {"allowed_vector_ids": allowed_vector_ids} if allowed_vector_ids is not None else {}
+            if isinstance(store, KnowledgeLexicalStore):
+                options["diagnostics"] = diagnostics
             return store.search(knowledge_base_id=knowledge_base_id, query=query,
-                top_k=top_k, generation_id=index_generation)
+                top_k=top_k, generation_id=index_generation, **options)
         try:
             return await asyncio.to_thread(search)
         except RuntimeError:
             # 缺索引时仍在拥有Session的线程读DB，随后仅把标量快照交给重建线程。
-            chunks = self.chunk_repo.list_by_knowledge_base(
-                knowledge_base_id, user_id, index_generation=index_generation)
+            chunks = await self._read(lambda repo: repo.list_by_knowledge_base(
+                knowledge_base_id, user_id, index_generation=index_generation))
             if not chunks:
                 return []
             snapshots = [LexicalChunkSnapshot(id=chunk.id, document_id=chunk.document_id,
@@ -540,7 +583,8 @@ class KnowledgeRetrievalPipeline:
         if filters.page_end is not None and (page_number is None or page_number > filters.page_end):
             return False
         if filters.section_query:
-            section = str(metadata.get("section_title") or metadata.get("heading") or "").lower()
+            section = " / ".join(str(metadata[key]) for key in ("section_path", "section_title", "heading")
+                                 if metadata.get(key)).lower()
             if filters.section_query.lower() not in section:
                 return False
         return True
@@ -593,17 +637,6 @@ class KnowledgeRetrievalPipeline:
                 )
             )
         return marked
-
-    @staticmethod
-    def _apply_score_threshold(results: list[RetrievalResult], score_threshold: float) -> list[RetrievalResult]:
-        if score_threshold <= 0:
-            return results
-        filtered: list[RetrievalResult] = []
-        for result in results:
-            score = result.rerank_score if result.rerank_score is not None else result.score
-            if score >= score_threshold:
-                filtered.append(result)
-        return filtered
 
     @staticmethod
     def _validate_vectors(*, vectors: list[list[float]], expected_count: int, dimensions: int) -> None:

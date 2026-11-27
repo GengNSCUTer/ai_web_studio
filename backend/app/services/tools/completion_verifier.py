@@ -3,6 +3,7 @@
 from dataclasses import asdict, dataclass, replace
 from typing import Literal
 
+from app.services.evidence_validation import usable_evidence
 from app.services.tools.edit_preview_completion import missing_preview_tools, missing_approval_tools
 from app.services.tools.task_spec import TaskSpec, missing_file_targets
 from app.services.tools.schemas import ExternalSource
@@ -35,10 +36,7 @@ class CompletionVerdict:
 def verify_completion(*, spec: TaskSpec, sources: list, terminal_reason: str,
                       next_action: str = "stop") -> CompletionVerdict:
     """只接受执行器已归一化的来源，忽略工具正文中的完成或授权声明。"""
-    usable = [s for s in sources if s.used_in_prompt and s.display_text.strip()
-              and not s.metadata.get("empty_reason")
-              and s.metadata.get("quality_status", "valid") == "valid"
-              and s.source_type not in {"tool_error_feedback", "tool_quality_feedback"}]
+    usable = [source for source in sources if usable_evidence(source)]
     observations = [{"source_type": s.source_type, "metadata": s.metadata} for s in usable]
     available = {s.metadata.get("tool_key") for s in usable}
     missing = tuple(key for key in spec.required_tools if key not in available)
@@ -96,11 +94,10 @@ def verify_final_completion(*, spec: TaskSpec, final_source_map: dict,
                             terminal_reason: str, next_action: str = "stop") -> CompletionVerdict:
     """只使用预算治理后实际保留的正文；节选可引用，但不能证明整项工具证据齐全。"""
     sources = sources_from_final_map(final_source_map)
-    full = [s for s in sources if not s.metadata.get("citation_body_truncated")]
+    full = [s for s in sources if usable_evidence(s, complete=True)]
     verdict = verify_completion(spec=spec, sources=full, terminal_reason=terminal_reason, next_action=next_action)
-    partial = [s for s in sources if s.metadata.get("citation_body_truncated")
-               and s.metadata.get("tool_key") in spec.required_tools and s.display_text.strip()
-               and not s.metadata.get("empty_reason") and s.metadata.get("quality_status", "valid") == "valid"]
+    partial = [s for s in sources if usable_evidence(s) and s.metadata.get("citation_body_truncated")
+               and s.metadata.get("tool_key") in spec.required_tools]
     status = verdict.status
     if partial and status == "blocked" and terminal_reason != "action_scope_denied":
         status = "partial"
@@ -109,9 +106,7 @@ def verify_final_completion(*, spec: TaskSpec, final_source_map: dict,
         reasons.append("required_evidence_excerpt_only" if verdict.missing else "additional_evidence_excerpt")
     if verdict.missing:
         reasons.append("required_evidence_not_fully_retained")
-    refs = tuple(s.citation_label for s in sources if s.display_text.strip()
-                 and s.metadata.get("tool_key") in spec.required_tools
-                 and not s.metadata.get("empty_reason")
-                 and s.metadata.get("quality_status", "valid") == "valid")
+    refs = tuple(s.citation_label for s in sources if usable_evidence(s)
+                 and s.metadata.get("tool_key") in spec.required_tools)
     return replace(verdict, status=status, evidence_refs=refs,
         reasons=tuple(dict.fromkeys(reasons)), assessment_stage="after_final_prompt_governance")

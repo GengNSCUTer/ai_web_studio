@@ -363,11 +363,11 @@ class KnowledgeRerankCandidatePoolTest(unittest.TestCase):
         self.assertEqual(pipeline._retrieve_vector_results.call_args.kwargs["top_k"],50)
         self.assertEqual(len(reranker.rerank.call_args.kwargs["documents"]),100)
 
-    def test_metadata_filter_keeps_existing_overfetch_without_rerank(self):
+    def test_metadata_filter_does_not_expand_hybrid_channel_budget(self):
         pipeline,_=self.pipeline()
         filters=KnowledgeRetrievalFilter(document_ids=["doc-v1"])
         asyncio.run(pipeline.retrieve_async(user_id="user-1",knowledge_base=_knowledge_base(),query="query",top_k=20,filters=filters))
-        self.assertEqual(pipeline._retrieve_vector_results.call_args.kwargs["top_k"],100)
+        self.assertEqual(pipeline._retrieve_vector_results.call_args.kwargs["top_k"],20)
         self.assertIs(pipeline._retrieve_vector_results.call_args.kwargs["filters"],filters)
 
 
