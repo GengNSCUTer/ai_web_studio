@@ -139,8 +139,7 @@ class ChatContextAssemblyService:
                 "read_reason": decision.reason, "read_rows": 0, "embedding_calls": 0, "elapsed_ms": 0})
 
         max_chars = int(getattr(settings, "memory_max_chars", 4000) or 4000)
-        # 结束主链的只读事务；召回使用独立短 Session，外部向量请求期间不占数据库连接。
-        self.db.commit()
+        # 快照阶段已结束主事务。记忆召回自行管理短会话。
         retrieval = MemoryRetrievalService(session_factory=sessionmaker(bind=self.db.get_bind(), autoflush=False))
         result = await retrieval.retrieve(user_id=self.user_id, max_chars=max_chars, query=query or "",
                                           project_id=project_id, decision=decision)
@@ -182,6 +181,16 @@ class ChatContextAssemblyService:
         """固定原文、历史边界和生成版本，防止后续提交刷新ORM属性。"""
         # 这是 Chat prepare 阶段的核心方法：收集所有上下文来源，构造最终 prompt，并返回给流式执行层。
         assembly.query = getattr(assembly.user_message, "content", "") or ""
+        assembly.conversation_id = assembly.conversation.id
+        assembly.user_message_id = assembly.user_message.id
+        assembly.project_id = getattr(assembly.conversation, "project_id", None)
+        assembly.system_prompt = clean_optional_str(assembly.conversation.system_prompt) or clean_optional_str(
+            getattr(assembly.runtime.settings, "system_prompt", None))
+        assembly.memory_read_settings = SimpleNamespace(
+            memory_enabled=getattr(assembly.runtime.settings, "memory_enabled", True),
+            memory_max_chars=getattr(assembly.runtime.settings, "memory_max_chars", 4000),
+        )
+        self._preflight_context(assembly)
         # 选择只保存标识；本轮和重生成均重新读取，不能用上一轮已撤销授权的正文。
         assembly.resource_selections = json.loads(getattr(assembly.user_message, "mcp_resources_json", None) or "[]")
         # Prepare 过程中会有外部调用和多次 commit；必须固定本次 generation 的 token，
@@ -209,23 +218,33 @@ class ChatContextAssemblyService:
             for row in assembly.history_rows
         ]
 
+        # 提交后并发检索只读快照和各自会话。
+        # 文件片段准备也在原始附件仍已加载时完成。
+        assembly.attachment_context_result = AttachmentContextService().build_context(
+            attachments=list(getattr(assembly.user_message, "attachments", []) or []), query=assembly.query,
+            max_chars=assembly.runtime.budget.max_attachment_chars)
+        self.db.commit()
+
+    @staticmethod
+    def _preflight_context(assembly: ChatAssemblyRuntime) -> None:
+        current = ContextPromptBuilder().build_chat_messages(
+            messages=[assembly.user_message], system_prompt=assembly.system_prompt,
+            memory_context=None, context_summary=None, summary_boundary_message_id=None, external_context=None,
+            attachment_context=None, provider_type=assembly.runtime.provider_type,
+            skill_instructions=assembly.skill_context.final_answer_instructions if assembly.skill_context else None)
+        assembly.runtime.governance_service.require_fit(current.messages)
+        assembly.current_user_payload = current.messages[-1]
+
     async def retrieve_memory(self, assembly: ChatAssemblyRuntime) -> None:
-        """使用独立短Session召回长期记忆，并准备本轮附件。"""
-        user_message_id = assembly.user_message.id
+        """使用独立短 Session 召回长期记忆。"""
+        user_message_id = assembly.user_message_id
         prior_user_text = next((content for message_id, role, content, _ in reversed(assembly.history_snapshot)
                                 if role == "user" and message_id != user_message_id and content), "")
         assembly.memory_bundle = await self.build_memory_context(
-            assembly.runtime.settings,
+            assembly.memory_read_settings,
             query=assembly.query,
-            project_id=getattr(assembly.conversation, "project_id", None),
+            project_id=assembly.project_id,
             prior_user_text=prior_user_text,
-        )
-
-        # 当前轮附件上下文只围绕本轮 user_message 选择，不扫描全部历史附件。
-        assembly.attachment_context_result = AttachmentContextService().build_context(
-            attachments=list(getattr(assembly.user_message, "attachments", []) or []),
-            query=assembly.query,
-            max_chars=assembly.runtime.budget.max_attachment_chars,
         )
 
     async def execute_tools(self, assembly: ChatAssemblyRuntime) -> None:
@@ -271,36 +290,29 @@ class ChatContextAssemblyService:
 
     async def retrieve_knowledge(self, assembly: ChatAssemblyRuntime) -> None:
         """检索知识库并将原始召回日志绑定到本轮消息。"""
-        # 知识库上下文来自用户显式选择的知识库；检索日志会在后面绑定到本轮 user/assistant message。
-        assembly.knowledge_context_result = await KnowledgeContextService(
-            db=self.db,
-            user_id=self.user_id,
-        ).build_context(
-            knowledge_base_id=assembly.knowledge_base_id,
-            knowledge_base_ids=assembly.knowledge_base_ids,
-            query=assembly.query,
-            rewrite_provider={
-                "provider_type": assembly.runtime.provider_type,
-                "base_url": assembly.runtime.base_url,
-                "api_key": assembly.runtime.provider_api_key,
-                "model_name": assembly.runtime.resolved_model,
-            },
-            recent_messages=[
-                message
-                for message in assembly.history_rows
-                if message is not assembly.user_message
-                and (
-                    not getattr(assembly.user_message, "id", None)
-                    or getattr(message, "id", None) != getattr(assembly.user_message, "id", None)
-                )
-            ],
-        )
+        sessions = sessionmaker(bind=self.db.get_bind(), autoflush=False)
+        with sessions() as db:
+            assembly.knowledge_context_result = await KnowledgeContextService(db=db, user_id=self.user_id).build_context(
+                knowledge_base_id=assembly.knowledge_base_id,
+                knowledge_base_ids=assembly.knowledge_base_ids,
+                query=assembly.query,
+                rewrite_provider={
+                    "provider_type": assembly.runtime.provider_type,
+                    "base_url": assembly.runtime.base_url,
+                    "api_key": assembly.runtime.provider_api_key,
+                    "model_name": assembly.runtime.resolved_model,
+                },
+                recent_messages=[row for row in assembly.history_rows if row.id != assembly.user_message_id],
+            )
+            self._link_retrieval_logs(db, assembly)
+
+    def _link_retrieval_logs(self, db, assembly):
         assembly.retrieval_log_ids = assembly.knowledge_context_result.retrieval_log_ids or (
             [assembly.knowledge_context_result.retrieval_log_id] if assembly.knowledge_context_result.retrieval_log_id else []
         )
         if assembly.retrieval_log_ids:
             # RAG 来源定位需要把检索日志绑定到本轮消息，否则前端只能看到片段，不能跳回对应回答。
-            knowledge_log_repo = KnowledgeRetrievalLogRepository(self.db)
+            knowledge_log_repo = KnowledgeRetrievalLogRepository(db)
             sources_by_log_id: dict[str, list[dict[str, Any]]] = {}
             for source in assembly.knowledge_context_result.sources:
                 source_dict = source.to_public_dict()
@@ -311,9 +323,9 @@ class ChatContextAssemblyService:
                 knowledge_log_repo.update_message_links(
                     log_id=log_id,
                     user_id=self.user_id,
-                    conversation_id=getattr(assembly.conversation, "id", None),
-                    user_message_id=getattr(assembly.user_message, "id", None),
-                    assistant_message_id=getattr(assembly.assistant_message, "id", None),
+                    conversation_id=assembly.conversation_id,
+                    user_message_id=assembly.user_message_id,
+                    assistant_message_id=assembly.assistant_id,
                     sources=sources_by_log_id.get(log_id, []),
                 )
 
@@ -350,12 +362,10 @@ class ChatContextAssemblyService:
             project_id=assembly.conversation.project_id)
         assembly.prompt_result = ContextPromptBuilder().build_chat_messages(
             messages=assembly.history_rows,
-            system_prompt=clean_optional_str(assembly.conversation.system_prompt)
-            or clean_optional_str(getattr(assembly.runtime.settings, "system_prompt", None)),
+            system_prompt=assembly.system_prompt,
             memory_context=assembly.memory_bundle.context_text,
-            context_summary=assembly.summary_bundle.summary or clean_optional_str(getattr(assembly.conversation, "context_summary", None)),
-            summary_boundary_message_id=assembly.summary_bundle.boundary_message_id
-            or clean_optional_str(getattr(assembly.conversation, "context_summary_boundary_message_id", None)),
+            context_summary=assembly.summary_bundle.summary,
+            summary_boundary_message_id=assembly.summary_bundle.boundary_message_id,
             external_context=assembly.external_context_result.context_text,
             attachment_context=assembly.attachment_context_result.context_text,
             knowledge_context=assembly.knowledge_context_result.context_text,
@@ -365,10 +375,14 @@ class ChatContextAssemblyService:
                 assembly.skill_context.final_answer_instructions if assembly.skill_context else None
             ),
             evidence_guidance=evidence_guidance,
+            current_user_payload=assembly.current_user_payload,
             evidence_sections={section.layer: section for section in (
                 assembly.external_context_result.evidence_section, assembly.knowledge_context_result.evidence_section) if section is not None},
         )
-        assembly.governed_context = assembly.runtime.governance_service.govern_messages(assembly.prompt_result.messages)
+        preferred = self._preferred_reference_layers(assembly)
+        assembly.governed_context = assembly.runtime.governance_service.govern_messages(
+            assembly.prompt_result.messages, preferred_reference_layers=preferred)
+        assembly.prompt_result.diagnostics["prompt_preferred_reference_layers"] = ",".join(preferred)
         if spec:
             self._recheck_final_completion(assembly, spec)
         retained_memory = assembly.governed_context.retained_reference_texts.get("long_term_memory", "")
@@ -387,6 +401,25 @@ class ChatContextAssemblyService:
         self.conversation_repo.save(assembly.conversation)
         # ConversationRepository 只 flush；摘要边界与 prefix 诊断在 Context Assembly 用例末尾统一提交。
         self.db.commit()
+
+    @staticmethod
+    def _preferred_reference_layers(assembly: ChatAssemblyRuntime) -> tuple[str, ...]:
+        # 依据本轮选择和已有召回判断保护资料，无额外模型分类。
+        layers = []
+        memory_reason = assembly.memory_bundle.diagnostics.get("read_reason")
+        if memory_reason == "user_requested_preferences":
+            layers.append("long_term_memory")
+        if assembly.skill_context or assembly.resource_selections:
+            layers.append("external_context")
+        if assembly.attachment_context_result.context_text:
+            layers.append("attachment_context")
+        if assembly.knowledge_base_id or assembly.knowledge_base_ids:
+            layers.append("knowledge_context")
+        if assembly.web_search_enabled and "external_context" not in layers:
+            layers.append("external_context")
+        if memory_reason == "contextual_follow_up" or assembly.summary_bundle.summary:
+            layers.append("conversation_summary")
+        return tuple(layers)
 
     def _recheck_final_completion(self, assembly, spec) -> None:
         """最终Prompt与判定共用同一来源清单；不重新调用模型或触发工具。"""
@@ -701,7 +734,7 @@ class ChatContextAssemblyService:
         # 网络等待期间释放短事务和行锁；纯值副本不会隐式触发 ORM 懒加载。
         summary_rows = [
             SimpleNamespace(id=mid, role=role, content=content, generation_id=gid)
-            for mid, role, content, gid in expected_history
+            for mid, role, content, gid in expected_history if role in {"user", "assistant"}
         ]
         existing_summary = clean_optional_str(previous_state[0])
         existing_boundary = clean_optional_str(previous_state[1])
@@ -709,11 +742,12 @@ class ChatContextAssemblyService:
             ConversationSummaryService, SummaryRebuildRequired, select_summary_batch, summary_source_budget)
         from app.models.conversation_summary import ConversationSummaryJob
         from sqlalchemy import select
+        recent_history_limit = runtime.governance_service.budget.max_history_messages
         if bounded_history:
             history = repo.list_for_context(conversation, exclude_message_id=assistant_id, attachments=False,
                                             through_message_id=history_through_message_id)
             start = next((i + 1 for i, row in enumerate(summary_rows) if row.id == existing_boundary), 0)
-            pending = summary_rows[start:-repo.RECENT_CONTEXT_LIMIT]
+            pending = summary_rows[start:-recent_history_limit]
             chosen = select_summary_batch(pending, tokenizer=runtime.tokenizer if hasattr(runtime, 'tokenizer')
                 else runtime.governance_service.tokenizer, max_tokens=summary_source_budget(runtime.governance_service.budget))
             active = self.db.scalar(select(ConversationSummaryJob).where(
@@ -724,7 +758,7 @@ class ChatContextAssemblyService:
             if needs_rebuild:
                 # 新问题或“重新生成”是一次显式重试；恢复失败的任务沿用已提交进度。
                 job = ConversationSummaryService(self.db).ensure_job(conversation, through_id=history_through_message_id,
-                    retry_failed=bool(active and active.status == 'failed'))
+                    retry_failed=bool(active and active.status == 'failed'), recent_history_limit=recent_history_limit)
                 self.db.commit()
                 if job is not None:
                     raise SummaryRebuildRequired('context_summary_rebuild_failed' if job.status == 'failed' else 'context_summary_rebuilding')
@@ -760,7 +794,8 @@ class ChatContextAssemblyService:
             summary_boundary_message_id=existing_boundary,
             conversation_messages=summary_rows,
             summarizer=summarize_with_model,
-            recent_history_limit=repo.RECENT_CONTEXT_LIMIT if bounded_history else None,
+            recent_history_limit=recent_history_limit,
+            require_contiguous_coverage=bounded_history,
         )
         conversation = lock_and_check_history()
         if ((conversation.context_summary, conversation.context_summary_boundary_message_id) != previous_state

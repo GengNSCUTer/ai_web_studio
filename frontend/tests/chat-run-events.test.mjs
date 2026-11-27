@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { subscribeChatRun, runMessageStatus } from "../src/lib/chat-run-events.ts";
+import { subscribeChatRun, runMessageStatus, chatRunFailureMessage } from "../src/lib/chat-run-events.ts";
 
 class FakeEventSource extends EventTarget {
   static CONNECTING = 0;
@@ -35,6 +35,10 @@ test("取消/失败与消息状态明确映射", () => {
   assert.equal(runMessageStatus("cancelled"), "cancelled");
   assert.equal(runMessageStatus("interrupted"), "failed");
   assert.equal(runMessageStatus("succeeded"), "done");
+});
+
+test("超预算任务的快照保留输入调整提示", () => {
+  assert.match(chatRunFailureMessage("context_budget_exceeded"), /作为文件附件上传/);
 });
 
 test("只创建原生同源EventSource，不使用fetch/after或手写重连", async (t) => {

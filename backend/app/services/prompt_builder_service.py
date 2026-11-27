@@ -52,6 +52,7 @@ class ContextPromptBuilder:
         skill_instructions: str | None = None,
         evidence_guidance: str | None = None,
         evidence_sections: dict[str, EvidenceSection] | None = None,
+        current_user_payload: dict[str, Any] | None = None,
     ) -> PromptBuildResult:
         prompt_messages: list[dict[str, Any]] = []
         layers: list[str] = []
@@ -153,12 +154,10 @@ class ContextPromptBuilder:
             ):
                 continue
 
-            provider_message = self._build_provider_message(message=message, provider_type=provider_type)
+            is_current_user = role == "user" and getattr(message, "id", None) == last_user_message_id
+            provider_message = (dict(current_user_payload) if is_current_user and current_user_payload is not None
+                                else self.build_provider_message(message=message, provider_type=provider_type))
             provider_message["_context_layer"] = "recent_history"
-            is_current_user = (
-                provider_message.get("role") == "user"
-                and getattr(message, "id", None) == last_user_message_id
-            )
             if attachment_context and is_current_user:
                 current_evidence_sections.insert(
                     len(current_evidence_sections) - (1 if memory_context else 0),
@@ -306,7 +305,7 @@ class ContextPromptBuilder:
                 return getattr(message, "id", None)
         return None
 
-    def _build_provider_message(self, *, message: object, provider_type: str) -> dict[str, Any]:
+    def build_provider_message(self, *, message: object, provider_type: str) -> dict[str, Any]:
         role = getattr(message, "role", "user")
         content = getattr(message, "content", "")
         attachments = getattr(message, "attachments", []) or []
@@ -376,10 +375,7 @@ class ContextPromptBuilder:
                 **message,
                 "content": [*content, {"type": "text", "text": text}],
             }
-        return {
-            **message,
-            "content": f"{content or ''}\n\n{text}".strip(),
-        }
+        return {**message, "content": f"{content}\n\n{text}" if content else text}
 
     @staticmethod
     def _content_text(content: Any) -> str:

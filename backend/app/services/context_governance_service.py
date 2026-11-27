@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
-from app.services.tokenizer_service import TokenizerEstimator
+from app.services.tokenizer_service import IMAGE_PART_TYPES, TokenizerEstimator
 from app.services.evidence_context import EvidenceSection, final_evidence_sources
 
 REFERENCE_CONTEXT_LAYER = "reference_context_prefix"
+
+
+class ContextBudgetExceeded(ValueError):
+    """必要上下文超过模型输入预算。"""
+
+    code = "context_budget_exceeded"
+    public_message = "系统提示、当前问题或图片超过本轮输入预算。请缩短问题或系统提示、减少图片，或将大段材料作为文件附件上传。"
+
+    def __init__(self):
+        super().__init__(self.public_message)
 
 
 @dataclass
@@ -132,9 +142,7 @@ class ContextBudgetPlanner:
 
 
 class ContextGovernanceService:
-    # Lower-priority evidence is discarded before older dialogue and before the
-    # current query. This list is deliberately the inverse of prompt display
-    # order, so the important query-specific RAG evidence survives longest.
+    # 默认先裁剪低优先级参考资料。任务显式选中的资料可在本轮获得更高优先级。
     REFERENCE_DROP_ORDER = (
         "conversation_summary",
         "legacy_reference_context",
@@ -154,6 +162,8 @@ class ContextGovernanceService:
     def govern_messages(
         self,
         messages: list[dict[str, Any]],
+        *,
+        preferred_reference_layers: tuple[str, ...] = (),
     ) -> GovernedContext:
         stats = ContextLayerStats()
         notices: list[str] = []
@@ -167,18 +177,14 @@ class ContextGovernanceService:
         stats.truncated_history_messages = max(0, len(history_messages) - len(history_slice))
         selected_messages = [*system_prefix, *reference_prefix, *history_slice]
 
-        for message in selected_messages:
-            estimated = self._estimate_message_chars(message)
-            stats.total_chars_estimate += estimated
-            if message.get("role") == "system":
-                stats.system_chars += estimated
-            else:
-                stats.history_chars += estimated
-        stats.total_tokens_estimate = self._estimate_messages_tokens(selected_messages)
-
-        governed_messages, clipped_chars, dropped_layers, truncated_layers = self._fit_to_budget(selected_messages)
-        stats.total_chars_estimate = self._estimate_messages_chars(governed_messages)
-        stats.total_tokens_estimate = self._estimate_messages_tokens(governed_messages)
+        governed_messages, clipped_chars, dropped_layers, truncated_layers = self._fit_to_budget(
+            selected_messages, preferred_reference_layers=preferred_reference_layers)
+        provider_messages = [self._strip_internal_fields(message) for message in governed_messages]
+        # 对最终渲染后的完整消息重新估算，覆盖合并文本和视觉部件。
+        stats.total_chars_estimate, stats.total_tokens_estimate = self.require_fit(provider_messages)
+        stats.system_chars = sum(self._estimate_message_chars(message) for message in provider_messages
+                                 if message.get("role") == "system")
+        stats.history_chars = stats.total_chars_estimate - stats.system_chars
         stats.dropped_reference_layers = dropped_layers
         stats.truncated_reference_layers = truncated_layers
         stats.retained_reference_tokens = self._reference_tokens_by_layer(governed_messages)
@@ -199,7 +205,7 @@ class ContextGovernanceService:
             notices.append(f"已压缩参考层：{', '.join(truncated_layers)}")
 
         return GovernedContext(
-            messages=[self._strip_internal_fields(message) for message in governed_messages],
+            messages=provider_messages,
             stats=stats,
             notices=notices,
             # 持久化滚动摘要由 build_incremental_summary 在 Prompt 组装前完成。
@@ -245,6 +251,7 @@ class ContextGovernanceService:
         conversation_messages: list[object],
         summarizer: Any | None = None,
         recent_history_limit: int | None = None,
+        require_contiguous_coverage: bool = False,
     ) -> tuple[str | None, str | None, dict[str, int]]:
         source_messages = [
             message
@@ -296,7 +303,8 @@ class ContextGovernanceService:
         pending_chars = sum(len((getattr(item, "content", None) or "").strip()) for item in pending_source)
         pending_tokens = self._estimate_object_messages_tokens(pending_source)
         should_refresh = (
-            existing_summary is None
+            require_contiguous_coverage
+            or existing_summary is None
             or len(pending_source) >= ContextBudgetPlanner.SUMMARY_REFRESH_MIN_MESSAGES
             or pending_chars >= ContextBudgetPlanner.SUMMARY_REFRESH_MIN_CHARS
         )
@@ -346,50 +354,54 @@ class ContextGovernanceService:
     def _fit_to_budget(
         self,
         messages: list[dict[str, Any]],
+        *,
+        preferred_reference_layers: tuple[str, ...],
     ) -> tuple[list[dict[str, Any]], int, list[str], list[str]]:
-        current = list(messages)
-        clipped_chars = 0
-        dropped_layers: list[str] = []
-        truncated_layers: list[str] = []
+        # 原始消息在治理期间不可变。候选只会重渲染受影响的参考消息。
+        costs = {id(message): self._message_cost(message) for message in messages}
 
-        if self._exceeds_budget(current):
-            # Reference evidence is structurally separate from the current user
-            # query. Remove it as complete layers before touching dialogue.
-            current, clipped_delta, dropped_layers, truncated_layers = self._trim_reference_layers_to_fit(current)
-            clipped_chars += clipped_delta
+        def measure(message):
+            key = id(message)
+            return costs[key] if key in costs else self._message_cost(message)
 
-        while self._exceeds_budget(current) and len(current) > 2:
-            removable_index = self._find_removable_history_index(current)
-            if removable_index is None:
-                break
+        def exceeds(candidate):
+            return self._over_budget(*self._totals(candidate, measure))
 
-            removed = current.pop(removable_index)
-            clipped_chars += self._estimate_message_chars(removed)
+        preferred = tuple(dict.fromkeys(preferred_reference_layers))
+        # 显式选中的证据优先于可裁剪的旧历史，默认流程保留原裁剪行为。
+        order = (*[layer for layer in self.REFERENCE_DROP_ORDER if layer not in preferred], None, *reversed(preferred))
+        return self._trim_reference_layers_to_fit(messages, order, exceeds, measure)
 
-        if self._exceeds_budget(current) and current:
-            # 最后兜底：截断最后一条用户消息
-            last_message = current[-1]
-            if last_message.get("role") == "user":
-                current[-1], clipped_delta = self._truncate_user_message_to_fit(last_message, current[:-1])
-                clipped_chars += clipped_delta
+    def _message_cost(self, message):
+        chars = self._estimate_message_chars(message)
+        return chars, self._estimate_message_tokens(message) if self.tokenizer else 0
 
-        return current, clipped_chars, dropped_layers, truncated_layers
+    def _totals(self, messages, measure):
+        chars = tokens = 0
+        for message in messages:
+            message_chars, message_tokens = measure(message)
+            chars += message_chars
+            tokens += message_tokens
+        return chars, tokens + 2 if self.tokenizer else max(1, chars // 2)
 
-    def _exceeds_budget(self, messages: list[dict[str, Any]]) -> bool:
-        if self._estimate_messages_chars(messages) > self.budget.max_total_chars:
-            return True
-        if self._estimate_messages_tokens(messages) > self.budget.max_total_tokens:
-            return True
-        return False
+    def _over_budget(self, chars, tokens):
+        return chars > self.budget.max_total_chars or tokens > self.budget.max_total_tokens
+
+    def require_fit(self, messages: list[dict[str, Any]]) -> tuple[int, int]:
+        chars, tokens = self._totals(messages, self._message_cost)
+        if self._over_budget(chars, tokens):
+            raise ContextBudgetExceeded()
+        return chars, tokens
 
     @staticmethod
     def _find_removable_history_index(messages: list[dict[str, Any]]) -> int | None:
-        for index in range(1, len(messages) - 1):
-            if ContextGovernanceService._is_reference_context_message(messages[index]):
-                continue
-            if messages[index].get("role") in {"assistant", "user"}:
-                return index
-        return None
+        last_user = next((index for index in range(len(messages) - 1, -1, -1)
+                          if messages[index].get("role") == "user"
+                          and not ContextGovernanceService._is_reference_context_message(messages[index])), None)
+        return next((index for index, message in enumerate(messages)
+                     if index != last_user and index != len(messages) - 1
+                     and not ContextGovernanceService._is_reference_context_message(message)
+                     and message.get("role") in {"assistant", "user"}), None)
 
     @staticmethod
     def _is_reference_context_message(message: dict[str, Any]) -> bool:
@@ -402,31 +414,44 @@ class ContextGovernanceService:
     def _trim_reference_layers_to_fit(
         self,
         messages: list[dict[str, Any]],
+        order: tuple[str | None, ...],
+        exceeds: Callable[[list[dict[str, Any]]], bool],
+        measure: Callable[[dict[str, Any]], tuple[int, int]],
     ) -> tuple[list[dict[str, Any]], int, list[str], list[str]]:
         current = list(messages)
         clipped_chars = 0
         dropped: list[str] = []
         truncated: list[str] = []
 
-        for layer in self.REFERENCE_DROP_ORDER:
-            if not self._exceeds_budget(current):
+        for layer in order:
+            if not exceeds(current):
                 break
+            if layer is None:
+                chars, tokens = self._totals(current, measure)
+                while self._over_budget(chars, tokens):
+                    index = self._find_removable_history_index(current)
+                    if index is None:
+                        break
+                    message_chars, message_tokens = measure(current.pop(index))
+                    clipped_chars += message_chars
+                    chars -= message_chars
+                    tokens = tokens - message_tokens if self.tokenizer else max(1, chars // 2)
+                continue
             matching = self._reference_section_locations(current, layer)
             if not matching:
                 continue
-            # Keep the final remaining layer as evidence whenever possible and
-            # compress it to fit instead of unnecessarily deleting it.
+            # 有空间时保留最后一个资料层或部分完整证据单元。
             all_layers = self._reference_layers(current)
             structured = any(isinstance(self._reference_sections(current[i])[j].get("_evidence_section"), EvidenceSection)
                              for i, j in matching)
             if len(all_layers) == 1 or structured:
-                current, clipped_delta, retained = self._truncate_one_reference_layer(current, layer)
+                current, clipped_delta, retained = self._truncate_one_reference_layer(current, layer, exceeds)
                 clipped_chars += clipped_delta
                 if retained and clipped_delta:
                     truncated.append(layer)
                 elif not retained:
                     dropped.append(layer)
-                if not self._exceeds_budget(current):
+                if not exceeds(current):
                     break
                 continue
             before = self._estimate_messages_chars(current)
@@ -440,6 +465,7 @@ class ContextGovernanceService:
         self,
         messages: list[dict[str, Any]],
         layer: str,
+        exceeds: Callable[[list[dict[str, Any]]], bool],
     ) -> tuple[list[dict[str, Any]], int, bool]:
         locations = self._reference_section_locations(messages, layer)
         if not locations:
@@ -455,9 +481,9 @@ class ContextGovernanceService:
                 revised[section_index] = {**revised[section_index], "text": value.render(), "_evidence_section": value}
                 candidate = self._replace_reference_sections(message, revised)
                 return [*messages[:message_index], *([candidate] if candidate else []), *messages[message_index + 1:]]
-            kept = evidence.fit(lambda value: not self._exceeds_budget(replacement(value)))
+            kept = evidence.fit(lambda value: not exceeds(replacement(value)))
             updated = replacement(kept)
-            if not kept.units or self._exceeds_budget(updated):
+            if not kept.units or exceeds(updated):
                 return self._remove_reference_layer(messages, layer), len(original_text), False
             return updated, max(0, len(original_text) - len(kept.render())), True
         low, high, best = 0, len(original_text), ""
@@ -471,7 +497,7 @@ class ContextGovernanceService:
                 if candidate_message
                 else [*messages[:message_index], *messages[message_index + 1 :]]
             )
-            if self._exceeds_budget(candidate_messages):
+            if exceeds(candidate_messages):
                 high = middle - 1
             else:
                 best = original_text[:middle]
@@ -581,7 +607,7 @@ class ContextGovernanceService:
     def _append_reference_to_content(base_content: Any, reference_text: str) -> Any:
         if isinstance(base_content, list):
             return [*base_content, {"type": "text", "text": reference_text}]
-        return f"{base_content or ''}\n\n{reference_text}".strip()
+        return f"{base_content}\n\n{reference_text}" if base_content else reference_text
 
     def _reference_tokens_by_layer(self, messages: list[dict[str, Any]]) -> dict[str, int]:
         totals: dict[str, int] = {}
@@ -609,7 +635,7 @@ class ContextGovernanceService:
         content_value = message.get("content")
         if isinstance(content_value, list):
             for part in content_value:
-                if isinstance(part, dict) and part.get("type") == "image_url":
+                if isinstance(part, dict) and part.get("type") in IMAGE_PART_TYPES:
                     total += self.budget.max_image_equiv_chars
 
         images = message.get("images")
@@ -649,56 +675,6 @@ class ContextGovernanceService:
             for message in messages
         ]
         return self._estimate_messages_tokens(normalized_messages)
-
-    def _truncate_user_message_to_fit(
-        self,
-        message: dict[str, Any],
-        prefix_messages: list[dict[str, Any]],
-    ) -> tuple[dict[str, Any], int]:
-        content = message.get("content")
-        flat_text = self._message_text(message)
-        if not flat_text:
-            return message, 0
-
-        low = 0
-        high = len(flat_text)
-        best = ""
-        while low <= high:
-            mid = (low + high) // 2
-            candidate_message = self._replace_user_text_content(message, content, flat_text[:mid])
-            if self._exceeds_budget([*prefix_messages, candidate_message]):
-                high = mid - 1
-            else:
-                best = flat_text[:mid]
-                low = mid + 1
-
-        clipped_chars = max(0, len(flat_text) - len(best))
-        return self._replace_user_text_content(message, content, best), clipped_chars
-
-    @staticmethod
-    def _replace_user_text_content(
-        message: dict[str, Any],
-        original_content: Any,
-        replacement_text: str,
-    ) -> dict[str, Any]:
-        if isinstance(original_content, str):
-            return {**message, "content": replacement_text}
-        if isinstance(original_content, list):
-            rebuilt_content: list[dict[str, Any]] = []
-            text_replaced = False
-            for part in original_content:
-                if not isinstance(part, dict):
-                    continue
-                if part.get("type") == "image_url":
-                    rebuilt_content.append(part)
-                    continue
-                if part.get("type") == "text" and not text_replaced:
-                    rebuilt_content.append({"type": "text", "text": replacement_text})
-                    text_replaced = True
-            if not text_replaced:
-                rebuilt_content.append({"type": "text", "text": replacement_text})
-            return {**message, "content": rebuilt_content}
-        return {**message, "content": replacement_text}
 
     def _build_structured_summary(
         self,

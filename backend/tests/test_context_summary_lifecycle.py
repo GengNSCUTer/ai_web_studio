@@ -144,6 +144,20 @@ class SummaryLifecycleCases:
         self.assertEqual(result.summary, "新摘要")
         self.assertEqual(self.conversation.context_summary_boundary_message_id, self.rows[-3].id)
 
+    def test_bounded_chat_summarizes_rows_outside_its_mode_even_below_refresh_threshold(self):
+        budget = replace(self.runtime.governance_service.budget, max_history_messages=len(self.rows) - 3)
+        self.runtime.governance_service = ContextGovernanceService(budget)
+        history = self.repo.list_for_context(self.conversation, exclude_message_id=self.assistant.id)
+        snapshot = [(row.id, row.role, row.content, row.generation_id) for row in history]
+        complete = AsyncMock(return_value="已覆盖模式窗口之外的消息")
+        with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat", new=complete):
+            result = asyncio.run(self.assembly._refresh_context_summary(
+                conversation=self.conversation, runtime=self.runtime, expected_history=snapshot,
+                assistant_id=self.assistant.id, generation_id=self.assistant.generation_id, bounded_history=True))
+        complete.assert_awaited_once()
+        self.assertEqual(result.stats["summary_refresh_source_messages"], 1)
+        self.assertEqual(result.boundary_message_id, self.rows[2].id)
+
     def test_provider_failure_preserves_fallback(self):
         with patch("app.services.chat_context_assembly_service.ChatProviderService.complete_chat",
                    new=AsyncMock(side_effect=TimeoutError())):

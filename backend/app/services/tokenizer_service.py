@@ -6,6 +6,9 @@ from typing import Any
 import tiktoken
 
 
+IMAGE_PART_TYPES = frozenset({"image_url", "image"})
+
+
 @dataclass(frozen=True)
 class TokenizerEstimate:
     encoding_name: str
@@ -40,18 +43,18 @@ class TokenizerEstimator:
         normalized = text or ""
         if not normalized:
             return 0
-        return len(self.encoding.encode(normalized))
+        return len(self.encoding.encode(normalized, disallowed_special=()))
 
     def estimate_message_tokens(self, message: dict[str, Any], *, image_equiv_tokens: int) -> int:
         base_tokens = 4
         content = message.get("content")
-        total = base_tokens + self.estimate_content_tokens(content)
+        total = base_tokens + self.estimate_content_tokens(content, image_equiv_tokens=image_equiv_tokens)
 
         if isinstance(message.get("images"), list):
             total += len(message["images"]) * image_equiv_tokens
         return total
 
-    def estimate_content_tokens(self, content: Any) -> int:
+    def estimate_content_tokens(self, content: Any, *, image_equiv_tokens: int = 300) -> int:
         if isinstance(content, str):
             return self.estimate_text_tokens(content)
         if isinstance(content, list):
@@ -62,8 +65,8 @@ class TokenizerEstimator:
                     continue
                 if part.get("type") == "text":
                     total += self.estimate_text_tokens(part.get("text"))
-                elif part.get("type") == "image_url":
-                    total += 0
+                elif part.get("type") in IMAGE_PART_TYPES:
+                    total += image_equiv_tokens
                 else:
                     total += self.estimate_text_tokens(str(part))
             return total

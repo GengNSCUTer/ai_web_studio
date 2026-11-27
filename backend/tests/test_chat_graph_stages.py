@@ -58,9 +58,9 @@ class ChatGraphStagesTest(unittest.IsolatedAsyncioTestCase):
     async def test_actual_context_stages_run_once_on_same_thread(self):
         service = StageService()
         result = await run_context_graph(service, assembly())
-        self.assertEqual(service.calls, ["snapshot", "memory", "tools", "rag", "summary", "govern", "ready"])
+        self.assertEqual(service.calls, ["snapshot", "memory", "rag", "tools", "summary", "govern", "ready"])
         self.assertEqual(result.context_details["context_graph_phases"],
-                         ["snapshot", "memory", "tools_subgraph", "rag", "summary", "govern", "context_ready"])
+                         ["snapshot", "memory", "rag", "tools_subgraph", "summary", "govern", "context_ready"])
         self.assertIsNone(build_context_graph().checkpointer)
 
     async def test_context_error_does_not_replay_tools_or_enter_later_nodes(self):
@@ -68,7 +68,28 @@ class ChatGraphStagesTest(unittest.IsolatedAsyncioTestCase):
         service.retrieve_knowledge = AsyncMock(side_effect=RuntimeError("controlled"))
         with self.assertRaisesRegex(RuntimeError, "controlled"):
             await run_context_graph(service, assembly())
-        self.assertEqual(service.calls, ["snapshot", "memory", "tools"])
+        self.assertEqual(service.calls, ["snapshot", "memory"])
+
+    async def test_independent_retrievals_overlap_and_failure_cancels_sibling(self):
+        service = StageService()
+        memory_started, memory_closed = asyncio.Event(), asyncio.Event()
+
+        async def memory(_):
+            try:
+                memory_started.set()
+                await asyncio.Event().wait()
+            finally:
+                memory_closed.set()
+
+        async def knowledge(_):
+            await memory_started.wait()
+            raise RuntimeError("controlled")
+
+        service.retrieve_memory, service.retrieve_knowledge = memory, knowledge
+        with self.assertRaisesRegex(RuntimeError, "controlled"):
+            await asyncio.wait_for(run_context_graph(service, assembly()), 2)
+        self.assertTrue(memory_closed.is_set())
+        self.assertEqual(service.calls, ["snapshot"])
 
     async def test_context_instances_never_share_phases(self):
         first, second = assembly(), assembly()

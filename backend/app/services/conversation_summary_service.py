@@ -127,7 +127,7 @@ class ConversationSummaryService:
         # 排除即将删除/重置的消息，避免将其冻结为任务目标；后续Chat可补齐新增尾部。
         self.ensure_job(conversation, exclude_ids=message_ids)
 
-    def target(self, conversation, *, through_id=None, exclude_ids=()):
+    def target(self, conversation, *, through_id=None, exclude_ids=(), recent_history_limit=None):
         stmt = select(Message).where(Message.conversation_id == conversation.id,
             Message.role.in_(["user", "assistant"]), Message.status != "streaming")
         if exclude_ids:
@@ -137,12 +137,14 @@ class ConversationSummaryService:
             if not through or through.conversation_id != conversation.id:
                 return None
             stmt = stmt.where(self.repo._sql_order_key() <= self.repo._order_key(through))
-        # 第25条最新消息是需要摘要的固定目标；不跟随随后追加的新消息扩张。
-        return self.db.scalar(stmt.order_by(*self.repo.order_columns(descending=True)).offset(self.repo.RECENT_CONTEXT_LIMIT).limit(1))
+        # 任务目标是当前注入窗口之外的最后一条消息，固定到本轮历史上界。
+        retained = recent_history_limit if recent_history_limit is not None else self.repo.RECENT_CONTEXT_LIMIT
+        return self.db.scalar(stmt.order_by(*self.repo.order_columns(descending=True)).offset(retained).limit(1))
 
-    def ensure_job(self, conversation, *, through_id=None, exclude_ids=(), retry_failed=False):
+    def ensure_job(self, conversation, *, through_id=None, exclude_ids=(), retry_failed=False, recent_history_limit=None):
         self.db.flush()
-        target = self.target(conversation, through_id=through_id, exclude_ids=exclude_ids)
+        target = self.target(conversation, through_id=through_id, exclude_ids=exclude_ids,
+                             recent_history_limit=recent_history_limit)
         if target is None:
             return None
         boundary = self.db.get(Message, conversation.context_summary_boundary_message_id) if conversation.context_summary_boundary_message_id else None

@@ -78,7 +78,8 @@ class ChatRunWorker:
                 content=partial["content"], reasoning=partial["reasoning"])
         except Exception as exc:
             from app.services.conversation_summary_service import SummaryRebuildRequired
-            if isinstance(exc, SummaryRebuildRequired):
+            from app.services.context_governance_service import ContextBudgetExceeded
+            if isinstance(exc, (SummaryRebuildRequired, ContextBudgetExceeded)):
                 code = exc.code
             elif isinstance(exc, ChatRunOutputBudgetExceeded):
                 code = "output_budget_exhausted"

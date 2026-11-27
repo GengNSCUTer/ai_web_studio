@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.services.context_governance_service import (
     ContextBudgetConfig,
     ContextBudgetPlanner,
+    ContextBudgetExceeded,
     ContextGovernanceService,
 )
 from app.services.prompt_builder_service import ContextPromptBuilder
 from app.services.chat_context_assembly_service import build_summary_prompt
+from app.services.tokenizer_service import TokenizerEstimator
 
 
 @dataclass
@@ -21,6 +23,45 @@ class DummyMessage:
 
 
 class PromptContextGovernanceTest(unittest.TestCase):
+    def test_necessary_context_overflow_rejects_system_and_entire_current_query(self):
+        budget = replace(ContextBudgetPlanner.build(model_context_window=8192, context_mode="balanced"),
+                         max_total_tokens=40)
+        service = ContextGovernanceService(budget, TokenizerEstimator())
+        for system, query in [("系统要求 " * 100, "问题"), ("约束", "代码 " * 100 + "必须保持原接口")]:
+            with self.subTest(system_length=len(system)), self.assertRaises(ContextBudgetExceeded):
+                service.govern_messages([{"role": "system", "content": system}, {"role": "user", "content": query}])
+
+    def test_visual_formats_use_equal_budgets_without_encoding_base64(self):
+        service = ContextGovernanceService(tokenizer=TokenizerEstimator())
+        binary = "<|endoftext|>" * 1000
+        formats = [
+            {"role": "user", "content": "问题", "images": [binary]},
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": binary}},
+                                         {"type": "text", "text": "问题"}]},
+            {"role": "user", "content": [{"type": "image", "source": {"data": binary}},
+                                         {"type": "text", "text": "问题"}]},
+        ]
+        estimates = [service.require_fit([message]) for message in formats]
+        self.assertEqual(len(set(estimates)), 1)
+        self.assertEqual(estimates[0][1], service.budget.max_image_equiv_tokens + 6
+                         + service.tokenizer.estimate_text_tokens("问题"))
+
+    def test_attachment_priority_keeps_current_question_verbatim(self):
+        question = "  分析附件，必须保持原接口。\n"
+        built = ContextPromptBuilder().build_chat_messages(
+            messages=[DummyMessage("u1", "user", question)], system_prompt=None, memory_context=None,
+            context_summary=None, summary_boundary_message_id=None, external_context=None,
+            attachment_context="附件正文" * 120, knowledge_context="知识库资料" * 120,
+            provider_type="openai-compatible",
+        )
+        budget = replace(ContextBudgetPlanner.build(model_context_window=8192, context_mode="balanced"),
+                         max_total_chars=len(built.messages[0]["content"]) + 370)
+        service = ContextGovernanceService(budget, TokenizerEstimator())
+        result = service.govern_messages(built.messages, preferred_reference_layers=("attachment_context", "knowledge_context"))
+        self.assertEqual(set(result.retained_reference_texts), {"attachment_context"})
+        self.assertTrue(result.messages[-1]["content"].startswith(question))
+        self.assertLessEqual(result.stats.total_chars_estimate, budget.max_total_chars)
+
     def test_skill_output_contract_is_trusted_system_instruction(self) -> None:
         result = ContextPromptBuilder().build_chat_messages(
             messages=[DummyMessage(id="u1", role="user", content="请审阅")],
@@ -120,7 +161,7 @@ class PromptContextGovernanceTest(unittest.TestCase):
         original_loader = builder._load_image_base64
         try:
             builder._load_image_base64 = lambda path: "aW1hZ2U="  # type: ignore[method-assign]
-            built = builder._build_provider_message(message=message, provider_type="vllm")
+            built = builder.build_provider_message(message=message, provider_type="vllm")
         finally:
             builder._load_image_base64 = original_loader  # type: ignore[method-assign]
 

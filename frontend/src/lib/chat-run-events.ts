@@ -14,9 +14,10 @@ export type ChatRunSnapshot = {
   last_event_id: number;
 };
 
-export function summaryRecoveryMessage(code?: string | null): string | null {
+export function chatRunFailureMessage(code?: string | null): string | null {
   if (code === "context_summary_rebuilding") return "较早对话正在后台恢复摘要，本轮尚未生成回答。请稍后重新生成。";
   if (code === "context_summary_rebuild_failed") return "历史摘要恢复失败，本轮未使用不完整历史回答。请重试摘要恢复，或检查模型设置。";
+  if (code === "context_budget_exceeded") return "系统提示、当前问题或图片超过本轮输入预算。请缩短问题或系统提示、减少图片，或将大段材料作为文件附件上传。";
   return null;
 }
 

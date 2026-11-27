@@ -25,6 +25,12 @@ class ChatAssemblyRuntime:
     skill_context: Any = None
     tool_run_mode: str = "quick_chat"
     query: str = ""
+    conversation_id: str | None = None
+    user_message_id: str | None = None
+    project_id: str | None = None
+    system_prompt: str | None = None
+    memory_read_settings: Any = None
+    current_user_payload: dict[str, Any] = field(default_factory=dict)
     resource_selections: list[dict[str, Any]] = field(default_factory=list)
     assistant_generation_id: str | None = None
     assistant_id: str | None = None

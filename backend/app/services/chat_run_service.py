@@ -17,6 +17,7 @@ from app.models.observability import ChatRuntimeMetric
 from app.models.user_setting import UserSetting
 from app.repositories.message_repo import MessageGenerationConflict
 from app.services.chat_execution_service import ChatExecutionService
+from app.services.context_governance_service import ContextBudgetExceeded
 from app.services.resource_quota_service import exhausted, quota_lock
 from app.services.runtime_lease import aware, owns_live_lease, utcnow
 
@@ -339,6 +340,7 @@ class ChatRunService:
                 "context_summary_rebuild_failed": "历史摘要恢复失败，本轮未使用不完整历史回答。请重试摘要恢复，或检查模型设置。",
             }
             public_errors = {**summary_errors,
+                ContextBudgetExceeded.code: ContextBudgetExceeded.public_message,
                 "tool_state_unavailable": "工具执行状态无法安全恢复，请重新发起任务。",
                 "output_budget_exhausted": "回答超过本次任务的保存上限，请缩小回答范围后重试。",
             }

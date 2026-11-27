@@ -1,7 +1,8 @@
-"""由独立节点编排上下文；共享请求Session的节点保持串行，不送入线程池。"""
+"""独立召回可并行，共享请求事务的工具和摘要阶段按序执行。"""
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, TypedDict
@@ -42,10 +43,20 @@ async def _snapshot(state: ContextGraphState, runtime: Runtime[ContextGraphConte
             "history_count": len(context.assembly.history_rows)}
 
 
-async def _memory(state: ContextGraphState, runtime: Runtime[ContextGraphContext]):
+async def _retrieve(state: ContextGraphState, runtime: Runtime[ContextGraphContext]):
     context = runtime.context
-    await context.service.retrieve_memory(context.assembly)
-    return {**_record(runtime, "memory"), "memory_count": context.assembly.memory_bundle.count}
+    tasks = [asyncio.create_task(operation(context.assembly)) for operation in (
+        context.service.retrieve_memory, context.service.retrieve_knowledge)]
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    context.assembly.phases.extend(("memory", "rag"))
+    return {"phase": "retrieval", "memory_count": context.assembly.memory_bundle.count,
+            "knowledge_source_count": len(context.assembly.knowledge_context_result.sources)}
 
 
 async def _tools(state: ContextGraphState, runtime: Runtime[ContextGraphContext]):
@@ -53,13 +64,6 @@ async def _tools(state: ContextGraphState, runtime: Runtime[ContextGraphContext]
     await context.service.execute_tools(context.assembly)
     return {**_record(runtime, "tools_subgraph"),
             "tool_source_count": len(context.assembly.external_context_result.sources)}
-
-
-async def _rag(state: ContextGraphState, runtime: Runtime[ContextGraphContext]):
-    context = runtime.context
-    await context.service.retrieve_knowledge(context.assembly)
-    return {**_record(runtime, "rag"),
-            "knowledge_source_count": len(context.assembly.knowledge_context_result.sources)}
 
 
 async def _summary(state: ContextGraphState, runtime: Runtime[ContextGraphContext]):
@@ -89,8 +93,8 @@ async def _finalize(state: ContextGraphState, runtime: Runtime[ContextGraphConte
 @lru_cache(maxsize=1)
 def build_context_graph():
     graph = StateGraph(ContextGraphState, context_schema=ContextGraphContext)
-    nodes = [("snapshot", _snapshot), ("memory", _memory), ("tools", _tools),
-             ("rag", _rag), ("summary", _summary), ("govern", _govern), ("context_ready", _finalize)]
+    nodes = [("snapshot", _snapshot), ("retrieval", _retrieve), ("tools", _tools),
+             ("summary", _summary), ("govern", _govern), ("context_ready", _finalize)]
     previous = START
     for name, function in nodes:
         graph.add_node(name, function)
