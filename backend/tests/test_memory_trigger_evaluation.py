@@ -213,6 +213,30 @@ class MemoryTriggerEvaluationTest(unittest.TestCase):
         self.assertNotEqual(job.id, next_job.id)
         self.assertEqual(provider.complete_chat.await_count, 1)
 
+    def test_semantic_buffer_waits_through_deletion_and_distinguishes_same_last_source(self):
+        source_ids = []
+        for number in range(5):
+            source, assistant = self.turn(f"团队工作记录 {number}")
+            source_ids.append(source)
+        first = self.enqueue(assistant)
+        worker, provider = self.worker('{"action":"buffer","confidence":"high","reason":"等待补充"}')
+        self.assertTrue(asyncio.run(worker.run_once()))
+        with self.sessions() as db:
+            db.delete(db.get(Message, source_ids[0]))
+            db.commit()
+        _, assistant = self.turn("如何查看日志？")
+        self.assertIsNone(self.enqueue(assistant))
+        self.assertFalse(asyncio.run(worker.run_once()))
+        self.assertEqual(provider.complete_chat.await_count, 1)
+        with self.sessions() as db:
+            db.get(Message, source_ids[1]).content = "补充更新的团队工作记录"
+            db.commit()
+        second = self.enqueue(assistant)
+        self.assertNotEqual(second.id, first.id)
+        self.assertNotEqual(second.idempotency_key, first.idempotency_key)
+        self.assertEqual(first.source_message_ids.split(",")[-1], second.source_message_ids.split(",")[-1])
+        self.assertEqual(self.enqueue(assistant).id, second.id)
+
     def test_user_cooldown_skips_extra_call_but_not_original_extraction(self):
         job = self.batch()
         with self.sessions() as db:

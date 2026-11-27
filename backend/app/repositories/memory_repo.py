@@ -69,6 +69,47 @@ class UserMemoryRepository:
         )
         return list(self.db.scalars(stmt).all())
 
+    @staticmethod
+    def _conflict_scope(user_id, project_id):
+        # 与注入不同：停用的 active 仍参与写入冲突，项目内也不混入个人范围。
+        bound = or_(UserMemory.extraction_job_id.is_not(None),
+                    and_(UserMemory.source_message_ids.is_not(None), UserMemory.source_message_ids != ""),
+                    UserMemory.source.in_(["auto_candidate", "auto_confirmed"]))
+        inherited = select(Conversation.id).where(Conversation.id == UserMemory.source_conversation_id,
+            Conversation.user_id == user_id, Conversation.project_id == project_id).exists()
+        direct = and_(UserMemory.project_id.is_(None), or_(bound, UserMemory.source_conversation_id.is_(None)))
+        if project_id is not None:
+            direct = UserMemory.project_id == project_id
+        return or_(direct, and_(UserMemory.project_id.is_(None), ~bound, inherited))
+
+    def list_for_conflict(self, user_id, project_id, *, exclude_id=None, fact_keys=None,
+                          content_hashes=(), statuses=("active",), include_vectors=False):
+        stmt = select(UserMemory).where(UserMemory.user_id == user_id, self._conflict_scope(user_id, project_id))
+        if statuses is not None:
+            stmt = stmt.where(UserMemory.status.in_(statuses))
+        if statuses == ("active",):
+            stmt = stmt.where(or_(UserMemory.expires_at.is_(None), UserMemory.expires_at > datetime.now(timezone.utc)))
+        if exclude_id is not None:
+            stmt = stmt.where(UserMemory.id != exclude_id)
+        if fact_keys is not None:
+            stmt = stmt.where(or_(UserMemory.fact_key.in_(fact_keys), UserMemory.fact_key.is_(None),
+                                  UserMemory.content_hash.in_(content_hashes)))
+        if not include_vectors:
+            stmt = stmt.options(defer(UserMemory.embedding_vector), defer(UserMemory.embedding_signature),
+                                defer(UserMemory.embedding_text_hash))
+        return list(self.db.scalars(stmt.order_by(UserMemory.updated_at.desc(), UserMemory.id)
+                                    .execution_options(populate_existing=True)))
+
+    def recent_for_extraction(self, user_id, project_id, *, limit=80):
+        scopes = [self._conflict_scope(user_id, None)]
+        if project_id is not None:
+            scopes.append(self._conflict_scope(user_id, project_id))
+        stmt = select(UserMemory).where(UserMemory.user_id == user_id, or_(*scopes),
+            UserMemory.status == "active", UserMemory.is_enabled.is_(True), UserMemory.sensitivity != "sensitive",
+            or_(UserMemory.expires_at.is_(None), UserMemory.expires_at > datetime.now(timezone.utc)))
+        return list(self.db.scalars(stmt.options(defer(UserMemory.embedding_vector), defer(UserMemory.embedding_signature),
+            defer(UserMemory.embedding_text_hash)).order_by(UserMemory.updated_at.desc(), UserMemory.id).limit(limit)))
+
     def _retrieval_filter(self, user_id: str, project_id: str | None):
         """检索前在 SQL 中隔离范围；旧记录的来源会话也必须属于当前用户。"""
         source = select(Conversation.id).where(
@@ -141,9 +182,12 @@ class UserMemoryRepository:
     def semantic_candidates(self, user_id, project_id, vector, signature, dimensions, *, limit=32):
         """小范围精确、大范围可用 HNSW；两者都在数据库执行，权限条件不放宽。"""
         self._search_deadline()
-        filters = (*self._retrieval_filter(user_id, project_id),
-            UserMemory.memory_type.not_in(["profile", "instruction"]),
-            UserMemory.sensitivity != "sensitive", UserMemory.embedding_signature == signature,
+        return self._semantic_search((*self._retrieval_filter(user_id, project_id),
+            UserMemory.memory_type.not_in(["profile", "instruction"]), UserMemory.sensitivity != "sensitive"),
+            vector, signature, dimensions, limit=limit)
+
+    def _semantic_search(self, scope_filters, vector, signature, dimensions, *, limit):
+        filters = (*scope_filters, UserMemory.embedding_signature == signature,
             UserMemory.search_embedding.is_not(None),
             UserMemory.search_dimensions == literal_column(str(int(dimensions))))
         # 最多数到 257 就停止，不为判断索引路径读取全量 ID 或正文。
@@ -167,6 +211,27 @@ class UserMemoryRepository:
         return {row[0]: max(-1., min(1., 1. - row[1])) for row in rows}, {
             "database_search": "hnsw" if use_ann else "exact", "exact_topup": topup,
             "semantic_candidates": len(rows)}
+
+    def conflict_shadow_candidates(self, user_id, project_id, exclude_id, query, vector, signature, dimensions, *, limit=16):
+        from app.services.memory_injection_policy import memory_query_terms
+        from app.services.memory_service import MemoryService
+
+        self._search_deadline()
+        filters = (UserMemory.user_id == user_id, self._conflict_scope(user_id, project_id),
+            UserMemory.status == "active", UserMemory.sensitivity != "sensitive",
+            or_(UserMemory.expires_at.is_(None), UserMemory.expires_at > datetime.now(timezone.utc)))
+        if exclude_id is not None:
+            filters = (*filters, UserMemory.id != exclude_id)
+        terms = sorted(memory_query_terms(query, MemoryService._search_terms))[:64]
+        ids = set()
+        if terms:
+            tsquery = func.to_tsquery("simple", " | ".join(terms))
+            ids.update(self.db.scalars(select(UserMemory.id).where(*filters, UserMemory.search_vector.op("@@")(tsquery))
+                .order_by(func.ts_rank_cd(UserMemory.search_vector, tsquery).desc(), UserMemory.id).limit(limit)))
+        if vector is not None:
+            vectors, _ = self._semantic_search(filters, vector, signature, dimensions, limit=limit)
+            ids.update(vectors)
+        return ids
 
     def list_for_retrieval(self, user_id: str, project_id: str | None, *, memory_ids=None,
                            include_vectors=True) -> list[UserMemory]:

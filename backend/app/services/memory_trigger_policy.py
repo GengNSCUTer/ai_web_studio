@@ -4,9 +4,10 @@ from dataclasses import dataclass
 import json
 import re
 
-from app.services.memory_extraction_policy import explicit_remember, redact_source, REDACTED
+from app.services.memory_extraction_policy import explicit_remember, redact_source, remember_body, REDACTED
+from app.services.memory_policy import lifetime
 
-POLICY_VERSION = "rules-v3"
+POLICY_VERSION = "rules-v4"
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,10 @@ _NO_SAVE = re.compile(r"^(?:请)?(?:别|不要|无需)(?:再)?(?:记住|保存|�
 _QUOTED = re.compile(r'“[^”]*”|‘[^’]*’|「[^」]*」|"[^"\n]*"')
 _CLAUSE_BOUNDARY = re.compile(r"[，,；;。.!！\n]+")
 _INTERROGATIVE = re.compile(r"是否|能否|该不该|要不要|应(?:该|当)|什么|怎么|如何|为什么|哪(?:个|种|些)|[吗么呢?？]|\b(?:should|would|could|whether|what|which|how|why)\b", re.I)
+_DATED_DECISION = re.compile(r"^(?:(?:我(?:们)?|本项目|项目)\s*)?(?:在)?今天\s*(?:已(?:经)?|正式|最终|确定)*\s*(?:决定|确认|确定|改用|采用)|\b(?:i|we) (?:have )?(?:officially )?(?:decided|committed) today\b", re.I)
+_DURABLE_CONDITION = re.compile(r"(?:以后|今后|将来|长期|默认).{0,80}(?:优先|始终|一律|默认|请|使用|给出)|(?:优先|始终|一律).{0,80}(?:以后|今后)|\b(?:always|by default|going forward|in future)\b", re.I)
+_HYPOTHETICAL = re.compile(r"假设|可能|也许|不确定|考虑|暂定|还没决定|待定|\b(?:maybe|perhaps|consider|not sure|assume)\b", re.I)
+_TURN_LIMIT = re.compile(r"仅限|只在|只限|只这|这次|本次|本轮|临时|今天(?:仅|只|先)|(?:仅|只)(?:在)?今天|暂时|this (?:time|turn|week)|for now|only (?:for )?today|temporary", re.I)
 
 
 def _has_assertion_before_question(text: str) -> bool:
@@ -59,14 +64,26 @@ def classify_memory_signal(text: str) -> MemorySignal:
             return MemorySignal("skip", "sensitive_source")
     if forget_target(text) is not None:
         return MemorySignal("revoke", "explicit_forget", 100)
-    if _NO_SAVE.search(text):
+    if _NO_SAVE.search(text) or _NO_SAVE.search(remember_body(text)):
         return MemorySignal("skip", "no_persistence_requested")
+    if explicit_remember(text):
+        body = remember_body(text)
+        if not body or _EXTERNAL.search(body):
+            return MemorySignal("skip", "external_or_empty")
+        if REDACTED in sanitized:
+            return MemorySignal("skip", "sensitive_source") if explicit_remember(sanitized) else MemorySignal("buffer", "redacted_source")
+        if _TURN_LIMIT.search(body) or lifetime("", body) == "turn":
+            return MemorySignal("skip", "temporary_request")
+        if _HYPOTHETICAL.search(body) or (_TENTATIVE.search(body) and not _DURABLE_CONDITION.search(body)):
+            return MemorySignal("buffer", "tentative_statement")
+        decision_value = _DATED_DECISION.sub("", body, count=1)
+        if _TEMPORARY.search(decision_value) or lifetime("", decision_value) != "durable":
+            return MemorySignal("skip", "temporary_request")
+        return MemorySignal("extract_now", "explicit_remember", 90)
     if _TEMPORARY.search(text):
         return MemorySignal("skip", "temporary_request")
     if _TENTATIVE.search(text):
         return MemorySignal("buffer", "tentative_statement")
-    if explicit_remember(text):
-        return MemorySignal("extract_now", "explicit_remember", 90)
     # 引用中的陈述不能代表用户自己；原文仍留在消息表，核验链不使用掩码。
     unquoted = _QUOTED.sub("", text).strip()
     if unquoted != text and not (_STABLE.search(unquoted) or _CORRECTION.search(unquoted)):

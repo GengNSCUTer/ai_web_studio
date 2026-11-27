@@ -166,6 +166,31 @@ class MemoryConflictTest(unittest.TestCase):
         self.adapter.embed_texts.assert_not_awaited()
         self.provider.complete_chat.assert_not_awaited()
 
+    def test_structured_review_ignores_unrelated_updates_and_rechecks_new_same_key(self):
+        first = self.assess(title='回答语言', content='默认英文回答')
+        self.assertEqual(first.conflict_review['version_scope'], 'fact_key')
+        unrelated = self.old(fact_key='project:数据库')
+        self.old(project_id=self.other_project, memory_type='profile', title='回答语言', content='默认中文回答')
+        with self.sessions() as db:
+            db.get(UserMemory, unrelated).version += 1
+            db.commit()
+        english = self.candidate(first)
+        self.assertEqual(self.approve(english).status, 'active')
+        second = self.assess(title='回答语言', content='默认中文回答')
+        self.assertEqual(second.conflict_review['active_versions'], {english: 2})
+        pending = self.candidate(second)
+        self.old(memory_type='profile', title='回答语言', content='默认中文回答',
+                 fact_key='response_language', is_enabled=False)
+        with self.assertRaisesRegex(ValueError, '相关版本已变化'):
+            self.approve(pending, supersedes_memory_id=english, expected_target_version=2, acknowledge_conflicts=True)
+
+    def test_ambiguous_same_key_keeps_full_scope_review(self):
+        old = self.old(memory_type='profile', title='回答语言', content='写代码时用英文，其他用中文')
+        assessed = self.assess(title='回答语言', content='默认英文回答')
+        self.assertNotIn('version_scope', assessed.conflict_review)
+        self.assertIn(old, assessed.conflict_review['active_versions'])
+        self.provider.complete_chat.assert_awaited_once()
+
     def test_invalid_model_json_ids_quotes_and_boolean_confidence_stay_pending(self):
         self.old()
         for raw in ('not-json', '{"pairs":[]}', json.dumps({'pairs':[dict(pair_id='p0', relation='complement',

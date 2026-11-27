@@ -83,6 +83,22 @@ class MemoryTriggerRuntimeTest(unittest.TestCase):
         job = self.turn("我的项目最终决定使用 PostgreSQL。")
         self.assertEqual((job.trigger_reason, job.priority), ("stable_statement", 70))
 
+    def test_explicit_remember_distinguishes_durable_condition_from_uncertainty(self):
+        cases = {
+            "请记住：如果我以后问算法题，优先给出 Go 语言解法。": "extract_now",
+            "请记住：我今天正式决定将项目改用 Go。": "extract_now",
+            "请记住：我今天正式决定本周使用 Go。": "skip",
+            "请记住：这次临时使用 Go。": "skip",
+            "请记住：如果确定方案再考虑 Go。": "buffer",
+            "请记住：网页说团队要使用 Go。": "skip",
+            "请记住：不要保存这个内容。": "skip",
+            "请记住：我的密码是示例口令。": "skip",
+            "请忘记：订单接口使用 Go。": "revoke",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(classify_memory_signal(text).action, expected)
+
     def test_mixed_input_uses_original_evidence_chain_and_does_not_auto_activate(self):
         job = self.turn("我的项目使用 PostgreSQL，问题是如何优化索引？")
         self.assertIsNotNone(job)

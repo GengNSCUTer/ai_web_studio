@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.user_memory import MemoryExtractionJob
@@ -46,6 +46,7 @@ class MemoryExtractionJobRepository:
             job.error_code = "attempts_exhausted"
             job.error_message = "提取任务已用完重试次数，未保存新记忆。"
             job.lease_owner = job.lease_expires_at = None
+            job.fragment_source_ids = job.staged_candidates = None
         if exhausted:
             self.db.flush()
         statement = (
@@ -55,7 +56,9 @@ class MemoryExtractionJobRepository:
                 MemoryExtractionJob.attempts < MemoryExtractionJob.max_attempts,
                 or_(MemoryExtractionJob.available_at.is_(None), MemoryExtractionJob.available_at <= now),
             )
-            .order_by(MemoryExtractionJob.priority.desc(), MemoryExtractionJob.created_at.asc())
+            .order_by(MemoryExtractionJob.priority.desc(),
+                      func.coalesce(MemoryExtractionJob.available_at, MemoryExtractionJob.created_at),
+                      MemoryExtractionJob.created_at, MemoryExtractionJob.id)
             .with_for_update(skip_locked=True)
             .limit(1)
         )

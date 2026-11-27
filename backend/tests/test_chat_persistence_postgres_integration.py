@@ -189,8 +189,8 @@ class ChatPersistencePostgresIntegrationTest(unittest.TestCase):
         with Session(self.engine) as db:
             job = db.scalar(
                 select(MemoryExtractionJob).where(
-                    MemoryExtractionJob.idempotency_key
-                    == f"memory-extract:{self.conversation_id}:{source_id}"
+                    MemoryExtractionJob.conversation_id == self.conversation_id,
+                    MemoryExtractionJob.user_id == self.user_id,
                 )
             )
             self.assertIsNotNone(job)

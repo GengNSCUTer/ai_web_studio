@@ -14,7 +14,9 @@ from app.repositories.memory_repo import UserMemoryRepository
 from app.schemas.memory import MemoryHistoryResponse, MemorySuggestion, UserMemoryCreate, UserMemoryResponse, UserMemoryUpdate
 from app.services.memory_policy import contains_credential, equivalent_content, lifetime, memory_identity, requested_response_language
 from app.services.memory_extraction_policy import redact_source
-from app.services.memory_conflict_policy import load_review, validate_review, coexist_ids, has_structured_conflict, CONFIDENCE_MIN
+from app.services.memory_conflict_policy import (
+    load_review, validate_review, coexist_ids, has_structured_conflict, structured_fact_key, CONFIDENCE_MIN,
+)
 from app.services.memory_injection_policy import lexical_evidence, memory_query_terms, SEMANTIC_MIN, QUERY_LIMIT
 from app.services.memory_source_service import source_bound, source_issues
 
@@ -248,6 +250,23 @@ class MemoryService:
         conversation = self.conversation_repo.get_by_user(source, user_id) if self.conversation_repo else None
         return getattr(conversation, "project_id", None) if conversation else "__unresolved__"
 
+    def structured_conflict_rows(self, user_id, project_id, key, exclude_id):
+        # 旧记录可能没有 fact_key，仍按原有规则检查相关事实。
+        rows = self.repo.list_for_conflict(user_id, project_id, exclude_id=exclude_id, fact_keys=[key])
+        return self.valid_sources([item for item in rows
+            if memory_identity(item.memory_type, item.title, item.content).key == key])
+
+    def _review_existing(self, memory, scope, *, acknowledged=False, exclude_id=None):
+        review = load_review(memory)
+        if review and review.get('version_scope') == 'fact_key':
+            key = structured_fact_key(memory)
+            if key is None or key != review.get('fact_key'):
+                raise ValueError('记忆的事实标识已变化，请重新检查冲突后确认')
+            existing = self.structured_conflict_rows(memory.user_id, scope, key, exclude_id)
+        else:
+            existing = self.valid_sources(self.repo.list_for_conflict(memory.user_id, scope, exclude_id=exclude_id))
+        return existing, validate_review(memory, existing, scope, acknowledged=acknowledged)
+
     def _validate_activation(self, memory: UserMemory, target_id: str | None = None, *,
                              acknowledged: bool = False, expected_target_version: int | None = None) -> None:
         """锁内按最新 active 版本重新判断，不能信任提取时的旧风险标签。"""
@@ -255,11 +274,7 @@ class MemoryService:
         if scope == "__unresolved__":
             raise ValueError("来源会话无法解析，不能激活记忆")
         memory.project_id = scope
-        existing = self.valid_sources([item for item in self.repo.list_others(memory.user_id, memory.id)
-                    if item.id != memory.id and item.status == "active"
-                    and (item.expires_at is None or self._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))
-                    and self._memory_scope(item, memory.user_id) == scope])
-        review = validate_review(memory, existing, scope, acknowledged=acknowledged)
+        existing, review = self._review_existing(memory, scope, acknowledged=acknowledged, exclude_id=memory.id)
         coexist = coexist_ids(review, acknowledged=acknowledged)
         rule_existing = [item for item in existing if item.id not in coexist or has_structured_conflict(memory, item)]
         suggestion = MemorySuggestion(memory_type=memory.memory_type, title=memory.title,
@@ -423,20 +438,17 @@ class MemoryService:
             self._validate_persistence(proposed)
             changed = any(getattr(proposed, field) != getattr(memory, field) for field in ("title", "content", "memory_type"))
             if memory.status == "active" and changed:
+                scope = self._memory_scope(memory, memory.user_id)
                 if assessment and assessment.conflict_review:
                     proposed.conflict_review_json = json.dumps(assessment.conflict_review, ensure_ascii=False)
-                    existing = self.valid_sources([item for item in self.repo.list_others(memory.user_id, memory.id)
-                        if self._memory_scope(item, memory.user_id) == self._memory_scope(memory, memory.user_id)
-                        and (item.expires_at is None or self._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))])
-                    validate_review(proposed, existing, self._memory_scope(memory, memory.user_id))
+                    others, _ = self._review_existing(proposed, scope, exclude_id=memory.id)
                     if assessment.conflict_review['requires_review']:
                         raise ValueError('该修改需要关系审核，请先创建待审候选并明确替换')
+                else:
+                    others = self.valid_sources(self.repo.list_for_conflict(memory.user_id, scope, exclude_id=memory.id))
                 if lifetime(proposed.title, proposed.content) != "durable":
                     raise ValueError("短期记忆不能替换长期版本，请单独创建并设置有效期")
                 # 编辑已生效内容产生后继版本，旧内容和来源保留，状态切换与新行一起提交。
-                others = self.valid_sources([item for item in self.repo.list_by_user(memory.user_id)
-                          if item.id != memory.id and item.status == "active"
-                          and self._memory_scope(item, memory.user_id) == self._memory_scope(memory, memory.user_id)])
                 risk = self.enrich_suggestion_risks(suggestions=[MemorySuggestion(
                     memory_type=proposed.memory_type, title=proposed.title, content=proposed.content)],
                     existing_memories=others, scoped=True)[0]
@@ -664,10 +676,9 @@ class MemoryService:
         # 去重辅助输入同样过滤范围和凭证，旧数据库中的危险内容也不能回传模型。
         memories = [
             memory
-            for memory in self.valid_sources(self.repo.list_by_user(user_id, enabled_only=True))
+            for memory in self.valid_sources(self.repo.recent_for_extraction(user_id, project_id))
             if getattr(memory, "sensitivity", "normal") != "sensitive"
             and not contains_credential(memory.title, memory.content)
-            and self._memory_matches_project_scope(memory=memory, user_id=user_id, project_id=project_id)
         ]
         lines: list[str] = []
         total = 0
@@ -781,7 +792,8 @@ class MemoryService:
             memory_type = cls.normalize_memory_type(item.get("memory_type"))
             title = cls.normalize_text(item.get("title"))[:120]
             content = cls.normalize_text(item.get("content"))
-            reason = redact_source(cls.normalize_text(item.get("reason")))
+            reason = redact_source(cls.normalize_text(item.get("reason")))[:400]
+            confidence = cls.normalize_text(item.get("confidence")).lower()
             if not title or not content:
                 continue
             if contains_credential(title, content):
@@ -799,7 +811,7 @@ class MemoryService:
                     reason=reason or None,
                     source_conversation_id=source_conversation_id,
                     source_message_ids=source_message_ids,
-                    confidence=cls.normalize_text(item.get("confidence")) or "medium",
+                    confidence=confidence if confidence in {"high", "medium", "low"} else "medium",
                     source_message_id=cls.normalize_text(item.get("source_message_id"))[:36] or None,
                     evidence_quote=cls.normalize_text(item.get("evidence_quote"))[:1200] or None,
                 )

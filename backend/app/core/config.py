@@ -116,6 +116,7 @@ class Settings:
     knowledge_redis_url: str = os.getenv("KNOWLEDGE_REDIS_URL", "redis://127.0.0.1:6379/0")
     # Redis 只缓存派生的记忆召回结果；每次命中仍核对 PG 版本、范围与有效期。
     memory_read_cache_enabled: bool = _env_bool("MEMORY_READ_CACHE_ENABLED", True)
+    memory_conflict_shadow_enabled: bool = _env_bool("MEMORY_CONFLICT_SHADOW_ENABLED", False)
     memory_redis_url: str = os.getenv("MEMORY_REDIS_URL", os.getenv("KNOWLEDGE_REDIS_URL", "redis://127.0.0.1:6379/0"))
     memory_read_cache_ttl_seconds: int = int(os.getenv("MEMORY_READ_CACHE_TTL_SECONDS", "60"))
     memory_read_cache_max_bytes: int = int(os.getenv("MEMORY_READ_CACHE_MAX_BYTES", "524288"))

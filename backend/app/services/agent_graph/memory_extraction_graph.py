@@ -21,6 +21,7 @@ class MemoryExtractionState(TypedDict, total=False):
     trigger_action: str | None
     semantic_eligible: bool
     semantic_resume: str | None
+    extraction_staged: bool
 
 
 @dataclass
@@ -36,7 +37,10 @@ class MemoryExtractionContext:
 async def _snapshot(state: MemoryExtractionState, runtime: Runtime[MemoryExtractionContext]):
     ctx = runtime.context
     ctx.snapshot = ctx.worker._load_snapshot(ctx.job_id, ctx.lease_version)
+    if ctx.snapshot and "staged_candidates" in ctx.snapshot:
+        ctx.suggestions = ctx.snapshot["staged_candidates"]
     return {"phase": "source_snapshot", "ready": ctx.snapshot is not None,
+            "extraction_staged": ctx.suggestions is not None,
             "control_request": bool(ctx.snapshot and ctx.snapshot.get("control_request")),
             "semantic_eligible": bool(ctx.snapshot and ctx.snapshot.get("semantic_eligible")),
             "semantic_resume": ctx.snapshot.get("semantic_resume") if ctx.snapshot else None,
@@ -88,7 +92,7 @@ async def _verify(state: MemoryExtractionState, runtime: Runtime[MemoryExtractio
     ctx = runtime.context
     decoded = ctx.worker._decode_candidates(ctx.raw, ctx.snapshot)
     ctx.raw = None
-    ctx.suggestions = ctx.worker._verify_candidate_sources(ctx.job_id, ctx.lease_version, decoded)
+    ctx.suggestions = ctx.worker._stage_batch(ctx.job_id, ctx.lease_version, ctx.snapshot, decoded)
     return {"phase": "evidence_checked", "ready": ctx.suggestions is not None,
             "candidate_count": len(ctx.suggestions or [])}
 
@@ -120,7 +124,7 @@ def build_memory_extraction_graph():
     graph.add_edge(START, "snapshot")
     graph.add_conditional_edges("snapshot", lambda s: "control" if s.get("control_request") else (
         "semantic_gate" if s["ready"] and (s.get("semantic_eligible") or s.get("semantic_resume"))
-        else ("extract" if s["ready"] else END)))
+        else ("conflicts" if s.get("extraction_staged") else "extract" if s["ready"] else END)))
     graph.add_conditional_edges("semantic_gate", lambda s: "backlog" if s.get("semantic_decision") == "complete"
         else END if s.get("semantic_decision") == "stop" else "extract")
     graph.add_edge("extract", "verify")
@@ -133,7 +137,7 @@ def build_memory_extraction_graph():
 
 
 async def run_memory_extraction_graph(worker, job_id, lease_version):
-    # Job是事实与恢复边界，不为短批次额外持久化原文/模型输出。中断由原Job租约重领。
+    # Job保存分片进度与已核验草稿。中断由原Job租约重领，模型原文不写入图状态。
     with tracing_context(enabled=False):
         return await build_memory_extraction_graph().ainvoke({"job_id": job_id, "lease_version": lease_version},
             context=MemoryExtractionContext(worker, job_id, lease_version), config={"recursion_limit": 16})

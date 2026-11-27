@@ -25,6 +25,7 @@ class UserMemory(Base):
     __table_args__ = (
         Index("ix_user_memories_active_lookup", "user_id", "status", "is_enabled", "id"),
         Index("ix_memory_expiry_lookup", "user_id", "status", "is_enabled", "expires_at"),
+        Index("ix_memory_conflict_fact", "user_id", "status", "fact_key", "project_id"),
         Index("ix_memory_terms", "search_vector", postgresql_using="gin").ddl_if(dialect="postgresql"),
         Index("ix_memory_index_backlog", "updated_at", "id", postgresql_where=text(
             "search_embedding IS NULL AND status = 'active' AND is_enabled = true "
@@ -102,6 +103,10 @@ class MemoryExtractionJob(Base):
     idempotency_key: Mapped[str] = mapped_column(String(192), unique=True, index=True)
     source_message_ids: Mapped[str] = mapped_column(Text)
     source_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 只记录分片位置和已核验的候选字段；原文与完整模型响应仍不复制。
+    fragment_cursor: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    fragment_source_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    staged_candidates: Mapped[list[dict] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     cursor_end: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     trigger_action: Mapped[str] = mapped_column(String(24), default="extract_now", nullable=False)
     trigger_reason: Mapped[str] = mapped_column(String(64), default="legacy_batch", nullable=False)

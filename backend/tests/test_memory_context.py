@@ -14,6 +14,9 @@ class FakeMemoryRepository:
     def list_by_user(self, user_id: str, *, enabled_only: bool = False) -> list[object]:
         return self.memories
 
+    def recent_for_extraction(self, user_id, project_id):
+        return self.memories
+
 
 class FakeConversationRepository:
     def __init__(self, conversations: dict[str, object]):

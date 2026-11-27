@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -20,6 +21,8 @@ from app.services.memory_source_service import source_issues
 from app.services.memory_retrieval_service import MemoryRetrievalService, _FrozenEmbeddingSettings, text_hash, valid_vector
 from app.services.knowledge_index_service import KnowledgeEmbeddingService
 
+logger = logging.getLogger(__name__)
+
 
 class MemoryIndexWorker:
     BATCH_SIZE = 32
@@ -28,6 +31,14 @@ class MemoryIndexWorker:
         self.sessions = session_factory
         self.embedding_service = embedding_service
 
+    @staticmethod
+    def eligible(now):
+        return (UserMemory.status == "active", UserMemory.is_enabled.is_(True),
+            UserMemory.memory_type.not_in(["profile", "instruction"]),
+            UserMemory.sensitivity != "sensitive", UserMemory.search_embedding.is_(None),
+            or_(UserMemory.expires_at.is_(None), UserMemory.expires_at > now),
+            or_(UserMemory.embedding_retry_after.is_(None), UserMemory.embedding_retry_after <= now))
+
     def _claim(self):
         now = datetime.now(timezone.utc)
         lease = now + timedelta(seconds=90)
@@ -35,12 +46,7 @@ class MemoryIndexWorker:
             if db.get_bind().dialect.name != "postgresql":
                 return None
             db.execute(text("SET LOCAL lock_timeout = '250ms'"))
-            eligible = (UserMemory.status == "active", UserMemory.is_enabled.is_(True),
-                UserMemory.memory_type.not_in(["profile", "instruction"]),
-                UserMemory.sensitivity != "sensitive", UserMemory.search_embedding.is_(None),
-                or_(UserMemory.expires_at.is_(None), UserMemory.expires_at > now),
-                or_(UserMemory.embedding_retry_after.is_(None), UserMemory.embedding_retry_after <= now),
-                UserSetting.memory_enabled.is_(True))
+            eligible = (*self.eligible(now), UserSetting.memory_enabled.is_(True))
             uid = db.scalar(select(UserMemory.user_id).join(UserSetting, UserSetting.user_id == UserMemory.user_id)
                 .where(*eligible).order_by(UserMemory.updated_at, UserMemory.id).limit(1))
             if not uid:
@@ -107,9 +113,11 @@ class MemoryIndexWorker:
                 knowledge_base=SimpleNamespace(embedding_provider=config["provider"], embedding_model=config["model"]),
                 texts=[redact_source(f'{row["title"]}\n{row["content"]}')[:4000] for row in rows]), 8)
             if len(vectors) != len(rows) or not all(valid_vector(v, config["dimensions"]) for v in vectors):
+                logger.warning("memory_index result=invalid_vectors requested=%d", len(rows))
                 return False
             await asyncio.to_thread(self._save, uid, config, lease, rows, vectors)
             return True
-        except Exception:
+        except Exception as exc:
             # 保留 90 秒有限重试间隔；不记录含用户原文/Provider 凭证的异常。
+            logger.warning("memory_index result=retry exception=%s", type(exc).__name__)
             return False

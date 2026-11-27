@@ -2,7 +2,8 @@
 
 import asyncio
 import json
-from datetime import datetime, timezone
+import logging
+from time import monotonic
 from typing import Literal
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import update
 
 from app.core.database import SessionLocal
+from app.core.config import settings as app_settings
 from app.models.user_memory import UserMemory
 from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.conversation_repo import ConversationRepository
@@ -22,7 +24,9 @@ from app.services.memory_service import MemoryService
 from app.services.memory_policy import contains_credential, equivalent_content, lifetime, memory_identity
 from app.services.memory_extraction_policy import redact_source
 from app.services.memory_retrieval_service import MemoryRetrievalService, _FrozenEmbeddingSettings, text_hash, valid_vector, cosine
-from app.services.memory_conflict_policy import CONFIDENCE_MIN, candidate_snapshot, high_impact, validate_review
+from app.services.memory_conflict_policy import CONFIDENCE_MIN, candidate_snapshot, high_impact, structured_fact_key
+
+logger = logging.getLogger(__name__)
 
 
 class PairJudgment(BaseModel):
@@ -45,12 +49,27 @@ class MemoryConflictService:
         self.provider = provider_service or ChatProviderService()
         self.embedding_service = embedding_service
 
-    def _snapshot(self, user_id, project_id, exclude_id):
+    def _snapshot(self, user_id, project_id, exclude_id, items):
         with self.sessions() as db:
             repo = UserMemoryRepository(db)
             if project_id and not repo.owns_project(user_id, project_id):
                 raise ValueError('项目不存在或无权访问')
             service = MemoryService(repo, ConversationRepository(db))
+            exact, by_key = {}, {}
+            for index, item in enumerate(items):
+                key = structured_fact_key(item)
+                if key is None:
+                    continue
+                if key not in by_key:
+                    matches = service.structured_conflict_rows(user_id, project_id, key, exclude_id)
+                    by_key[key] = matches if all(structured_fact_key(row) == key for row in matches) else None
+                if by_key[key] is not None:
+                    exact[index] = (key, by_key[key])
+            for matches in by_key.values():
+                for row in matches or []:
+                    db.expunge(row)
+            if len(exact) == len(items):
+                return [], {}, {}, exact
             settings = SettingService(UserSettingRepository(db))
             setting = settings.get_or_create_user_settings(user_id)
             embedding = dict(provider=setting.knowledge_embedding_provider, model=setting.knowledge_embedding_model,
@@ -61,12 +80,10 @@ class MemoryConflictService:
                     configured_ollama_base_url=setting.ollama_base_url, configured_api_base_url=setting.api_base_url),
                 api_key=settings.resolve_provider_api_key(user_id))
             # 设置初始化可能提交事务；在它之后读取记忆，避免把已过期ORM对象带出Session。
-            rows = service.valid_sources([row for row in repo.list_by_user(user_id) if row.id != exclude_id and row.status == 'active'
-                    and service._memory_scope(row, user_id) == project_id
-                    and (row.expires_at is None or service._normalize_expiry(row.expires_at) > datetime.now(timezone.utc))])
+            rows = service.valid_sources(repo.list_for_conflict(user_id, project_id, exclude_id=exclude_id, include_vectors=True))
             for row in rows:
                 db.expunge(row)
-            return rows, embedding, provider
+            return rows, embedding, provider, exact
 
     def _save_vectors(self, user_id, config, generated):
         signature = MemoryRetrievalService.signature(config)
@@ -108,10 +125,7 @@ class MemoryConflictService:
                         raise ValueError('候选状态或版本已变化，请刷新')
                     service.require_valid_source(row, lock=True)
                     row.conflict_review_json = json.dumps(assessed.conflict_review, ensure_ascii=False)
-                    existing = service.valid_sources([item for item in repo.list_others(user_id, row.id)
-                        if service._memory_scope(item, user_id) == scope
-                        and (item.expires_at is None or service._normalize_expiry(item.expires_at) > datetime.now(timezone.utc))])
-                    validate_review(row, existing, scope, acknowledged=True)
+                    service._review_existing(row, scope, acknowledged=True, exclude_id=row.id)
                     row.risk_level, row.candidate_reason = assessed.risk_level, assessed.risk_reason
                     row.supersedes_memory_id = assessed.conflict_memory_id
                     row.version += 1
@@ -121,16 +135,16 @@ class MemoryConflictService:
     async def assess(self, *, user_id, project_id, suggestions, exclude_id=None):
         if not suggestions:
             return []
-        rows, embedding, provider = await asyncio.to_thread(self._snapshot, user_id, project_id, exclude_id)
         scoped = [item.model_copy(update={'project_id': project_id}) for item in suggestions]
+        rows, embedding, provider, exact = await asyncio.to_thread(self._snapshot, user_id, project_id, exclude_id, scoped)
         eligible = [row for row in rows if row.sensitivity != 'sensitive' and not contains_credential(row.title, row.content)]
         # 所有版本都留作提交时复核；敏感原文绝不参与Embedding或模型判断。
         versions = {row.id: row.version for row in rows}
-        cached, generated, semantic = {}, [], [{} for _ in scoped]
+        cached, query_vectors, semantic = {}, {}, [{} for _ in scoped]
         incomplete = len(eligible) != len(rows)
         embedding_reason = None
         clean_indexes = [i for i, item in enumerate(scoped) if MemoryService._candidate_content_risk(item)[0] != 'sensitive']
-        semantic_indexes = [i for i in clean_indexes if not (memory_identity(scoped[i].memory_type, scoped[i].title, scoped[i].content).structured
+        semantic_indexes = [i for i in clean_indexes if i not in exact and not (memory_identity(scoped[i].memory_type, scoped[i].title, scoped[i].content).structured
             and any(memory_identity(row.memory_type, row.title, row.content).key
                 == memory_identity(scoped[i].memory_type, scoped[i].title, scoped[i].content).key for row in eligible))]
         if eligible and semantic_indexes and embedding['provider'] != 'ollama' and (self.embedding_service is not None
@@ -158,6 +172,7 @@ class MemoryConflictService:
                 generated = list(zip(batch, vectors[len(semantic_indexes):]))
                 cached.update({row.id: vector for row, vector in generated})
                 for i, vector in zip(semantic_indexes, vectors[:len(semantic_indexes)]):
+                    query_vectors[i] = vector
                     semantic[i] = {key: cosine(vector, value) for key, value in cached.items()}
                 await asyncio.to_thread(self._save_vectors, user_id, embedding, generated)
             except Exception:
@@ -168,12 +183,19 @@ class MemoryConflictService:
         pairs, reports = [], []
         for index, item in enumerate(scoped):
             identity = memory_identity(item.memory_type, item.title, item.content)
-            key_rows = [row for row in eligible if memory_identity(row.memory_type, row.title, row.content).key == identity.key]
-            similar = sorted((row for row in eligible if row not in key_rows),
-                key=lambda row: (-semantic[index].get(row.id, 0), -MemoryService._query_relevance_score(item.content, row.content), row.id))
-            similar = ([row for row in similar if semantic[index].get(row.id, 0) >= .55
-                       or MemoryService._query_relevance_score(f'{item.title} {item.content}', f'{row.title} {row.content}') > 0][:3]
-                       if index in semantic_indexes else [])
+            similar = []
+            if index in exact:
+                key_rows = exact[index][1]
+            else:
+                key_rows = [row for row in eligible if memory_identity(row.memory_type, row.title, row.content).key == identity.key]
+                if index in semantic_indexes:
+                    other_rows = sorted((row for row in eligible if row not in key_rows), key=lambda row: (
+                        -semantic[index].get(row.id, 0), -MemoryService._query_relevance_score(item.content, row.content), row.id))
+                    similar = [row for row in other_rows if semantic[index].get(row.id, 0) >= .55
+                               or MemoryService._query_relevance_score(f'{item.title} {item.content}', f'{row.title} {row.content}') > 0][:3]
+                    if app_settings.memory_conflict_shadow_enabled and index in semantic_indexes[:3]:
+                        await asyncio.to_thread(self._observe_shadow, user_id, project_id, exclude_id, item,
+                                                query_vectors.get(index), embedding, {row.id for row in similar})
             candidates = key_rows + similar
             if index not in clean_indexes:
                 candidates = []
@@ -181,6 +203,11 @@ class MemoryConflictService:
                 pairs=[], requires_review=False, coverage_complete=not incomplete and index in clean_indexes,
                 diagnostics={'fact_key_matches': len(key_rows), 'semantic_matches': len(similar),
                              'embedding_fallback': embedding_reason, 'compared_count': 0})
+            if index in exact:
+                report.update(version_scope='fact_key', fact_key=identity.key,
+                              active_versions={row.id: row.version for row in key_rows},
+                              coverage_complete=index in clean_indexes)
+                report['diagnostics']['embedding_fallback'] = None
             if len(candidates) > self.MAX_PER_CANDIDATE:
                 report['coverage_complete'] = False
             for row in candidates[:self.MAX_PER_CANDIDATE]:
@@ -245,7 +272,7 @@ class MemoryConflictService:
                 for _, _, pair, _, _ in pending:
                     pair.update(relation='uncertain', confidence=0.0, reason='语义判断不可用，需人工确认', decision_source='unavailable')
         result = []
-        for item, report in zip(scoped, reports):
+        for index, (item, report) in enumerate(zip(scoped, reports)):
             uncertain = any(p['relation'] == 'uncertain' or p['confidence'] < CONFIDENCE_MIN for p in report['pairs'])
             report['requires_review'] = (not report['coverage_complete'] or high_impact(item) or uncertain or any(
                 p['relation'] in {'duplicate', 'contradiction'} or p['impact'] == 'high' for p in report['pairs']))
@@ -254,7 +281,8 @@ class MemoryConflictService:
             report['diagnostics']['compared_count'] = len(report['pairs'])
             report['diagnostics']['judgment_status'] = ('unavailable' if failed else 'completed'
                 if any(p['decision_source'] == 'model' for p in report['pairs']) else 'not_needed')
-            baseline = MemoryService.enrich_suggestion_risks(suggestions=[item], existing_memories=rows, scoped=True)[0]
+            baseline = MemoryService.enrich_suggestion_risks(suggestions=[item],
+                existing_memories=exact[index][1] if index in exact else rows, scoped=True)[0]
             duplicates = [p for p in report['pairs'] if p['relation'] == 'duplicate' and p['confidence'] >= CONFIDENCE_MIN]
             conflicts = [p for p in report['pairs'] if p['relation'] == 'contradiction' and p['confidence'] >= CONFIDENCE_MIN]
             risk, reason = MemoryService._candidate_content_risk(item)
@@ -270,3 +298,18 @@ class MemoryConflictService:
             result.append(item.model_copy(update={'conflict_review': report, 'risk_level': risk, 'risk_reason': reason,
                 'duplicate_memory_id': duplicates[0]['memory_id'] if duplicates else None, 'conflict_memory_id': target}))
         return result
+
+    def _observe_shadow(self, user_id, project_id, exclude_id, item, vector, embedding, baseline_ids):
+        """仅统计召回交集和耗时，索引候选不进入业务判断。"""
+        start = monotonic()
+        try:
+            with self.sessions() as db:
+                if db.get_bind().dialect.name != 'postgresql':
+                    return
+                repo = UserMemoryRepository(db)
+                ids = repo.conflict_shadow_candidates(user_id, project_id, exclude_id, f'{item.title} {item.content}',
+                    vector, MemoryRetrievalService.signature(embedding), embedding['dimensions'])
+            logger.info('memory_conflict_shadow authoritative=%d matched=%d indexed=%d elapsed_ms=%d',
+                        len(baseline_ids), len(baseline_ids & ids), len(ids), int((monotonic() - start) * 1000))
+        except Exception as exc:
+            logger.warning('memory_conflict_shadow unavailable=%s', type(exc).__name__)

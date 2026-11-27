@@ -117,7 +117,8 @@ class ConversationService:
                                                     MemoryExtractionJob.user_id == user_id)
             self.repo.db.execute(jobs.where(MemoryExtractionJob.status.in_(["pending", "running"])).values(
                 status="failed", error_code="conversation_scope_changed", finished_at=datetime.now(timezone.utc),
-                lease_owner=None, lease_expires_at=None, error_message="会话已移出提取范围。"))
+                lease_owner=None, lease_expires_at=None, fragment_source_ids=None, staged_candidates=None,
+                error_message="会话已移出提取范围。"))
             self.repo.db.execute(jobs.where(MemoryExtractionJob.status == "succeeded").values(
                 error_code="conversation_scope_changed"))
         if commit:

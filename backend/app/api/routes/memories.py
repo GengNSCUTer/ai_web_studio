@@ -31,8 +31,8 @@ from app.schemas.memory import MemorySuggestRequest, MemorySuggestResponse, Memo
 from app.services.chat_provider_service import ChatProviderService, resolve_provider_base_url
 from app.services.memory_service import MemoryService
 from app.services.memory_activity_service import MemoryActivityService
-from app.services.memory_candidate_runtime import MemoryExtractionJobService, _source_text
-from app.services.memory_extraction_policy import extraction_prompt, verify_evidence
+from app.services.memory_candidate_runtime import MemoryExtractionJobService
+from app.services.memory_extraction_policy import bounded_source_text, extraction_prompt, verify_evidence
 from app.repositories.memory_job_repo import MemoryExtractionJobRepository
 from app.services.setting_service import SettingService
 from app.services.memory_conflict_service import MemoryConflictService
@@ -66,22 +66,6 @@ def review_trigger_decision(decision_id: str, payload: MemoryTriggerLabel, respo
         return label_decision(db, current_user.id, decision_id, payload)
     except LookupError as exc:
         raise HTTPException(404, "Trigger decision not found") from exc
-
-
-def _build_recent_messages_text(messages: list[object], *, max_chars: int = 12000) -> str:
-    return _source_text(messages[-24:], max_chars=max_chars)
-
-
-def _build_source_message_ids(messages: list[object]) -> str:
-    ids: list[str] = []
-    for message in messages[-24:]:
-        role = getattr(message, "role", "")
-        if role != "user":
-            continue
-        message_id = getattr(message, "id", None)
-        if message_id:
-            ids.append(str(message_id))
-    return ",".join(ids)
 
 
 def _build_suggestion_prompt(
@@ -357,6 +341,7 @@ async def suggest_memories(
         project_id = conversation.project_id
         rows = MessageRepository(db).list_by_conversation(conversation.id)
         messages = [SimpleNamespace(id=row.id, role=row.role, content=row.content) for row in rows]
+        recent_text, fragments = bounded_source_text(messages[-24:], max_chars=12000)
         settings_service = SettingService(UserSettingRepository(db))
         setting = settings_service.get_or_create_user_settings(user_id)
         existing = MemoryService(UserMemoryRepository(db), ConversationRepository(db)).build_existing_memory_text(user_id, project_id=project_id)
@@ -364,13 +349,13 @@ async def suggest_memories(
             base_url=resolve_provider_base_url(provider_type=setting.provider_type,
                 configured_ollama_base_url=setting.ollama_base_url, configured_api_base_url=setting.api_base_url),
             api_key=settings_service.resolve_provider_api_key(user_id), model_name=setting.default_model,
-            messages=_build_suggestion_prompt(recent_messages_text=_build_recent_messages_text(messages),
+            messages=_build_suggestion_prompt(recent_messages_text=recent_text,
                 existing_memory_text=existing, max_candidates=payload.max_candidates),
             temperature=.1, top_p=.8, max_tokens=1600)
         db.commit()
-        return project_id, messages, call
-    project_id, messages, call = await asyncio.to_thread(snapshot)
-    if not _build_recent_messages_text(messages):
+        return project_id, fragments, call
+    project_id, fragments, call = await asyncio.to_thread(snapshot)
+    if not fragments:
         return MemorySuggestResponse(suggestions=[])
     try:
         raw = await asyncio.wait_for(ChatProviderService().complete_chat(**call), 45)
@@ -385,10 +370,10 @@ async def suggest_memories(
         raw,
         max_candidates=payload.max_candidates,
         source_conversation_id=payload.conversation_id,
-        source_message_ids=_build_source_message_ids(messages),
+        source_message_ids=",".join(fragments),
     )
     suggestions = await MemoryConflictService().assess(user_id=user_id, project_id=project_id,
-        suggestions=[verified for item in suggestions if (verified := verify_evidence(item, messages[-24:]))])
+        suggestions=[verified for item in suggestions if (verified := verify_evidence(item, [], fragments=fragments))])
     return MemorySuggestResponse(suggestions=suggestions)
 
 

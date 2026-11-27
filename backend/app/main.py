@@ -1,5 +1,6 @@
 # 导入FastAPI核心应用类
 from contextlib import asynccontextmanager
+import logging
 import anyio
 
 from fastapi import FastAPI
@@ -41,6 +42,9 @@ from app.core.database import engine as database_engine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """启动检查版本，退出时释放Provider、Chat与图检查点的独立连接池。"""
+    if app_settings.memory_conflict_shadow_enabled:
+        logging.basicConfig(level=logging.WARNING)
+        logging.getLogger("app.services.memory_conflict_service").setLevel(logging.INFO)
     await anyio.to_thread.run_sync(ensure_runtime_schema)
     start_provider_client_pool()
     try:

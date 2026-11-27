@@ -4,7 +4,7 @@ import json
 import logging
 import re
 
-from app.services.memory_policy import memory_identity
+from app.services.memory_policy import contains_credential, lifetime, memory_identity
 
 
 CONFIDENCE_MIN = .85
@@ -34,8 +34,17 @@ def load_review(memory):
         return {'status': 'stale'}
 
 
+def structured_fact_key(memory):
+    identity = memory_identity(memory.memory_type, memory.title, memory.content)
+    if (identity.structured and lifetime(memory.title, memory.content) == 'durable'
+            and getattr(memory, 'sensitivity', 'normal') != 'sensitive'
+            and not contains_credential(memory.title, memory.content)):
+        return identity.key
+    return None
+
+
 def validate_review(memory, existing, project_id, *, acknowledged=False):
-    """调用方已在用户锁内刷新所有active行；任何并发变化都要求重新分析。"""
+    """调用方在用户锁内按审核范围重查相关 active 行。"""
     review = load_review(memory)
     if review is None:
         return None

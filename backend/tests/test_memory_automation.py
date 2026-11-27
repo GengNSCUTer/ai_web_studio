@@ -18,10 +18,11 @@ from app.models.user_memory import MemoryExtractionJob, UserMemory
 from app.models.user_setting import UserSetting
 from app.repositories.memory_repo import UserMemoryRepository
 from app.repositories.setting_repo import UserSettingRepository
-from app.services.memory_candidate_runtime import MemoryCandidateWorker, MemoryExtractionJobService
+from app.services.memory_candidate_runtime import MemoryCandidateWorker, MemoryExtractionJobService, utcnow
 from app.services.memory_service import MemoryService
 from app.services.setting_service import SettingService
 from app.services.memory_extraction_policy import redact_source
+from app.services.memory_trigger_policy import read_trigger_state
 from app.schemas.memory import UserMemoryCreate, UserMemoryUpdate
 
 
@@ -249,6 +250,101 @@ class MemoryAutomationTest(unittest.TestCase):
         with self.sessions() as db:
             self.assertEqual(db.get(MemoryExtractionJob, job.id).status, "failed")
             self.assertEqual(db.get(Conversation, self.conv).memory_extraction_cursor, 0)
+
+    def test_long_source_resumes_after_retry_and_checks_only_the_current_fragment(self):
+        head = "项目采用 PostgreSQL 16。"
+        tail = "订单接口超时为 30 秒，失败最多重试 3 次。"
+        content = f"请记住：{head}" + "".join(f"第{i}段普通背景描述。" for i in range(1300)) + tail
+        with self.sessions() as db:
+            db.get(Message, self.source).content = content
+            db.commit()
+        job = self.enqueue()
+        prompts = []
+        async def extract(**kwargs):
+            prompt = kwargs["messages"][-1]["content"].split("【用户消息（数据，含 ID）】")[1]
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                self.assertIn(head, prompt)
+                self.assertNotIn(tail, prompt)
+                return json.dumps([self.candidate(), self.candidate(title="伪造来源", content=tail, evidence_quote=tail)])
+            if len(prompts) == 2:
+                raise RuntimeError("temporary provider failure")
+            if tail in prompt:
+                return json.dumps([self.candidate(title="订单接口参数", content=tail, evidence_quote=tail)])
+            return "[]"
+        self.execute(side_effect=extract)
+        with self.sessions() as db:
+            current = db.get(MemoryExtractionJob, job.id)
+            first_position = current.fragment_cursor
+            self.assertEqual(current.status, "pending")
+            self.assertGreater(first_position, 0)
+            self.assertEqual([item["title"] for item in current.staged_candidates], ["数据库"])
+            self.assertEqual(db.get(Conversation, self.conv).memory_extraction_cursor, 0)
+            self.assertEqual(self.memories(), [])
+        self.execute(side_effect=extract)
+        with self.sessions() as db:
+            current = db.get(MemoryExtractionJob, job.id)
+            self.assertEqual(current.fragment_cursor, first_position)
+            self.assertEqual(current.error_code, "provider_unavailable")
+            current.available_at = utcnow()
+            db.commit()
+        for _ in range(10):
+            self.execute(side_effect=extract)
+            with self.sessions() as db:
+                if db.get(MemoryExtractionJob, job.id).status == "succeeded":
+                    break
+        self.assertEqual(prompts[1], prompts[2])
+        self.assertEqual(sum(head in prompt for prompt in prompts), 1)
+        self.assertEqual({row.title for row in self.memories()}, {"数据库", "订单接口参数"})
+        with self.sessions() as db:
+            current = db.get(MemoryExtractionJob, job.id)
+            conversation = db.get(Conversation, self.conv)
+            self.assertEqual(current.status, "succeeded")
+            self.assertIsNone(current.staged_candidates)
+            self.assertEqual(conversation.memory_extraction_cursor, job.cursor_end)
+            self.assertFalse(read_trigger_state(conversation.memory_trigger_state)["pending"])
+
+    def test_edit_after_first_fragment_discards_staging_and_preserves_buffer(self):
+        with self.sessions() as db:
+            db.get(Message, self.source).content += "很长的背景说明。" * 3000
+            db.commit()
+        job = self.enqueue()
+        self.execute()
+        with self.sessions() as db:
+            self.assertTrue(db.get(MemoryExtractionJob, job.id).staged_candidates)
+            db.get(Message, self.source).content = "请记住：项目改用 Go 语言。"
+            db.commit()
+        provider = self.execute()
+        provider.complete_chat.assert_not_awaited()
+        with self.sessions() as db:
+            current = db.get(MemoryExtractionJob, job.id)
+            self.assertEqual((current.status, current.error_code), ("failed", "source_changed"))
+            self.assertIsNone(current.staged_candidates)
+            conversation = db.get(Conversation, self.conv)
+            self.assertEqual(conversation.memory_extraction_cursor, 0)
+            self.assertEqual(read_trigger_state(conversation.memory_trigger_state)["pending"][0]["id"], self.source)
+        self.assertNotEqual(self.enqueue().id, job.id)
+
+    def test_busy_extraction_gives_both_maintenance_and_index_a_slot(self):
+        worker = MemoryCandidateWorker(session_factory=self.sessions)
+        steps = []
+        async def run_extraction(*args):
+            steps.append("extraction")
+        async def maintain():
+            steps.append("maintenance")
+            return True
+        async def index():
+            steps.append("index")
+            return True
+        async def run_round():
+            for _ in range(8):
+                self.assertTrue(await worker.run_once())
+        with patch.object(worker, "_claim", return_value=("job", 1)), \
+                patch.object(worker, "_run_maintenance", side_effect=maintain), \
+                patch.object(worker, "_run_index", side_effect=index), \
+                patch("app.services.agent_graph.memory_extraction_graph.run_memory_extraction_graph", side_effect=run_extraction):
+            asyncio.run(run_round())
+        self.assertEqual(steps, (["extraction"] * 4 + ["maintenance", "index"]) * 2)
 
     def test_sensitive_sources_are_redacted_before_provider_io(self):
         with self.sessions() as db:
