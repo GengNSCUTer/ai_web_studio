@@ -93,16 +93,18 @@ class CompletionVerifierTest(unittest.TestCase):
         self.assertEqual(self.verify([source()], reason="max_rounds_reached").status, "partial")
 
     def test_incomplete_verdict_constrains_final_prompt_without_new_model_call(self):
+        from app.services.chat_assembly_runtime import ChatAssemblyRuntime
         from app.services.chat_context_assembly_service import ChatContextAssemblyService
         from app.services.memory_retrieval_service import MemoryRetrievalResult
-        assembly = SimpleNamespace(
+        assembly = ChatAssemblyRuntime(
+            conversation=SimpleNamespace(project_id=None),
+            user_message=None, assistant_message=None, history_rows=[],
+            runtime=SimpleNamespace(provider_type="openai-compatible", resolved_model="test"),
+            thinking_enabled=False, thinking_budget=None, web_search_enabled=False,
             external_context_result=SimpleNamespace(details={"tool_task_completion": {"status": "partial"}},
                 context_text=None, evidence_section=None),
             evidence_sufficiency=SimpleNamespace(guidance="原有证据约束"),
-            conversation=SimpleNamespace(system_prompt=None, context_summary=None,
-                context_summary_boundary_message_id=None, project_id=None),
-            runtime=SimpleNamespace(settings=SimpleNamespace(), provider_type="openai-compatible", resolved_model="test"),
-            history_rows=[], memory_bundle=MemoryRetrievalResult(),
+            memory_bundle=MemoryRetrievalResult(),
             summary_bundle=SimpleNamespace(summary=None, boundary_message_id=None),
             attachment_context_result=SimpleNamespace(context_text=None),
             knowledge_context_result=SimpleNamespace(context_text=None, evidence_section=None), skill_context=None)
