@@ -200,43 +200,23 @@ class PromptContextGovernanceTest(unittest.TestCase):
         self.assertIn("SkillRouter", current_user["content"])
         self.assertEqual(current_user["_context_layer"], "current_user_with_evidence")
 
-    def test_governance_truncates_reference_context_before_current_user_message(self) -> None:
-        budget = ContextBudgetConfig(
-            model_context_window=8192,
-            context_mode="balanced",
-            reserved_output_tokens=2048,
-            max_history_messages=10,
-            max_total_tokens=100000,
-            max_attachment_tokens=1000,
-            max_image_equiv_tokens=300,
-            max_summary_tokens=600,
-            max_total_chars=260,
-            max_attachment_chars=4000,
-            max_image_equiv_chars=1200,
-            max_summary_chars=2000,
+    def test_governance_truncates_structured_summary_before_current_user_message(self) -> None:
+        question = "请回答当前问题：SkillRouter 的核心思想是什么？"
+        summary = "这是一段很长的历史资料。" * 80
+        built = ContextPromptBuilder().build_chat_messages(
+            messages=[DummyMessage("u1", "user", question)], system_prompt=None, memory_context=None,
+            context_summary=summary, summary_boundary_message_id=None, external_context=None,
+            attachment_context=None, provider_type="openai-compatible",
         )
-        service = ContextGovernanceService(budget=budget)
-        current_user_text = "请回答当前问题：SkillRouter 的核心思想是什么？"
-        long_reference = "参考资料：" + ("这是一段很长的检索资料。" * 80)
-
-        governed = service.govern_messages(
-            [
-                {"role": "system", "content": "遵守系统提示。", "_context_layer": "system_prefix"},
-                {
-                    "role": "user",
-                    "content": long_reference,
-                    "_context_layer": ContextPromptBuilder.REFERENCE_CONTEXT_LAYER,
-                },
-                {"role": "user", "content": current_user_text, "_context_layer": "recent_history"},
-            ]
-        )
+        budget = replace(ContextBudgetPlanner.build(model_context_window=8192, context_mode="balanced"),
+                         max_total_chars=len(built.messages[0]["content"]) + 350)
+        governed = ContextGovernanceService(budget).govern_messages(built.messages)
 
         self.assertLessEqual(governed.stats.total_chars_estimate, budget.max_total_chars)
-        self.assertEqual(governed.messages[-1]["content"], current_user_text)
+        self.assertEqual(governed.messages[-1], {"role": "user", "content": question})
         self.assertTrue(all("_context_layer" not in message for message in governed.messages))
-        reference_messages = [message for message in governed.messages if message.get("content", "").startswith("参考资料")]
-        self.assertEqual(len(reference_messages), 1)
-        self.assertLess(len(reference_messages[0]["content"]), len(long_reference))
+        self.assertEqual(governed.stats.truncated_reference_layers, ["conversation_summary"])
+        self.assertLess(len(governed.retained_reference_texts["conversation_summary"]), len(summary))
 
     def test_small_context_budget_never_exceeds_window_with_output_reserve(self) -> None:
         budget = ContextBudgetPlanner.build(
