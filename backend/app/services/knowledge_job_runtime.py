@@ -8,11 +8,12 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any, Callable, Literal
+from uuid import uuid4
 
 from redis import Redis
 from redis.exceptions import ResponseError
-from sqlalchemy import or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -38,6 +39,14 @@ logger = logging.getLogger(__name__)
 
 TERMINAL_JOB_STATUSES = {"succeeded", "failed", "dead_letter"}
 RETRYABLE_ERROR_CODES = {"provider_unavailable", "job_failed"}
+RECONCILE_INTERVAL = 30
+REDELIVERY_GRACE = timedelta(seconds=120)
+RECONCILE_BATCH = 50
+ActivationResult = Literal["succeeded", "generation_conflict", "lease_lost"]
+
+
+class KnowledgeLeaseLost(Exception):
+    pass
 
 
 def utcnow() -> datetime:
@@ -60,6 +69,8 @@ def safe_error_message(error_code: str) -> str:
         "provider_unavailable": "外部服务暂时不可用，任务将按有限退避策略重试。",
         "invalid_request": "任务输入或资源状态不合法，已停止自动重试。",
         "job_failed": "任务执行失败，将在达到最大尝试次数前重试。",
+        "generation_conflict": "知识库索引版本已变化，任务将按最新版本构建。",
+        "lease_expired": "知识库任务执行超时，已结束本次尝试。",
     }.get(error_code, "任务执行失败。")
 
 
@@ -113,7 +124,7 @@ class KnowledgeOutboxPublisher:
     ) -> None:
         self.redis = redis_client
         self.session_factory = session_factory
-        self.publisher_id = publisher_id or f"publisher-{socket.gethostname()}-{id(self)}"
+        self.publisher_id = publisher_id or f"publisher-{socket.gethostname()[:64]}-{uuid4().hex}"
 
     def publish_once(self) -> bool:
         now = utcnow()
@@ -150,7 +161,7 @@ class KnowledgeOutboxPublisher:
             )
         except Exception as exc:
             with self.session_factory() as db:
-                event = db.get(OutboxEvent, event_id)
+                event = db.get(OutboxEvent, event_id, with_for_update=True)
                 if event and event.status == "publishing" and event.lease_owner == self.publisher_id:
                     event.status = "pending"
                     event.available_at = utcnow() + timedelta(seconds=min(30, 2 ** min(event.attempt_count, 5)))
@@ -162,7 +173,7 @@ class KnowledgeOutboxPublisher:
 
         # Redis XADD 成功、PostgreSQL 标记前宕机会重发；稳定 event_id + Job Lease 使重发无害。
         with self.session_factory() as db:
-            event = db.get(OutboxEvent, event_id)
+            event = db.get(OutboxEvent, event_id, with_for_update=True)
             if event and event.status == "publishing" and event.lease_owner == self.publisher_id:
                 event.status = "published"
                 event.published_at = utcnow()
@@ -197,9 +208,16 @@ class KnowledgeJobCoordinator:
                 job.status == "running"
                 and job.lease_expires_at
                 and _as_utc(job.lease_expires_at) > now
-                and job.lease_owner != owner
             ):
                 return ClaimResult("busy")
+            expired_version = job.lease_version if job.status == "running" else None
+            if expired_version is not None:
+                self._expire_generation(db, job)
+                if job.retry_count >= (job.max_attempts or 3):
+                    self._retry_or_finish(db, job, "lease_expired", now, retryable=False)
+                    db.commit()
+                    _log_recovery(job_id, expired_version, "lease_expired")
+                    return ClaimResult("terminal")
             job.status = "running"
             job.retry_count = (job.retry_count or 0) + 1
             job.lease_owner = owner
@@ -212,6 +230,8 @@ class KnowledgeJobCoordinator:
             version = job.lease_version
             job_type = job.job_type
             db.commit()
+            if expired_version is not None:
+                _log_recovery(job_id, expired_version, "lease_expired")
             return ClaimResult("claimed", JobLease(job_id, owner, version, job_type))
 
     def heartbeat(self, lease: JobLease) -> bool:
@@ -233,7 +253,7 @@ class KnowledgeJobCoordinator:
             document = db.scalars(
                 select(KnowledgeDocument).where(KnowledgeDocument.id == job.document_id).with_for_update()
             ).first()
-            if not document:
+            if not document or not _owns_lease(job, lease):
                 return False
             document.parse_status = "parsed"
             document.index_status = "pending"
@@ -244,96 +264,148 @@ class KnowledgeJobCoordinator:
             db.commit()
             return True
 
-    def activate_generation(self, lease: JobLease, generation_id: str, result: IndexResult) -> bool:
+    def mark_generation_ready(self, lease: JobLease, result: IndexResult) -> bool:
         with self.session_factory() as db:
-            job = db.scalars(select(KnowledgeJob).where(KnowledgeJob.id == lease.job_id).with_for_update()).first()
-            if not _owns_lease(job, lease) or not job or not job.document_id:
+            job = db.get(KnowledgeJob, lease.job_id, with_for_update=True)
+            generation = db.get(KnowledgeIndexGeneration, self.generation_id(lease), with_for_update=True)
+            if not _owns_lease(job, lease) or not generation or generation.status != "building":
                 return False
-            knowledge_base = db.scalars(
-                select(KnowledgeBase).where(KnowledgeBase.id == job.knowledge_base_id).with_for_update()
-            ).first()
-            generation = db.scalars(
-                select(KnowledgeIndexGeneration)
-                .where(KnowledgeIndexGeneration.id == generation_id)
-                .with_for_update()
-            ).first()
-            document = db.scalars(
-                select(KnowledgeDocument).where(KnowledgeDocument.id == job.document_id).with_for_update()
-            ).first()
-            if not knowledge_base or not generation or not document:
-                return False
-            if (knowledge_base.active_index_generation or "legacy") != (generation.base_generation_id or "legacy"):
-                generation.status = "superseded"
-                generation.error_message = "active generation changed before CAS activation"
-                db.commit()
-                return False
-            knowledge_base.active_index_generation = generation.id
-            generation.status = "active"
-            generation.activated_at = utcnow()
+            generation.status = "ready"
             generation.manifest_hash = result.manifest_hash
             generation.chunk_count = result.chunk_count
-            document.index_status = "indexed"
-            document.error_message = None
-            _mark_succeeded(
-                job,
-                {
-                    "generation_id": generation.id,
-                    "chunk_count": result.chunk_count,
-                    "index_path": result.index_path,
-                    "manifest_hash": result.manifest_hash,
-                },
-            )
             db.commit()
             return True
 
+    @staticmethod
+    def generation_id(lease: JobLease) -> str:
+        return f"{lease.job_id}-v{lease.version}"
+
+    def activate_generation(self, lease: JobLease, generation_id: str, result: IndexResult) -> ActivationResult:
+        with self.session_factory() as db:
+            job = db.get(KnowledgeJob, lease.job_id, with_for_update=True)
+            if not _owns_lease(job, lease) or not job.document_id or generation_id != self.generation_id(lease):
+                return "lease_lost"
+            knowledge_base = db.get(KnowledgeBase, job.knowledge_base_id, with_for_update=True)
+            generation = db.get(KnowledgeIndexGeneration, generation_id, with_for_update=True)
+            document = db.get(KnowledgeDocument, job.document_id, with_for_update=True)
+            if not knowledge_base or not generation or not document or generation.status != "ready":
+                return "lease_lost"
+            if not _owns_lease(job, lease):
+                return "lease_lost"
+            if (knowledge_base.active_index_generation or "legacy") != (generation.base_generation_id or "legacy"):
+                generation.status = "superseded"
+                generation.error_message = "激活时知识库基线版本已变化"
+                self._retry_or_finish(db, job, "generation_conflict", utcnow(), retryable=True)
+                db.commit()
+                return "generation_conflict"
+            previous = db.get(KnowledgeIndexGeneration, knowledge_base.active_index_generation)
+            if previous and previous.status == "active":
+                previous.status = "superseded"
+            knowledge_base.active_index_generation = generation.id
+            generation.status = "active"
+            generation.activated_at = utcnow()
+            document.index_status = "indexed"
+            document.error_message = None
+            _mark_succeeded(job, {
+                "generation_id": generation.id,
+                "chunk_count": result.chunk_count,
+                "index_path": result.index_path,
+                "manifest_hash": result.manifest_hash,
+            })
+            db.commit()
+            return "succeeded"
+
     def fail(self, lease: JobLease, exc: Exception, generation_id: str | None = None) -> bool:
-        now = utcnow()
         error_code = classify_job_error(exc)
         with self.session_factory() as db:
-            job = db.scalars(select(KnowledgeJob).where(KnowledgeJob.id == lease.job_id).with_for_update()).first()
-            if not _owns_lease(job, lease) or not job:
+            job = db.get(KnowledgeJob, lease.job_id, with_for_update=True)
+            if not _owns_lease(job, lease):
                 return False
             if generation_id:
                 generation = db.get(KnowledgeIndexGeneration, generation_id)
-                if generation and generation.status != "active":
+                if generation and generation.status in {"building", "ready"}:
                     generation.status = "failed"
                     generation.error_message = safe_error_message(error_code)
-            retryable = error_code in RETRYABLE_ERROR_CODES and job.retry_count < (job.max_attempts or 3)
-            job.error_code = error_code
-            job.error_message = safe_error_message(error_code)
-            job.lease_owner = None
-            job.lease_expires_at = None
-            job.heartbeat_at = None
-            if retryable:
-                delay_seconds = min(60, 2 ** max(1, job.retry_count))
-                job.status = "pending"
-                job.available_at = now + timedelta(seconds=delay_seconds)
-                db.add(
-                    OutboxEvent(
-                        event_key=f"knowledge-job:{job.id}:attempt:{job.retry_count + 1}",
-                        aggregate_id=job.id,
-                        payload_json=json.dumps(
-                            {"event_id": f"knowledge-job:{job.id}:attempt:{job.retry_count + 1}", "job_id": job.id},
-                            ensure_ascii=False,
-                        ),
-                        status="pending",
-                        available_at=job.available_at,
-                    )
-                )
-            else:
-                job.status = "dead_letter"
-                job.available_at = None
-                job.finished_at = now
-                job.dead_lettered_at = now
-                document = db.get(KnowledgeDocument, job.document_id) if job.document_id else None
-                if document:
-                    if job.job_type == "parse_document":
-                        document.parse_status = "failed"
-                    elif job.job_type == "index_document":
-                        document.index_status = "failed"
-                    document.error_message = job.error_message
+            self._retry_or_finish(db, job, error_code, utcnow(), retryable=error_code in RETRYABLE_ERROR_CODES)
             db.commit()
             return True
+
+    @staticmethod
+    def _retry_or_finish(db: Session, job: KnowledgeJob, error_code: str, now: datetime, *, retryable: bool) -> None:
+        job.error_code = error_code
+        job.error_message = safe_error_message(error_code)
+        job.lease_owner = None
+        job.lease_expires_at = None
+        job.heartbeat_at = None
+        if retryable and job.retry_count < (job.max_attempts or 3):
+            job.status = "pending"
+            job.available_at = now + timedelta(seconds=min(60, 2 ** max(1, job.retry_count)))
+            event_key = f"knowledge-job:{job.id}:attempt:{job.retry_count + 1}"
+            db.add(OutboxEvent(event_key=event_key, aggregate_id=job.id,
+                payload_json=json.dumps({"event_id": event_key, "job_id": job.id}),
+                status="pending", available_at=job.available_at))
+            return
+        job.status = "dead_letter"
+        job.available_at = None
+        job.finished_at = now
+        job.dead_lettered_at = now
+        document = db.get(KnowledgeDocument, job.document_id, with_for_update=True) if job.document_id else None
+        if document:
+            if job.job_type == "parse_document":
+                document.parse_status = "failed"
+            elif job.job_type == "index_document":
+                document.index_status = "failed"
+            document.error_message = job.error_message
+
+    @staticmethod
+    def _expire_generation(db: Session, job: KnowledgeJob) -> None:
+        if job.job_type != "index_document":
+            return
+        generation = db.get(KnowledgeIndexGeneration, f"{job.id}-v{job.lease_version}")
+        if generation and generation.status in {"building", "ready"}:
+            generation.status = "failed"
+            generation.error_message = safe_error_message("lease_expired")
+
+    def reconcile(self) -> int:
+        """以 PostgreSQL 的投递意图和租约为准，恢复已提交但失去投递的任务。"""
+        now = utcnow()
+        cutoff = now - REDELIVERY_GRACE
+        events = select(OutboxEvent.id).where(OutboxEvent.aggregate_id == KnowledgeJob.id)
+        latest_publish = select(func.max(OutboxEvent.published_at)).where(
+            OutboxEvent.aggregate_id == KnowledgeJob.id, OutboxEvent.status == "published"
+        ).scalar_subquery()
+        with self.session_factory() as db:
+            jobs = db.scalars(select(KnowledgeJob).where(or_(
+                (KnowledgeJob.status == "running") & (KnowledgeJob.lease_expires_at <= now) & events.exists(),
+                (KnowledgeJob.status == "pending") & (KnowledgeJob.available_at <= now) & (latest_publish <= cutoff)
+                & ~events.where(OutboxEvent.status.in_(("pending", "publishing"))).exists(),
+            )).order_by(case((KnowledgeJob.status == "running", KnowledgeJob.lease_expires_at),
+                            else_=latest_publish), KnowledgeJob.id)
+                .limit(RECONCILE_BATCH).with_for_update(skip_locked=True, of=KnowledgeJob)).all()
+            recovered = []
+            for job in jobs:
+                if job.status == "running":
+                    self._expire_generation(db, job)
+                    self._retry_or_finish(db, job, "lease_expired", now, retryable=True)
+                    recovered.append((job.id, job.lease_version, "lease_expired"))
+                    continue
+                deliveries = select(OutboxEvent).where(OutboxEvent.aggregate_id == job.id)
+                # 重新读取投递状态，覆盖扫描期间另一事务完成投递的情况。
+                if db.scalar(deliveries.where(OutboxEvent.status.in_(("pending", "publishing"))).limit(1)):
+                    continue
+                event = db.scalar(deliveries.where(OutboxEvent.status == "published",
+                    OutboxEvent.published_at.is_not(None)).order_by(OutboxEvent.published_at.desc(), OutboxEvent.id)
+                    .limit(1).with_for_update())
+                if event is None or _as_utc(event.published_at) > cutoff:
+                    continue
+                event.status = "pending"
+                event.available_at = now
+                event.published_at = None
+                recovered.append((job.id, job.lease_version, "delivery_missing"))
+            db.commit()
+        for job_id, version, reason in recovered:
+            _log_recovery(job_id, version, reason)
+        return len(recovered)
 
 
 class KnowledgeJobWorker:
@@ -346,9 +418,10 @@ class KnowledgeJobWorker:
     ) -> None:
         self.redis = redis_client
         self.session_factory = session_factory
-        self.worker_id = worker_id or f"worker-{socket.gethostname()}-{id(self)}"
+        self.worker_id = worker_id or f"worker-{socket.gethostname()[:64]}-{uuid4().hex}"
         self.coordinator = KnowledgeJobCoordinator(session_factory=session_factory)
         self.publisher = KnowledgeOutboxPublisher(redis_client, session_factory=session_factory)
+        self._claim_cursor = "0-0"
 
     def ensure_group(self) -> None:
         try:
@@ -363,28 +436,51 @@ class KnowledgeJobWorker:
                 raise
 
     def run_forever(self) -> None:
-        self.ensure_group()
+        stop_maintenance = threading.Event()
+        maintenance = threading.Thread(target=self._maintain, args=(stop_maintenance,), daemon=True)
+        maintenance.start()
         logger.info("knowledge worker started: %s", self.worker_id)
-        while True:
+        try:
+            while True:
+                try:
+                    self._poll_once()
+                except Exception:
+                    logger.exception("knowledge worker loop failed")
+                    time.sleep(1)
+        finally:
+            stop_maintenance.set()
+            maintenance.join(timeout=2)
+
+    def _maintain(self, stop: threading.Event) -> None:
+        next_scan = 0.0
+        while not stop.is_set():
+            if time.monotonic() >= next_scan:
+                try:
+                    self.coordinator.reconcile()
+                except Exception:
+                    logger.exception("knowledge job reconciliation failed")
+                next_scan = time.monotonic() + RECONCILE_INTERVAL
             try:
-                while self.publisher.publish_once():
-                    pass
-                self._recover_stale_messages()
-                messages = self.redis.xreadgroup(
-                    settings.knowledge_job_group,
-                    self.worker_id,
-                    {settings.knowledge_job_stream: ">"},
-                    count=5,
-                    block=2000,
-                )
-                for _, records in messages or []:
-                    for message_id, fields in records:
-                        self.process_message(message_id, fields)
-            except KeyboardInterrupt:
-                raise
+                for _ in range(RECONCILE_BATCH):
+                    if stop.is_set() or not self.publisher.publish_once():
+                        break
             except Exception:
-                logger.exception("knowledge worker loop failed")
-                time.sleep(1)
+                logger.exception("knowledge outbox publication failed")
+            stop.wait(1)
+
+    def _poll_once(self) -> None:
+        try:
+            self._recover_stale_messages()
+            messages = self.redis.xreadgroup(settings.knowledge_job_group, self.worker_id,
+                {settings.knowledge_job_stream: ">"}, count=1, block=2000)
+            for _, records in messages or []:
+                for message_id, fields in records:
+                    self.process_message(message_id, fields)
+        except ResponseError as exc:
+            if "NOGROUP" not in str(exc):
+                raise
+            self.ensure_group()
+            self._claim_cursor = "0-0"
 
     def _recover_stale_messages(self) -> None:
         claimed = self.redis.xautoclaim(
@@ -392,10 +488,10 @@ class KnowledgeJobWorker:
             settings.knowledge_job_group,
             self.worker_id,
             min_idle_time=settings.knowledge_job_claim_idle_ms,
-            start_id="0-0",
+            start_id=self._claim_cursor,
             count=10,
         )
-        records = claimed[1] if claimed and len(claimed) > 1 else []
+        self._claim_cursor, records = claimed[:2]
         for message_id, fields in records:
             self.process_message(message_id, fields)
 
@@ -406,10 +502,10 @@ class KnowledgeJobWorker:
             self._ack(message_id)
             return "invalid"
         claim = self.coordinator.claim(job_id, self.worker_id)
-        if claim.state in {"missing", "terminal", "busy"}:
+        if claim.state in {"missing", "terminal", "busy", "deferred"}:
             self._ack(message_id)
             return claim.state
-        if claim.state == "deferred" or not claim.lease:
+        if not claim.lease:
             return claim.state
 
         lease = claim.lease
@@ -421,19 +517,19 @@ class KnowledgeJobWorker:
             daemon=True,
         )
         heartbeat.start()
-        generation_id: str | None = None
         from app.services.agent_graph.knowledge_index_graph import KnowledgeJobContext, run_knowledge_job_graph
         graph_context = KnowledgeJobContext(self, lease, lost_lease)
         try:
             outcome = run_knowledge_job_graph(graph_context)
-            generation_id = graph_context.generation_id
-            if outcome["completed"]:
+            state = outcome["outcome"]
+            if state != "lease_lost":
                 self._ack(message_id)
-                return "succeeded"
+            return state
+        except KnowledgeLeaseLost:
             return "lease_lost"
         except Exception as exc:
             # 构建阶段失败时也保留本attempt generation身份，原失败策略可以标记半成品。
-            generation_id = graph_context.generation_id or (f"{lease.job_id}-v{lease.version}"
+            generation_id = graph_context.generation_id or (self.coordinator.generation_id(lease)
                                                            if lease.job_type == "index_document" else None)
             transitioned = self.coordinator.fail(lease, exc, generation_id=generation_id)
             if transitioned:
@@ -458,10 +554,12 @@ class KnowledgeJobWorker:
         with self.session_factory() as db:
             job = db.get(KnowledgeJob, lease.job_id)
             document = db.get(KnowledgeDocument, job.document_id) if job and job.document_id else None
-            if not job or not document:
+            if not _owns_lease(job, lease):
+                raise KnowledgeLeaseLost()
+            if not document:
                 raise ValueError("knowledge parse job references a missing document")
             user_id = job.user_id
-            document_snapshot = _document_snapshot(document)
+            document_snapshot = _document_snapshot(document, artifact_attempt=self.coordinator.generation_id(lease))
             credential = _resolve_tool_credential(db, user_id, "mineru")
             db.rollback()
         parser = KnowledgeParserService(credential_resolver=FrozenCredentialResolver(credential))
@@ -469,33 +567,37 @@ class KnowledgeJobWorker:
 
     def _execute_index(self, lease: JobLease) -> tuple[str, IndexResult]:
         with self.session_factory() as db:
-            job = db.get(KnowledgeJob, lease.job_id)
-            knowledge_base = db.get(KnowledgeBase, job.knowledge_base_id) if job else None
-            document = db.get(KnowledgeDocument, job.document_id) if job and job.document_id else None
-            if not job or not knowledge_base or not document:
+            job = db.get(KnowledgeJob, lease.job_id, with_for_update=True)
+            if not _owns_lease(job, lease):
+                raise KnowledgeLeaseLost()
+            knowledge_base = db.get(KnowledgeBase, job.knowledge_base_id)
+            document = db.get(KnowledgeDocument, job.document_id) if job.document_id else None
+            if not knowledge_base or not document:
                 raise ValueError("knowledge index job references missing state")
             user_id = job.user_id
             knowledge_base_id = job.knowledge_base_id
-            generation_id = f"{job.id}-v{lease.version}"
+            generation_id = self.coordinator.generation_id(lease)
+            base_snapshot = _knowledge_base_snapshot(knowledge_base)
+            document_snapshot = _index_document_snapshot(document)
             generation = db.get(KnowledgeIndexGeneration, generation_id)
             if not generation:
                 generation = KnowledgeIndexGeneration(
                     id=generation_id,
                     user_id=user_id,
                     knowledge_base_id=knowledge_base_id,
-                    base_generation_id=knowledge_base.active_index_generation or "legacy",
+                    base_generation_id=base_snapshot.active_index_generation or "legacy",
                     job_id=job.id,
                     status="building",
                 )
                 db.add(generation)
                 db.commit()
+            else:
+                base_snapshot.active_index_generation = generation.base_generation_id
             setting_service = SettingService(UserSettingRepository(db))
             setting_snapshot = setting_service.get_or_create_user_settings(user_id)
             embedding_key = setting_service.resolve_knowledge_model_api_key(user_id, "embedding")
             rerank_key = setting_service.resolve_knowledge_model_api_key(user_id, "rerank")
             frozen_settings = FrozenSettingService(setting_snapshot, embedding_key, rerank_key)
-            base_snapshot = _knowledge_base_snapshot(knowledge_base)
-            document_snapshot = _index_document_snapshot(document)
             db.commit()
             index_service = KnowledgeIndexService(
                 chunk_repo=KnowledgeChunkRepository(db),
@@ -508,22 +610,21 @@ class KnowledgeJobWorker:
                 document=document_snapshot,
                 generation_id=generation_id,
             )
-            generation = db.get(KnowledgeIndexGeneration, generation_id)
-            if not generation:
-                raise RuntimeError("index generation disappeared before validation")
-            generation.status = "ready"
-            generation.manifest_hash = result.manifest_hash
-            generation.chunk_count = result.chunk_count
-            db.commit()
-            return generation_id, result
+        if not self.coordinator.mark_generation_ready(lease, result):
+            raise KnowledgeLeaseLost()
+        return generation_id, result
 
     def _ack(self, message_id: Any) -> None:
         self.redis.xack(settings.knowledge_job_stream, settings.knowledge_job_group, message_id)
 
 
 def create_knowledge_worker() -> KnowledgeJobWorker:
-    client = Redis.from_url(settings.knowledge_redis_url, decode_responses=True)
+    client = Redis.from_url(settings.knowledge_redis_url, decode_responses=True, socket_connect_timeout=3, socket_timeout=5)
     return KnowledgeJobWorker(client)
+
+
+def _log_recovery(job_id: str, version: int, reason: str) -> None:
+    logger.info("knowledge_job_recovery job_id=%s lease_version=%s reason=%s", job_id, version, reason)
 
 
 def _mark_succeeded(job: KnowledgeJob, result: dict[str, Any]) -> None:
@@ -557,7 +658,7 @@ def _decode(value: Any) -> str:
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
-def _document_snapshot(document: KnowledgeDocument) -> Any:
+def _document_snapshot(document: KnowledgeDocument, *, artifact_attempt: str) -> Any:
     return SimpleNamespace(
         id=document.id,
         user_id=document.user_id,
@@ -566,6 +667,7 @@ def _document_snapshot(document: KnowledgeDocument) -> Any:
         parser_provider=document.parser_provider,
         file_name=document.file_name,
         mime_type=document.mime_type,
+        artifact_attempt=artifact_attempt,
     )
 
 

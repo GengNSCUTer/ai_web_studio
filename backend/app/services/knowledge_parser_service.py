@@ -108,7 +108,8 @@ class KnowledgeParserService:
     ) -> ParseResult:
         user_root = Path(settings.upload_dir) / user_id / "knowledge" / document.knowledge_base_id
         user_root.mkdir(parents=True, exist_ok=True)
-        markdown_name = f"{document.id}.md"
+        attempt = getattr(document, "artifact_attempt", None)
+        markdown_name = f"{document.id}-{attempt}.md" if attempt else f"{document.id}.md"
         markdown_path = user_root / markdown_name
         markdown_path.write_text(markdown, encoding="utf-8")
         relative_path = f"{user_id}/knowledge/{document.knowledge_base_id}/{markdown_name}"
@@ -236,7 +237,11 @@ class KnowledgeParserService:
         user_id: str,
     ) -> MineruBundle:
         markdown_parent = PurePosixPath(markdown_archive_path).parent
-        asset_root = Path(settings.upload_dir) / user_id / "knowledge" / document.knowledge_base_id / "assets" / document.id
+        asset_key = f"{user_id}/knowledge/{document.knowledge_base_id}/assets/{document.id}"
+        attempt = getattr(document, "artifact_attempt", None)
+        if attempt:
+            asset_key = f"{asset_key}/{attempt}"
+        asset_root = Path(settings.upload_dir) / asset_key
         asset_root.mkdir(parents=True, exist_ok=True)
         asset_map: dict[str, dict[str, str | int]] = {}
         assets: list[dict[str, str | int]] = []
@@ -258,7 +263,7 @@ class KnowledgeParserService:
             target_path.parent.mkdir(parents=True, exist_ok=True)
             content = archive.read(name)
             target_path.write_bytes(content)
-            storage_key = f"{user_id}/knowledge/{document.knowledge_base_id}/assets/{document.id}/{safe_relative}"
+            storage_key = f"{asset_key}/{safe_relative}"
             url = f"/api/backend/uploads/file?storage_key={quote(storage_key, safe='')}"
             asset = {
                 "archive_path": name,

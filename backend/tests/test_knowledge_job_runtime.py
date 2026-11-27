@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import unittest
+from io import BytesIO
+from zipfile import ZipFile
 from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -29,7 +31,7 @@ from app.repositories.knowledge_repo import (
     KnowledgeJobRepository,
 )
 from app.schemas.knowledge import KnowledgeDocumentCreate
-from app.services.knowledge_index_service import IndexResult, KnowledgeIndexService
+from app.services.knowledge_index_service import IndexResult, KnowledgeChunker, KnowledgeIndexService
 from app.services.knowledge_job_runtime import (
     JobLease,
     KnowledgeJobCoordinator,
@@ -37,7 +39,7 @@ from app.services.knowledge_job_runtime import (
     KnowledgeOutboxPublisher,
     utcnow,
 )
-from app.services.knowledge_parser_service import ParseResult
+from app.services.knowledge_parser_service import KnowledgeParserService, ParseResult
 from app.services.knowledge_service import KnowledgeDocumentService
 
 
@@ -241,7 +243,7 @@ class KnowledgeJobRuntimeTest(unittest.TestCase):
             IndexResult(chunk_count=2, index_path="index.json", manifest_hash="abc"),
         )
 
-        self.assertTrue(activated)
+        self.assertEqual(activated, "succeeded")
         with self.SessionLocal() as db:
             self.assertEqual(db.get(KnowledgeBase, self.knowledge_base.id).active_index_generation, generation.id)
             self.assertEqual(db.get(KnowledgeJob, job.id).status, "succeeded")
@@ -312,6 +314,55 @@ class KnowledgeJobRuntimeTest(unittest.TestCase):
         with self.SessionLocal() as db:
             self.assertEqual(db.get(KnowledgeJob, job.id).status, "succeeded")
             self.assertEqual(db.get(KnowledgeDocument, self.document.id).parsed_markdown_path, "committed.md")
+
+    def test_parent_child_preserves_slide_and_section_and_parent_anchor(self):
+        markdown = "# 指南\n\n## 幻灯片 7\n\n部署准备。\n\n### 检查项\n\n" + "校验引用偏移。" * 15
+        normalized = KnowledgeChunker._normalize_markdown(markdown)
+        chunks = KnowledgeChunker().split_parent_child(markdown=markdown, parent_chunk_size=100,
+            child_chunk_size=30, child_chunk_overlap=5)
+        section = [chunk for chunk in chunks if chunk.source_start >= normalized.index("### 检查项")]
+        self.assertGreater(len(section), 1)
+        for child in section:
+            metadata = child.metadata
+            self.assertEqual(metadata["section_path"], "指南 / 幻灯片 7 / 检查项")
+            self.assertEqual(metadata["slide_number"], 7)
+            self.assertEqual(normalized[child.source_start:child.source_end].strip(), child.content)
+            self.assertIn("parent_content", chunks[metadata["parent_chunk_index"]].metadata)
+            self.assertEqual("parent_content" in metadata, child.chunk_index == metadata["parent_chunk_index"])
+
+    def test_stale_parse_attempt_cannot_overwrite_published_markdown_or_assets(self):
+        job = self._job()
+        worker = KnowledgeJobWorker(FakeRedis(), session_factory=self.SessionLocal)
+        first = worker.coordinator.claim(job.id, "first").lease
+        with self.SessionLocal() as db:
+            db.get(KnowledgeJob, job.id).lease_expires_at = utcnow() - timedelta(seconds=1)
+            db.commit()
+        second = worker.coordinator.claim(job.id, "second").lease
+        parser = KnowledgeParserService()
+        with TemporaryDirectory() as root:
+            self.addCleanup(object.__setattr__, settings, "upload_dir", settings.upload_dir)
+            object.__setattr__(settings, "upload_dir", root)
+            def save(lease, body):
+                document = SimpleNamespace(id=self.document.id, knowledge_base_id=self.knowledge_base.id,
+                    artifact_attempt=worker.coordinator.generation_id(lease))
+                with ZipFile(BytesIO(), "w") as archive:
+                    archive.writestr("figure.png", body.encode())
+                    bundle = parser._extract_mineru_assets_and_rewrite_markdown(archive=archive,
+                        markdown=f"{body} ![图](figure.png)", markdown_archive_path="full.md", document=document,
+                        user_id=self.user.id)
+                return parser._save_markdown(document=document, user_id=self.user.id, markdown=bundle.markdown,
+                    assets_json=bundle.assets_json)
+
+            current = save(second, "新结果")
+            self.assertTrue(worker.coordinator.complete_parse(second, current))
+            late = save(first, "旧结果")
+            self.assertFalse(worker.coordinator.complete_parse(first, late))
+            with self.SessionLocal() as db:
+                document = db.get(KnowledgeDocument, self.document.id)
+                self.assertEqual(document.parsed_markdown_path, current.markdown_path)
+                self.assertIn("新结果", parser.read_markdown(markdown_path=current.markdown_path, user_id=self.user.id))
+                asset, = json.loads(document.parsed_assets_json)
+                self.assertEqual((Path(root) / asset["storage_key"]).read_text(), "新结果")
 
 
 if __name__ == "__main__":

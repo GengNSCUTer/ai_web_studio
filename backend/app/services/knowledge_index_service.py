@@ -52,6 +52,9 @@ class IndexBuildRuntime:
     snapshot_chunks: list | None = None
     missing: list | None = None
     result: IndexResult | None = None
+    retained_count: int = 0
+    embedding_requests: int = 0
+    bm25_bytes: int = 0
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,11 @@ class LexicalChunkSnapshot:
 class KnowledgeChunker:
     def split(self, *, markdown: str, chunk_size: int, chunk_overlap: int) -> list[PreparedChunk]:
         normalized = self._normalize_markdown(markdown)
+        markers = structural_markers(normalized)
+        return self._split_normalized(normalized, chunk_size, chunk_overlap, markers)
+
+    def _split_normalized(self, normalized: str, chunk_size: int, chunk_overlap: int,
+                          markers: list[tuple[int, dict]]) -> list[PreparedChunk]:
         if not normalized:
             return []
         paragraphs = self._split_paragraphs(normalized)
@@ -117,7 +125,6 @@ class KnowledgeChunker:
 
         if buffer:
             chunks.extend(self._window_chunk(buffer, buffer_start, chunk_size, chunk_overlap, len(chunks)))
-        markers = structural_markers(normalized)
         return [replace(chunk, metadata=metadata_at(markers, chunk.source_start)) for chunk in chunks]
 
     def split_parent_child(
@@ -131,7 +138,8 @@ class KnowledgeChunker:
         normalized = self._normalize_markdown(markdown)
         if not normalized:
             return []
-        parents = self.split(markdown=normalized, chunk_size=parent_chunk_size, chunk_overlap=0)
+        markers = structural_markers(normalized)
+        parents = self._split_normalized(normalized, parent_chunk_size, 0, markers)
         children: list[PreparedChunk] = []
         for parent_index, parent in enumerate(parents):
             parent_children = self._window_chunk(
@@ -150,6 +158,7 @@ class KnowledgeChunker:
                         source_start=child.source_start,
                         source_end=child.source_end,
                         metadata={
+                            **(metadata_at(markers, child.source_start) or parent.metadata or {}),
                             "chunk_mode": "parent_child",
                             "retrieval_unit": "child",
                             "parent_index": parent_index,
@@ -702,6 +711,7 @@ class KnowledgeIndexService:
                 chunk.embedding = reusable
 
         runtime.snapshot_chunks, runtime.missing = snapshot_chunks, missing
+        runtime.retained_count = len(retained_chunks)
         # 在Embedding网络请求前释放读事务；保留的Chunk均为本次构建副本。
         db = self.chunk_repo.db
         db.commit()
@@ -711,6 +721,7 @@ class KnowledgeIndexService:
         missing, snapshot_chunks = runtime.missing, runtime.snapshot_chunks
 
         if missing:
+            runtime.embedding_requests = len(missing) if knowledge_base.embedding_provider == "ollama" else 1
             generated = asyncio.run(
                 self.embedding_service.embed_texts(
                     user_id=user_id,
@@ -743,6 +754,10 @@ class KnowledgeIndexService:
         db = self.chunk_repo.db
         try:
             db.add_all(runtime.snapshot_chunks)
+            db.flush()
+            # 后续 BM25 只读本次构建数据，保留已分配的 Chunk ID，避免提交后逐条重新查询。
+            for chunk in runtime.snapshot_chunks:
+                db.expunge(chunk)
             db.commit()
         except Exception:
             db.rollback()
@@ -755,6 +770,8 @@ class KnowledgeIndexService:
             chunks=snapshot_chunks,
             generation_id=generation_id,
         )
+        index_bytes = Path(index_path).read_bytes()
+        runtime.bm25_bytes = len(index_bytes)
         manifest_payload = {
             "generation_id": generation_id,
             "chunk_count": len(snapshot_chunks),
@@ -762,7 +779,7 @@ class KnowledgeIndexService:
                 [chunk.vector_id, chunk.document_id, chunk.content_hash, chunk.embedding_dimensions]
                 for chunk in snapshot_chunks
             ],
-            "bm25_sha256": hashlib.sha256(Path(index_path).read_bytes()).hexdigest(),
+            "bm25_sha256": hashlib.sha256(index_bytes).hexdigest(),
         }
         manifest_hash = hashlib.sha256(
             json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
